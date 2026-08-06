@@ -7,12 +7,19 @@
 **Date:** 2026-07-10
 **Revised:** 2026-08-06 (adds the DRAFT "Amendment: scoped advertisement"
 section and its scope-digest join-matrix appendix, authored as the LLP 0049
-Phase 1 review package per LLP 0044 §2/§7; round-1 revision applied the same
-day — both round-1 flip sets landed, matrix grown M1–M31, round 2 pending;
-the amendment is UNDER LLP 0049
-PHASE 1 REVIEW and no gate code may land until that review completes —
-LLP 0044 register item 5 stays BLOCKED and every pre-amendment section of
-this document continues to describe the enforced all-or-nothing gate)
+Phase 1 review package per LLP 0044 §2/§7; all three review rounds applied
+the same day — round 1 and round 2 landed both families' flip sets, and the
+final round-3 revision landed Codex's two-item flip set plus both of its
+implementer-correctable items and seven of Fable's eight findings, growing
+the matrix to M1–M33 and F6 to eight subcases. The LLP 0049 §9 loop is now
+CLOSED at three rounds with a SPLIT terminal verdict — Fable READY, Codex
+NOT READY — and the final revision is UNREVIEWED; the split is recorded in
+the amendment's "Disagreement ledger (2026-08-06)". Fable's eighth finding
+became `issues/20260806-abi-caller-supplied-targetcell-authoritative.md`
+rather than an amendment expansion. No gate code may land until the author
+decides: LLP 0044 register item 5 stays BLOCKED and every pre-amendment
+section of this document continues to describe the enforced all-or-nothing
+gate)
 **Revised:** 2026-08-03 (restores `node:diagnostics_channel` and `node:domain`
 to the independent public-evidence validator's terminal-builtin vocabulary
 after the exact Apple matrix proved that production, authoring, and the Rust
@@ -3475,14 +3482,26 @@ be represented as verified conformance.
 
 ## Amendment: scoped advertisement (2026-08-06)
 
-> **Status: DRAFT, UNDER LLP 0049 PHASE 1 REVIEW; no gate code may land
-> until this amendment's review completes (LLP 0044 §7 item 5).
+> **Status: DRAFT; the LLP 0049 Phase 1 review loop is CLOSED at three
+> rounds (the LLP 0049 §9 bound) with a SPLIT TERMINAL VERDICT — Fable
+> READY (3 MATERIAL + 5 MINOR, all text-only, none blocking), Codex NOT
+> READY (1 IN-DELTA BLOCKER, 2 IN-DELTA MATERIAL, 1 PRE-EXISTING
+> MATERIAL). No gate code may land until the author decides
+> (LLP 0044 §7 item 5).
 > Round-1 revision applied 2026-08-06 (both round-1 flip sets,
 > `llp/reviews/0021-scoped-advertisement-amendment.codex.md` and
 > `…fable.md`, applied in full); round-2 revision applied 2026-08-06
 > (both round-2 flip sets — Codex's three items and Fable's four —
-> applied in full); round 3 (the final round the LLP 0049 §9 loop bound
-> permits) pending.**
+> applied in full); **final (round-3) revision applied 2026-08-06 —
+> Codex's two-item flip set plus both implementer-correctable items, and
+> all eight of Fable's, except N8, which became a filed ticket
+> (`issues/20260806-abi-caller-supplied-targetcell-authoritative.md`)
+> rather than an amendment expansion.**
+> **This final revision is UNREVIEWED.** No round-4 review exists and
+> none may be run; what remains is not another round but the author's
+> LLP 0044 §7 register-item-5 decision. The split verdict and how this
+> revision answers each ledger item are recorded in the
+> **Disagreement ledger (2026-08-06)** at the end of this amendment.**
 >
 > This amendment is the LLP 0049 Phase 1 review package required by
 > LLP 0044 §2's scope-digest lifecycle paragraph. It changes the
@@ -3700,13 +3719,22 @@ admitted scoped report:
     gates the same way — `evaluate_typed_decision` (:3776),
     `evaluate_typed_decision_with_evidence` (:3844),
     `evaluate_typed_decision_json` (:3942),
-    `evaluate_typed_decision_json_with_evidence` (:3963). (The only
-    in-repo caller of the C symbol is test-gated —
-    `src/bin/ibex/engine/hermes.rs:1144` under
-    `#[cfg(all(test, feature = "capsec-conformance-observer"))]` — but
-    the *symbol* is exported unconditionally and is reachable by any
-    embedder or native runtime extension linking the host ABI, which is
-    exactly the population this certification speaks to.)
+    `evaluate_typed_decision_json_with_evidence` (:3963). (**The C symbol's
+    in-repo callers are three, and all three are test-gated**
+    — count corrected by the round-3 revision, which said "the only";
+    re-verified at `fb343180` by `grep -rn
+    "ex_host_evaluate_typed_decision" src`:
+    `src/bin/ibex/engine/hermes.rs:1144`, inside a fn carrying
+    `#[cfg(all(test, feature = "capsec-conformance-observer"))]`;
+    `src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs:2014`,
+    which reaches the tree only via the `include!` at `hermes.rs:6301`
+    under the same feature gate inside `#[cfg(test)] mod tests`; and
+    `src/host/abi.rs:13208`, below that file's `#[cfg(test)]` at
+    `:10476`. The substance is unchanged and is what matters: there is
+    **no production in-repo caller**, while the *symbol* is exported
+    unconditionally and is reachable by any embedder or native runtime
+    extension linking the host ABI — exactly the population this
+    certification speaks to.)
   - `Host::authorize_runtime_extension_operation`
     (`src/host/mod.rs:1107-1310`, `pub(crate)`, **not** test-gated,
     reached from the exported
@@ -3772,6 +3800,48 @@ admitted scoped report:
   generated `edgeId` therefore cannot launder an uncertified cell into
   `Complete`. §A9 M32 is the worklist row; §A8 F1c and F3 gain the ABI
   subcases that prove it.
+  **How the two rules compose — they apply at different points
+  (normative; round-3 revision, Fable round-3 N1; this is the one item
+  with a trap in it).** The runtime-extension path does **not** reach
+  the evaluator independently: `authorize_runtime_extension_operation`
+  calls `self.evaluate_typed_decision(&decision_set, &[EffectGate{
+  coverage_edge_id, target_cell: TargetCellDisposition::Complete, … }])`
+  at `src/host/mod.rs:1304-1310` — i.e. **through ingress 1**
+  (`:3776`). Read literally, the unconditional discard-and-recompute
+  rule would fire at that call site and make the conditional rule above
+  unreachable, refusing **every** runtime-extension operation whose
+  `effect_semantics` string is not a generated `edgeId` — which this
+  section itself says is the normal case. That is a liveness break, not
+  a bypass, and F3a-4's second half catches it immediately. The
+  normative composition:
+  - **Recomputation applies at the four `pub` entry points**
+    (`src/host/mod.rs:3776`, `:3844`, `:3942`, `:3963`) **and at the C
+    symbol behind them** (`src/host/abi.rs:5823-5839`) — that is, at
+    every point where a gate **arrives from outside the Host**. It is a
+    trust-boundary rule about *incoming* gates, not a rule about every
+    value that ever reaches `evaluate_decision_set*`.
+  - **The runtime-extension path constructs its gate through a distinct
+    internal resolver** that has already applied the conditional rule of
+    the paragraph above (inventory edge ⇒ the aggregate's disposition
+    wins; non-inventory ⇒ literal `Complete` plus
+    `hostDisposition: "extension-declared"`). The gate it hands to
+    `:1304` is therefore **Host-constructed and already resolved**, and
+    passes through ingress 1 unmodified. Implementations must make this
+    structural — a resolver function that is the only producer of a
+    runtime-extension gate — rather than a flag threaded into the
+    ingress.
+  - **Forbidden, explicitly: "an id absent from the aggregate ⇒ keep the
+    caller's `target_cell`" at ingress 1.** This is the obvious way to
+    reconcile the two rules and it **silently reopens the round-2 ABI
+    BLOCKER**: every non-inventory `coverage_edge_id` presented over
+    `ex_host_evaluate_typed_decision` would again carry a caller-chosen
+    disposition into the evaluator. The honest answer for an id absent
+    from the aggregate at ingress 1 is `fn target_cell`'s
+    `unwrap_or(Incomplete)` default (`src/host/mod.rs:956-961`) —
+    refuse — and no ingress may soften it. F3a-2 and F3a-4 together must
+    assert both halves: an absent id over a `pub`/C ingress refuses,
+    while the same semantics presented through the runtime-extension
+    path proceeds as `extension-declared`.
 - **Uncertified is distinguishable from incomplete-by-defect — the host
   telemetry envelope.** The distinction lives at the host cell-map layer
   and in refusal telemetry, not in the typed decision algorithm: the
@@ -3898,10 +3968,26 @@ validates:
   only the lineage evidence is absent. Before any genesis conclusion the
   verifier therefore asserts a non-shallow object store, the absence of
   grafts and replace refs, and first-parent termination at the **pinned
-  lineage floor** — the full precondition set and its object-level
-  rationale are in §A9 M27 (v) and (vi), and F6a/F6e fixture it. Absence
-  of a predecessor must be a positive, checkable fact about
-  content-hashed objects, never the failure of a search.
+  lineage floor** (whose **first** parent must lack the catalog path;
+  the floor is itself a merge — M27 (v)) — the full precondition set and
+  its object-level rationale are in §A9 M27 (v) and (vi), and F6a/F6e
+  fixture it.
+  **What the preconditions close, stated exactly (narrowed by the
+  round-3 revision).** They close history **truncation**: shallow
+  clones, grafts, replace refs, re-created and filtered repositories,
+  including the accidental CI-misconfiguration form. They do **not**
+  close history **reconstruction** on top of the pinned floor — a single
+  commit whose parent is `afad4af9` and whose tree is the current tree
+  satisfies all three assertions and finds no prior admission. That
+  residual sits **inside the whole-checkout boundary this section
+  already documents** (rebuilding from a checkout whose entire content
+  is internally consistent but not the reviewed one), and it is named
+  here rather than left implicit. Accordingly the claim is: within the
+  checkout the verifier is standing in, absence of a predecessor is a
+  positive, checkable fact about content-hashed objects rather than the
+  failure of a search — and the completeness of *that checkout* is the
+  whole-checkout assumption, not something this chain establishes. M27
+  (vi) carries the full statement.
 - **Tuple migration is a named open decision (§A10 #7).** Any
   feature-list change creates a fresh tuple and therefore a legitimate
   fresh genesis with no predecessor — the one narrowing-shaped move the
@@ -4099,7 +4185,11 @@ arise from this amendment's code survey. The round-1 review revision
 assertion, F6's documented rollback boundary, and F11's positive
 coherence half. The **round-2 revision** added F1c's ABI subcase, the
 new class **F3a** (ABI-level ingress authority), and F6's five lineage
-subcases (F6a–F6e), all in response to the two round-2 BLOCKERs.
+subcases (F6a–F6e), all in response to the two round-2 BLOCKERs. The
+**round-3 revision** added F6f (tree-unbacked predecessor digest — the
+round-3 BLOCKER's regression test), F6g (per-tuple selection), and F6h
+(the reset window's non-release gate, M33), bringing F6 to eight
+subcases (F6a–F6h).
 
 - **F1 — scoped-state substitution.** A digest-valid report/advertisement
   pair generated under scope S1 presented under scope S2's identity (and
@@ -4202,8 +4292,12 @@ subcases (F6a–F6e), all in response to the two round-2 BLOCKERs.
   the algorithm is prose):**
   - **F6a — genesis.** A history terminating at the pinned lineage
     floor (`afad4af9`, M27 (v)) whose floor catalog is present,
-    `enabled: false`, and empty, and whose floor parent lacks the
-    catalog path entirely, admits a genesis-marked scope.
+    `enabled: false`, and empty, and whose **first** parent lacks the
+    catalog path entirely, admits a genesis-marked scope. ("First"
+    corrected by the round-3 revision: `afad4af9` is itself a two-parent
+    merge and its **second** parent `00255532` carries the path with
+    byte-identical disabled/empty content, so a fixture written against
+    "the parent" is unsatisfiable — M27 (v).)
   - **F6b — promotion → ordinary commits → reset → second promotion.**
     The full M27 (iv) lifecycle. The walk must skip every ordinary
     first-parent descendant (which inherits the published catalog bytes
@@ -4223,8 +4317,48 @@ subcases (F6a–F6e), all in response to the two round-2 BLOCKERs.
     therefore never reaches the genesis conclusion. Round-2 Fable
     identified this as the one live bypass of a guarantee this
     amendment newly claims; it is closed by precondition and pinned
-    here rather than disclosed as a non-guarantee.
-  Pins M7, M19, M27.
+    here. (Round-3 revision: what the precondition closes is history
+    *truncation*. History *reconstruction* on the pinned floor is not
+    closed and sits inside the documented whole-checkout boundary —
+    M27 (vi), §A5. This fixture asserts the closed lane and must not be
+    written as if it asserted the other.)
+  - **F6f — tree-unbacked predecessor digest (new; round-3 revision).**
+    The executable form of the round-3 BLOCKER's resolution. A
+    **correctly shaped** two-parent promotion merge — satisfying every
+    merge-topology clause of M27 (i), with a canonical catalog that
+    parses under `parseCatalog` and an admission that passes
+    `validateAdmissionShape` including a self-consistent recomputed
+    `admissionDigest` — whose `admittedScopeDigest` is not backed by a
+    scope artifact in that merge's tree must **refuse**, in all three
+    variants: (a) no `scope-artifact` row in `admission.artifacts`;
+    (b) a row whose blob is absent from the tree or whose
+    `blobObjectId`/`size`/`digest` disagree with the tree blob;
+    (c) a byte-consistent row whose recomputed `scopeDigest` differs
+    from the declared `admittedScopeDigest`. Like F6b, this fixture
+    must **fail against the round-2 text and pass against the round-3
+    text** — that is what makes it a regression test for the BLOCKER
+    rather than a restatement of the fix.
+  - **F6g — per-tuple selection (new; round-3 revision).** Two
+    promotions on the **same triple with different canonical feature
+    lists**. The walk admitting tuple T2 must not select T1's promotion
+    as its predecessor, must conclude genesis for T2 when T2 has no
+    prior promotion, and must refuse a T2 scope naming T1's
+    `scopeDigest`. The fixture must fail against a `targetTriple`-only
+    selector, which is what round 2 specified.
+  - **F6h — the reset window is not releasable (new; round-3
+    revision).** At a **reset revision** (M27 (iv) step 3: catalog
+    disabled and empty, attestations and advertisements back to empty
+    v1), the checked promotion admission carries `authorized: false`
+    and the build selector embeds `null`
+    (`build_support/portable_engine_promotion_report.rs:461-465`). The
+    fixture asserts two things: (a) the M33 release/tag/publication
+    gate **refuses** at that revision — a refusal, not merely an
+    unarmed binary; and (b) the per-SHA **diagnostic artifact cache**
+    path (`.github/workflows/hermes-artifacts.yml`, "artifact caches,
+    not product releases", `:24-25`, push-triggered `:35-36`) still
+    succeeds there, because the ceremony consumes it. Without (b) the
+    gate would break the ceremony it protects.
+  Pins M7, M19, M27, M33.
 - **F7 — renamed/retired cells.** A "retired" cell still present in the
   live inventory fails the expansion-diff validation; a rename not
   covered by the authenticated mapping fails as narrowing. Pins M1, M22.
@@ -4286,10 +4420,16 @@ predecessor (M19, via M7, anchored at runtime by the build-embedded
 checked promotion admission — M27), and *delivered* into runtime state
 via the admitted aggregate (M12/M13), and — new in the round-2
 revision — made *authoritative at every evaluator ingress* (M32).
+New in the round-3 revision: the digest's presence is also *gated at
+publication* (M33), so the depublished window M27 (iv)'s reset lifecycle
+creates cannot be released.
 All line numbers at `6416114d`; rows M27–M31, added by the round-1
 revision, were re-verified at `90aafc67` (docs-only over the pin);
 M32 and the round-2 corrections to M11, M13, M14, M18 and M27 were
-verified at `f154a5c5` and say so in the row.
+verified at `f154a5c5` and say so in the row. **M33 and the round-3
+corrections to M18, M27, M31 and M32 were verified at `fb343180`** and
+say so in the row; the matrix is **33 rows** after the round-3
+revision.
 
 Summary table (rows detailed below):
 
@@ -4327,6 +4467,7 @@ Summary table (rows detailed below):
 | M30 | report-schema evolution surface (JSON Schemas + v1 digest-contract chain) | scope-validating (restamp surface; rev-vs-evolve §A10 #6) | F1 |
 | M31 | installer lineage consumption | scope-transparent | F6 |
 | M32 | evaluator ingresses — host C ABI + runtime-extension gate | scope-validating (makes the aggregate authoritative; **must-amend**) | F1c, F3a |
+| M33 | release/tag/publication gate for the reset window | scope-validating (gates the depublished window) | F6h |
 
 **M1 — scope artifact generator (new; creates `scopeDigest`).**
 No file exists; `scopeDigest` has zero code occurrences at `6416114d`.
@@ -4865,6 +5006,48 @@ v2/v3 publication owns the path's bytes at promotion time):
    preferred; the second reopens the contract's schema surface and
    would restamp the registry digest vector (pin 11). This pin, not
    pins 4–6, is the one that gates whether the settled owner can ship.
+   **CORRECTION (round-3 revision; Codex round-3 PRE-EXISTING
+   MATERIAL): neither option is available for advertisements alone —
+   the two foundation documents are coupled and must move together.**
+   Re-verified at `fb343180`: the same runner also reads the **HEAD**
+   target *attestations* (`capsec-contract.mjs:3518-3520`,
+   `readJsonStrict` over `capsec/conformance/target-attestations.json`)
+   and v1-validates them at `:3686-3690` against
+   `SCHEMA_IDS.targetAttestations` (`:132-133`), whose schema pins
+   `"targetAttestationSchema": { "const":
+   "ibex/capsec-target-attestations/1" }`
+   (`capsec/schema/target-attestations.schema.json:8`); and it then
+   requires the **advertised and attested target sets to be exactly
+   equal** (`:4212-4229`, "target advertisements are not the exact
+   mechanically verified attestation set"). Promotion **already** emits
+   v2 attestations at that tracked path today
+   (`capsec-portable-promotion-bundle.mjs:1089-1099`,
+   `targetAttestationSchema: "ibex/capsec-target-attestations/2"`), and
+   M5 proposes v3. So moving only advertisements to the artifact-source
+   copy still fails v1 validation on the attestations; and
+   version-dispatching only advertisements produces a
+   foundation-advertisement/current-attestation **set mismatch** at
+   `:4212-4229` even when both documents validate. The corrected
+   disposition: **whichever option is chosen must be applied to both
+   documents together** — either the runner reads **both** target
+   advertisements and target attestations from the same authenticated
+   artifact-source revision, or **both** schema bindings
+   version-dispatch and both documents restamp together. Pin 14 below
+   carries the attestations half, which had no pin in this row at all.
+   **Unpriced dependency in the preferred option (round-3 revision;
+   Fable round-3 N7).** `capsec-contract.mjs` today is a pure
+   working-tree checker: `readConfinedGeneratedJson`/`readJsonStrict`
+   over paths under `capsecRoot` (`:3514-3520`), with **no Git-object
+   access and no lineage dependency**. Making it read the
+   artifact-source revision's blobs requires it to *resolve which
+   revision that is* — i.e. to consume the promotion catalog or the
+   lineage verifier — a **new coupling from the digest contract to the
+   lineage chain** that round 2 did not price. It is probably still the
+   right call (it keeps `capsec/contract-files.json:97`'s digest over
+   unchanged empty-v1 bytes and leaves pin 11's vectors unrestamped),
+   but the cost is a new dependency edge in a checker that deliberately
+   has none, and the author is choosing that edge, not avoiding a
+   restamp.
 10. **Registry generator declared outputs** (added by the round-2
     revision): `generate-capsec-registry.mjs:61-68`
     (`generatedRegistryPaths.targetAdvertisements`, the path the
@@ -4911,6 +5094,48 @@ v2/v3 publication owns the path's bytes at promotion time):
     (`packages/ibex-devtools/src/scripts/run-capsec-conformance.mjs:1576`
     also appears in the sweep; it is the `trackedAdvertisementCandidate`
     pointer already dispositioned in M25 as a mechanical path.)
+14. **The coupled target-attestation publication — a second path this
+    row never swept** (added by the round-3 revision; Codex round-3
+    PRE-EXISTING MATERIAL). This row's recorded sweep is over
+    `target-advertisements.json`. The **attestation** document lives at
+    a different path,
+    `capsec/conformance/target-attestations.json`
+    (`portable-engine-promotion-lineage.mjs:47`), so no sweep of this
+    row could ever have found it — and pin 9's fix is incomplete
+    without it, because the runner v1-validates it and joins it to the
+    advertisements by exact target-set equality (see pin 9's
+    CORRECTION). Its own sweep, run 2026-08-06 at `fb343180`:
+
+    ```
+    grep -rn --binary-files=text -F 'target-attestations.json' . \
+      --exclude-dir=node_modules --exclude-dir=llp \
+      --exclude-dir=target --exclude-dir=.git \
+      --exclude-dir=vendored-generated
+    ```
+
+    → **9 lines in 7 files**: `capsec-contract.mjs` (the HEAD read and
+    v1 validation of pin 9's CORRECTION),
+    `capsec-portable-engine-evidence-contract.test.mjs`,
+    `generate-capsec-registry.mjs`, `run-capsec-conformance.mjs`,
+    `schemas/vectors/portable-engine-promotion-admission-v1.valid.json`,
+    `scripts/portable-engine-promotion-lineage.mjs` (the
+    `TARGET_ATTESTATION_PATH` const `:47`, the source-foundation
+    empty-v1 assertions `:816-820`, and the bundle-graph publication
+    join `:867-929`), and
+    `scripts/portable-engine-promotion-lineage.test.mjs`. **This is a
+    bounded path sweep, not a completeness claim** — the same
+    qualification the advertisement sweep carries; implementers re-run
+    it. **Disposition: this path is under the same settled owner as the
+    advertisement path** (§A10 #2 — the promotion publication owns the
+    bytes; promotion has emitted v2 attestations there since
+    `capsec-portable-promotion-bundle.mjs:1089-1099`), and every pin
+    resolves **jointly with its advertisement counterpart**: the
+    artifact-source empty-v1 assertions stay unchanged under M27 (iv)'s
+    reset lifecycle exactly as pin 2 does; the HEAD-copy read and
+    validation move or version-dispatch exactly as pin 9 does; the
+    admission vectors are scope-transparent exactly as pin 13 is. **No
+    disposition here is independently decidable**, which is the whole
+    content of Codex's round-3 finding.
 Fixture F12.
 
 **M19 — promotion-lineage verifier (scope-validating; the lineage
@@ -5068,19 +5293,85 @@ purely from content-hashed Git objects read at R:
 - R's commit object has exactly **two** parents (`:1065`);
 - `R.parents[0] === A.sourceRevision` (`:1066`);
 - the second parent T (the promotion topic) has exactly one parent and
-  that parent is `A.sourceRevision` (`:1069`);
-- `R.tree === T.tree` (`:1070`);
+  that parent is `A.sourceRevision` (`:1070`);
+- `R.tree === T.tree` (`:1071`);
 - `sourceCommit.tree === A.sourceTreeObjectId`, independently hashed
-  (`:1071`);
-- `sourceCommit.tree !== R.tree` (`:1072`).
+  (`:1072`);
+- `sourceCommit.tree !== R.tree` (`:1073`).
+(Line pins in the six clauses above **corrected by the round-3
+revision**: round 2 pinned the last four one line early — `:1069`,
+`:1070`, `:1071`, `:1072` — in a subsection that claimed
+re-verification. The enclosing range `:1064-1074` was and is right, and
+every clause is substantively exact; the four pins are now the real
+ones, re-verified at `fb343180`.)
 This is exactly the shape the verifier requires today at HEAD
 (`:1064-1074`), lifted from "the checkout I am standing in" to "any
 revision R." A descendant of R that merely inherits the catalog bytes
 fails the parent/tree clauses and is therefore **not** selectable — the
-defect the round-1 walk had. The walk selects the most recent
-first-parent-reachable R strictly before the current promotion that
-satisfies the predicate for some admission whose `targetTriple` matches
-the canonical tuple; it does **not** select on catalog contents alone.
+defect the round-1 walk had.
+
+**Merge shape is not enough — the scope-critical artifact joins
+(normative; added by the round-3 revision in response to Codex's
+round-3 BLOCKER).** The six clauses above authenticate that R is
+*shaped* like a promotion merge. They do **not** prove that the
+`admittedScopeDigest` R's tracked admission declares corresponds to any
+real artifact in R's tree. `validateAdmissionShape` (`:691-759`)
+validates field syntax, role counts, path templates, and an **unkeyed
+self-digest** (`semanticDigest(ADMISSION_DOMAIN, admission,
+["admissionDigest"])`, `:758`) — a value anyone who can write a commit
+can compute over any object they choose. Without the joins below, a
+correctly shaped two-parent merge can carry a self-consistent but
+tree-unbacked `admittedScopeDigest`, and a later walk would accept it as
+the predecessor anchor. That defeats the monotone-lineage claim this
+amendment newly makes, so the predicate gains these clauses, all judged
+from content-hashed objects read at R:
+- collect R's tree leaves and `A.sourceRevision`'s tree leaves
+  (`collectTreeLeaves`, `:641`);
+- the **changed-path set** between the two equals exactly
+  `[CATALOG_PATH, ...A.artifacts.map(path)]` sorted — the
+  `changedLeaves`/`canonicalJson` equality of `verifyChangedArtifacts`
+  (`:938-943`, `changedLeaves` `:858-865`). This is what forbids a
+  merge that declares artifacts it did not actually publish, and what
+  forbids publishing artifacts it did not declare;
+- for **every** row of `A.artifacts`: the row's path is a leaf of R's
+  tree with mode `100644`, `leaf.objectId === row.blobObjectId`
+  (`:959`), the blob bytes re-read via `readGitObject` satisfy
+  `bytes.length === row.size` (`:967`) and
+  `rawDigest(bytes) === row.digest` (`:968`), and the row's
+  role/path template holds (`assertArtifactRolePath`, `:784`);
+- **exactly one row carries the scope artifact** (the new
+  `scope-artifact` role joining the closed role set of `:724`, beside
+  today's `conformance-evidence`/`target-attestation`/
+  `target-advertisement`, with a `roleCounts` cardinality assert beside
+  `:735-737`), at the fixed evidence-prefix path (`evidencePrefix`,
+  `:761-763`), exactly as the report and bundle manifest are pinned
+  today (`:739-756`);
+- **recomputing the scope artifact's own digest from those bytes**
+  under the `ibex:capsec:scope:1` canonical-form rule of §A1 yields
+  exactly `A.admittedScopeDigest`. This is the clause that binds the
+  declaration to content, and it is the one whose absence Codex's
+  round-3 BLOCKER named;
+- the scope artifact's embedded **canonical tuple** (§A1) equals the
+  admission's canonical `target` (see (ii)), and the scope artifact's
+  own `predecessorScopeDigest`/genesis marker is the value the next hop
+  will be compared against.
+A hop failing any of these is a **verification failure**, not a skipped
+hop: the walk must not fall through to an older R or to genesis. F6f
+fixtures it.
+
+**Selection is on the full canonical tuple, not the triple (normative;
+round-3 revision, Codex round-3 MATERIAL).** The walk selects the most
+recent first-parent-reachable R strictly before the current promotion
+that satisfies the predicate for some admission whose **canonical
+`target` object** — triple *and* canonical sorted feature list, the
+tuple §A1 defines and A10 #7 says a feature change makes fresh — equals
+the tuple being admitted; it does **not** select on `targetTriple`
+alone, and it does **not** select on catalog contents alone. Round 2
+selected on `targetTriple`, which makes two feature vectors on one
+triple indistinguishable: the walk would either force cross-feature
+ancestry between unrelated scopes or fail to validate a legitimate
+per-tuple genesis. The tracked admission carries no feature field today,
+which is why (ii) below revs it.
 
 **(ii) The tracked source of the prior scope digest.** The round-1 text
 said the predecessor is "R_prev's `admittedScopeDigest`." That value
@@ -5092,19 +5383,103 @@ and never tracked. The tracked admission's closed field set is
 `targetTriple`, `portableArtifactId`, `artifacts`, `admissionDigest`
 (`validateAdmissionShape`,
 `scripts/portable-engine-promotion-lineage.mjs:691-704`) — no scope
-field. **Resolution: the tracked admission gains the scope digest.**
-`admittedScopeDigest` joins the tracked admission's closed key set at
-`:691-704` (and the catalog JSON Schema at `CATALOG_SCHEMA_PATH`), so
-the value the walk reads at R_prev is a **tracked, canonical-JSON,
-merge-shape-authenticated** field of the checked-in catalog — the same
-bytes the promotion merge that created R_prev was reviewed with, and
-already covered by `admissionDigest`. The build-output checked
-admission's `admittedScopeDigest`/`predecessorScopeDigest` (the v2
-fields above) remain what they were: the *anchor* carried into the
-binary, copied from the tracked value by the verifier at stamping time.
-Tracked field = the walk's source; build-output field = runtime's
-anchor. This is a second must-amend surface on the same chain and is
-why M27 stays `must-amend`.
+field. **Resolution: the tracked admission revs and gains both the scope digest
+and the full canonical tuple.** Two fields, not one — round 2 added only
+the digest, which Codex's round-3 MATERIAL correctly showed is not an
+identity.
+
+*Which contract revs (stated, not silent — Codex round-3 MATERIAL asked
+for exactly this).* The tracked admission is a **closed** contract
+today: `ADMISSION_SCHEMA = "ibex/portable-engine-promotion-admission/1"`
+(`:36`), digest domain
+`ADMISSION_DOMAIN = "ibex.portable-engine-promotion-admission.v1"`
+(`:39`), `assertExactKeys` over eight keys (`:691-704`), and a JSON
+Schema whose `$defs.admission` closes with `additionalProperties: false`
+and an eight-key `required`
+(`schemas/portable-engine-promotion-admission-catalog-v1.schema.json`).
+Adding fields to `/1` in place would silently change a closed,
+digest-domain-separated contract. **The tracked admission therefore revs
+to `ibex/portable-engine-promotion-admission/2` with a new domain tag
+`ibex.portable-engine-promotion-admission.v2`, and the catalog schema
+revs with it** to
+`ibex/portable-engine-promotion-admission-catalog/2` (a new
+`CATALOG_SCHEMA_PATH` file at `:43`; the catalog **file path**
+`CATALOG_PATH` (`:42`) and its `admissionPath` const are **not**
+renamed, because the pinned lineage floor of (v), M18 pin 2, and
+`assertSourceAuthorityClosed`'s source-foundation read all key on that
+path). The rev is **not retroactive**: `git log --all` over both
+whitespace forms of `"enabled": true` at `CATALOG_PATH` returns zero
+commits (re-verified at `fb343180`), so no enabled `/1` admission has
+ever existed and every admission the walk can ever select is `/2`. The
+walk must nonetheless *refuse*, not skip, a `/1`-shaped enabled
+admission it encounters — a v1 admission carries no scope identity and
+cannot anchor a lineage hop.
+
+*The two new fields.*
+- **`admittedScopeDigest`** — the tuple's currently admitted
+  `scopeDigest`, so the value the walk reads at R_prev is a **tracked,
+  canonical-JSON** field of the checked-in catalog, bound to a real
+  scope artifact in R_prev's tree by the (i) joins above.
+- **`target`** — one **closed canonical tuple object**
+  `{ "triple": <string>, "features": <sorted, unique, non-empty string
+  array> }`, **replacing** `targetTriple` in the closed key set. This is
+  not a new shape: it is byte-for-byte the object
+  `assertSourceAuthorityClosed` already derives from the artifact-source
+  revision's CapSec policy rules and returns as `expectedTarget`
+  (`:842-855`, closed key set asserted at `:843`, canonical sorted
+  features at `:844-854`), and it is exactly what
+  `select_v2_advertisement` matches on at runtime
+  (`advertisement.target.triple` / `.features`,
+  `src/host/portable_target_admission.rs:573`). Promoting it from a
+  derived value to a tracked one is what makes the (i) predicate able to
+  select per tuple.
+
+*The `targetTriple` → `target.triple` consumer list (enumerated so the
+rev is priced, not discovered).* Inside the lineage verifier:
+`validateAdmissionShape`'s triple regex (`:710`); the two fixed
+evidence-path templates (`:739-740`) and `evidencePrefix` (`:762`);
+`assertSourceAuthorityClosed`'s trust-policy row match (`:814`) and
+CapSec-policy-rules candidate match (`:836`, `:840`) — the latter now
+additionally asserts `expectedTarget` **equals** `admission.target`,
+which is a free strengthening because the object is already in hand at
+`:855`; the disabled-catalog result field (`:1100`) and the checked
+admission constructor (`:1192`, within `:1185-1199`). Outside it: the
+checked-admission JSON Schema
+(`schemas/portable-engine-checked-promotion-admission-v1.schema.json:7-18`,
+which revs to `/2` per the "Revised schema" paragraph above), the Rust
+parser's `exact_object_keys` list
+(`src/host/portable_target_admission.rs:613-628`) and
+`require_checked_promotion` (`:639`) — which gains the assertion that
+the checked admission's `target` **equals the selected advertisement's
+`target`**, closing the tuple join at runtime — and the build carrier
+(`build_support/portable_engine_build_consumption.rs:130-139`), which
+copies bytes and needs no field knowledge.
+**Deliberately unchanged:** the verifier's *option* surface
+(`:1112-1128`) and the installer's production pin
+(`scripts/portable-engine-installer-core.mjs:476`, `TARGET_TRIPLE`;
+M31) keep keying on the **triple**. A deployment selector may be a
+triple; the *scope-lineage identity* must be the full tuple. M31 stays
+scope-transparent because it reads `authorized`, revisions and the
+triple only — it must read `target.triple` after the rev, which is a
+mechanical rename, not a new judgement.
+
+*Digest projection.* No projection work is needed for either field:
+`:758` computes `semanticDigest(ADMISSION_DOMAIN, admission,
+["admissionDigest"])` over the **whole** admission object minus its own
+self-digest, so any key added to the closed set is authenticated
+automatically — under the **new** domain tag. The same holds for the
+checked admission's `verificationDigest` under
+`CHECKED_ADMISSION_DOMAIN` (`:40`), which revs to `.v2` with the schema.
+What the self-digest does **not** do is prove the digest names a real
+artifact; that is (i)'s joins.
+
+The build-output checked admission's
+`admittedScopeDigest`/`predecessorScopeDigest` (the v2 fields above)
+remain what they were: the *anchor* carried into the binary, copied from
+the tracked value by the verifier at stamping time. Tracked field = the
+walk's source; build-output field = runtime's anchor. This is a second
+must-amend surface on the same chain and is why M27 stays `must-amend`.
+F6g fixtures the tuple.
 
 **(iii) The reduced per-hop validation set (drops "unchanged in
 kind").** Today's per-hop machinery cannot be re-run wholesale at a
@@ -5125,21 +5500,92 @@ set:
   `collectTreeLeaves` (`:641`), `readTrackedBlob` (`:667`);
 - canonical-JSON catalog parse and closed-key validation via
   `parseCatalog` (`:673-689`) and `validateAdmissionShape` (`:691-704`);
-- the promotion-revision predicate of (i).
-Everything else — `pinRunningAuthority`, `assertCleanWorktree`,
-`assertSourceAuthorityClosed`, the changed-artifact verification, the
-bundle-graph joins — runs **only at the current revision**, once. The
-security posture this establishes, stated plainly so the round-3
-reviewer can attack the right claim: **history is judged by the HEAD
+- the promotion-revision predicate of (i), **including its
+  scope-critical artifact joins** — the changed-path-set equality, the
+  per-row blob id/size/raw-digest re-hash, the single scope-artifact
+  row, the recomputed `scopeDigest == admittedScopeDigest`, and the
+  scope-artifact/admission canonical-tuple equality. These are the
+  scope-critical subset of `verifyChangedArtifacts` (`:930-1001`) and
+  are lifted to every hop by the round-3 revision. They are all pure
+  functions of content-hashed objects at R and at `A.sourceRevision`,
+  so they carry no version dependency on the HEAD verifier's schema
+  constants and re-run at any hop without obstruction.
+Everything else — `pinRunningAuthority`, `assertCleanWorktree`, the
+**full** `assertSourceAuthorityClosed` (`:804-856`), and
+`verifyChangedArtifacts`'s remaining clauses (the copied-blob and
+permitted-copy rules `:945-994`, and above all
+`verifyPromotionBundleGraph` `:995`, `fn` at `:867-929`) — runs **only
+at the current revision**, once.
+
+**Why the scope-critical subset and not the full version-dispatched
+`assertSourceAuthorityClosed` + `verifyChangedArtifacts` (Codex's
+round-3 resolution offered the full set as "stronger and preferable";
+this revision adopts the subset, and here is the reason).** The full set
+is not version-stable across hops, for one concrete and unavoidable
+reason: `verifyChangedArtifacts` ends in `verifyPromotionBundleGraph`
+(`:995`), which hands the **published** attestation and advertisement
+bytes to `validatePortablePromotionBundleGraph`. Those documents rev —
+attestations are `ibex/capsec-target-attestations/2` today
+(`capsec-portable-promotion-bundle.mjs:1089-1099`) and M5/M17 take
+advertisements to v3 — so running HEAD's bundle verifier over promotion
+n's bytes after promotion n+1 has revved the schema requires the HEAD
+bundle verifier to version-dispatch across **every** schema version ever
+published. That is precisely the "unchanged in kind" failure this
+subsection eliminated, re-entering through a different door, and its
+failure mode is a **liveness break at every hop after any artifact
+schema rev** — the exact pressure that would push an implementer back
+to a shape-only predicate. `assertSourceAuthorityClosed` has a milder
+version of the same property: its source-foundation clauses hardcode
+`ibex/capsec-target-attestations/1` (`:819`) and
+`ibex/capsec-target-advertisements/1` (`:825`) and an exact
+advertisement key set (`:824`), which the (iv) reset lifecycle keeps
+true by construction but which is a HEAD-era constant applied to a
+historical tree; and its trust-policy (`:809-814`) and
+CapSec-policy-rules (`:828-855`) clauses constrain the *source* tree's
+policy content, which is a statement about that revision's release
+posture, not about the scope identity the walk needs.
+So the rule is: **the scope-critical subset is a floor, not a
+ceiling.** An implementation MAY additionally run the full
+`assertSourceAuthorityClosed` + `verifyChangedArtifacts` at any hop
+whose artifact schema versions match HEAD's, and SHOULD do so while
+only one version has ever been published (which is the state today). It
+MUST NOT read the subset as licence to omit any of (i)'s joins. If a
+future revision makes the bundle verifier genuinely version-dispatching
+across all published schema versions, adopting the full set at every hop
+becomes strictly better and this paragraph should be revisited — that is
+recorded in the disagreement ledger as the point on which the two
+round-3 reviews differ in preference rather than in fact.
+
+The security posture this establishes, stated plainly: **history is
+judged by the HEAD
 verifier's code, not by the code that shipped at each historical
 revision.** That is deliberate and, we argue, preferable — the current
 reviewed verifier is the one whose behavior has been reviewed, and
 letting a historical revision's own verifier logic judge itself would
 make a compromised past verifier self-certifying. The cost is that the
-walk authenticates *structure and content* at R_prev, not the full
-promotion ceremony R_prev passed; the full ceremony's result is
-attested by R_prev's own `admissionDigest` and by the fact that R_prev
-is in the first-parent chain of a reviewed history.
+walk authenticates *structure and content* at R_prev — including, after
+the round-3 revision, the content of the scope artifact R_prev's
+`admittedScopeDigest` names — but **not** the full promotion ceremony
+R_prev passed.
+
+**What carries that residual, stated exactly (round-3 revision; both
+round-3 reviews attacked the round-2 sentence here and both were
+right).** Round 2 said the full ceremony's result "is attested by
+R_prev's own `admissionDigest` and by the fact that R_prev is in the
+first-parent chain of a reviewed history." **The first conjunct is
+withdrawn.** `admissionDigest` is an *unkeyed self-digest* — `:757-758`
+recomputes `semanticDigest(ADMISSION_DOMAIN, admission,
+["admissionDigest"])` over the admission's own bytes — so anyone who can
+write a commit can compute it over any object they like. It attests
+internal consistency and nothing else; it is not evidence that a
+ceremony ran, and no field added by this amendment creates such
+evidence. What actually carries the residual is two things and only two:
+(1) first-parent reachability in a reviewed history, and (2) the (i)
+joins, which bind every declared artifact — the scope artifact
+especially — to content-hashed blobs actually present in R_prev's tree.
+A hop that satisfies both is a hop whose *published artifacts* are real
+and whose *declaration* matches them; it is not a hop whose ceremony has
+been re-run. That is the honest statement of the guarantee.
 
 **(iv) The catalog enable/disable/reset lifecycle between promotions
 (this is what makes promotion 2 possible at all).** `parseCatalog`
@@ -5180,7 +5626,59 @@ next promotion merge, the tree advertises nothing.** That is the
 correct state — the tree is not, at that moment, a published promotion
 — but it means the reset commit must not be treated as a release-able
 revision, and the ceremony must produce reset and promotion as a single
-reviewed sequence. Fable's round-2 finding 3b is resolved by adopting
+reviewed sequence.
+
+**The mechanical non-release gate (normative; added by the round-3
+revision — Codex's round-3 MATERIAL correctly observed that round 2
+stated the requirement and supplied no mechanism).** "Single reviewed
+sequence" cannot be made atomic in the required Git topology: (i)
+demands that the reset commit *be* the promotion merge's first parent,
+so it must exist, and be reachable, before the promotion exists. The
+window is therefore real and must be closed by a gate rather than by
+ordering. Today the only thing standing in it is a silent build-time
+consequence: `select_embedded_report`
+(`build_support/portable_engine_promotion_report.rs:453-465`) returns
+`b"null\n"` the moment the checked admission carries
+`authorized: false` (`:461-465`), so a binary built at the reset
+revision embeds no promoted report and cannot advertise or arm. That
+fails closed, which is why nothing is broken today — but it is a
+*consequence*, not a gate: it produces an unarmed binary rather than a
+refusal, and nothing prevents that binary from being tagged, signed and
+published as a release.
+The normative gate:
+- **Every product release, tag, or publication path asserts that the
+  checked promotion admission at the revision being published carries
+  `authorized: true` and a non-null `admittedScopeDigest`, and
+  **refuses** otherwise.** The assertion is on the checked admission,
+  not on the catalog file, because the checked admission is the
+  artifact that already crosses the build boundary (M27's carrier) and
+  is domain-digest-verified before any field is trusted
+  (`require_checked_promotion`,
+  `src/host/portable_target_admission.rs:639`). A reset/disabled
+  catalog yields `authorized: false` and the release refuses; there is
+  no state in which a release both exists and advertises nothing.
+- **Per-SHA diagnostic artifact caches are explicitly outside the
+  gate.** `.github/workflows/hermes-artifacts.yml` is push-triggered on
+  `main` (`:35-36`) and its own header states that what it creates are
+  "**ARTIFACT CACHES, not product releases**: always prerelease, titled
+  'Hermes artifact cache …'" (`:24-25`), with the retained Sigstore
+  bundles "diagnostic evidence only" (`:20-22`). Those must keep
+  building at the reset revision — the reset commit is an ordinary
+  reviewed commit on `main` and its per-SHA cache is exactly the
+  diagnostic evidence a promotion ceremony later consumes. Gating them
+  would break the ceremony it is meant to protect.
+- **Alternative, if a repository ever wants the window to be
+  unobservable rather than merely unreleasable:** perform the reset on
+  a non-release staging ref and fast-forward the release ref only once
+  the promotion merge exists, so the release ref never points at a
+  reset revision. This is strictly more machinery for the same
+  guarantee and is *not* adopted here; it is recorded so the choice is
+  visible.
+This gate is §A9 **M33**, and it is scope-validating: it exists only
+because the scoped-advertisement lifecycle introduces a depublished
+window that today's one-shot topology does not have.
+
+Fable's round-2 finding 3b is resolved by adopting
 this lifecycle, not by revving `assertSourceAuthorityClosed`; revving
 it (letting the source foundation carry the previous v2/v3 bytes) was
 considered and rejected, because it would delete the one invariant
@@ -5199,9 +5697,27 @@ history. The normative rule: the verifier pins **`afad4af9` as the
 lineage floor** by commit object id. Walking below the floor is not
 "exhaustion" — it is termination at a named, content-hashed object. At
 the floor the catalog must be present, `enabled: false`, and empty; at
-the floor's parent the path must be **absent**, and that absence is
-authenticated the same way everything else here is, by reading the
-tree object and finding no such leaf. A walk that reaches a revision
+the floor's **first** parent the path must be **absent**, and that
+absence is authenticated the same way everything else here is, by
+reading the tree object and finding no such leaf.
+
+**Why "first" is load-bearing, not decorative (round-3 revision; Fable
+round-3 N2).** Round 2 said "the floor's parent," singular and
+unqualified, and elevated that clause to "a positive, checkable
+object-level fact." As written it is **false of the pinned object**.
+Re-verified at `fb343180`: `git log -1 --format='%H %P' afad4af9` →
+`afad4af9f425… 3d778d2281d6… 0025553297f4…` — the floor is itself a
+**two-parent merge**. Its first parent `3d778d22` genuinely lacks the
+path (`git cat-file -e 3d778d2281d6…:<catalog>` exits 128, "exists on
+disk, but not in"), but its **second** parent `0025553297f4…` contains
+it, with byte-identical disabled/empty content
+(`{"admissionPath":…,"admissions":[],"enabled":false,"schema":"ibex/portable-engine-promotion-admission-catalog/1"}`).
+The round-2 *command* was right — `afad4af9^` is `^1` in Git — but the
+*prose* was not, and an implementation reading "the parent" as "every
+parent" fails on this repository and can never conclude genesis. This
+fails closed, and the fix is one word, but the clause was advertised as
+an object-level fact and had to become one. F6a carries the same
+correction. A walk that reaches a revision
 below the floor by any route, or that finds the floor's catalog in any
 other state, **fails** rather than concluding genesis. This turns
 "absence of evidence" into a positive, checkable object-level fact.
@@ -5217,10 +5733,8 @@ filtered history — would exhaust the walk immediately and mint a
 genesis scope, arbitrarily narrow, with no predecessor comparison. This
 is **not** covered by the whole-checkout-rollback boundary below, which
 concerns a binary rebuilt from *old* sources; here the sources are
-current and only the lineage evidence is missing. It is closed, not
-disclosed, because a bypass of a guarantee this amendment newly claims
-is not something to carry into a disagreement ledger. Before the walk
-runs, the verifier asserts:
+current and only the lineage evidence is missing. It is closed by
+precondition. Before the walk runs, the verifier asserts:
 - the object store is **not shallow** (`git rev-parse
   --is-shallow-repository` is `false`, and `.git/shallow` does not
   exist);
@@ -5234,6 +5748,46 @@ runs, the verifier asserts:
 Any assertion failing is a verification failure, not a genesis. F6
 gains the truncated-history subcase.
 
+**What these preconditions do and do not close — narrowed by the
+round-3 revision (Fable round-3 N3; this is the honesty correction the
+author should see before accepting).** Round 2 claimed the lane was
+"**closed**, not disclosed," and §A5 claimed absence of a predecessor
+becomes "a positive, checkable fact about content-hashed objects, never
+the failure of a search." Both are stronger than what the mechanism
+delivers, and the claim is narrowed here rather than defended:
+- **Closed: history *truncation*.** A shallow clone, a graft- or
+  replace-ref-bearing object store, a re-created or filtered repository,
+  and the accidental CI-misconfiguration form of all of these can no
+  longer mint a genesis. That was the lane round-2 Fable actually found,
+  and the three assertions above close it completely — all three were
+  re-run at `fb343180` and pass (`git rev-parse
+  --is-shallow-repository` → `false`; no `.git/shallow`, no
+  `.git/info/grafts`; `git for-each-ref refs/replace` empty; the floor
+  first-parent-reachable from HEAD). This is a real and large security
+  improvement.
+- **Not closed: history *reconstruction* on the pinned floor.** A
+  repository whose HEAD chain is `<one commit carrying the current
+  tree> → afad4af9` is non-shallow, carries no grafts or replace refs,
+  and terminates first-parent at the pinned floor **by object id** — so
+  all three assertions pass and the walk finds no prior admission. It
+  costs one `git commit` and rewrites no published object, because the
+  floor is reused verbatim. Nothing in
+  `verifyPortableEnginePromotionAdmission` pins HEAD to an externally
+  attested tip: `pinRunningAuthority` (`:1010-1025`) compares the
+  *current tree's* verifier files against the *running* files, which
+  such a checkout satisfies trivially.
+**Where that residual sits.** It is the same character as — and inside
+— the **whole-checkout boundary this amendment already documents** at
+the end of this row and in F6: the trust assumption is "you are standing
+in the reviewed repository." A party who can hand the verifier a
+fabricated repository can also hand it fabricated sources. So the design
+is not unsound and no new boundary is introduced; what is corrected is
+the absoluteness of the claim. Genesis is therefore **not** a positive
+fact about absence in general — it is a positive fact about absence
+*within the checkout the verifier is standing in*, whose completeness is
+the whole-checkout assumption. §A5 and A10 carry the same narrowing.
+F6e stays exactly as written: it fixtures the lane that *is* closed.
+
 **Fixtures for this algorithm (new; F6 subcases).** (1) *Genesis* — a
 history terminating at the pinned floor with the floor's catalog
 disabled/empty admits a genesis-marked scope. (2)
@@ -5246,7 +5800,29 @@ naming promotion 0's digest refuses. (4) *False genesis* — a
 genesis-marked scope presented on a history that contains promotion 1
 refuses. (5) *Truncated history* — a shallow or graft-bearing checkout
 whose tree is current fails the (vi) preconditions and never reaches
-the genesis conclusion.
+the genesis conclusion. **(6) *Tree-unbacked predecessor digest* (new;
+round-3 revision — the executable form of the round-3 BLOCKER's
+resolution).** A history containing a **correctly shaped** two-parent
+promotion merge — one that satisfies every clause of the round-2
+predicate, whose tracked catalog parses under `parseCatalog`, whose
+admission passes `validateAdmissionShape` including a **recomputed,
+self-consistent `admissionDigest`** — but whose `admittedScopeDigest`
+names a scope artifact that is **not present in that merge's tree**, or
+is present but whose bytes recompute to a different digest, must
+**refuse**. Three variants, all of which the round-2 algorithm would
+have accepted and the round-3 one refuses: (a) no `scope-artifact` row
+in `admission.artifacts` at all; (b) a row present whose blob is absent
+from the tree or whose `blobObjectId`/`size`/`digest` disagree with the
+tree blob; (c) a row present and byte-consistent whose recomputed
+`scopeDigest` differs from the declared `admittedScopeDigest`. The
+fixture must **fail against the round-2 text and pass against the
+round-3 text**, exactly as F6b does for the round-1 → round-2 defect.
+**(7) *Per-tuple selection* (new; round-3 revision).** Two promotions on
+the **same triple with different canonical feature lists**: the walk
+admitting tuple T2 must not select T1's promotion as its predecessor,
+must conclude genesis for T2 if T2 has no prior promotion, and must
+refuse a T2 scope naming T1's `scopeDigest` as predecessor. The fixture
+must fail against a `targetTriple`-only selector.
 
 **Today's admission cardinality is GLOBAL, not per-tuple (correction).**
 The round-1 text said step 1 re-checks that "the single-active-admission
@@ -5345,7 +5921,15 @@ conformance claims; the scope fields M27 adds to the checked admission
 pass through it untouched (it never enumerates admission fields). The
 fixture that would catch it becoming load-bearing: F6's
 lineage-verification failures must fail installation identically before
-and after the scope fields exist. Fixture F6.
+and after the scope fields exist.
+**One mechanical change from the round-3 revision** (verified at
+`fb343180`): M27 (ii) replaces the admission's `targetTriple` with a
+closed canonical `target` object, so this row's read becomes
+`lineage.target.triple` at
+`scripts/portable-engine-installer-core.mjs:476` (`TARGET_TRIPLE`
+comparison). The installer deliberately keeps keying on the **triple**
+— it is a deployment selector, not the scope identity — so the row's
+class is unchanged; this is a rename, not a new judgement. Fixture F6.
 
 **M32 — evaluator ingresses: the host ABI and the runtime-extension
 path (scope-validating; must-amend). Added by the round-2 revision —
@@ -5371,10 +5955,15 @@ deserializes `Vec<EffectGate>`, and passes it to the evaluator
 gates identically: `evaluate_typed_decision` (:3776),
 `evaluate_typed_decision_with_evidence` (:3844),
 `evaluate_typed_decision_json` (:3942),
-`evaluate_typed_decision_json_with_evidence` (:3963). The only in-repo
-caller of the exported C symbol is test-gated
-(`src/bin/ibex/engine/hermes.rs:1144`, under
-`#[cfg(all(test, feature = "capsec-conformance-observer"))]`) — but the
+`evaluate_typed_decision_json_with_evidence` (:3963). The exported C
+symbol has **three** in-repo callers and all three are test-gated
+(count corrected by the round-3 revision, which said "the only";
+re-verified at `fb343180`): `src/bin/ibex/engine/hermes.rs:1144` under
+`#[cfg(all(test, feature = "capsec-conformance-observer"))]`,
+`src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs:2014`
+(reachable only through the `include!` at `hermes.rs:6301` under the
+same gate), and `src/host/abi.rs:13208` below that file's
+`#[cfg(test)]` at `:10476`. There is no production in-repo caller — but the
 symbol itself carries no `cfg`, and embedders and native runtime
 extensions linking the host ABI are precisely the population a scoped
 certification addresses. Consequence today: an out-of-scope
@@ -5407,9 +5996,63 @@ refusal envelope records `hostDisposition: "extension-declared"` — so
 an extension cannot launder an uncertified generated cell by colliding
 its effect-semantics string with an `edgeId`. The recomputation must
 happen before the gate reaches any `evaluate_decision_set*` site, which
-is the same funnel M13 builds. Under `CompleteAdvertised` nothing
-changes, so this row is invisible to today's releases and load-bearing
-for every scoped one. Fixtures F1c (ABI subcase), F3a.
+is the same funnel M13 builds.
+**Where each rule applies (round-3 revision; the two rules met at one
+call site and round 2 did not say how they compose).** Ingress 2 is not
+independent of ingress 1: `authorize_runtime_extension_operation`
+reaches the evaluator by calling `self.evaluate_typed_decision(…)` at
+`src/host/mod.rs:1304`, i.e. **through** ingress 1. The normative split,
+stated in full in §A3: **recomputation is a trust-boundary rule that
+fires at the four `pub` entry points (`:3776`, `:3844`, `:3942`,
+`:3963`) and the C symbol (`abi.rs:5823-5839`)** — where a gate arrives
+from outside — while **the runtime-extension path builds its gate
+through a distinct internal resolver that has already applied the
+conditional rule**, so the gate it presents at `:1304` is
+Host-constructed and passes unmodified. The implementation work in this
+row is therefore two things, not one: the ingress recomputation, and
+extracting that resolver as the sole producer of runtime-extension
+gates. **"Absent from the aggregate ⇒ keep the caller's value" is
+forbidden at ingress 1** — it is the natural-looking reconciliation and
+it silently reopens the round-2 BLOCKER for every non-inventory
+`coverage_edge_id`.
+Under `CompleteAdvertised` nothing changes, so this row is invisible to
+today's releases and load-bearing for every scoped one. That
+arm-state condition is deliberate and it leaves a **pre-existing**
+`CompleteAdvertised` property in place, which round-3 Fable named and
+which is filed as
+`issues/20260806-abi-caller-supplied-targetcell-authoritative.md`
+rather than absorbed here. Fixtures F1c (ABI subcase), F3a.
+
+**M33 — release/tag/publication gate for the reset window
+(scope-validating). Added by the round-3 revision.**
+Current: **no such gate exists**, and none is needed today, because
+today's topology is one-shot — there is no depublished window between
+promotions. Two things stand in for a gate and neither is one:
+`select_embedded_report` embeds `b"null\n"` when the checked admission
+carries `authorized: false`
+(`build_support/portable_engine_promotion_report.rs:453-465`,
+disabled branch `:461-465`), which yields an **unarmed binary** rather
+than a refusal; and the repository's push-triggered publisher creates
+per-SHA **artifact caches, not product releases** (its own header:
+`.github/workflows/hermes-artifacts.yml:20-25`, push trigger
+`:35-36`), so no present automation falsely publishes a claim.
+Amendment: M27 (iv)'s reset lifecycle **creates** a window — between
+the reset commit and the next promotion merge the tree advertises
+nothing — and (i) makes that window unavoidable, because the reset
+commit must exist as the promotion merge's first parent. Every product
+release, tag, or publication path therefore asserts that the revision
+being published carries a checked promotion admission with
+`authorized: true` and a non-null `admittedScopeDigest`, and
+**refuses** otherwise; the assertion is on the checked admission
+because that artifact is already domain-digest-verified before any
+field is trusted (`require_checked_promotion`,
+`src/host/portable_target_admission.rs:639`). Per-SHA diagnostic
+artifact caches are **explicitly outside** the gate — the reset commit
+is an ordinary reviewed commit whose cache a later ceremony consumes,
+and gating it would break the ceremony the gate protects. The
+staging-ref alternative (reset on a non-release ref, fast-forward the
+release ref only once the promotion merge exists) is recorded in M27
+(iv) and not adopted. Fixture F6h.
 
 ### A10. Open questions for the review round
 
@@ -5462,12 +6105,30 @@ both flip sets; recorded so round 3 reviews the settlement):
   history-completeness precondition. Fixtured by F6a–F6e.
 - **Genesis via truncated history** (round-2 Fable MATERIAL 4 — the one
   finding flagged as a live security bypass): **closed by
-  precondition**, not disclosed as a non-guarantee. §A5 and M27 (vi)
-  require a non-shallow object store, no grafts or replace refs, and
-  first-parent termination at the pinned floor; F6e fixtures it. The
-  alternative the reviewer offered — naming truncated history as a
-  stated non-guarantee — was considered and **rejected**: a newly
-  claimed monotonicity guarantee should not ship with a named bypass.
+  precondition**. §A5 and M27 (vi) require a non-shallow object store,
+  no grafts or replace refs, and first-parent termination at the pinned
+  floor; F6e fixtures it. The alternative the reviewer offered — naming
+  *truncated history* as a stated non-guarantee — was considered and
+  **rejected**, and that rejection stands: truncation genuinely is
+  closed.
+  **Narrowed by the round-3 revision (Fable round-3 N3 — the one
+  round-3 finding that touches a security claim, and the author should
+  see it before accepting).** Round 2 wrote this as "closed, not
+  disclosed" and paired it with "a newly claimed monotonicity guarantee
+  should not ship with a named bypass." That framing was too strong on
+  one axis. The preconditions close history **truncation**; they do not
+  close history **reconstruction** on the pinned floor — a single commit
+  whose parent is `afad4af9` and whose tree is the current tree passes
+  all three assertions and finds no prior admission, at the cost of one
+  `git commit` and with no published object rewritten. That residual is
+  **not a newly named bypass**: it is the *already-documented*
+  whole-checkout boundary (M27's closing paragraph, F6), whose trust
+  assumption is "you are standing in the reviewed repository," and a
+  party who can fabricate the repository can fabricate the sources too.
+  So the guarantee is real and the design is sound; what changed is that
+  the claim is now stated at its true width — genesis is a positive fact
+  about absence *within the checkout the verifier stands in* — rather
+  than absolutely. M27 (vi) and §A5 carry the full statement.
 - **Today's admission cardinality** (round-2 Fable MINOR): today's rule
   is `catalog.admissions.length === 1` **globally**
   (`scripts/portable-engine-promotion-lineage.mjs:686`), not per tuple;
@@ -5486,6 +6147,73 @@ both flip sets; recorded so round 3 reviews the settlement):
   F11's negative half is stated against the M15 constructors, where the
   module boundary is real.
 
+**Settled by the round-3 (final) design revision.** This revision is
+**UNREVIEWED** — the LLP 0049 §9 loop closed at three rounds with a
+split verdict, and no round 4 exists. These settlements are therefore
+the author's to accept or reject, not a reviewed consensus.
+- **The historical hop is authenticated against content, not just
+  shape** (round-3 Codex BLOCKER): M27 (i) gains the scope-critical
+  artifact joins — changed-path-set equality, per-row blob
+  id/size/raw-digest re-hash, exactly one `scope-artifact` row,
+  recomputed `scopeDigest == admittedScopeDigest`, and
+  scope-artifact/admission tuple equality. The claim that
+  `admissionDigest` "attests" the prior ceremony is **withdrawn**: it is
+  an unkeyed self-digest and attests internal consistency only. F6f is
+  the regression test.
+- **The scope-critical subset, not the full check set** (round-3 Codex
+  offered the full version-dispatched
+  `assertSourceAuthorityClosed` + `verifyChangedArtifacts` as stronger
+  and preferable): the subset is adopted as a **floor, not a ceiling**,
+  because the full set ends in `verifyPromotionBundleGraph`, which would
+  require HEAD's bundle verifier to version-dispatch across every
+  artifact schema version ever published — reintroducing the
+  "unchanged in kind" liveness failure M27 (iii) exists to eliminate.
+  Implementations MAY run the full set at hops whose schema versions
+  match HEAD's and SHOULD while only one version has ever been
+  published. **This is the one point where the two round-3 reviews
+  differ in preference rather than in fact**, and it is in the ledger.
+- **Tuple identity is carried, not assumed** (round-3 Codex MATERIAL):
+  the tracked admission revs to
+  `ibex/portable-engine-promotion-admission/2` (new digest domain
+  `…v2`; catalog schema revs with it, catalog **path** unchanged) and
+  carries one closed canonical `target` object `{triple, features}`
+  replacing `targetTriple`, plus `admittedScopeDigest`. Selection,
+  the checked admission, the Rust parser, the digest projection and F6g
+  all key on the full tuple. Deployment selectors (the verifier's
+  option surface, the installer's `TARGET_TRIPLE`) deliberately stay
+  triple-only.
+- **The reset window has a mechanical gate** (round-3 Codex MATERIAL):
+  new row **M33** — every release/tag/publication path refuses a
+  revision whose checked admission is not `authorized: true` with a
+  non-null `admittedScopeDigest`; per-SHA diagnostic artifact caches are
+  explicitly outside it. F6h fixtures both halves.
+- **Both foundation documents move together** (round-3 Codex
+  PRE-EXISTING MATERIAL): M18 pin 9's fix applies to target
+  advertisements **and** target attestations jointly; new pin 14 carries
+  the attestation path, which no sweep of that row could have found.
+  A10 #2 records the coupled decision and prices its new
+  digest-contract → lineage dependency.
+- **The two `target_cell` rules apply at different points** (round-3
+  Fable N1, the item with a trap): recomputation at the four `pub`
+  entries and the C symbol; the runtime-extension path builds its gate
+  through a distinct internal resolver that has already applied the
+  conditional rule; **"absent from the aggregate ⇒ keep the caller's
+  value" is forbidden at ingress 1**, because that repair silently
+  reopens the round-2 ABI BLOCKER.
+- **Precision corrections** (round-3 Fable N2, N4, N5, N6): the floor's
+  **first** parent (the floor is itself a merge whose second parent
+  carries the path); four M27 (i) pins shifted by one; the
+  `admissionDigest`-attests conjunct dropped; the C symbol's in-repo
+  callers are **three**, all test-gated.
+- **Not settled here — filed instead** (round-3 Fable N8): the
+  pre-existing property that on shipping `CompleteAdvertised` builds the
+  caller-supplied `EffectGate.target_cell` is authoritative at
+  `ex_host_evaluate_typed_decision` is **outside this amendment's
+  remit** and became
+  `issues/20260806-abi-caller-supplied-targetcell-authoritative.md`
+  rather than an amendment expansion. A3's ingress rule fixes it under
+  `ScopedAdvertised` only.
+
 1. **Telemetry placement (M14):** host-layer uncertified annotation via
    the fully specified `ibex/capsec-scoped-refusal/1` envelope keyed by
    `coverage_edge_id` (§A3; recommended, keeps decision.rs
@@ -5498,8 +6226,12 @@ both flip sets; recorded so round 3 reviews the settlement):
    reviews concurred it was not a genuine equal alternative):** the
    **v2/v3 publication owns
    `capsec/generated/target-advertisements.json`** at promotion time.
-   The sweep-recorded thirteen-pin inventory with per-pin dispositions
-   is in M18 (round-2 revision: the round-1 list of eight was neither
+   The sweep-recorded **fourteen**-pin inventory with per-pin
+   dispositions is in M18 — thirteen from the advertisement-path sweep
+   plus pin 14, the coupled **target-attestation** publication the
+   round-3 revision added because it lives at a different path and no
+   sweep of this row could find it (round-2 revision: the round-1 list
+   of eight was neither
    complete nor internally correct, so the row now records a command
    and its result instead of claiming completeness). The remaining
    discretion, narrowed by round 2: (a) where the registry generator's
@@ -5522,6 +6254,21 @@ both flip sets; recorded so round 3 reviews the settlement):
    becomes version-dispatching at this path (reopens the contract's
    schema surface and restamps pin 11's vectors). This also **falsifies
    the round-1 disposition of pin 8**, which is corrected in M18.
+   **Corrected by the round-3 revision:** the choice is **not
+   advertisement-only**. The same runner also v1-validates the HEAD
+   **target attestations** (`capsec-contract.mjs:3518-3520`,
+   `:3686-3690`, `:132-133`) and requires the two documents' target
+   sets to be exactly equal (`:4212-4229`), while promotion already
+   emits v2 attestations (`capsec-portable-promotion-bundle.mjs:
+   1089-1099`). Whichever option the author picks must be applied to
+   **both foundation documents together** — both read from the
+   artifact-source revision, or both version-dispatch and restamp
+   together. M18 pin 14 carries the attestation half. The preferred
+   (artifact-source) option additionally introduces a **new
+   digest-contract → lineage coupling**: `capsec-contract.mjs` is today
+   a pure working-tree checker with no Git-object access, and reading
+   an artifact-source blob means resolving *which* revision that is.
+   That cost is part of the decision, not a detail of it.
 3. **Scope artifact placement in the bundle vs. repository:** M20
    assumes the scope artifact rides the bundle and is embedded at build
    time; the alternative (checked-in beside `target-attestations.json`)
@@ -5560,6 +6307,14 @@ both flip sets; recorded so round 3 reviews the settlement):
    has a live scope, or is the fresh-genesis lane accepted as-is with
    the claim's honesty resting on the tuple being part of the
    authenticated identity?
+   **Unblocked by the round-3 revision:** round 2 left this item
+   undecidable in practice, because M27 selected historical hops on
+   `targetTriple` alone and the tracked admission carried no feature
+   field — two feature vectors on one triple were indistinguishable, so
+   neither answer was implementable. M27 (i)/(ii) now carry the full
+   canonical `target` object through selection, both admissions, the
+   catalog schema and F6g, so this is once again a genuine author
+   choice rather than a blocked one.
 8. **Total-scope end state (new, from round 1):** when a scope
    eventually expands to the full inventory, does the tuple stay
    `ScopedAdvertised` with a total scope, or re-enter
@@ -5567,3 +6322,135 @@ both flip sets; recorded so round 3 reviews the settlement):
    per admission result; stating the end-state intent now prevents a
    future "graduation" shortcut from being improvised at
    implementation time.
+
+### Disagreement ledger (2026-08-06)
+
+The LLP 0049 Phase 1 review loop for this amendment is **closed at three
+rounds** (the §9 bound). It closed with a **split terminal verdict**, and
+this ledger is what carries the split to the author, per LLP 0005's rule
+that the author decides and nothing is fabricated to manufacture
+agreement.
+
+**Terminal verdicts (round 3, both at commit `8def7e20`, document
+revision `a770c2f95e9b`).**
+
+| family | verdict | findings |
+| --- | --- | --- |
+| Claude (Fable 5) | **READY** for the author's LLP 0044 item-5 decision | 3 MATERIAL + 5 MINOR, none blocking, all resolutions text-only |
+| OpenAI Codex (gpt-5.6-sol) | **NOT READY** | 1 IN-DELTA BLOCKER, 2 IN-DELTA MATERIAL, 1 PRE-EXISTING MATERIAL; two-item flip set |
+
+Artifacts: `llp/reviews/0021-scoped-advertisement-amendment.fable.md` and
+`llp/reviews/0021-scoped-advertisement-amendment.codex.md`, "Round 3"
+sections. **This final revision is UNREVIEWED**; no round-4 review exists
+and none may be run.
+
+**The two Codex ledger-worthy items, and how this revision answers
+them.**
+
+1. *"M27 does not authenticate the historical scope artifact behind
+   `admittedScopeDigest`"* (BLOCKER). **Answered in substance.** M27 (i)
+   now requires, at every selected hop, the scope-critical subset Codex
+   specified: changed-path-set equality, per-row blob id/size/raw-digest
+   re-hash against the tree, exactly one `scope-artifact` row, recomputed
+   `scopeDigest == admittedScopeDigest`, and scope-artifact/admission
+   canonical-tuple equality — with a hop failing any of these being a
+   verification failure rather than a skipped hop. The claim that
+   `admissionDigest` "attests" the prior ceremony is withdrawn outright;
+   what carries the residual is stated as exactly two things
+   (first-parent reachability plus the joins). F6f is the regression
+   test and must fail against the round-2 text.
+   **Where this revision does not do what Codex preferred, and why.**
+   Codex said full version-dispatched `assertSourceAuthorityClosed` +
+   `verifyChangedArtifacts` at every hop is "stronger and preferable."
+   This revision adopts the subset as a **floor, not a ceiling**, because
+   `verifyChangedArtifacts` terminates in `verifyPromotionBundleGraph`,
+   which validates the *published* attestation/advertisement bytes —
+   documents that rev (attestations are already v2; M5/M17 take
+   advertisements to v3). Running HEAD's bundle verifier over an older
+   promotion's bytes therefore demands version dispatch across every
+   schema version ever published, which is the "unchanged in kind"
+   liveness failure M27 (iii) exists to eliminate, re-entering by another
+   door. Implementations MAY run the full set where schema versions match
+   HEAD's and SHOULD while only one version has ever been published.
+   **This is a difference of engineering preference, not of fact — the
+   author should know that a reviewer who examined the code
+   independently would have chosen the stronger option**, and that
+   choosing it becomes strictly better if the bundle verifier ever
+   becomes genuinely version-dispatching.
+2. *"M27 lacks full tuple identity, colliding with A10 #7"* (MATERIAL).
+   **Answered as asked.** The tracked admission revs to
+   `ibex/portable-engine-promotion-admission/2` with a new digest domain
+   (and the catalog schema revs with it; the catalog **path** does not
+   move, because the pinned lineage floor and M18 pin 2 key on it), and
+   carries a closed canonical `target` object `{triple, features}` in
+   place of `targetTriple`, alongside `admittedScopeDigest`. Selection,
+   the checked admission, the Rust parser, the digest projection and F6g
+   all key on the full tuple. Codex's instruction to state *which*
+   contract revs rather than change `/1` silently is followed
+   explicitly. A10 #7 is unblocked as a consequence.
+
+**Codex's two implementer-correctable items — both adopted.** The reset
+window gains a mechanical gate (new row **M33**: every
+release/tag/publication path refuses a revision whose checked admission
+is not `authorized: true` with a non-null `admittedScopeDigest`, with
+per-SHA diagnostic artifact caches explicitly outside it; F6h). M18
+pin 9's fix is corrected to move **both** foundation documents together
+— target advertisements and target attestations — with new pin 14
+carrying the attestation path that no sweep of that row could have
+found.
+
+**Fable's honesty correction (N3) — accepted, and it narrows a security
+claim.** Round 2 said the genesis preconditions closed the truncated-
+history lane "**closed**, not disclosed," and A10 rejected naming any
+residual on the ground that "a newly claimed monotonicity guarantee
+should not ship with a named bypass." The preconditions do close history
+**truncation** — shallow clones, grafts, replace refs, filtered and
+re-created repositories, including the CI-misconfiguration form — and
+that rejection stands for truncation. They do **not** close history
+**reconstruction** on the pinned floor: one commit whose parent is
+`afad4af9` and whose tree is the current tree passes all three
+assertions and finds no prior admission. That residual is not a newly
+named bypass; it is the **already-documented whole-checkout boundary**,
+whose trust assumption is "you are standing in the reviewed
+repository." The claim is therefore narrowed rather than defended:
+genesis is a positive fact about absence *within the checkout the
+verifier stands in*. §A5, M27 (vi) and A10 all carry the narrowed form.
+**This is the only round-3 finding that touches a security claim, and
+the author should read it before accepting.**
+
+**Items both families agreed are implementer-correctable.** Neither
+family treated any of these as blocking, and every one fails closed:
+- the composition of the ingress rule with the runtime-extension
+  carve-out at `src/host/mod.rs:1304` — recomputation at the four `pub`
+  entries and the C symbol, the extension path resolving its gate
+  internally first, and the explicit prohibition on "absent from the
+  aggregate ⇒ keep the caller's value" at ingress 1 (Fable N1; the one
+  with a trap, since the wrong repair silently reopens the round-2 ABI
+  BLOCKER);
+- the floor's **first** parent (Fable N2);
+- four M27 (i) line pins shifted by one (Fable N4);
+- the withdrawn `admissionDigest`-attests conjunct (Fable N5, and
+  Codex's BLOCKER says the same thing from the other end);
+- the C symbol's in-repo callers are **three**, all test-gated (Fable
+  N6);
+- M18 pin 9's preferred option carries an unpriced new
+  digest-contract → lineage dependency (Fable N7), now priced in the row
+  and in A10 #2.
+
+**Filed rather than absorbed.** Fable N8 — on shipping
+`CompleteAdvertised` builds the caller-supplied
+`EffectGate.target_cell` is authoritative at
+`ex_host_evaluate_typed_decision`, so a caller can present `complete`
+for a cell the admitted map holds as `Closed` — is a genuine
+**pre-existing** property surfaced by M32's survey and outside this
+amendment's remit. It is
+`issues/20260806-abi-caller-supplied-targetcell-authoritative.md` (P2),
+not an amendment expansion. A3's ingress rule fixes it under
+`ScopedAdvertised` only.
+
+**What remains.** Not another review round — the loop bound forbids one,
+and both families' round-3 dispositions show the remaining disagreement
+is about engineering preference and claim width, not about unresolved
+fact. What remains is the **author's LLP 0044 §7 register-item-5
+decision** (the runtime scope join, §A6), taken with this ledger and
+this UNREVIEWED final revision in hand.
