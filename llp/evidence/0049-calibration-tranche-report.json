@@ -1,0 +1,107 @@
+{
+ "measurement": "llp-0049-phase2-calibration-tranche",
+ "gate": "LLP 0049 §6 — 'Calibration before projection'",
+ "date": "2026-08-06",
+ "sourceRevision": "6416114d607f3c673ae6024258ade6328ac4508d (all work left uncommitted in the tree)",
+ "target": "aarch64-apple-darwin",
+ "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+ "plannedClasses": 5,
+ "completedClasses": 2,
+ "honestAccounting": "Three of the five planned classes were NOT authored. One (surface.native.op × [env:read, fs:list]) hit the §6 enforcement-defect stop and is filed as issues/20260806-exactwhich-declares-typed-effects-it-never-emits.md. The other two candidate classes at this size — surface.host.abi × [env:read] (6 cells / 30 rows) and surface.startup.env × [env:write] (5 cells / 25 rows) — were assessed and rejected as out of reach in this session: neither has an executor that can produce a source-bound typed-decision receipt for an EFFECTFUL surface of its kind, so both are executor-construction work, not template authoring. That assessment is itself a calibration finding (see costModelFindings).",
+ "baselineCatalogDigest": "sha256-C4T2GOmlKtNepQb5tBc5gulZ9MVwVsGJf5mwqyYzmhw",
+ "finalCatalogDigest": "sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs",
+ "scopeWorklist": {
+  "before": {
+   "cells": 610,
+   "cleanCells": 537,
+   "poisonedCells": 73,
+   "authorableRows": 3927,
+   "surfaces": 491,
+   "templateClasses": 80,
+   "artifact": "regenerated at session start from the HEAD catalog"
+  },
+  "after": {
+   "cells": 610,
+   "cleanCells": 537,
+   "poisonedCells": 73,
+   "authorableRows": 3911,
+   "surfaces": 488,
+   "templateClasses": 79,
+   "artifact": "llp/evidence/0049-scope-measurement-phase2-calibration-close.json"
+  },
+  "delta": {
+   "authorableRows": -16,
+   "surfaces": -3,
+   "templateClasses": -1,
+   "note": "The one class that dropped out is surface.native.op × [env:read], closed completely. surface.native.op × [fs:list] shrank from 29 to 19 rows but survives."
+  }
+ },
+ "inventoryGrowthDuringSession": {
+  "rows": 0,
+  "cells": 0,
+  "poisonedCells": 0,
+  "note": "The §9 net-closure criterion needs BOTH slopes. This session measured zero in-scope inventory growth — but that is not the campaign's growth rate, it is an artifact of a session that changed no surface-bearing source. The +671 rows / 5 days figure in §2 remains the only real growth datum; a boundary-to-boundary re-measurement across sessions is still owed before any projection."
+ },
+ "classes": [
+  {
+   "name": "surface.native.op × [env:read]",
+   "surfaceKind": "native-op",
+   "status": "COMPLETE — batch physically green, both gates exit 0",
+   "cells": 1,
+   "rowsClosed": 6,
+   "classFullyClosed": true,
+   "authoringWallClockMinutes": 41,
+   "correctionLoopIterations": 3,
+   "batchSeconds": 75.4,
+   "evidence": "llp/evidence/0049-batch-native-op-env-read-5EaSZqHyeHyZJ-kTorqcdNdYgBW-3wBtmZBbsIu4aV8.json"
+  },
+  {
+   "name": "surface.native.op × [fs:list] (direct-list cells)",
+   "surfaceKind": "native-op",
+   "status": "COMPLETE — batch physically green, both gates exit 0",
+   "cells": 2,
+   "rowsClosed": 10,
+   "classFullyClosed": false,
+   "classRemainderRows": 19,
+   "authoringWallClockMinutes": 26,
+   "correctionLoopIterations": 2,
+   "batchSeconds": 156.7,
+   "evidence": "llp/evidence/0049-batch-native-op-fs-list-dzsLtlA9UI-XM0XnyrhbqwM-_XefBhoVPmkeqvcXVVg.json"
+  },
+  {
+   "name": "surface.native.op × [env:read, fs:list]",
+   "surfaceKind": "native-op",
+   "status": "STOPPED — LLP 0049 §6 enforcement-defect stop",
+   "cells": 1,
+   "rowsClosed": 0,
+   "ticket": "issues/20260806-exactwhich-declares-typed-effects-it-never-emits.md"
+  }
+ ],
+ "measuredSlope": {
+  "rowsClosed": 16,
+  "classesTouched": 3,
+  "authoringWallClockMinutes": 67,
+  "correctionLoopIterationsPerClass": 2.5,
+  "batchWallClockSecondsPerRun": "36–84 (the LLP 0044 16-second figure was a smaller batch; the native primary/secondary pair now runs 285–320 fixtures each)",
+  "catalogRegenSeconds": 11,
+  "caution": "DO NOT project the campaign from these two classes. Both are native-op cells with existing executor support and 1–2 cells each. The rows-per-class distribution is extremely skewed (the largest in-scope class is 454 rows across 77 surfaces; these were 6 and 10), and the two classes that would have tested a different surface kind were the ones that turned out to need executor construction. §9's 8-week line cannot be evaluated on this sample."
+ },
+ "costModelFindings": [
+  "LLP 0036's 'authoring a family is nearly free; the cost is a small executor edit per family' is confirmed and refined: BOTH completed classes required a Rust executor change, not just a template. Three distinct executor generalizations were needed for six rows of class 1 alone.",
+  "The dominant cost was not template design and not tokens — it was the correction loop, and 3 of the 5 correction-loop iterations were mechanical compile errors from adding a field to a struct with test literals. That is cheap but serial: each iteration costs a full cargo rebuild (20–75 s) plus a catalog regen (11 s).",
+  "The batch's loud named failures worked exactly as LLP 0044 predicted. Two of five iterations were real contract mismatches that a hand-authored guess would have papered over: (1) the native executor could not express a denial-return surface at all, (2) a first-principles nine-vs-seven decision-count guess was wrong — the D3 rule earning its keep for the second time in this corpus.",
+  "Surface-kind coverage is the binding constraint on calibration, not row count. Only native-op had an executor able to produce an effectful source-bound receipt. surface.host.abi has a probe path, but it admits only NON-CAPABILITY module-runner ABIs with zero expected decisions; surface.startup.env has an effectful probe path, but it is keyed to a closed table of eleven reviewed process.env read sources and its env:write cells are Android/Rust startup sources with no JS-invocable surface at all. A tranche that spans surface kinds must budget executor construction for each new kind.",
+  "Two of the ~40 in-scope native-op cells examined carry an effects classification over a LEGACY authorization path that emits no typed decision (__exactWhich via checkCapability, __exactHandleReadFileSync via ex_host_handle_check). If that ratio holds, the campaign should expect a steady trickle of enforcement-defect stops, each of which is a §9 reforecast trigger."
+ ],
+ "gatesRun": {
+  "routeEvidenceDiff": "2 runs, both exit 0, both strict mode (allow-list digest embedded in the candidate before generation)",
+  "terminalEvidenceDiff": "2 runs, both exit 0, changedCellCount 0 both times — no terminal added or removed anywhere in the catalog by this tranche",
+  "batches": "6 batch runs total (4 failed loudly and were fixed, 2+2 final green), all spelling the secure feature vector --no-default-features --features standard,capsec-conformance-observer,openssl-crypto",
+  "generatorUnitTests": "bun test capsec-conformance-recipes.test.mjs — 106 pass, 0 fail (count pins updated for both targets, plus two new per-class binding assertions)"
+ },
+ "stopConditions": {
+  "armedStartupSealRefusal": "NOT hit. The open P1 issues/20260806-llp0050-asyncfunction-root-global-unclassified.md did not block Phase 2 execution: every batch armed and sealed bootstrap normally. That P1 remains open for check:drift, but it is not a Phase 2 blocker.",
+  "llp0037AttributionPattern": "NOT hit. Both completed classes fell inside existing D1–D4 rulings; class 1's denial-return shape is the already-ruled existsSync pattern (an executor gap, not a new pattern) and class 2's prefix-component traversal is D1's narrow predicate, already implemented.",
+  "enforcementDefect": "HIT once (__exactWhich), with a second instance of the same family noted in the same ticket (__exactHandleReadFileSync)."
+ }
+}

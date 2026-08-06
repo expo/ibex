@@ -1024,6 +1024,82 @@ const nativeEnvironmentWriteTemplate = (name, value) =>
     requiredSourceArity: 2,
     setup: [],
   });
+// Armed whole-environment enumeration, nonempty logical branch. Setup seeds
+// exactly one principal-overlay name through the separately authorized
+// __exactSetEnv write (its env:write authority lives on the non-deniable
+// setup floor so the deny scenario refuses the enumeration read, never the
+// seeding write). Enumeration then authorizes that exact name at
+// requested+commit before copying its value; denial silently skips the name
+// and returns an empty object — the typed denied decision, not a throw, is
+// the denial evidence.
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the armed
+// base is empty; enumeration visits only the current principal's overlay and
+// independently authorizes each exact name (env:write never implies
+// disclosure).
+const nativeEnvironmentEnumerationTemplate = (name, value) =>
+  Object.freeze({
+    actionIds: ["env:read"],
+    arguments: [],
+    expectedDecisionCounts: {
+      allow: 2,
+      "branch-selection": 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      deny: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      "branch-selection": ["requested", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
+    },
+    // Denial-return surface: enumeration skips a name it cannot authorize and
+    // returns an empty object, so the typed denied decision — not an
+    // exception — is the denial evidence.
+    // @ref LLP 0037#denial-return-evidence-existssync
+    expectedTypedOutcomes: {
+      deny: ["deny"],
+    },
+    requiredFloor: [
+      {
+        cap: "env:read",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name,
+        },
+      },
+    ],
+    requiredSetupFloor: [
+      {
+        cap: "env:write",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name,
+        },
+      },
+    ],
+    requiredSourceArity: 0,
+    setup: [
+      {
+        kind: "invoke-native-global",
+        globalName: "__exactSetEnv",
+        arguments: [name, value],
+      },
+    ],
+  });
 const nativePrintTemplate = () =>
   Object.freeze({
     actionIds: ["stdio:write"],
@@ -1258,6 +1334,98 @@ const nativeProjectStatfsTemplate = () =>
     ],
     requiredSourceArity: 1,
     setup: [],
+  });
+// Direct armed metadata probes on the native fs:list terminals that the
+// already-authored builtin carriers reach indirectly. Each takes the exact
+// authenticated /project path, resolves through the armed VFS, authorizes the
+// listing through openArmedListTarget, and performs the real syscall. The
+// declared capability IS the operation here (a direct list, not the traversal
+// half of an open), so every non-discovery decision resolves on the authored
+// static floor — LLP 0037 D1's narrow predicate, unchanged.
+// @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
+const nativeDirectListTemplate = ({
+  argumentsList,
+  pathComponents,
+  requiredSourceArity,
+  allowStages,
+}) =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: argumentsList,
+    expectedDecisionCounts: {
+      allow: allowStages.length,
+      deny: 1,
+      malformed: allowStages.length,
+      "missing-attribution": allowStages.length,
+      "wrong-principal": allowStages.length,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: allowStages,
+      deny: ["requested"],
+      malformed: allowStages,
+      "missing-attribution": allowStages,
+      "wrong-principal": allowStages,
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...pathComponents),
+      },
+    ],
+    requiredSourceArity,
+    setup: [],
+  });
+// __exactAccess(path, mode): mode 0 is F_OK — an existence probe that asks for
+// neither read nor write permission, so the invocation cannot conflate the
+// listing decision with a read- or write-authority disclosure (ENG-22717).
+const nativeProjectAccessTemplate = () =>
+  nativeDirectListTemplate({
+    argumentsList: [literalArgument("Cargo.toml"), literalArgument(0)],
+    pathComponents: ["Cargo.toml"],
+    requiredSourceArity: 2,
+    allowStages: [
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+      "repeat",
+    ],
+  });
+// __exactOpendir(path): directory enumeration is the operation itself, so its
+// own requested/repeat checks resolve on the authored static floor. The
+// two-component fixture path additionally walks its parent `llp`, whose
+// decisions are a proper prefix of the floor path and are therefore credited
+// to ambient-mount authority (LLP 0037 D1 — a traversal of the open, not a
+// listing the operation performs, so D2's surplus rule is not engaged: every
+// decision here carries the declared fs:list capability).
+// The nine-decision sequence was OBSERVED from the bound engine — a
+// first-principles guess of seven (the single-component opendirSync shape)
+// was wrong and the batch named it. @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+const nativeProjectOpendirTemplate = () =>
+  nativeDirectListTemplate({
+    argumentsList: [literalArgument("llp/evidence")],
+    pathComponents: ["llp", "evidence"],
+    requiredSourceArity: 1,
+    allowStages: [
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "requested",
+      "repeat",
+      "repeat",
+      "repeat",
+      "repeat",
+    ],
   });
 const nativeProjectTruncateTemplate = () =>
   Object.freeze({
@@ -2128,7 +2296,9 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactAccess", nativeProjectAccessTemplate()],
   ["__exactAppendFile", nativeProjectAppendFileTemplate()],
+  ["__exactOpendir", nativeProjectOpendirTemplate()],
   ["__exactMkdir", nativeProjectMkdirTemplate()],
   ["__exactReaddir", nativeProjectReaddirTemplate()],
   ["__exactWriteFile", nativeProjectWriteFileTemplate()],
@@ -3056,6 +3226,18 @@ function nativeEffectStages(nonDenyStages) {
 }
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactGetAllEnv",
+    new Map([
+      [
+        "nonempty",
+        nativeEnvironmentEnumerationTemplate(
+          "IBEX_CAPSEC_NATIVE_ENV_ENUM",
+          "ibex-capsec-enum-value",
+        ),
+      ],
+    ]),
+  ],
   [
     "__exactFsReadFileAsync",
     new Map([
@@ -4027,6 +4209,13 @@ function nativePublicProbeForPlan({
           ? { completion: clone(template.completion) }
           : {}),
         requiredFloor: clone(template.requiredFloor ?? []),
+        // Setup-infrastructure authority: granted in every scenario and never
+        // added to the deny scenario's denial set, so denial refuses exactly
+        // the operation's declared capability while the harness-owned setup
+        // (e.g. the overlay-seeding env:write) still succeeds.
+        ...(template.requiredSetupFloor?.length
+          ? { requiredSetupFloor: clone(template.requiredSetupFloor) }
+          : {}),
         setup: template.setup.map((setup) =>
           bindNativeSetupSources(setup, liveByObservedKey, target),
         ),
@@ -4035,6 +4224,17 @@ function nativePublicProbeForPlan({
           ? { expectedCleanup: template.expectedCleanup }
           : {}),
         expectedTypedStages: clone(expectedStages),
+        // Denial-return surfaces refuse the typed decision while returning
+        // normally, so the per-decision outcome cannot be derived from the
+        // public result and is pinned from the observed run instead.
+        // @ref LLP 0037#denial-return-evidence-existssync
+        ...(template.expectedTypedOutcomes?.[scenario]
+          ? {
+              expectedTypedOutcomes: clone(
+                template.expectedTypedOutcomes[scenario],
+              ),
+            }
+          : {}),
         expectedTypedDecisionCount: expectedDecisionCount,
         allowedCoverageEdgeIds: canonicalSet([
           ...plan.edgeIds,

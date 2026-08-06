@@ -715,5 +715,7 @@ compliance if a §3 rule 1 figure lacks a row.
 | Phase 0 seeding allow-list (rule 3, strict mode, 1,544 entries, 2,722/2,722 explained) | llp/evidence/0049-allow-list-phase0-seeding.json | §4 |
 | Phase 0 terminal allow-list (rule 7, 463 entries) | llp/evidence/0049-terminal-allow-list-phase0-seeding.json | §4 |
 | Phase 0 post-fix catalog digest (`22,505 / 3,926 / 3,124 / 15,455`; network Lane B 284 → 216) | `sha256-sMzObEF9jpCF5fpgJ4FIigkj05e2-FjFsrNqj9t3mhQ` (re-derivable by regen at the Phase 0 commit) | §4 |
-| calibration tranche report (authoring slope + inventory growth rate) | *(added during Phase 2)* | §6 |
-| per-batch evidence envelopes | llp/evidence/0049-batch-`<template-class>`-`<digest>`.json | §6 |
+| calibration tranche report (authoring slope + inventory growth rate) | llp/evidence/0049-calibration-tranche-report.json (2 of 5 planned classes completed to the full gate standard, 16 rows; 1 class stopped on an enforcement defect; the other 2 candidate classes were rejected as executor-construction work, not authoring) | §6 |
+| Phase 2 calibration close scope measurement (3,927 → 3,911 rows / 491 → 488 surfaces / 80 → 79 classes) | llp/evidence/0049-scope-measurement-phase2-calibration-close.json (catalog `sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs`) | §6 |
+| per-batch evidence envelopes | llp/evidence/0049-batch-`<template-class>`-`<digest>`.json — landed: `native-op-env-read-5EaSZ…` (6 rows), `native-op-fs-list-dzsLtl…` (10 rows) | §6 |
+| per-class paired allow-lists (rule 3, strict mode) | llp/evidence/0049-allow-list-class-native-op-env-read.json, llp/evidence/0049-allow-list-class-native-op-fs-list.json | §6 |

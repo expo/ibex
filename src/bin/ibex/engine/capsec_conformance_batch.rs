@@ -167,11 +167,24 @@ struct NativePublicInvocation {
     completion: Option<NativeProbeCompletion>,
     #[serde(default)]
     required_floor: Vec<serde_json::Value>,
+    /// Setup-infrastructure authority (e.g. the overlay-seeding env:write for
+    /// the enumeration probe): granted in every scenario, never denied — the
+    /// deny scenario refuses exactly the operation's declared capability.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    required_setup_floor: Vec<serde_json::Value>,
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_cleanup: Option<String>,
     expected_typed_stages: Vec<String>,
+    /// Per-decision typed outcomes, pinned from the observed run, for
+    /// denial-return surfaces whose public result is an ordinary return even
+    /// though the typed decision was refused (the `existsSync` shape: the
+    /// typed denied decision, not an exception, is the denial evidence).
+    /// Omitted everywhere else, where the outcome follows `expected_result`.
+    /// @ref LLP 0037#denial-return-evidence-existssync
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    expected_typed_outcomes: Vec<String>,
     expected_typed_decision_count: usize,
     allowed_coverage_edge_ids: Vec<String>,
     expected_action_ids: Vec<String>,
@@ -525,10 +538,12 @@ fn native_public_probe_serialization_preserves_omitted_optional_fields() {
         arguments: Vec::new(),
         completion: None,
         required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
+        expected_typed_outcomes: Vec::new(),
         expected_typed_decision_count: 0,
         allowed_coverage_edge_ids: Vec::new(),
         expected_action_ids: Vec::new(),
@@ -562,10 +577,12 @@ fn native_async_worker_terminal_account_is_exact() {
         arguments: vec![NativeProbeArgument::JsonLiteral { value: operation }],
         completion: None,
         required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
+        expected_typed_outcomes: Vec::new(),
         expected_typed_decision_count: 0,
         allowed_coverage_edge_ids: Vec::new(),
         expected_action_ids: Vec::new(),
@@ -930,7 +947,7 @@ fn install_native_public_test_host(
     listener_port: Option<u16>,
     deny: bool,
 ) -> (crate::host::Host, HostResetGuard, String) {
-    let floor = if invocation.required_floor.is_empty() {
+    let deniable_floor = if invocation.required_floor.is_empty() {
         listener_port
             .map(native_public_floor)
             .into_iter()
@@ -943,10 +960,26 @@ fn install_native_public_test_host(
         invocation.required_floor.clone()
     };
     assert!(
-        !deny || !floor.is_empty(),
+        !deny || !deniable_floor.is_empty(),
         "an explicit native public denial requires an exact selector"
     );
-    let denials = if deny { floor.clone() } else { Vec::new() };
+    // The setup floor is harness infrastructure authority: always granted,
+    // never denied, so a deny scenario refuses exactly the operation's
+    // declared capability while authored setup still succeeds.
+    assert!(
+        invocation.required_setup_floor.is_empty() || !invocation.setup.is_empty(),
+        "a native public setup floor without a setup step grants unused authority"
+    );
+    let denials = if deny {
+        deniable_floor.clone()
+    } else {
+        Vec::new()
+    };
+    let floor: Vec<serde_json::Value> = deniable_floor
+        .iter()
+        .chain(invocation.required_setup_floor.iter())
+        .cloned()
+        .collect();
     let uses_project_path = floor.iter().any(|selector| {
         matches!(
             selector["resource"]["kind"].as_str(),
@@ -1536,7 +1569,7 @@ fn native_invocation_script(
         "sqliteStatementHandle": setup_state.sqlite_statement_handle,
     });
     let script = format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}var out={{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};if(n===\"__exactGetAllEnv\"&&value!==null&&typeof value===\"object\"){{var envNames=Object.keys(value).sort();out.valuePropertyCount=envNames.length;out.enumeratedNames=envNames;out.enumeratedValues=envNames.map(function(envName){{return String(value[envName]);}});}}return out;}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments"),
         serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
@@ -1940,7 +1973,14 @@ fn validate_native_runtime_observation(
                 assert_eq!(fragment, "filesystem policy denied");
                 assert!(matches!(
                     invocation.global_name.as_str(),
-                    "__exactAppendFile"
+                    // Direct armed list terminals: both refuse through
+                    // openArmedListTarget / throwFsAsyncResult, the same
+                    // EACCES "filesystem policy denied" refusal the other
+                    // path-taking natives raise
+                    // (src/engine/hermes_runtime_fs.cc:1288, :2370, :2409).
+                    "__exactAccess"
+                        | "__exactOpendir"
+                        | "__exactAppendFile"
                         | "__exactFsOpen"
                         | "__exactFsOpenAsync"
                         | "__exactFsPathAsync"
@@ -2120,18 +2160,75 @@ fn validate_native_runtime_observation(
             }
             if invocation.global_name == "__exactGetAllEnv" {
                 assert_eq!(invocation_result["valueType"], "object");
-                assert_eq!(
-                    invocation_result["valuePropertyCount"], 0,
-                    "{}: armed whole-environment enumeration was not empty",
-                    recipe.fixture_id
-                );
+                if invocation.expected_typed_decision_count == 0 {
+                    // Empty logical branch: the armed base is empty and no
+                    // overlay name was seeded, so enumeration must disclose
+                    // nothing and observe no typed decision.
+                    assert_eq!(
+                        invocation_result["valuePropertyCount"], 0,
+                        "{}: armed whole-environment enumeration was not empty",
+                        recipe.fixture_id
+                    );
+                } else {
+                    // Nonempty logical branch: setup seeded exactly one
+                    // principal-overlay name through __exactSetEnv. Allowed
+                    // scenarios must disclose exactly that name and value;
+                    // denial must skip the seeded name and disclose nothing
+                    // (the typed denied decision is the denial evidence).
+                    let (seeded_name, seeded_value) = match invocation.setup.as_slice() {
+                        [NativeProbeSetup::InvokeNativeGlobal {
+                            global_name,
+                            arguments,
+                        }] if global_name == "__exactSetEnv" && arguments.len() == 2 => (
+                            arguments[0]
+                                .as_str()
+                                .expect("seeded environment name must be a string"),
+                            arguments[1]
+                                .as_str()
+                                .expect("seeded environment value must be a string"),
+                        ),
+                        _ => panic!(
+                            "{}: nonempty environment enumeration requires the single __exactSetEnv seeding setup",
+                            recipe.fixture_id
+                        ),
+                    };
+                    if recipe.scenario == "deny" {
+                        assert_eq!(
+                            invocation_result["valuePropertyCount"], 0,
+                            "{}: denied enumeration must skip the seeded name and disclose nothing",
+                            recipe.fixture_id
+                        );
+                    } else {
+                        assert_eq!(
+                            invocation_result["valuePropertyCount"], 1,
+                            "{}: allowed enumeration must disclose exactly the seeded overlay name",
+                            recipe.fixture_id
+                        );
+                        assert_eq!(
+                            invocation_result["enumeratedNames"],
+                            serde_json::json!([seeded_name]),
+                            "{}: enumeration disclosed a name other than the seeded overlay name",
+                            recipe.fixture_id
+                        );
+                        assert_eq!(
+                            invocation_result["enumeratedValues"],
+                            serde_json::json!([seeded_value]),
+                            "{}: enumeration disclosed a value other than the seeded overlay value",
+                            recipe.fixture_id
+                        );
+                    }
+                }
                 assert_eq!(invocation_result["cleanup"], "none");
             }
             if invocation.global_name == "__exactGetAllEnv" {
                 serde_json::json!({
-                    "kind": "armed-empty-environment-enumeration",
+                    "kind": if invocation.expected_typed_decision_count == 0 {
+                        "armed-empty-environment-enumeration"
+                    } else {
+                        "armed-seeded-environment-enumeration"
+                    },
                     "bodyEntered": true,
-                    "propertyCount": 0,
+                    "propertyCount": invocation_result["valuePropertyCount"].clone(),
                 })
             } else {
                 serde_json::json!({
@@ -2241,9 +2338,16 @@ fn validate_native_runtime_observation(
         "{}: runtime typed decision count disagrees with the public recipe",
         recipe.fixture_id
     );
+    assert!(
+        invocation.expected_typed_outcomes.is_empty()
+            || invocation.expected_typed_outcomes.len()
+                == invocation.expected_typed_decision_count,
+        "{}: pinned typed outcomes must cover every expected decision",
+        recipe.fixture_id
+    );
     let mut observed_actions = BTreeSet::new();
     let mut observed_terminals = BTreeSet::new();
-    for decision in typed_decisions {
+    for (decision_index, decision) in typed_decisions.iter().enumerate() {
         let atomicity_group = decision["decisionSet"]["atomicityGroup"]
             .as_str()
             .expect("observed typed decision has no atomicity group");
@@ -2287,16 +2391,27 @@ fn validate_native_runtime_observation(
         let outcome = decision["evidence"]["outcome"]
             .as_str()
             .expect("observed typed evidence has no outcome");
-        let expected_outcome = if invocation.expected_result == "permission-denied" {
-            "deny"
-        } else {
-            "allow"
-        };
-        assert_eq!(outcome, expected_outcome);
+        let expected_outcome = invocation
+            .expected_typed_outcomes
+            .get(decision_index)
+            .map(String::as_str)
+            .unwrap_or(if invocation.expected_result == "permission-denied" {
+                "deny"
+            } else {
+                "allow"
+            });
+        assert_eq!(
+            outcome, expected_outcome,
+            "{}: observed typed outcome disagrees with the public recipe at decision {decision_index}",
+            recipe.fixture_id
+        );
         let authority_evidence = decision["evidence"]["evidence"]
             .as_array()
             .expect("observed typed decision has no authority evidence");
-        let public_denial = invocation.expected_result == "permission-denied";
+        // A denial-return surface refuses the typed decision without throwing,
+        // so the authority stratum follows the per-decision outcome, not the
+        // public result. @ref LLP 0037#denial-return-evidence-existssync
+        let public_denial = expected_outcome == "deny";
         let ambient_project_prefix =
             !public_denial && uses_ambient_project_prefix_authority(invocation, effects);
         let (expected_stratum, expected_source_prefix) = if public_denial {
@@ -2701,20 +2816,10 @@ async fn execute_native_public_recipe(
             ))
             .await
     };
-    let empty_environment_property_count = if invocation.global_name == "__exactGetAllEnv" {
-        let encoded = engine
-            .eval_immediate("String(Object.keys(__exactGetAllEnv()).length)")
-            .await
-            .expect("inspect armed environment enumeration result")
-            .expect("armed environment enumeration inspection returned no result");
-        Some(
-            encoded
-                .parse::<usize>()
-                .expect("armed environment property count must be numeric"),
-        )
-    } else {
-        None
-    };
+    // The enumeration result (property count, names, values) is captured
+    // inside the observed invocation script itself: a second __exactGetAllEnv
+    // call here would add its own typed decisions to the observation buffer
+    // and corrupt the nonempty branch's pinned sequence.
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     observation_guard.disarm();
     let encoded = result
@@ -2783,15 +2888,6 @@ async fn execute_native_public_recipe(
             invocation_result["cleanup"] =
                 serde_json::Value::String("closed-fs-file-descriptor".into());
         }
-    }
-    if let Some(property_count) = empty_environment_property_count {
-        invocation_result
-            .as_object_mut()
-            .expect("native environment result must be an object")
-            .insert(
-                "valuePropertyCount".into(),
-                serde_json::Value::from(property_count),
-            );
     }
     if let Some(path) = &fs_path_async_directory_fixture {
         if invocation_result["kind"] == "return" {
