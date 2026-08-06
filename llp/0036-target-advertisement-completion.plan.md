@@ -426,7 +426,13 @@ the global-family subset of the 3,727 catalog-wide.
   is no longer the full public-residual catalog (~18k rows): it is the
   scoped clean authorable set re-derived at each phase boundary
   (3,922 rows / 490 surfaces / 80 template classes at the 2026-08-05
-  measurement), driven by LLP 0049 §6's loop and discipline. The global
+  measurement — **superseded**: the current measurement is the
+  2026-08-06 post-seeding one, 610 cells / 537 clean / 73 poisoned /
+  3,927 authorable rows, recorded in LLP 0044 §7 and LLP 0049's
+  evidence table; per this delta's own rule the set is re-derived at
+  each phase boundary, so all such figures are snapshots, and the
+  2026-08-06 numbers are the ones currently in force), driven by
+  LLP 0049 §6's loop and discipline. The global
   grind is not resumed for out-of-scope families; they remain honest
   unresolved rows and the published claim treats them per LLP 0021
   amendment §A7.

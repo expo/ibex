@@ -814,7 +814,12 @@ its additional provenance surface.
   (`src/host/portable_target_admission.rs:34`) — gain a `scopeDigest`
   binding in `bindings`, alongside the existing catalog and evidence
   digests. The scoped completeness semantics of that binding are LLP 0021
-  amendment §A2/§A9 M4, not this document's concern.
+  amendment §A2/§A9 M4, not this document's concern; the schema files
+  and digest-contract pins that binding change restamps (both report
+  JSON Schemas close `bindings` with `additionalProperties: false`) are
+  enumerated in LLP 0021 amendment §A9 M30, and whether the rich v1
+  report revs its schema id or evolves in place is LLP 0021 amendment
+  §A10 #6.
 - **No phase changes.** The phase graph, command envelope, deadline
   policy (currently version 5), resumption rules, shard-manifest field
   set, authority classes, and aggregate-validation rules are unchanged.
