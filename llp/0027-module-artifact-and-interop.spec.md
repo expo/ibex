@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-08-06 (CommonJS wrapper/helper insertion may follow only a complete ECMAScript Directive Prologue; it cannot split a non-directive expression after an initial string literal, pinned by a license-headed conditional-package Hermes regression)
 **Revised:** 2026-07-29 (the v1 tagged-enum field spelling is uniformly
 camelCase, matching the checked-in schemas; Rust codecs use
 `rename_all_fields`, schema-shaped values decode directly, and stale
@@ -225,6 +226,15 @@ names are snapshots and do not update after later `module.exports` mutation.
 The detector's reexport specifiers are retained separately and must name typed
 CommonJS require edges so adapter-name traversal never performs an ambient
 resolution.
+Any CommonJS wrapper or loader-private helper preamble preserves the authored
+statement grammar. In particular, a Directive Prologue ends only after complete
+string-literal expression statements; a leading string token followed by a
+binary, member, call, or other continuation remains part of that ordinary
+expression. This requirement applies whether comments (including a license
+header) precede the prologue and whether directives use explicit semicolons or
+ASI. The real-binary compatibility regression uses the package shape
+`index.js -> conditional require -> cjs/development.js` with the React-style
+`"production" !== process.env.NODE_ENV && ...` guard.
 The CommonJS cache entry is evicted on throw, while any ESM adapter already
 linked to that incarnation retains the same sticky failure. A later CommonJS
 require may create and evaluate a fresh CommonJS record without mutating the

@@ -15,6 +15,9 @@
 //!   * import.meta.url must be a well-formed file:// URL (finding #12; the
 //!     Windows drive-letter half is review-only on this platform, but the
 //!     POSIX shape is pinned here).
+//!   * A package-shaped CommonJS conditional entry may select a license-headed
+//!     development file whose first non-directive statement starts with a
+//!     string literal (the React package shape).
 //!
 //! Run with: `scripts/run-tests.sh --scope test bootstrap_loader`.
 
@@ -124,7 +127,16 @@ fn assert_opaque_line_result(
 /// a verified advertisement, so compatibility fixtures use the explicit
 /// foreground diagnostic.
 fn run_compat(dir: &Path, entry: &str) -> (String, String, bool) {
-    let output = Command::new(IBEX)
+    run_compat_with_env(dir, entry, &[])
+}
+
+fn run_compat_with_env(
+    dir: &Path,
+    entry: &str,
+    environment: &[(&str, &str)],
+) -> (String, String, bool) {
+    let mut command = Command::new(IBEX);
+    command
         .arg("capsec")
         .arg("audit")
         .arg(entry)
@@ -134,14 +146,74 @@ fn run_compat(dir: &Path, entry: &str) -> (String, String, bool) {
         .env("IBEX_COMPAT_LOADER_TEST", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("run ibex");
+        .stderr(Stdio::piped());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let output = command.output().expect("run ibex");
     (
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
         output.status.success(),
     )
+}
+
+/// A complete Directive Prologue ends before React's leading production guard:
+/// `"production" !== process.env.NODE_ENV` is a binary expression, not a
+/// directive. The compatibility loader must inject its eval shim before that
+/// expression instead of splitting it after the string token.
+/// @ref LLP 0027#esmcommonjs-interop-matrix
+#[test]
+fn package_conditional_commonjs_with_license_header_parses_and_evaluates() {
+    let dir = unique_dir("conditional-cjs-license");
+    write_text(
+        &dir.join("node_modules/conditional-cjs/package.json"),
+        r#"{"name":"conditional-cjs","main":"index.js"}
+"#,
+    );
+    write_text(
+        &dir.join("node_modules/conditional-cjs/index.js"),
+        r#"'use strict';
+
+if (process.env.NODE_ENV === 'production') {
+  module.exports = require('./cjs/production.js');
+} else {
+  module.exports = require('./cjs/development.js');
+}
+"#,
+    );
+    write_text(
+        &dir.join("node_modules/conditional-cjs/cjs/development.js"),
+        r#"/**
+ * @license loader regression fixture
+ */
+
+"use strict";
+"production" !== process.env.NODE_ENV && (function () {
+  module.exports = { branch: "development" };
+})();
+"#,
+    );
+    write_text(
+        &dir.join("node_modules/conditional-cjs/cjs/production.js"),
+        "'use strict';\nmodule.exports = { branch: 'production' };\n",
+    );
+    write_text(
+        &dir.join("consumer.mjs"),
+        "import selected from 'conditional-cjs';\n\
+         console.log('RESULT|' + selected.branch);\n",
+    );
+    write_text(&dir.join("entry.js"), "require('./consumer.mjs');\n");
+
+    let (stdout, stderr, ok) =
+        run_compat_with_env(&dir, "entry.js", &[("NODE_ENV", "development")]);
+    assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
+    assert!(
+        stdout.contains("RESULT|development"),
+        "conditional CommonJS package selected or evaluated the wrong branch\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
 }
 
 /// Finding #9: a falsy ESM default export must be bound as the default, not
