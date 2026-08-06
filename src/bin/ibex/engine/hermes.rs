@@ -16883,6 +16883,98 @@ module.exports = JSON.stringify({
         assert!(!missing.exists());
     }
 
+    /// Diagnostic reproduction for the Exact-reported real-input carrier
+    /// defect (Exact issues/20260805-input-dispatch-no-user-carrier-...):
+    /// a host input activation delivered through ex_hermes_dispatch_event
+    /// seeds the promise-job constrained carrier, and the A/B contrast is
+    /// (a) a capability op in the activation's direct promise chain versus
+    /// (b) the identical op detached across setTimeout(0).
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn input_dispatch_seeded_chain_capability_ab_diagnostic() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        std::fs::write(root.join("existing.txt"), b"payload").unwrap();
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        engine
+            .eval(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__abResults = {
+                    direct: 'pending',
+                    hop: 'pending',
+                    nested: 'pending',
+                    handler: 'pending'
+                  };
+                  var probe = function(slot, next) {
+                    try {
+                      __exactFsStatAsync('/project/existing.txt', 'stat').then(
+                        function() {
+                          globalThis.__abResults[slot] = 'granted';
+                          if (next) next();
+                        },
+                        function(error) {
+                          globalThis.__abResults[slot] =
+                            'denied:' + String(error && (error.code || error.message));
+                          if (next) next();
+                        });
+                    } catch (error) {
+                      globalThis.__abResults[slot] =
+                        'threw:' + String(error && error.message);
+                      if (next) next();
+                    }
+                  };
+                  globalThis.__exactDispatchEvent = function(id, payload) {
+                    globalThis.__abResults.handler = 'ran';
+                    Promise.resolve().then(function() {
+                      probe('direct', function() { probe('nested', null); });
+                    });
+                    setTimeout(function() { probe('hop', null); }, 0);
+                  };
+                  return 'installed';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                let dispatched = unsafe { ex_hermes_dispatch_event(raw, 1, std::ptr::null()) };
+                assert_eq!(dispatched, 0, "dispatch_event failed");
+            })
+            .unwrap();
+        let mut outcome = String::new();
+        for _ in 0..100 {
+            runtime
+                .with_runtime(|raw| {
+                    let _ = unsafe { ex_hermes_poll(raw, current_time_ms() + 50) };
+                })
+                .unwrap();
+            outcome = engine
+                .eval_immediate("JSON.stringify(globalThis.__abResults)")
+                .await
+                .unwrap()
+                .unwrap();
+            if !outcome.contains("pending") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        // Diagnostic assertion intentionally records the observed truth; see
+        // the carrier LLP for the designed semantics.
+        eprintln!("input-dispatch A/B outcome: {outcome}");
+        let parsed: serde_json::Value = serde_json::from_str(&outcome).unwrap();
+        assert_eq!(parsed["hop"], "granted", "setTimeout-hop op outcome");
+        assert_eq!(parsed["direct"], "granted", "direct-chain op outcome");
+        assert_eq!(parsed["nested"], "granted", "nested-chain op outcome");
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     #[cfg(not(feature = "insecure"))]
