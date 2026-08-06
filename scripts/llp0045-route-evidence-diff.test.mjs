@@ -10,7 +10,8 @@
 // step 2's own resolutions, which legitimately retire ambiguity entries.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -293,6 +294,260 @@ test("non-network movement is invisible at --scope network and caught at --scope
   const wide = runGate({ baseline: before, candidate: after, scope: "all" });
   assert.equal(wide.status, 1);
   assert.match(wide.report.unexplained[0].cell, /node\.fs/u);
+});
+
+// --------------------------------------------------------------------------
+// Strict mode (LLP 0049 §3 rule 3 — advance declaration). The candidate
+// catalog may carry `declaredAllowListDigest`, embedded by the generator's
+// `--declared-allow-list` flag BEFORE candidate generation. Precedence rules
+// under test, mirroring the tool's comments:
+//   * strict mode is opt-in via that embedded field, never inferred;
+//   * in strict mode --allow-list is REQUIRED and must hash to the digest;
+//   * a present `proofKind` is validated in every mode;
+//   * proofKind is REQUIRED for `MASKED, NOT NEW` proofs only in strict mode,
+//     so the archived pre-proofKind worked example keeps passing as-is.
+
+const fileDigest = (path) =>
+  `sha256-${createHash("sha256").update(readFileSync(path)).digest("base64url")}`;
+
+const REMOVAL_ENTRY = {
+  edgeId: "surface.builtin.export.node.dns.promises.resolve4.aaaaaaa",
+  field: "route.ambiguousCallees",
+  direction: "removed",
+  value: "cross-source-export-projection:node_dns",
+  sourceSpan: "src/builtins/dns-promises.js:1-10",
+  proof: "authenticated projection join to node_dns",
+};
+
+// A baseline/candidate pair whose only change is REMOVAL_ENTRY's removal; the
+// candidate carries the declared digest of `allowListPath`.
+function strictScenario(allowListPath) {
+  const before = writeJson(catalog([recipe()]));
+  const candidateValue = catalog([
+    recipe({ route: { ...recipe().route, ambiguousCallees: [] } }),
+  ]);
+  candidateValue.declaredAllowListDigest = fileDigest(allowListPath);
+  const after = writeJson(candidateValue);
+  return { before, after };
+}
+
+test("strict mode: the declared-and-matching allow-list passes", () => {
+  const allowList = writeJson({ entries: [REMOVAL_ENTRY] });
+  const { before, after } = strictScenario(allowList);
+  const run = runGate({ baseline: before, candidate: after, allowList });
+  assert.equal(run.status, 0);
+  assert.equal(run.report.result, "PASS");
+  assert.equal(run.report.strictMode, true);
+  assert.equal(run.report.declaredAllowListDigest, fileDigest(allowList));
+});
+
+test("strict mode: a mismatched allow-list fails even if its content is otherwise valid", () => {
+  const declared = writeJson({ entries: [REMOVAL_ENTRY] });
+  const { before, after } = strictScenario(declared);
+  // Same entries, different bytes (a re-authored file): must be rejected.
+  const reauthored = writeJson({ note: "re-authored", entries: [REMOVAL_ENTRY] });
+  const run = runGate({ baseline: before, candidate: after, allowList: reauthored });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /allow-list was not the one declared before generation/u);
+});
+
+test("strict mode: omitting --allow-list fails — a declared candidate cannot be surveyed into a pass", () => {
+  const allowList = writeJson({ entries: [REMOVAL_ENTRY] });
+  const { before, after } = strictScenario(allowList);
+  const run = runGate({ baseline: before, candidate: after });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /strict mode.*--allow-list is required/u);
+});
+
+test("strict mode: an allow-list authored AFTER the diff cannot pass — the point of the mechanism", () => {
+  // The declared list misses the change (it declares nothing). The diff runs,
+  // the author sees the unexplained change, and writes a new allow-list that
+  // covers it perfectly. In strict mode that post-diff list must still fail:
+  // it is not the file whose digest was embedded before generation. The only
+  // sanctioned path is fixing the declared list and REGENERATING.
+  const declared = writeJson({ entries: [] });
+  const { before, after } = strictScenario(declared);
+  const postDiff = writeJson({ entries: [REMOVAL_ENTRY] });
+  const run = runGate({ baseline: before, candidate: after, allowList: postDiff });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /allow-list was not the one declared before generation/u);
+  // And the declared (matching) list does not pass either — the change it
+  // failed to declare stays unexplained. Neither file passes: the gate forces
+  // a regeneration against a corrected declaration.
+  const honest = runGate({ baseline: before, candidate: after, allowList: declared });
+  assert.equal(honest.status, 1);
+  assert.equal(honest.report.unexplainedCount, 1);
+});
+
+test("an undeclared candidate is unchanged by strict mode: MASKED, NOT NEW without proofKind still passes", () => {
+  const before = writeJson(catalog([recipe()]));
+  const after = writeJson(
+    catalog([
+      recipe({
+        route: { ...recipe().route, ambiguousCallees: [...recipe().route.ambiguousCallees, "unresolved-call:callback"] },
+      }),
+    ]),
+  );
+  const allowList = writeJson({
+    entries: [
+      {
+        edgeId: "surface.builtin.export.node.dns.promises.resolve4.aaaaaaa",
+        field: "route.ambiguousCallees",
+        direction: "added",
+        value: "unresolved-call:callback",
+        sourceSpan: "src/builtins/dns.js:10 (the masking site)",
+        proof: "MASKED, NOT NEW. The walker previously early-returned.",
+      },
+    ],
+  });
+  const run = runGate({ baseline: before, candidate: after, allowList });
+  assert.equal(run.status, 0, "non-strict candidates keep pre-proofKind behavior");
+});
+
+test("strict mode: a MASKED, NOT NEW proof without proofKind fails", () => {
+  const allowList = writeJson({
+    entries: [
+      {
+        ...REMOVAL_ENTRY,
+        direction: "added",
+        proof: "MASKED, NOT NEW. Unmasked by the removal next door.",
+      },
+    ],
+  });
+  const { before, after } = strictScenario(allowList);
+  const run = runGate({ baseline: before, candidate: after, allowList });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /carries no proofKind/u);
+});
+
+test("strict mode: a masked-not-new entry with proofKind, added direction, and a masking-site span passes", () => {
+  const allowList = writeJson({
+    entries: [
+      REMOVAL_ENTRY,
+      {
+        edgeId: "surface.builtin.export.node.dns.promises.resolve4.aaaaaaa",
+        field: "route.ambiguousCallees",
+        direction: "added",
+        value: "unresolved-call:callback",
+        proofKind: "masked-not-new",
+        sourceSpan: "src/builtins/dns-promises.js:7 (masking early-return removed at :1-10)",
+        proof: "MASKED, NOT NEW. The projection join made the walker descend past the former early-return.",
+      },
+    ],
+  });
+  const before = writeJson(catalog([recipe()]));
+  const candidateValue = catalog([
+    recipe({
+      route: {
+        ...recipe().route,
+        ambiguousCallees: ["unresolved-call:callback"],
+      },
+    }),
+  ]);
+  candidateValue.declaredAllowListDigest = fileDigest(allowList);
+  const after = writeJson(candidateValue);
+  const run = runGate({ baseline: before, candidate: after, allowList });
+  assert.equal(run.status, 0);
+  assert.equal(run.report.result, "PASS");
+  assert.equal(run.report.explainedCount, 2);
+});
+
+test("proofKind on a non-added direction fails in ANY mode", () => {
+  const path = writeJson(catalog([recipe()]));
+  const allowList = writeJson({
+    entries: [
+      {
+        ...REMOVAL_ENTRY,
+        proofKind: "masked-not-new",
+        proof: "MASKED, NOT NEW. But this entry is a removal.",
+      },
+    ],
+  });
+  const run = runGate({ baseline: path, candidate: path, allowList });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /valid only on direction "added"/u);
+});
+
+test("an unrecognized proofKind fails in ANY mode", () => {
+  const path = writeJson(catalog([recipe()]));
+  const allowList = writeJson({
+    entries: [
+      { ...REMOVAL_ENTRY, direction: "added", proofKind: "totally-new" },
+    ],
+  });
+  const run = runGate({ baseline: path, candidate: path, allowList });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /unrecognized proofKind/u);
+});
+
+test("proofKind masked-not-new whose proof lacks the literal token fails in ANY mode", () => {
+  const path = writeJson(catalog([recipe()]));
+  const allowList = writeJson({
+    entries: [
+      {
+        ...REMOVAL_ENTRY,
+        direction: "added",
+        proofKind: "masked-not-new",
+        proof: "the walker descended further (vocabulary token missing)",
+      },
+    ],
+  });
+  const run = runGate({ baseline: path, candidate: path, allowList });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /requires the proof text to carry the literal token/u);
+});
+
+test("the archived worked example passes EXACTLY as-is against an undeclared candidate", () => {
+  // llp/evidence/0045-allow-list-duplicate-definition-hygiene.json predates
+  // proofKind and carries three literal MASKED, NOT NEW proofs. Its continued
+  // validity is a stated constraint of the strict-mode precedence rules:
+  // proofKind is required only when the candidate declares an allow-list
+  // digest. Reconstruct a minimal baseline/candidate pair realizing exactly
+  // the file's declared changes and run the gate with the file, unmodified.
+  const examplePath = fileURLToPath(
+    new URL(
+      "../llp/evidence/0045-allow-list-duplicate-definition-hygiene.json",
+      import.meta.url,
+    ),
+  );
+  const example = JSON.parse(readFileSync(examplePath, "utf8"));
+  const recipes = example.entries.map((entry, index) => {
+    const cell = entry.edgeId ?? `${entry.edgeIdPrefix}.0abcdef`;
+    const base = {
+      fixtureId: `fixture.${index}`,
+      edgeIds: [cell],
+      actionIds: ["network:connect"],
+      residualReasons: ["no-static-enforcement-terminal"],
+      route: { surfaceObservedKeys: ["k"], ambiguousCallees: [] },
+    };
+    const withValue = (target) => {
+      const copy = structuredClone(base);
+      if (entry.field === "route.ambiguousCallees") {
+        copy.route.ambiguousCallees = [entry.value];
+      } else if (entry.field === "residualReasons") {
+        copy.residualReasons = [...copy.residualReasons, entry.value];
+      } else {
+        throw new Error(`unhandled field in worked example: ${entry.field}`);
+      }
+      return copy;
+    };
+    return entry.direction === "removed"
+      ? { baseline: withValue(), candidate: base }
+      : { baseline: base, candidate: withValue() };
+  });
+  const before = writeJson(catalog(recipes.map(({ baseline }) => baseline)));
+  const after = writeJson(catalog(recipes.map(({ candidate }) => candidate)));
+  const run = runGate({
+    baseline: before,
+    candidate: after,
+    allowList: examplePath,
+    scope: "all",
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.report.result, "PASS");
+  assert.equal(run.report.strictMode, false);
+  assert.equal(run.report.explainedCount, example.entries.length);
+  assert.equal(run.report.staleEntryCount, 0);
 });
 
 test("the whole-catalog residual delta reports collateral movement even at --scope network", () => {

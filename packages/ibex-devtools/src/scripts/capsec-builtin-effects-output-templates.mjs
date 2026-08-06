@@ -21,16 +21,19 @@ export const BUILTIN_EFFECTS_OUTPUT_INVOCATION_SCHEMA =
 export const BUILTIN_EFFECTS_OUTPUT_SOURCE_DESCRIPTOR_KIND =
   "authored-builtin-effects-output";
 
+// node_http 152→112, node_readline 48→39, node_http2 18→0 with the
+// LLP 0049 §4.1 seeding fixes: mis-seeded pure/stub members were carved out
+// of the class-prefix effect specs and the node_http2 effect assertions were
+// withdrawn (the module now has no effects surfaces at all).
 export const BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS = Object.freeze({
-  node_http: 152,
+  node_http: 112,
   node_fs: 70,
   node_net: 68,
   node_tls: 50,
-  node_readline: 48,
+  node_readline: 39,
   exact_sqlite: 35,
   node_dns: 32,
   ws: 28,
-  node_http2: 18,
   node_fs_promises: 13,
   node_tty: 14,
   node_child_process: 8,

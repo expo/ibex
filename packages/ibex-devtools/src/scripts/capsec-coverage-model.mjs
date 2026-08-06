@@ -7487,6 +7487,50 @@ function enforcementSemanticShape(edge) {
 }
 
 /**
+ * Reviewed exact export aliases: the aliased export name resolves to the SAME
+ * function object as the canonical export, so an alias cell is not a second
+ * enforcement boundary and its obligations attach to the canonical cell only.
+ * The alias edges stay in coverage; the shared fixtures carry both edgeIds.
+ *
+ * The join (see buildCoverageModel) verifies at generation time that the two
+ * surfaces still classify to byte-identical semantic edges and fails closed
+ * when they diverge, so this table can never silently coerce two genuinely
+ * different surfaces onto one obligation.
+ *
+ * @ref LLP 0049#41-seeding-fixes-and-instruments-code-no-author-decision-needed — de-duplicate the exact alias cells
+ */
+const REVIEWED_EXACT_EXPORT_ALIAS_ROOTS = Object.freeze([
+  Object.freeze({
+    // src/builtins/net.js:4623 `Stream: Socket,` inside module.exports.
+    aliasRoot: "builtin:export:node_net:Stream",
+    canonicalRoot: "builtin:export:node_net:Socket",
+    proofSourceRef: "src/builtins/net.js#exports:Stream",
+  }),
+  Object.freeze({
+    // src/builtins/ws.js:1185-1186 `module.exports.WebSocketServer =
+    // WebSocketServer; module.exports.Server = WebSocketServer;`.
+    aliasRoot: "builtin:export:ws:Server",
+    canonicalRoot: "builtin:export:ws:WebSocketServer",
+    proofSourceRef: "src/builtins/ws.js#exports:Server",
+  }),
+]);
+
+export function exactExportAliasTarget(observedKey) {
+  for (const alias of REVIEWED_EXACT_EXPORT_ALIAS_ROOTS) {
+    if (observedKey === alias.aliasRoot) {
+      return { canonicalObservedKey: alias.canonicalRoot, alias };
+    }
+    if (observedKey.startsWith(`${alias.aliasRoot}.`)) {
+      return {
+        canonicalObservedKey: `${alias.canonicalRoot}${observedKey.slice(alias.aliasRoot.length)}`,
+        alias,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Identify the actual source-backed effect boundary independently of the API
  * alias that routes to it. Sharing is deliberately conservative: two rows
  * collapse only when their exact reviewed source refs, target branch, backend,
@@ -7494,10 +7538,22 @@ function enforcementSemanticShape(edge) {
  */
 export function enforcementBranchIdentity(edge, branch) {
   if (edge.classification !== "effects") {
+    // A reviewed exact export alias (see REVIEWED_EXACT_EXPORT_ALIAS_ROOTS)
+    // shares the canonical export's surface-branch identity: the aliased
+    // export name resolves to the same object, so there is no second
+    // enforcement boundary to obligate separately.
+    const aliasCanonicalBranchId =
+      branch.enforcementRoute?.kind === "exact-export-alias"
+        ? branch.enforcementRoute.canonicalSurfaceBranchId
+        : undefined;
+    const id = aliasCanonicalBranchId ?? branch.branchId;
     return {
-      id: branch.branchId,
-      key: JSON.stringify(["surface-branch", branch.branchId]),
-      routeKind: "surface-branch",
+      id,
+      key: JSON.stringify(["surface-branch", id]),
+      routeKind:
+        aliasCanonicalBranchId === undefined
+          ? "surface-branch"
+          : "exact-export-alias",
     };
   }
   const sourceRefs = canonicalStringSet(
@@ -8839,6 +8895,200 @@ function builtinModuleInitializationClassification(source) {
   return null;
 }
 
+// Member carve-outs placed BEFORE the receiver-class prefixes below.
+//
+// The `/^receiverclass(?:\.|$)/ -> effect spec` catch-alls mis-seeded pure
+// in-memory members with capability effects (90 network cells measured in
+// LLP 0046 §2; the readline instance is
+// issues/20260801-readline-interface-prefix-seeds-stdio-effect.md). These are
+// exact-string member sets, never widened regexes — a widened regex silently
+// absorbs future members, which is how the defect arose (LLP 0046 §6).
+// Membership was re-derived from the builtin sources at HEAD (the LLP 0046
+// K-cell-verdicts.tsv artifact was not recoverable); every member listed here
+// was verified to reach no native operation, host call, fetch, or live
+// socket/handle method on any path, and to expose no live socket/handle.
+// Members with any doubt were deliberately left on the class prefix.
+// @ref LLP 0049#41-seeding-fixes-and-instruments-code-no-author-decision-needed — carve-outs ordered before class prefixes
+const NODE_HTTP_AGENT_PURE_MEMBER_APIS = new Set([
+  // Agent.getName only concatenates fields of the options argument
+  // (src/builtins/http.js:5737-5749).
+  "agent.getname",
+]);
+
+const NODE_HTTP_CLIENT_REQUEST_PURE_MEMBER_APIS = new Set([
+  // In-memory header/trailer tables, option parsing, and numeric/boolean
+  // getters only (src/builtins/http.js: _implicitHeader override :3029,
+  // _renderHeaders :1503, _resolveConnectionOptions :3926, addTrailers :1522,
+  // appendHeader :3043 -> :2023, getHeader :3049, getHeaderNames :3083,
+  // getHeaders :3073, getRawHeaderNames :3087, hasHeader :3097,
+  // headersSent :1306, removeHeader :3060, setHeader :3034,
+  // setHeaders :1391, writableHighWaterMark :1336, writableLength :1347,
+  // writableNeedDrain :1359, writableObjectMode :1328).
+  "clientrequest._implicitheader",
+  "clientrequest._renderheaders",
+  "clientrequest._resolveconnectionoptions",
+  "clientrequest.addtrailers",
+  "clientrequest.appendheader",
+  "clientrequest.getheader",
+  "clientrequest.getheadernames",
+  "clientrequest.getheaders",
+  "clientrequest.getrawheadernames",
+  "clientrequest.hasheader",
+  "clientrequest.headerssent",
+  "clientrequest.removeheader",
+  "clientrequest.setheader",
+  "clientrequest.setheaders",
+  "clientrequest.writablehighwatermark",
+  "clientrequest.writablelength",
+  "clientrequest.writableneeddrain",
+  "clientrequest.writableobjectmode",
+]);
+
+const NODE_HTTP_CLIENT_REQUEST_STUB_MEMBER_APIS = new Set([
+  // OutgoingMessage.prototype.pipe throws _createCannotPipeError()
+  // unconditionally (src/builtins/http.js:1713).
+  "clientrequest.pipe",
+]);
+
+const NODE_HTTP_SERVER_PURE_MEMBER_APIS = new Set([
+  // Server.listening is a getter over the WeakMap-backed lifecycle record
+  // (src/builtins/http.js:8635 -> :538); no live handle is touched.
+  "server.listening",
+]);
+
+const NODE_HTTP_SERVER_MESSAGE_PURE_MEMBER_APIS = new Set([
+  // ServerIncomingMessage members that only operate the in-memory manual
+  // body queue, header bag, or lifecycle flags (src/builtins/http.js:
+  // _addHeaderLine :2722 -> :1944, _emitHttpClose :8123,
+  // _emitManualEnd :8148, _flushManualData :8164,
+  // _scheduleManualReadable :8133, isPaused :8230, pause override :8233,
+  // setEncoding :8113). The socket-touching members (resume, read, on,
+  // destroy, setTimeout, ...) stay on the class prefix.
+  "serverincomingmessage._addheaderline",
+  "serverincomingmessage._emithttpclose",
+  "serverincomingmessage._emitmanualend",
+  "serverincomingmessage._flushmanualdata",
+  "serverincomingmessage._schedulemanualreadable",
+  "serverincomingmessage.ispaused",
+  "serverincomingmessage.pause",
+  "serverincomingmessage.setencoding",
+]);
+
+const NODE_HTTP_SERVER_MESSAGE_CONSTRUCTOR_APIS = new Set([
+  // Field-initializing constructor only (src/builtins/http.js:7998); the
+  // socket arrives later via assignment, so construction allocates an
+  // unbound local object.
+  "serverincomingmessage",
+  "serverincomingmessage.constructor",
+]);
+
+const NODE_HTTP_SERVER_RESPONSE_PURE_MEMBER_APIS = new Set([
+  // In-memory header/trailer tables and numeric/boolean getters only
+  // (src/builtins/http.js: _ensureImplicitHeaders :6959,
+  // _implicitHeader :6817, _renderHeaders :6871, addTrailers :6940 -> :1522,
+  // appendHeader :6813 -> :1432, getHeader :6768, getHeaderNames :6796,
+  // getHeaders :6789, getRawHeaderNames :6799, hasHeader :6808,
+  // headersSent :6662, removeHeader :6772, setHeader :6750,
+  // setHeaders :1391, writableHighWaterMark :6684, writableLength :1347,
+  // writableNeedDrain :6676, writableObjectMode :1328, writeHead :6822).
+  // The sealed-field owner-authentication reads these members perform are
+  // attribution predicates, not external effects; every member that can
+  // flush, write, or expose the socket stays on the class prefix.
+  "serverresponse._ensureimplicitheaders",
+  "serverresponse._implicitheader",
+  "serverresponse._renderheaders",
+  "serverresponse.addtrailers",
+  "serverresponse.appendheader",
+  "serverresponse.getheader",
+  "serverresponse.getheadernames",
+  "serverresponse.getheaders",
+  "serverresponse.getrawheadernames",
+  "serverresponse.hasheader",
+  "serverresponse.headerssent",
+  "serverresponse.removeheader",
+  "serverresponse.setheader",
+  "serverresponse.setheaders",
+  "serverresponse.writablehighwatermark",
+  "serverresponse.writablelength",
+  "serverresponse.writableneeddrain",
+  "serverresponse.writableobjectmode",
+  "serverresponse.writehead",
+]);
+
+const NODE_HTTP_SERVER_MESSAGE_STUB_MEMBER_APIS = new Set([
+  // OutgoingMessage.prototype.pipe throws _createCannotPipeError()
+  // unconditionally (src/builtins/http.js:1712-1713).
+  "serverresponse.pipe",
+]);
+
+// node_http2: the four producers throw unconditionally
+// (src/builtins/http2.js declarations :250/:254/:258/:262, throw bodies
+// :251/:255/:259/:263), so no Http2ServerRequest/Http2ServerResponse is ever
+// constructed with a live stream anywhere in src/ — `this.stream` can only be
+// caller-supplied. The members below therefore either compute purely over
+// in-memory header/body state or exercise only that already-held caller
+// object. @ref LLP 0046#node_http2-is-1818-mis-seeded-0-cap
+const NODE_HTTP2_RETAINED_WRAPPER_MEMBER_APIS = new Set([
+  // Delegate to the caller-supplied this.stream only (src/builtins/http2.js:
+  // request setTimeout :367, pause :376, resume :381, destroy :386;
+  // response end :478, flushHeaders :445, write :458).
+  "http2serverrequest.destroy",
+  "http2serverrequest.pause",
+  "http2serverrequest.resume",
+  "http2serverrequest.settimeout",
+  "http2serverresponse.end",
+  "http2serverresponse.flushheaders",
+  "http2serverresponse.write",
+]);
+
+const NODE_HTTP2_PURE_MEMBER_APIS = new Set([
+  // In-memory header-map operations only (src/builtins/http2.js:
+  // getHeader :413, getHeaderNames :417, hasHeader :421, removeHeader :425,
+  // setHeader :408, writeHead :430).
+  "http2serverresponse.getheader",
+  "http2serverresponse.getheadernames",
+  "http2serverresponse.hasheader",
+  "http2serverresponse.removeheader",
+  "http2serverresponse.setheader",
+  "http2serverresponse.writehead",
+]);
+
+// ws: Server === WebSocketServer (src/builtins/ws.js:1185-1186), so both
+// spellings appear here; the row-level alias join collapses them onto the
+// canonical WebSocketServer cells.
+const WS_SERVER_STUB_MEMBER_APIS = new Set([
+  // _handle is an accessor whose getter and setter both throw a
+  // sealed-private refusal (src/builtins/ws.js:182-183); the real handle
+  // lives only in the module WeakMap state.
+  "server._handle",
+  "websocketserver._handle",
+]);
+
+const WS_SERVER_PURE_MEMBER_APIS = new Set([
+  // _listening is an accessor returning the plain boolean state.listening
+  // (src/builtins/ws.js:187); its setter throws and no handle is exposed.
+  "server._listening",
+  "websocketserver._listening",
+]);
+
+const NODE_READLINE_INTERFACE_PURE_MEMBER_APIS = new Set([
+  // In-memory line/history/kill-ring/undo state and prompt-string accessors
+  // only (src/builtins/readline.js: _addHistory :968, _getPromptText :739,
+  // _pushUndoSnapshot :759, _rememberKill :768, _resetHistorySearch :775,
+  // _wordLeftIndex :849, _wordRightIndex :866, getPrompt :1372,
+  // setPrompt :1368). Anything that can reach _refreshLine/_writeToOutput
+  // or the input stream stays on the class prefix.
+  "interface._addhistory",
+  "interface._getprompttext",
+  "interface._pushundosnapshot",
+  "interface._rememberkill",
+  "interface._resethistorysearch",
+  "interface._wordleftindex",
+  "interface._wordrightindex",
+  "interface.getprompt",
+  "interface.setprompt",
+]);
+
 function builtinExportClassification(surface) {
   const source = String(surface.metadata?.sourceKey ?? "").toLowerCase();
   const exported = String(surface.metadata?.exportName ?? "").toLowerCase();
@@ -9264,6 +9514,9 @@ function builtinExportClassification(surface) {
       if (api === "clientrequest._abortsignallistener") {
         return nonCapabilitySpec("authority-release", "WP6");
       }
+      if (NODE_HTTP_AGENT_PURE_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+      }
       if (/^agent(?:\.|$)/u.test(api)) {
         return optionalNetworkEffectSpec(
           "network:connect",
@@ -9275,6 +9528,12 @@ function builtinExportClassification(surface) {
       }
       if (/^clientrequestcleartimeout$/u.test(name)) {
         return nonCapabilitySpec("authority-control-plane", "WP6");
+      }
+      if (NODE_HTTP_CLIENT_REQUEST_PURE_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+      }
+      if (NODE_HTTP_CLIENT_REQUEST_STUB_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("unsupported-throwing-stub", "WP6");
       }
       if (/^clientrequest(?:\.|$)/u.test(api)) {
         return optionalNetworkEffectSpec(
@@ -9304,12 +9563,27 @@ function builtinExportClassification(surface) {
           lifetimeContract: "listener",
         });
       }
+      if (NODE_HTTP_SERVER_PURE_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+      }
       if (/^server(?:\.|$)/u.test(api)) {
         return optionalNetworkEffectSpec(
           "network:listen",
           "network.http-server.operation",
           { lifetimeContract: "listener" },
         );
+      }
+      if (NODE_HTTP_SERVER_MESSAGE_CONSTRUCTOR_APIS.has(api)) {
+        return nonCapabilitySpec("unbound-owned-resource", "WP6");
+      }
+      if (NODE_HTTP_SERVER_MESSAGE_PURE_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+      }
+      if (NODE_HTTP_SERVER_RESPONSE_PURE_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+      }
+      if (NODE_HTTP_SERVER_MESSAGE_STUB_MEMBER_APIS.has(api)) {
+        return nonCapabilitySpec("unsupported-throwing-stub", "WP6");
       }
       if (/^(?:serverincomingmessage|serverresponse)(?:\.|$)/u.test(api)) {
         return optionalNetworkEffectSpec(
@@ -9352,23 +9626,36 @@ function builtinExportClassification(surface) {
   }
 
   if (source === "node_http2") {
-    if (/^connect$/u.test(name)) {
-      return effectSpec(["network:connect"], "network", "WP6", {
-        lifetimeContract: "socket-stream",
-      });
+    // The runtime has no native HTTP/2 support: all four producers throw
+    // unconditionally (src/builtins/http2.js declarations :250/:254/:258/:262,
+    // throw bodies :251/:255/:259/:263). The former network:connect /
+    // network:listen effect assertions here claimed effects the
+    // implementation cannot produce (LLP 0046 §2) and are withdrawn.
+    // @ref LLP 0049#41-seeding-fixes-and-instruments-code-no-author-decision-needed — node_http2 effect assertions withdrawn
+    if (
+      /^(?:connect|createserver|createsecureserver|performserverhandshake)$/u.test(
+        name,
+      )
+    ) {
+      return nonCapabilitySpec("unsupported-throwing-stub", "WP6");
     }
-    if (/^(?:createserver|createsecureserver)$/u.test(name)) {
+    if (/^(?:http2serverrequest|http2serverresponse)$/u.test(name)) {
+      // Field-initializing constructors (src/builtins/http2.js:347, :392);
+      // `this.stream` is caller-supplied and nothing in src/ constructs
+      // these with a live stream.
       return nonCapabilitySpec("unbound-owned-resource", "WP6");
     }
-    if (/^performserverhandshake$/u.test(name)) {
-      return effectSpec(["network:listen"], "network", "WP6", {
-        lifetimeContract: "listener",
-      });
+    if (NODE_HTTP2_RETAINED_WRAPPER_MEMBER_APIS.has(api)) {
+      return nonCapabilitySpec("retained-object-wrapper", "WP6");
     }
-    if (/^(?:http2serverrequest|http2serverresponse)(?:\.|$)/u.test(api)) {
-      return effectSpec(["network:listen"], "network", "WP6", {
-        lifetimeContract: "socket-stream",
-      });
+    if (api === "http2serverresponse.createpushresponse") {
+      // Not a stub: it delivers an ERR_HTTP2_UNSUPPORTED error to the
+      // callback asynchronously (src/builtins/http2.js:508-511) and never
+      // touches the stream or any native operation.
+      return nonCapabilitySpec("callback-attribution-carrier", "WP6");
+    }
+    if (NODE_HTTP2_PURE_MEMBER_APIS.has(api)) {
+      return nonCapabilitySpec("pure-in-memory-compute", "WP6");
     }
     if (
       /^(?:constants|getdefaultsettings|getpackedsettings|getunpackedsettings|sensitiveheaders)$/u.test(
@@ -9595,6 +9882,12 @@ function builtinExportClassification(surface) {
         lifetimeContract: "socket-stream",
       });
     }
+    if (WS_SERVER_STUB_MEMBER_APIS.has(api)) {
+      return nonCapabilitySpec("unsupported-throwing-stub", "WP6");
+    }
+    if (WS_SERVER_PURE_MEMBER_APIS.has(api)) {
+      return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+    }
     if (/server|websocketserver/u.test(name)) {
       return effectSpec(["network:listen"], "network", "WP6", {
         lifetimeContract: "listener",
@@ -9640,6 +9933,11 @@ function builtinExportClassification(surface) {
     }
     if (/^interface\._on(?:data|end|keypress)$/u.test(api)) {
       return readlineOperationEffectSpec("stdio.readline.delivery-streams");
+    }
+    if (NODE_READLINE_INTERFACE_PURE_MEMBER_APIS.has(api)) {
+      // issues/20260801-readline-interface-prefix-seeds-stdio-effect.md —
+      // pure Interface.* members carved out before the class prefix.
+      return nonCapabilitySpec("pure-in-memory-compute", "WP7");
     }
     if (/^interface(?:\.|$)/u.test(api)) {
       return readlineOperationEffectSpec();
@@ -15531,6 +15829,89 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     const enforcement = enforcementBranchIdentity(edge, row);
     row.enforcementBranchId = enforcement.id;
     row.fixtureObligations = fixtureObligationsForBranch(edge, enforcement.id);
+  }
+  // Reviewed exact-export-alias join (runs after the static-call-graph
+  // terminal rewrite so it copies each canonical row's FINAL route). The
+  // aliased export name resolves to the same function object as the
+  // canonical export, so the alias row adopts the canonical enforcement
+  // identity and fixture obligations; fixture plans then merge the two cells
+  // onto one set of rows carrying both edgeIds. Every join is verified
+  // against the current classification output and fails closed on
+  // divergence.
+  // @ref LLP 0049#41-seeding-fixes-and-instruments-code-no-author-decision-needed — de-duplicate the exact alias cells
+  {
+    const rowsByObservedKey = new Map();
+    for (const row of implementationRows) {
+      const rows = rowsByObservedKey.get(row.observedKey) ?? [];
+      rows.push(row);
+      rowsByObservedKey.set(row.observedKey, rows);
+    }
+    const strippedEdgeShape = (edge) => {
+      // Both edges are built by the same semanticEdge construction path, so
+      // insertion order is deterministic and plain JSON is a sound equality
+      // witness here. `id`, `surface`, and the id-derived `atomicityGroup`
+      // are the identity of the cell itself and are the only fields allowed
+      // to differ between an alias and its canonical export.
+      const {
+        id: _id,
+        surface: _surface,
+        atomicityGroup: _atomicityGroup,
+        ...rest
+      } = edge;
+      return JSON.stringify(rest);
+    };
+    for (const row of implementationRows) {
+      const target = exactExportAliasTarget(row.observedKey);
+      if (target === null) continue;
+      const edge = edgeById.get(row.edgeId);
+      const candidates = (
+        rowsByObservedKey.get(target.canonicalObservedKey) ?? []
+      ).filter(
+        (candidate) =>
+          candidate.targetVariant === row.targetVariant &&
+          JSON.stringify(candidate.targetApplicability) ===
+            JSON.stringify(row.targetApplicability) &&
+          (candidate.backend ?? null) === (row.backend ?? null) &&
+          (candidate.implementationDisposition ?? null) ===
+            (row.implementationDisposition ?? null) &&
+          (candidate.stubDisposition ?? null) ===
+            (row.stubDisposition ?? null),
+      );
+      if (candidates.length !== 1) {
+        throw new Error(
+          `${row.observedKey}: reviewed exact export alias matched ${candidates.length} canonical rows at ${target.canonicalObservedKey}; the alias table is stale`,
+        );
+      }
+      const canonical = candidates[0];
+      const canonicalEdge = edgeById.get(canonical.edgeId);
+      if (strippedEdgeShape(edge) !== strippedEdgeShape(canonicalEdge)) {
+        throw new Error(
+          `${row.observedKey}: reviewed exact export alias diverges semantically from ${target.canonicalObservedKey}; the alias table is stale`,
+        );
+      }
+      row.enforcementRoute = {
+        kind: "exact-export-alias",
+        proofPaths: canonicalStringSet([
+          `${row.observedKey} -> ${target.canonicalObservedKey}`,
+          ...(canonical.enforcementRoute?.proofPaths ?? []),
+        ]),
+        // proofSourceRefs must equal the row's own reviewed refs (contract
+        // invariant); the alias assignment itself is named by the reviewed
+        // table's proofSourceRef and the alias hop in proofPaths.
+        proofSourceRefs: [...row.sourceRefs],
+        sourceRefs: [
+          ...(canonical.enforcementRoute?.sourceRefs ?? canonical.sourceRefs),
+        ],
+        terminalObservedKey:
+          canonical.enforcementRoute?.terminalObservedKey ??
+          canonical.observedKey,
+        ...(canonicalEdge.classification === "effects"
+          ? {}
+          : { canonicalSurfaceBranchId: canonical.branchId }),
+      };
+      row.enforcementBranchId = canonical.enforcementBranchId;
+      row.fixtureObligations = [...canonical.fixtureObligations];
+    }
   }
   const enforcementKeys = new Map();
   for (const row of implementationRows) {

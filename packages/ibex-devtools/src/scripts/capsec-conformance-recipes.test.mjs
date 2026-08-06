@@ -422,7 +422,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_765);
+    // LLP 0049 §4.1 seeding fixes: the class-prefix carve-outs, the
+    // node_http2 effect-assertion withdrawal, and the exact-export-alias
+    // join (net.Stream ≡ net.Socket, ws.Server ≡ ws.WebSocketServer)
+    // deliberately reduced the denominator; the full delta is explained in
+    // llp/evidence/0049-allow-list-phase0-seeding.json.
+    expect(recipes.summary.requiredFixtures).toBe(22_505);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -475,11 +480,14 @@ describe("exact-target CapSec executable recipes", () => {
     // stopped at the pinned parent accessor before nested state is reachable.
     // Five direct environment-write receipts bind one exact principal-overlay
     // name and value to the armed __exactSetEnv JSI source.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_931);
+    // −5 from the exact-export-alias join: the executable net.Stream.*
+    // no-decision probes were byte-identical duplicates of the still
+    // executable net.Socket.* probes and merged onto them (LLP 0049 §4.1).
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_926);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_124);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_710);
+    expect(recipes.summary.unresolvedFixtures).toBe(15_455);
     expect(
       recipes.summary.residualReasons[
         "builtin-export-requires-deprecation-warning"
@@ -620,7 +628,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_424);
+    // Moved with the LLP 0049 §4.1 seeding fixes (same mechanism as the
+    // Apple pin above; the delta is target-independent model accounting).
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_164);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -677,9 +687,10 @@ describe("exact-target CapSec executable recipes", () => {
     // final armed runtime gate.
     // The same five direct environment-write receipts exercise Windows' exact
     // selected __exactSetEnv source branch independently.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_565);
+    // −5: same exact-export-alias join as the Apple pin above.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_560);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_110);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_749);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(15_494);
     expect(
       windowsRecipes.summary.residualReasons[
         "builtin-export-requires-deprecation-warning"
@@ -1954,12 +1965,16 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 513,
-      "generation-recheck": 513,
-      "principal-restore": 513,
-      "snapshot-mismatch-deny": 513,
-      "cannot-widen-authority": 536,
-      "post-lockdown-invariant": 536,
+      // +1 each: Http2ServerResponse.createPushResponse now carries the
+      // callback-attribution-carrier rationale (LLP 0049 §4.1). −2 on the
+      // effects-only pair: two mis-seeded cells left the effects
+      // classification in the same change.
+      "attribution-missing-deny": 514,
+      "generation-recheck": 514,
+      "principal-restore": 514,
+      "snapshot-mismatch-deny": 514,
+      "cannot-widen-authority": 534,
+      "post-lockdown-invariant": 534,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -5994,7 +6009,10 @@ describe("exact-target CapSec executable recipes", () => {
       node_http: 13,
       node_https: 3,
       node_module: 3,
-      node_net: 27,
+      // 22 = 27 − 5: the net.Stream.* duplicates merged onto their
+      // canonical net.Socket.* cells via the reviewed exact-export-alias
+      // join (LLP 0049 §4.1; src/builtins/net.js:4623 `Stream: Socket,`).
+      node_net: 22,
       node_readline: 3,
       node_tls: 9,
       node_v8: 1,
@@ -6587,14 +6605,17 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
           "node_net" &&
         new Set([
+          // Stream.close / Stream.resetAndDestroy no longer author separate
+          // probes: net.Stream is the same function object as net.Socket
+          // (src/builtins/net.js:4623) and the reviewed exact-export-alias
+          // join attaches their obligations to the Socket cells, whose
+          // probes below now carry both edgeIds (LLP 0049 §4.1).
           "Server.close",
           "Socket.close",
           "Socket.resetAndDestroy",
-          "Stream.close",
-          "Stream.resetAndDestroy",
         ]).has(recipe.publicSurfaceProbe.invocation.exportName),
     );
-    expect(idleNetTerminalCalls).toHaveLength(5);
+    expect(idleNetTerminalCalls).toHaveLength(3);
     expect(
       idleNetTerminalCalls.every(
         (recipe) =>

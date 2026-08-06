@@ -58,6 +58,8 @@
     "test:portable-hermes-physical-promotion": "node --test scripts/portable-engine-physical-promotion.test.mjs scripts/portable-engine-physical-promotion-workflow.test.mjs && bun test packages/ibex-devtools/src/scripts/generate-capsec-portable-promotion-target-cells.test.mjs packages/ibex-devtools/src/scripts/capsec-portable-promotion-bundle.test.mjs",
     "test:hermes-publisher-isolation": "node --test scripts/hermes-artifacts-workflow-security.test.mjs",
     "test:llp0045-route-evidence-gate": "node --test scripts/llp0045-route-evidence-diff.test.mjs",
+    "test:capsec-terminal-diff": "node --test scripts/capsec-terminal-evidence-diff.test.mjs",
+    "test:capsec-scope-measurement": "node --test scripts/capsec-scope-measurement.test.mjs",
     "test:app-bound-schemas": "node --test scripts/app-bound-schemas.test.mjs",
     "check:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --check",
     "check:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check",

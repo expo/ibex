@@ -271,9 +271,12 @@ describe("Exact fixture-evidence pilot", () => {
       cells: 7_580,
       conformantCells: 1,
       incompleteCells: 7_579,
-      requiredFixtures: 23_765,
+      // Moved with the LLP 0049 §4.1 seeding fixes (carve-outs, http2
+      // withdrawal, exact-export-alias join); the full delta is explained in
+      // llp/evidence/0049-allow-list-phase0-seeding.json.
+      requiredFixtures: 22_505,
       passedFixtures: 9,
-      missingFixtures: 23_756,
+      missingFixtures: 23_144,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(

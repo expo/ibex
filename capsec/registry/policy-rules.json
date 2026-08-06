@@ -860,6 +860,11 @@
         "id": "unbound-owned-resource",
         "predicate": "allocate-an-unbound-unconnected-resource-without-contacting-an-external-peer-or-namespace",
         "rationale": "Allocating an unbound local resource carries no external authority until a later bind, connect, transfer, or use operation."
+      },
+      {
+        "id": "unsupported-throwing-stub",
+        "predicate": "every-invocation-path-throws-before-reaching-any-external-effect-so-the-authorable-obligation-is-a-refusal-probe-observing-zero-capability-decisions",
+        "rationale": "This surface unconditionally throws (an unsupported-feature or sealed-private refusal) before any external operation can begin; it exposes no authority, and its honest conformance obligation is a refusal probe that observes the throw together with zero capability decisions, not an effect assertion the implementation cannot produce."
       }
     ],
     "implicitAuthorityRules": [

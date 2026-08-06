@@ -700,6 +700,9 @@ compliance if a §3 rule 1 figure lacks a row.
 | LLP 0044 day-one scope measurement (superseded by 2026-08-05 re-measure) | llp/evidence/0044-scope-measurement-09e6aece….json | §2 |
 | representative batch timing (16.24 s) | llp/evidence/0044-batch-timing-501504f6….json | §6 |
 | paired allow-list worked example | llp/evidence/0045-allow-list-duplicate-definition-hygiene.json | §3 |
-| Phase 0 post-seeding re-measurement | *(added at Phase 0 exit)* | §4 |
+| Phase 0 post-seeding scope measurement (fs+env+process unchanged: 610 / 537 clean / 73 poisoned / 3,927 rows) | llp/evidence/0049-scope-measurement-postseeding-df1da4b5….json | §4 |
+| Phase 0 seeding allow-list (rule 3, strict mode, 1,544 entries, 2,722/2,722 explained) | llp/evidence/0049-allow-list-phase0-seeding.json | §4 |
+| Phase 0 terminal allow-list (rule 7, 463 entries) | llp/evidence/0049-terminal-allow-list-phase0-seeding.json | §4 |
+| Phase 0 post-fix catalog digest (`22,505 / 3,926 / 3,124 / 15,455`; network Lane B 284 → 216) | `sha256-sMzObEF9jpCF5fpgJ4FIigkj05e2-FjFsrNqj9t3mhQ` (re-derivable by regen at the Phase 0 commit) | §4 |
 | calibration tranche report (authoring slope + inventory growth rate) | *(added during Phase 2)* | §6 |
 | per-batch evidence envelopes | llp/evidence/0049-batch-`<template-class>`-`<digest>`.json | §6 |

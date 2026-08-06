@@ -1380,12 +1380,15 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         effectKeys.has(JSON.stringify(Object.values(row.key))),
       ),
     );
-    expect(effects).toHaveLength(565);
+    // 498 = 565 − 67: the LLP 0049 §4.1 seeding fixes moved 67 mis-seeded
+    // cells out of the effects classification (class-prefix carve-outs plus
+    // the node_http2 effect-assertion withdrawal).
+    expect(effects).toHaveLength(498);
     expect(
       effects.filter(
         (row) => row.probe.sourceDescriptor.invocation.cohort === "registrar",
       ),
-    ).toHaveLength(565);
+    ).toHaveLength(498);
     expect(
       effects.filter(
         (row) =>

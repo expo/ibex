@@ -38,20 +38,36 @@ further 42 are exact export aliases of other counted cells (296 unique).
 **Prerequisite, not parallel cleanup** — certifying a mis-seeded cell would
 certify a claim that is false about the source:
 
-- [ ] Fix `builtinExportClassification` (capsec-coverage-model.mjs:8788): member
-      carve-outs *before* the receiver-class prefixes, following the existing
-      :9207/:9216/:9219 pattern. Prefer exact-string member sets over widened
-      regexes — a widened regex silently absorbs future members, which is how
-      this arose.
-- [ ] New `unsupported-throwing-stub` disposition for the 9 refusal cells —
-      `pure-in-memory-compute` is the wrong rationale for a throw.
-- [ ] Withdraw the `node_http2` effect assertion: 18/18 cells mis-seeded, 0
-      capability-bearing, every producer throws (http2.js:250/254/258/262). The
-      model asserts an effect the implementation does not have.
-- [ ] De-duplicate the 42 alias cells (`net.Stream.*` ≡ `net.Socket.*`
-      net.js:4623; `ws.Server*` ≡ `ws.WebSocketServer*` ws.js:1185-1186).
+- [x] Fix `builtinExportClassification`: member carve-outs *before* the
+      receiver-class prefixes, exact-string member sets — **landed 2026-08-06**
+      (LLP 0049 Phase 0). Caveat recorded in the allow-list note: the LLP 0046
+      `K-cell-verdicts.tsv` could not be found, so membership was re-derived
+      from `src/builtins` at HEAD with a conservative any-doubt-stays-seeded
+      rule; measured movement 82 cells (vs the 90 the 2026-08-01 measurement
+      predicted — surface growth since then accounts for part of the gap).
+      Deliberately-left-seeded residuals are enumerated in
+      `llp/evidence/0049-allow-list-phase0-seeding.json`.
+- [x] New `unsupported-throwing-stub` disposition — **landed 2026-08-06** as a
+      non-capability rationale id in `capsec/registry/policy-rules.json` (8
+      cells at HEAD, not 9: the four http2 producers, the two `.pipe` stubs,
+      the two ws `_handle` accessors; each keeps an authorable
+      observe-the-throw obligation, nothing retired; closed vocabularies
+      untouched).
+- [x] Withdraw the `node_http2` effect assertions — **landed 2026-08-06**, all
+      three sites (connect, performServerHandshake, and the class prefix), not
+      just the one the original note pinned.
+- [x] De-duplicate the alias cells — **landed 2026-08-06** via a reviewed
+      exact-export-alias table + fail-closed join (59 cells at HEAD — net 50,
+      ws 9 — vs the 42 the 2026-08-01 measurement counted; surface growth).
+      Obligations attach to the canonical cell; alias edgeIds stay covered on
+      the shared fixtures.
 - [ ] Re-measure, then author the successor plan — organized by **analyzer
-      capability**, not by ambiguity-string bucket.
+      capability**, not by ambiguity-string bucket. *(Partially discharged
+      2026-08-06: post-seeding network accounting is measured — 507
+      network-asserting cells, network Lane B 284 → 216 — but the successor
+      plan still MUST NOT be authored until the origin-policy decision above
+      is made; that decision is deliberately NOT part of LLP 0049's Phase 0
+      packet.)*
 
 **Landed 2026-08-05:**
 

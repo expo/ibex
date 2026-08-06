@@ -672,6 +672,13 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
   const ambiguousCallees = new Set();
   const surfaceObservedKeys = new Set();
   for (const row of implementationRows) {
+    if (row.enforcementRoute?.kind === "exact-export-alias") {
+      // A reviewed exact export alias is not a second invocation surface:
+      // the aliased name resolves to the same object, the probe exercises
+      // the canonical export, and the alias cell stays covered through the
+      // shared enforcement identity (its edgeId remains on this plan).
+      continue;
+    }
     surfaceObservedKeys.add(row.observedKey);
     const live = liveByObservedKey.get(row.observedKey);
     const routeEvidence = live?.metadata?.enforcementRouteEvidence;
