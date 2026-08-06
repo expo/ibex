@@ -40,7 +40,7 @@ coverage (Fable 1 / Codex 2); every phase now has a written entry gate and
 the Summary's "gates are commands" claim is scoped to what is actually a
 command (Fable 2 / Codex 5); Phase 0's exit requires the full decision
 packet — items 1–4, 6, 8, 9, 10 — not just 1–4, and its two tracks are
-explicitly serialized (Codex 3 / Fable Q2); the 74 poisoned cells join
+explicitly serialized (Codex 3 / Fable Q2); the 73 poisoned cells join
 Phase 1's exit gate (Fable 3); Phase 2 is split into diagnostic authoring
 vs. Phase-3-only authoritative execution, with early tranches ordered
 toward zero-poisoned families and the re-cut waste ceiling stated
@@ -147,13 +147,28 @@ rule 1. Do not reuse these numbers without regenerating; the catalog grew
 | unresolved | 16,710 |
 | adapter-executable (non-promotable) | 11,680 |
 
-**The scope, re-measured 2026-08-05** (recorded in
-issues/20260728-capsec-public-surface-evidence-backlog.md by the
-`capsec-fs-env-evidence` landing): fs+env+process is **610 cells — 536
-clean, 74 poisoned** (Lane B/C/D rows authoring cannot clear), with
-**3,927 clean authorable rows across 491 surfaces in 81 template classes**;
-after the first landed tranche, **3,922 rows / 490 surfaces / 80 classes**
-remain. LLP 0044 §9's day-one figures (513 cells / 3,256 rows / 64 classes)
+**The scope, currently measured:** fs+env+process is **610 cells — 537
+clean, 73 poisoned** (Lane B/C/D rows authoring cannot clear), with
+**3,927 clean authorable rows across 491 surfaces in 81 template
+classes**. This is the Phase 0 post-seeding measurement recorded in
+`llp/evidence/0049-scope-measurement-postseeding-df1da4b5….json` and
+indexed in §11.
+
+> **Denominator note (2026-08-06).** Earlier passages of this document
+> said "536 clean / 74 poisoned," measured 2026-08-05 and recorded in
+> `issues/20260728-capsec-public-surface-evidence-backlog.md` by the
+> `capsec-fs-env-evidence` landing. That was the
+> **pre-callback-attribution** state; the callback-argument attribution
+> fix in the surface-inventory walker moved one cell from poisoned to
+> clean, giving today's 537/73. Every "74" in this document has been
+> re-pointed to 73. The same 2026-08-05 passage also recorded
+> **3,922 rows / 490 surfaces / 80 classes** remaining after the first
+> landed tranche; the post-seeding re-measurement supersedes it at
+> 3,927/491/81, and §6's worklist figure is re-derived at entry per
+> rule 5 regardless. Per §3 rule 5 all such figures are snapshots and
+> must be re-derived at each gate, not quoted from here.
+
+LLP 0044 §9's day-one figures (513 cells / 3,256 rows / 64 classes)
 are superseded — the drift of +671 rows / +17 classes in five days is
 itself the argument for §3 rule 5.
 
@@ -425,9 +440,9 @@ The scope artifact's companion artifacts — the expansion diff and the
 rename **/split/merge** mappings — each carry their own schema and digest
 domain, per LLP 0044 §2.
 
-### 5.2 Poisoned-cell disposition (the 74)
+### 5.2 Poisoned-cell disposition (the 73)
 
-The scope unit is the complete cell and families are in-or-out, so the 74
+The scope unit is the complete cell and families are in-or-out, so the 73
 poisoned cells cannot be silently dropped. Two sanctioned routes, pursued
 in parallel with the join matrix:
 
@@ -445,7 +460,7 @@ in parallel with the join matrix:
 Only audit outcomes that alter the scope grammar, the obligation
 vocabulary, or the selected scope enter the pre-code review package; the
 audits do not gate unrelated gate plumbing. They **do** gate scope freeze:
-see this phase's exit gate. If neither route disposes of all 74, the scope
+see this phase's exit gate. If neither route disposes of all 73, the scope
 is re-cut on the Phase 0 measurement — see kill criteria, §9.
 
 ### 5.3 Review, then gate code
@@ -474,10 +489,10 @@ LLP 0044 defines as **diagnostic, never claim-upgrading**.
 Exit gate: review artifacts under `llp/reviews/`; register item 5 put to
 the author and decided (rejection is a §9 diversion, not a gate pass);
 gate code landed with its adversarial fixtures green; `check:secure-mode`
-green; **§5.2 disposition complete** — each of the 74 poisoned cells is
+green; **§5.2 disposition complete** — each of the 73 poisoned cells is
 audit-cleared, grammar-excluded under the reviewed extension, or covered
 by a decided scope re-cut. `unresolved-in-scope === 0` is unreachable at
-Phase 3 while any of the 74 lacks a disposition, so this phase does not
+Phase 3 while any of the 73 lacks a disposition, so this phase does not
 exit without one.
 
 ## 6. Phase 2 — The authoring campaign (parallel with Phase 1)
@@ -498,7 +513,7 @@ parallelism:
   holds for every Phase 1 design outcome except one: the §5.2/§9 scope
   re-cut, under which authored rows in dropped families were not owed —
   and because a single poisoned cell can drop its whole family, the
-  74-of-610 cell ratio is **not** a ceiling on wasted rows. The
+  73-of-610 cell ratio is **not** a ceiling on wasted rows. The
   mitigation is operational: **early tranches go to families with zero
   poisoned cells** until §5.2 reports (rows-per-class-descending ordering
   applies within that constraint), and calibration records the count of
@@ -637,7 +652,7 @@ loops (LLP 0026–0045) ran 3–8 rounds over 3–10 days.
   re-projection past the 8-week line, re-opens item 9 — repeated
   "healthy" pauses must not make the program unbounded without a
   decision.
-- The 74 poisoned cells survive both audit lanes and the grammar-extension
+- The 73 poisoned cells survive both audit lanes and the grammar-extension
   review → re-cut the scope on the Phase 0 measurement; if no family
   subset both survives poisoning and is worth advertising, item 1 returns
   to the author.
