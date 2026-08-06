@@ -1,10 +1,14 @@
 # LLP 0051: Runtime Entry Hygiene at the Input Dispatch Ingress and Carrier Hop Consistency
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Implemented
 **Systems:** Engine, Host ABI, Runtime, CapSec
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-08-06
+**Revised:** 2026-08-06 (Charlie approved the entry-hygiene fix landing
+2026-08-06; user-activation tokens deferred as rail-3 follow-up. Design A
+and the §B/§C follow-up issues land to main; §B classification and §C
+hardening remain open in `issues/`)
 **Revised:** 2026-08-06 (cross-family codex review r1 —
 `llp/reviews/0051-runtime-entry-hygiene-input-dispatch.codex.md`:
 renamed from "host activation principals"; the drive guard is runtime entry
