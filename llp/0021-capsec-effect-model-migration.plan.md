@@ -5,21 +5,23 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-08-06 (adds the DRAFT "Amendment: scoped advertisement"
+**Revised:** 2026-08-06 (adds the "Amendment: scoped advertisement"
 section and its scope-digest join-matrix appendix, authored as the LLP 0049
-Phase 1 review package per LLP 0044 §2/§7; all three review rounds applied
-the same day — round 1 and round 2 landed both families' flip sets, and the
-final round-3 revision landed Codex's two-item flip set plus both of its
+Phase 1 review package per LLP 0044 §2/§7; all four review rounds applied
+the same day — round 1 and round 2 landed both families' flip sets, the
+round-3 revision landed Codex's two-item flip set plus both of its
 implementer-correctable items and seven of Fable's eight findings, growing
-the matrix to M1–M33 and F6 to eight subcases. The LLP 0049 §9 loop is now
-CLOSED at three rounds with a SPLIT terminal verdict — Fable READY, Codex
-NOT READY — and the final revision is UNREVIEWED; the split is recorded in
-the amendment's "Disagreement ledger (2026-08-06)". Fable's eighth finding
-became `issues/20260806-abi-caller-supplied-targetcell-authoritative.md`
-rather than an amendment expansion. No gate code may land until the author
-decides: LLP 0044 register item 5 stays BLOCKED and every pre-amendment
-section of this document continues to describe the enforced all-or-nothing
-gate)
+the matrix to M1–M33 and F6 to eight subcases, and the round-4 revision
+landed every round-4 finding from both families, all text-only. The author
+lifted the LLP 0049 §9 three-round bound on 2026-08-06, authorizing rounds
+4–6 under a Fable-gated decision rule; round 4 ran and closed the loop
+**DUAL-READY**. The split is gone; the ledger now carries an implementer
+worklist. Fable's round-3 eighth finding became
+`issues/20260806-abi-caller-supplied-targetcell-authoritative.md` rather
+than an amendment expansion. LLP 0044 register item 5 is ACCEPTED and gate
+code may land against the §A9 join matrix; every pre-amendment section of
+this document continues to describe the enforced all-or-nothing gate until
+that code lands)
 **Revised:** 2026-08-03 (restores `node:diagnostics_channel` and `node:domain`
 to the independent public-evidence validator's terminal-builtin vocabulary
 after the exact Apple matrix proved that production, authoring, and the Rust
@@ -3482,26 +3484,33 @@ be represented as verified conformance.
 
 ## Amendment: scoped advertisement (2026-08-06)
 
-> **Status: DRAFT; the LLP 0049 Phase 1 review loop is CLOSED at three
-> rounds (the LLP 0049 §9 bound) with a SPLIT TERMINAL VERDICT — Fable
-> READY (3 MATERIAL + 5 MINOR, all text-only, none blocking), Codex NOT
-> READY (1 IN-DELTA BLOCKER, 2 IN-DELTA MATERIAL, 1 PRE-EXISTING
-> MATERIAL). No gate code may land until the author decides
-> (LLP 0044 §7 item 5).
+> **Status: the LLP 0049 Phase 1 review loop is CLOSED at round 4 with a
+> DUAL-READY TERMINAL VERDICT — Fable READY (5 MATERIAL + 4 MINOR, none
+> blocking, every one fails closed, eight of nine resolutions text-only)
+> and Codex READY ("ledger-worthy: none"; 3 IN-DELTA MATERIAL, 1 MINOR,
+> 1 PRE-EXISTING process, all implementer-correctable or documentation).
+> The three-round bound was **lifted by author directive on 2026-08-06**
+> (LLP 0049 §9, recorded at `22abbc97`), authorizing rounds 4–6 under an
+> explicit decision rule: **the package moves forward when the
+> Claude/Fable family reports READY**, regardless of the Codex verdict.
+> Round 4 ran under that rule and both families returned READY, so the
+> rule is satisfied twice over and no further round is needed.
+> LLP 0044 §7 register item 5 is **ACCEPTED** on that basis (resolution
+> record extended in LLP 0044 §7, 2026-08-06). **Gate code may now land
+> against §A9's join matrix as the authoritative worklist.**
 > Round-1 revision applied 2026-08-06 (both round-1 flip sets,
 > `llp/reviews/0021-scoped-advertisement-amendment.codex.md` and
 > `…fable.md`, applied in full); round-2 revision applied 2026-08-06
 > (both round-2 flip sets — Codex's three items and Fable's four —
-> applied in full); **final (round-3) revision applied 2026-08-06 —
-> Codex's two-item flip set plus both implementer-correctable items, and
-> all eight of Fable's, except N8, which became a filed ticket
+> applied in full); round-3 revision applied 2026-08-06 — Codex's
+> two-item flip set plus both implementer-correctable items, and all
+> eight of Fable's, except N8, which became a filed ticket
 > (`issues/20260806-abi-caller-supplied-targetcell-authoritative.md`)
-> rather than an amendment expansion.**
-> **This final revision is UNREVIEWED.** No round-4 review exists and
-> none may be run; what remains is not another round but the author's
-> LLP 0044 §7 register-item-5 decision. The split verdict and how this
-> revision answers each ledger item are recorded in the
-> **Disagreement ledger (2026-08-06)** at the end of this amendment.**
+> rather than an amendment expansion; **round-4 revision applied
+> 2026-08-06 — every round-4 finding from both families (Fable N1–N9,
+> Codex N1–N5; the overlapping items merged), all text-only.** The
+> round-4 verdicts and the remaining implementer worklist are recorded in
+> the **Disagreement ledger (2026-08-06)** at the end of this amendment.
 >
 > This amendment is the LLP 0049 Phase 1 review package required by
 > LLP 0044 §2's scope-digest lifecycle paragraph. It changes the
@@ -3510,12 +3519,13 @@ be represented as verified conformance.
 > generated, dependency-closed scope, with everything else explicitly
 > uncertified." The decided posture it implements is the LLP 0044 §7
 > resolution record of 2026-08-06: item 1 scoped certification ACCEPTED,
-> item 2 UNCERTIFIED remainder, item 4 fs+env+process. Register item 5
-> (the runtime scope join, §A6 below) remains an open author decision that
-> this amendment designs but does not decide. Until the review completes
-> and the author decides item 5, every pre-amendment section of this
-> document — in particular WP10's completeness rule and the
-> "Default and target claim" — remains the enforced state of the system.
+> item 2 UNCERTIFIED remainder, item 4 fs+env+process — **and, since the
+> round-4 close, item 5 (the runtime scope join, §A6 below) ACCEPTED as
+> Option B**, which this amendment designed and the review loop
+> qualified. Until that gate code actually lands, every pre-amendment
+> section of this document — in particular WP10's completeness rule and
+> the "Default and target claim" — remains the enforced state of the
+> system.
 >
 > All file:line citations in this amendment are pinned at `main` =
 > `6416114d` (2026-08-06). `scopeDigest` has zero occurrences in code at
@@ -3793,8 +3803,9 @@ admitted scoped report:
   first — if the id **is** a generated inventory edge, the aggregate's
   disposition wins (an `Uncertified` cell refuses, exactly as any other
   out-of-scope reached gate does); if it is **not** a generated edge,
-  the path keeps its literal `Complete` and the refusal envelope records
-  `hostDisposition: "extension-declared"`, which is the honest
+  the path keeps its literal `Complete` and **the diagnostic record**
+  (not the refusal envelope — see the reachability correction below)
+  records `extension-declared`, which is the honest
   statement that this decision was never scope-governed. A
   runtime-extension effect-semantics string that collides with a
   generated `edgeId` therefore cannot launder an uncertified cell into
@@ -3823,13 +3834,27 @@ admitted scoped report:
   - **The runtime-extension path constructs its gate through a distinct
     internal resolver** that has already applied the conditional rule of
     the paragraph above (inventory edge ⇒ the aggregate's disposition
-    wins; non-inventory ⇒ literal `Complete` plus
-    `hostDisposition: "extension-declared"`). The gate it hands to
-    `:1304` is therefore **Host-constructed and already resolved**, and
-    passes through ingress 1 unmodified. Implementations must make this
-    structural — a resolver function that is the only producer of a
-    runtime-extension gate — rather than a flag threaded into the
+    wins; non-inventory ⇒ literal `Complete`, recorded as
+    `extension-declared` in the diagnostic record). Implementations must
+    make this structural — a resolver function that is the only producer
+    of a runtime-extension gate — rather than a flag threaded into the
     ingress.
+    **The resolved gate does not re-enter through ingress 1 (correction,
+    round-4 revision; Fable round-4 N5).** Round 3 said the resolved gate
+    "passes through ingress 1 unmodified." That is not implementable:
+    `pub fn evaluate_typed_decision` (`src/host/mod.rs:3776`) is a
+    three-line body delegating to the private
+    `evaluate_typed_decision_inner` (`:3784`) and **cannot see its
+    caller**, so it can neither recompute for external callers nor let a
+    Host-constructed gate through — the only way to make it do both is
+    the flag this section forbids. The structural door already exists and
+    is private: the resolver hands its already-resolved gate **directly
+    to `evaluate_typed_decision_inner` (`:3784`)**, not to the `pub`
+    `evaluate_typed_decision` (`:3776`); the call at
+    `src/host/mod.rs:1304` changes accordingly. Recomputation then lives
+    entirely in the four `pub` methods plus the C symbol, which are
+    exactly the trust boundary and nothing else — no caller-identity
+    question arises anywhere.
   - **Forbidden, explicitly: "an id absent from the aggregate ⇒ keep the
     caller's `target_cell`" at ingress 1.** This is the obvious way to
     reconcile the two rules and it **silently reopens the round-2 ABI
@@ -3841,7 +3866,8 @@ admitted scoped report:
     refuse — and no ingress may soften it. F3a-2 and F3a-4 together must
     assert both halves: an absent id over a `pub`/C ingress refuses,
     while the same semantics presented through the runtime-extension
-    path proceeds as `extension-declared`.
+    path proceeds and is recorded `extension-declared` in the diagnostic
+    record.
 - **Uncertified is distinguishable from incomplete-by-defect — the host
   telemetry envelope.** The distinction lives at the host cell-map layer
   and in refusal telemetry, not in the typed decision algorithm: the
@@ -3853,7 +3879,7 @@ admitted scoped report:
   keyed by `coverage_edge_id`, with the closed field set:
   `coverageEdgeId`; `scopeDigest` (from the retained aggregate);
   `hostDisposition` (`uncertified` | `incomplete-defect` |
-  `absent-edge` | `extension-declared`, resolved by aggregate lookup —
+  `absent-edge`, resolved by aggregate lookup —
   under `ScopedAdvertised`, admission has already refused any in-scope
   defect, so a runtime `TargetCellIncomplete` can only be an
   out-of-scope cell or an absent-edge default,
@@ -3861,6 +3887,29 @@ admitted scoped report:
   (the discarded ingress value, per the ingress rule above); and the
   echoed `DecisionReason`. This keeps the typed decision path
   scope-transparent (§A9 M14).
+  **`extension-declared` is not a value of this envelope (correction,
+  round-4 revision; Fable round-4 N6).** Round 3 listed it as a fourth
+  `hostDisposition`, which is **unreachable**: this envelope is
+  refusal-only — its emission condition is a hard `TargetCellIncomplete`
+  — while an extension-declared gate carries
+  `TargetCellDisposition::Complete` by construction and therefore never
+  produces one. Two repairs were available and the amendment takes the
+  narrower: `extension-declared` is recorded in the **separate
+  diagnostic record** (the distinct, non-authoritative diagnostic schema
+  §A9 M3/M14 and F4 already establish for scope facts that are not
+  refusals), and the
+  refusal envelope keeps its three-value closed set and its refusal-only
+  emission condition. The rejected alternative was to widen the envelope
+  into a decision-annotation envelope emitted at the M13 funnel for
+  *every* scope-governed decision; that would put telemetry emission on
+  the allow path of every typed decision — a hot-path cost, and a
+  schema whose name would no longer describe it — to buy observability
+  the diagnostic record already provides. If a future revision wants
+  per-decision scope annotation for its own sake, that is a new schema
+  and a new row, not a widening of `ibex/capsec-scoped-refusal/1`.
+  An extension whose `coverage_edge_id` **is** a generated inventory
+  edge that is out of scope still refuses and still emits this envelope,
+  with `hostDisposition: "uncertified"` — that path is unaffected.
   **There is no central emission point today, and creating one is
   scope-validating work (correction, round-2 revision).** The round-1
   text said the envelope is emitted "at the central host refusal path —
@@ -4127,11 +4176,15 @@ digest and the uncertified remainder machine-readably, and it is new
 code: no such surface exists today; §A8 F11's positive half asserts its
 coherence with the enforced map.
 
-> **AUTHOR DECISION REQUIRED (LLP 0044 register item 5).** This section
-> recommends Option B with the `ScopedAdvertised` arm state of §A3 and
-> the introspection authority of (iii). The author decides after this
-> amendment's review completes; rejection is an LLP 0049 §9 diversion
-> (the plan halts and returns for re-scoping), not a gate pass.
+> **AUTHOR DECISION — DECIDED 2026-08-06: ACCEPTED (LLP 0044 register
+> item 5).** This section recommended Option B with the
+> `ScopedAdvertised` arm state of §A3 and the introspection authority of
+> (iii), and that is what was accepted, under the author's standing
+> Fable-gated directive (LLP 0049 §9) as satisfied by the round-4
+> dual-READY of this amendment's review loop. Scope identity is returned
+> by report admission and retained in `AdmittedScopedTargetCells`; the
+> armed snapshot carries no scope identity. The resolution record is in
+> LLP 0044 §7; the gate-code worklist is §A9's 33-row matrix.
 
 ### A7. The published claim (normative wording)
 
@@ -4255,10 +4308,17 @@ subcases (F6a–F6h).
   - **F3a-4** — a runtime-extension authorization
     (`ex_host_authorize_runtime_extension_operation_v1`,
     `src/host/abi.rs:5447`) whose `effect_semantics` string collides
-    with a generated inventory `edgeId` that is out of scope refuses;
-    the same call with a non-inventory effect-semantics string
-    proceeds and its envelope records
-    `hostDisposition: "extension-declared"`.
+    with a generated inventory `edgeId` that is out of scope refuses
+    (and its envelope carries `hostDisposition: "uncertified"`); the
+    same call with a non-inventory effect-semantics string **proceeds,
+    emits no scoped-refusal envelope, and records `extension-declared`
+    in the separate diagnostic record**. (Restated by the round-4
+    revision, Fable round-4 N6: round 3 asserted an envelope on the
+    proceeding call, which the refusal-only emission condition makes
+    unwritable. The gate the resolver hands to
+    `evaluate_typed_decision_inner` (`src/host/mod.rs:3784`) carries
+    `Complete`, so no `TargetCellIncomplete` and no envelope exist to
+    assert against.)
   - **F3a-5** — the whole class is asserted to be a **no-op under
     `CompleteAdvertised`**: every F3a case behaves exactly as it does
     today when the arm state is not `ScopedAdvertised`, so the ingress
@@ -4337,7 +4397,24 @@ subcases (F6a–F6h).
     from the declared `admittedScopeDigest`. Like F6b, this fixture
     must **fail against the round-2 text and pass against the round-3
     text** — that is what makes it a regression test for the BLOCKER
-    rather than a restatement of the fix.
+    rather than a restatement of the fix. (Both round-4 reviews built
+    this fixture and ran it against the repository's own exported
+    primitives; all three variants behaved exactly as specified. It is
+    a regression test in fact, not only in intent.)
+    **F6f-4 — the sixth join (added by the round-4 revision, Fable
+    round-4 N7).** A hop whose published **advertisement** blob carries
+    a `scopeDigest` differing from the same admission's
+    `admittedScopeDigest` must refuse, even when every other clause
+    passes. This is the internal-consistency join of M27 (i)'s sixth
+    clause and it costs one field read.
+    **F6f-5 — the role-predicate positive control (added by the round-4
+    revision, Fable round-4 N1).** A well-formed scoped promotion
+    carrying a `scope-artifact` row at the fixed evidence-prefix path
+    must be **accepted** by `verifyChangedArtifacts` at the current
+    revision. Against today's code it refuses (`:971-975` sends every
+    non-`conformance-evidence` role into the branch requiring the path
+    to pre-exist as a source blob), so this fixture is what proves the
+    M27 (i) predicate extension actually landed.
   - **F6g — per-tuple selection (new; round-3 revision).** Two
     promotions on the **same triple with different canonical feature
     lists**. The walk admitting tuple T2 must not select T1's promotion
@@ -4353,11 +4430,24 @@ subcases (F6a–F6h).
     (`build_support/portable_engine_promotion_report.rs:461-465`). The
     fixture asserts two things: (a) the M33 release/tag/publication
     gate **refuses** at that revision — a refusal, not merely an
-    unarmed binary; and (b) the per-SHA **diagnostic artifact cache**
-    path (`.github/workflows/hermes-artifacts.yml`, "artifact caches,
-    not product releases", `:24-25`, push-triggered `:35-36`) still
-    succeeds there, because the ceremony consumes it. Without (b) the
-    gate would break the ceremony it protects.
+    unarmed binary; and (b) **every artifact-source-revision ceremony
+    output still succeeds there**, because the ceremony consumes them:
+    the per-SHA **diagnostic artifact cache** path
+    (`.github/workflows/hermes-artifacts.yml`, "artifact caches,
+    not product releases", `:24-25`, push-triggered `:35-36`) **and the
+    physical-promotion candidate ceremony**
+    (`.github/workflows/portable-engine-physical-promotion.yml`, which
+    checks out "exact source A" — under M27 (iv) *the reset commit* —
+    and "may upload candidate bytes", `:1-5`, checkout `:40-45`). (b)
+    extended by the round-4 revision (Codex round-4 N3, Fable round-4
+    N4). Without (b) the gate would break the ceremony it protects, and
+    promotion *n+1* would be circular: you cannot produce the artifacts
+    that authorize the admission until the admission is authorized.
+    **F6h-c (added by the round-4 revision, Codex round-4 N3).** The
+    gate is invoked by **one shared command**, and the fixture asserts
+    the caller set is exhaustive: every entry point M33 enumerates
+    invokes it, and a newly added product-release entry point that does
+    not is a failure. See M33 for the enumeration.
   Pins M7, M19, M27, M33.
 - **F7 — renamed/retired cells.** A "retired" cell still present in the
   live inventory fails the expansion-diff validation; a rename not
@@ -4428,8 +4518,11 @@ revision, were re-verified at `90aafc67` (docs-only over the pin);
 M32 and the round-2 corrections to M11, M13, M14, M18 and M27 were
 verified at `f154a5c5` and say so in the row. **M33 and the round-3
 corrections to M18, M27, M31 and M32 were verified at `fb343180`** and
-say so in the row; the matrix is **33 rows** after the round-3
-revision.
+say so in the row. **The round-4 revision added no rows** — its
+corrections to M19, M27, M32 and M33 are text within existing rows, all
+re-verified against code at `77e95827` — so the matrix is **33 rows**,
+and it is now the *accepted* gate-code worklist rather than a proposed
+one (LLP 0044 §7 item 5 ACCEPTED, 2026-08-06).
 
 Summary table (rows detailed below):
 
@@ -5121,7 +5214,7 @@ v2/v3 publication owns the path's bytes at promotion time):
     `scripts/portable-engine-promotion-lineage.mjs` (the
     `TARGET_ATTESTATION_PATH` const `:47`, the source-foundation
     empty-v1 assertions `:816-820`, and the bundle-graph publication
-    join `:867-929`), and
+    join `:867-928`), and
     `scripts/portable-engine-promotion-lineage.test.mjs`. **This is a
     bounded path sweep, not a completeness claim** — the same
     qualification the advertisement sweep carries; implementers re-run
@@ -5147,7 +5240,17 @@ verified portable bundle graph (:915-926). The current topology is
 one-shot: exactly one active admission (:686), an empty disabled source
 foundation (:804-826), and one exact two-parent promotion merge
 (:1064-1087). Amendment: the scope artifact and companions join the
-closed member/role set; the verifier resolves the tuple's currently
+closed member/role set — as a **`scope-artifact` role published under
+the evidence prefix at the reserved path `capsec-scope.json`**, which
+means `verifyChangedArtifacts`'s newly-added predicate at `:971` must
+extend to it (`role === "conformance-evidence" || role === SCOPE_ROLE`)
+and the scope artifact **never becomes a tracked foundation document**
+beside `TARGET_ATTESTATION_PATH` / `TARGET_ADVERTISEMENT_PATH`; giving
+it a tracked path would satisfy the else-branch at `:974` for free and
+drag it into M18's pin-9/pin-14 coupling,
+`assertSourceAuthorityClosed`'s source-foundation clauses, and M27
+(iv)'s reset lifecycle (round-4 revision, Fable round-4 N1; M27 (i)
+carries the full statement). The verifier resolves the tuple's currently
 admitted scope by the **evolvable discovery walk specified in M27** and
 stamps the result into the checked promotion admission (M27's revised
 schema) so M7's predecessor check has a build-embedded anchor; a bundle
@@ -5265,7 +5368,19 @@ set — `admittedScopeDigest` (the tuple's currently admitted
 `scopeDigest`; null exactly when `authorized` is false) and
 `predecessorScopeDigest` (the admitted scope's own predecessor digest,
 the explicit genesis marker for a genesis scope, or null exactly when
-`authorized` is false).
+`authorized` is false) — **and one field is replaced**:
+`targetTriple` becomes the closed canonical tuple object
+`target { triple, features }`, exactly as in the tracked admission of
+(ii). (Reconciled by the round-4 revision, Codex round-4 N1 / Fable
+round-4 N2: round 3 said here that only two fields join and
+`targetTriple` stays, while (ii)'s consumer list said the checked
+admission carries a `target` object. The consumer list was right and
+this paragraph was stale — the checked admission is the artifact
+`require_checked_promotion` joins against the advertisement's
+`target`, so it must carry the tuple.) The Rust
+`CheckedPromotionAdmission` model
+(`src/host/portable_target_admission.rs:102-115`) and its
+`exact_object_keys` list (`:613-628`) rev with it.
 **The evolvable lineage algorithm (normative; rewritten by the round-2
 revision — the round-1 sketch was not implementable and both families
 blocked on it). All pins in this subsection re-verified at `f154a5c5`.**
@@ -5343,9 +5458,11 @@ from content-hashed objects read at R:
   `scope-artifact` role joining the closed role set of `:724`, beside
   today's `conformance-evidence`/`target-attestation`/
   `target-advertisement`, with a `roleCounts` cardinality assert beside
-  `:735-737`), at the fixed evidence-prefix path (`evidencePrefix`,
-  `:761-763`), exactly as the report and bundle manifest are pinned
-  today (`:739-756`);
+  `:736-738`), at the **reserved** evidence-prefix path
+  `` `${evidencePrefix(admission)}capsec-scope.json` `` (`evidencePrefix`
+  `:761-763`; the filename reserved by the round-4 revision — see
+  "The fixed scope-artifact path is reserved by name" below), exactly as
+  the report and bundle manifest are pinned today (`:739-756`);
 - **recomputing the scope artifact's own digest from those bytes**
   under the `ibex:capsec:scope:1` canonical-form rule of §A1 yields
   exactly `A.admittedScopeDigest`. This is the clause that binds the
@@ -5354,10 +5471,69 @@ from content-hashed objects read at R:
 - the scope artifact's embedded **canonical tuple** (§A1) equals the
   admission's canonical `target` (see (ii)), and the scope artifact's
   own `predecessorScopeDigest`/genesis marker is the value the next hop
-  will be compared against.
+  will be compared against;
+- **the hop's own published advertisement agrees with its declaration
+  (sixth clause; added by the round-4 revision, Fable round-4 N7).**
+  The `target-advertisement` row is already in `A.artifacts`, is
+  path-pinned to `TARGET_ADVERTISEMENT_PATH` by `assertArtifactRolePath`
+  (`:789-791`), is blob-verified by the per-row checks above, and per
+  M17 carries `scopeDigest`. That blob's `scopeDigest` must equal
+  `A.admittedScopeDigest`. This does **not** close the residual named
+  below — an attacker who authors the scope artifact authors the
+  advertisement too — but a hop whose own published advertisement
+  contradicts its admitted scope digest is internally incoherent, and
+  refusing it costs one field read in a clause set whose entire purpose
+  is binding declarations to content. F6f-4 fixtures it.
 A hop failing any of these is a **verification failure**, not a skipped
 hop: the walk must not fall through to an older R or to genesis. F6f
 fixtures it.
+
+**The role predicate at `:971-975` must admit the new role (normative;
+added by the round-4 revision — Fable round-4 N1, verified by running
+the real `verifyChangedArtifacts` against a synthetic scoped
+promotion, which refuses today).** `verifyChangedArtifacts` branches on
+role after the per-row blob checks:
+
+```js
+const source = sourceLeaves.get(artifact.path);          // :970
+if (artifact.role === "conformance-evidence") {          // :971
+  assert(source === undefined, …);                       // :972
+} else {                                                 // :973
+  assert(source?.kind === "blob" && source.mode === "100644", …); // :974
+}                                                        // :975
+```
+
+Anything whose role is not `conformance-evidence` must **pre-exist as a
+blob in the source tree**. A path under `evidencePrefix` embeds
+`admission.sourceRevision` (`:762`) and therefore never can, so the
+first scoped promotion is unverifiable as round 3 specified it. The
+newly-added predicate at `:971` **extends to the scope role** —
+`role === "conformance-evidence" || role === SCOPE_ROLE` — so a
+`scope-artifact` row is likewise required to be *newly added* at
+promotion. F6f-5 is the positive control.
+**And the obvious cheaper repair is forbidden.** Giving the scope
+artifact a fixed **tracked** path (like `TARGET_ATTESTATION_PATH` /
+`TARGET_ADVERTISEMENT_PATH`, `:47-48`) would satisfy the else-branch
+without touching the predicate — and would make the scope artifact a
+third HEAD-tracked foundation document, dragging it into M18's pin-9 /
+pin-14 coupled-restamp problem, into `assertSourceAuthorityClosed`'s
+source-foundation clauses (`:804-826`), and into M27 (iv)'s reset
+lifecycle, which would then have to reset it too. **The scope artifact
+stays evidence-prefix-scoped and never becomes a tracked foundation
+document.** M19's amendment sentence says the same.
+
+**The fixed scope-artifact path is reserved by name (added by the
+round-4 revision, Codex round-4 N4).** "Fixed evidence-prefix path"
+above was not fixed: `assertArtifactRolePath` (`:784-802`) requires only
+that a non-publication role use *some* safe `.json` path under
+`evidencePrefix` (`:793-801`), and round 3 named no filename. The
+reserved path is exactly
+`` `${evidencePrefix(admission)}capsec-scope.json` ``, enforced by a
+role-specific equality check in `assertArtifactRolePath` beside the two
+publication-path equalities at `:786` and `:790` — not by the generic
+safe-suffix rule. With that check the clause reads literally; without it
+the honest wording would be "one safe JSON path under the fixed evidence
+prefix," which is weaker than the joins above assume.
 
 **Selection is on the full canonical tuple, not the triple (normative;
 round-3 revision, Codex round-3 MATERIAL).** The walk selects the most
@@ -5442,8 +5618,13 @@ evidence-path templates (`:739-740`) and `evidencePrefix` (`:762`);
 CapSec-policy-rules candidate match (`:836`, `:840`) — the latter now
 additionally asserts `expectedTarget` **equals** `admission.target`,
 which is a free strengthening because the object is already in hand at
-`:855`; the disabled-catalog result field (`:1100`) and the checked
-admission constructor (`:1192`, within `:1185-1199`). Outside it: the
+`:855`; the **authorized** verification-result field (`:1100`, within
+the result construction `:1093-1103` — relabelled by the round-4
+revision, which found round 3 calling it "the disabled-catalog result
+field"; the disabled branch `:1051-1062` returns
+`{schema, authorized:false, currentRevision, admission:null}` (`:1056-1061`)
+and carries no triple at all); and the checked admission constructor
+(`:1192`, within `:1185-1199`). Outside it: the
 checked-admission JSON Schema
 (`schemas/portable-engine-checked-promotion-admission-v1.schema.json:7-18`,
 which revs to `/2` per the "Revised schema" paragraph above), the Rust
@@ -5451,17 +5632,50 @@ parser's `exact_object_keys` list
 (`src/host/portable_target_admission.rs:613-628`) and
 `require_checked_promotion` (`:639`) — which gains the assertion that
 the checked admission's `target` **equals the selected advertisement's
-`target`**, closing the tuple join at runtime — and the build carrier
+`target`** (the current triple-only join is at `:707`), closing the
+tuple join at runtime — the Rust `CheckedPromotionAdmission`
+deserialization model
+(`src/host/portable_target_admission.rs:102-115`, a
+`deny_unknown_fields` Serde struct whose `target_triple: String` at
+`:111` becomes `target: AdvertisementTarget`) — and the build carrier
 (`build_support/portable_engine_build_consumption.rs:130-139`), which
 copies bytes and needs no field knowledge.
+
+**The lineage verification-result surface — the channel the features
+must actually travel through (added by the round-4 revision; Codex
+round-4 N1 and Fable round-4 N2 independently, and the sharpest
+omission in the list).** Round 3 enumerated the sites above and then
+declared the *selection option* surface deliberately triple-only. Both
+are right, but between them sits a surface round 3 never named, and it
+is the **only** channel by which the canonical feature list can reach
+the checked admission at `:1192`:
+- `validateLineageVerificationResult` (`:1133-1169`) — an
+  `assertExactKeys` **closed list** carrying `"targetTriple"` at
+  `:1152` (`:1143-1157`), plus a triple regex at `:1161-1166`. A
+  `target` object added to the result without changing this list fails
+  the exact-key assert;
+- the authorized result construction itself (`:1093-1103`, the field at
+  `:1100`);
+- `bindVerifiedPortableEnginePromotionAdmission`'s comparison
+  `lineage.targetTriple === selected.targetTriple` (`:1180`).
+The travel path, stated so an implementer does not have to discover it:
+**tracked admission → lineage verification result → checked
+admission.** The verification result gains the closed `target` object
+in place of `targetTriple`; `bindVerifiedPortableEnginePromotionAdmission`
+compares `lineage.target.triple` against the **triple-only** deployment
+selection at `:1180` and then copies the whole `lineage.target` into the
+checked admission at `:1192`. F6g extends through both the JS
+checked-admission formatter and the Rust parser.
 **Deliberately unchanged:** the verifier's *option* surface
-(`:1112-1128`) and the installer's production pin
-(`scripts/portable-engine-installer-core.mjs:476`, `TARGET_TRIPLE`;
+(`:1112-1128`, allowed keys at `:1112`) and the installer's production
+pin (`scripts/portable-engine-installer-core.mjs:476`, `TARGET_TRIPLE`;
 M31) keep keying on the **triple**. A deployment selector may be a
-triple; the *scope-lineage identity* must be the full tuple. M31 stays
+triple; the *scope-lineage identity* must be the full tuple. That
+asymmetry is exactly why the verification result — not the selection —
+has to carry the features. M31 stays
 scope-transparent because it reads `authorized`, revisions and the
-triple only — it must read `target.triple` after the rev, which is a
-mechanical rename, not a new judgement.
+triple only — it must read `lineage.target.triple` after the rev, which
+is a mechanical rename, not a new judgement.
 
 *Digest projection.* No projection work is needed for either field:
 `:758` computes `semanticDigest(ADMISSION_DOMAIN, admission,
@@ -5504,18 +5718,60 @@ set:
   scope-critical artifact joins** — the changed-path-set equality, the
   per-row blob id/size/raw-digest re-hash, the single scope-artifact
   row, the recomputed `scopeDigest == admittedScopeDigest`, and the
-  scope-artifact/admission canonical-tuple equality. These are the
+  scope-artifact/admission canonical-tuple equality, and the sixth
+  advertisement-agreement clause. These are the
   scope-critical subset of `verifyChangedArtifacts` (`:930-1001`) and
   are lifted to every hop by the round-3 revision. They are all pure
   functions of content-hashed objects at R and at `A.sourceRevision`,
-  so they carry no version dependency on the HEAD verifier's schema
-  constants and re-run at any hop without obstruction.
+  so they carry **no version dependency on the HEAD verifier's
+  artifact-schema validators** and re-run at any hop without
+  obstruction.
 Everything else — `pinRunningAuthority`, `assertCleanWorktree`, the
 **full** `assertSourceAuthorityClosed` (`:804-856`), and
 `verifyChangedArtifacts`'s remaining clauses (the copied-blob and
 permitted-copy rules `:945-994`, and above all
-`verifyPromotionBundleGraph` `:995`, `fn` at `:867-929`) — runs **only
+`verifyPromotionBundleGraph` `:995`, `fn` at `:867-928`) — runs **only
 at the current revision**, once.
+
+**What "no version dependency" does and does not mean (narrowed by the
+round-4 revision; Codex round-4 N2 and Fable round-4 N3, and it touches
+the BLOCKER fix itself).** Round 3 said flatly that the subset "carries
+no version dependency on the HEAD verifier's schema constants." That is
+**false of the subset's own load-bearing clause** and of three lesser
+ones, and since the author is being asked to accept the subset over a
+reviewer's stated preference for the stronger option, the reason given
+has to be true:
+- the digest-recomputation clause — the one whose absence was the
+  round-3 BLOCKER — is fixed to the **`ibex:capsec:scope:1`
+  canonical-form rule** of §A1, which is a HEAD constant applied to a
+  historical tree. §A1 makes the scope artifact a *versioned* artifact
+  precisely so it can rev;
+- `parseCatalog` compares against HEAD's `CATALOG_SCHEMA` (`:35`,
+  `:673-689`) and `validateAdmissionShape` against HEAD's
+  `ADMISSION_SCHEMA` (`:36`, `:691-710`) — and (ii) above revs both;
+- `assertArtifactRolePath` (`:784-802`) hard-codes the two publication
+  paths (`:786`, `:790`), and the fixed evidence-path templates
+  (`:739-740`) encode HEAD's path grammar — the same "HEAD-era constant
+  applied to a historical tree" property this subsection already
+  concedes for `assertSourceAuthorityClosed`.
+The **true** narrower claim is the one now stated above: the subset
+avoids dependency on every published *report / attestation /
+advertisement / bundle* schema — the whole evidence-graph validator —
+which is what makes the full set unusable at a historical hop.
+**Normative consequence.** HEAD MUST retain the canonical-form rule and
+digest domain of **every** published `ibex/capsec-scope/N`, and MUST
+version-dispatch the recomputation clause on the scope artifact's own
+`schema` field; the same for every published tracked-admission and
+catalog schema the walk may encounter, and for the evidence-path grammar
+of every revision that published one. This dispatch is **cheap where
+the bundle verifier's is not**: it is one canonical-form rule and one
+digest domain per scope version — a frozen constant table — against a
+whole evidence-graph validator with its own member set, join rules and
+per-document sub-validators. That asymmetry, not an absence of version
+dependency, is the actual argument for the subset.
+This does not make the round-3 fix wrong today (only `/1` exists) and it
+fails closed either way: a hop whose scope artifact cannot be recomputed
+is a **verification failure**, never a silent accept.
 
 **Why the scope-critical subset and not the full version-dispatched
 `assertSourceAuthorityClosed` + `verifyChangedArtifacts` (Codex's
@@ -5646,27 +5902,47 @@ fails closed, which is why nothing is broken today — but it is a
 refusal, and nothing prevents that binary from being tagged, signed and
 published as a release.
 The normative gate:
-- **Every product release, tag, or publication path asserts that the
-  checked promotion admission at the revision being published carries
-  `authorized: true` and a non-null `admittedScopeDigest`, and
-  **refuses** otherwise.** The assertion is on the checked admission,
+- **The gate's subject is a *product release of the binary*.** Every
+  product release, product tag, or product publication path asserts
+  that the checked promotion admission at the revision being published
+  carries `authorized: true` and a non-null `admittedScopeDigest`, and
+  **refuses** otherwise. The assertion is on the checked admission,
   not on the catalog file, because the checked admission is the
   artifact that already crosses the build boundary (M27's carrier) and
   is domain-digest-verified before any field is trusted
   (`require_checked_promotion`,
   `src/host/portable_target_admission.rs:639`). A reset/disabled
   catalog yields `authorized: false` and the release refuses; there is
-  no state in which a release both exists and advertises nothing.
-- **Per-SHA diagnostic artifact caches are explicitly outside the
-  gate.** `.github/workflows/hermes-artifacts.yml` is push-triggered on
-  `main` (`:35-36`) and its own header states that what it creates are
-  "**ARTIFACT CACHES, not product releases**: always prerelease, titled
-  'Hermes artifact cache …'" (`:24-25`), with the retained Sigstore
-  bundles "diagnostic evidence only" (`:20-22`). Those must keep
-  building at the reset revision — the reset commit is an ordinary
-  reviewed commit on `main` and its per-SHA cache is exactly the
-  diagnostic evidence a promotion ceremony later consumes. Gating them
-  would break the ceremony it is meant to protect.
+  no state in which a product release both exists and advertises
+  nothing. (Round 3 said "every product release, tag, or publication
+  path"; the round-4 revision names the subject explicitly, because the
+  unqualified reading gates the ceremony — see the next clause.)
+- **Every artifact-source-revision ceremony output is explicitly
+  outside the gate, and this is not a convenience carve-out — the
+  unqualified rule makes promotion *n+1* circular** (extended by the
+  round-4 revision; Codex round-4 N3 and Fable round-4 N4). Two paths
+  run at the artifact-source revision, which under (iv) step 3 **is the
+  reset commit** — exactly where `authorized: false`:
+  - `.github/workflows/hermes-artifacts.yml`, push-triggered on `main`
+    (`:35-36`), whose own header states that what it creates are
+    "**ARTIFACT CACHES, not product releases**: always prerelease,
+    titled 'Hermes artifact cache …'" (`:24-25`), with the retained
+    Sigstore bundles "diagnostic evidence only" (`:20-22`);
+  - `.github/workflows/portable-engine-physical-promotion.yml`, the
+    "trusted, same-runner macOS ceremony for **one exact
+    portable-engine source A**" whose header records that "a successful
+    run **may upload candidate bytes**, but only a separate reviewed
+    one-commit promotion topic and ordinary PR merge can grant the
+    checked admission" (`:1-5`; it checks out source A without
+    credentials at `:40-45`).
+  Both must keep succeeding at the reset revision. The reset commit is
+  an ordinary reviewed commit on `main`; its per-SHA cache and its
+  candidate bytes are precisely the inputs the *next* promotion
+  ceremony consumes. Gating them would make promotion *n+1*
+  impossible — **you cannot produce the artifacts that authorize the
+  admission until the admission is authorized** — which is the same
+  circularity, in a sharper form, as gating the diagnostic caches.
+  F6h (b) asserts both halves.
 - **Alternative, if a repository ever wants the window to be
   unobservable rather than merely unreleasable:** perform the reset on
   a non-release staging ref and fast-forward the release ref only once
@@ -5992,7 +6268,9 @@ discard-and-recompute is preferred over equality-checking). For
 ingress 2 the rule is conditional and stated in §A3: if the
 `coverage_edge_id` is a generated inventory edge the aggregate's
 disposition wins; if it is not, the literal `Complete` stays and the
-refusal envelope records `hostDisposition: "extension-declared"` — so
+**diagnostic record** notes `extension-declared` (not the refusal
+envelope, which is refusal-only and therefore unreachable for a
+proceeding `Complete` gate — round-4 revision, Fable round-4 N6) — so
 an extension cannot launder an uncertified generated cell by colliding
 its effect-semantics string with an `edgeId`. The recomputation must
 happen before the gate reaches any `evaluate_decision_set*` site, which
@@ -6007,14 +6285,29 @@ fires at the four `pub` entry points (`:3776`, `:3844`, `:3942`,
 `:3963`) and the C symbol (`abi.rs:5823-5839`)** — where a gate arrives
 from outside — while **the runtime-extension path builds its gate
 through a distinct internal resolver that has already applied the
-conditional rule**, so the gate it presents at `:1304` is
-Host-constructed and passes unmodified. The implementation work in this
-row is therefore two things, not one: the ingress recomputation, and
-extracting that resolver as the sole producer of runtime-extension
-gates. **"Absent from the aggregate ⇒ keep the caller's value" is
+conditional rule**.
+**How the resolved gate reaches the evaluator (correction, round-4
+revision; Fable round-4 N5).** Round 3 said the resolved gate "passes
+unmodified" *through* ingress 1. It cannot: `pub fn
+evaluate_typed_decision` (`src/host/mod.rs:3776`) is a three-line body
+delegating to the private `evaluate_typed_decision_inner` (`:3784`) and
+has no way to see who called it, so it can neither recompute for
+external callers nor pass a Host-constructed gate through without the
+flag §A3 forbids. **The resolver therefore calls
+`evaluate_typed_decision_inner` (`:3784`) directly**, and the call at
+`src/host/mod.rs:1304` — today
+`self.evaluate_typed_decision(&decision_set, &[EffectGate{…}])` with the
+literal gate at `:1306-1310` — changes to the private evaluator with
+the resolver's gate. Recomputation then lives **only** in the four `pub`
+methods and the C symbol, which become exactly the trust boundary. The
+implementation work in this row is therefore three things: the ingress
+recomputation, extracting the resolver as the sole producer of
+runtime-extension gates, and repointing `:1304` at the private
+evaluator. **"Absent from the aggregate ⇒ keep the caller's value" is
 forbidden at ingress 1** — it is the natural-looking reconciliation and
 it silently reopens the round-2 BLOCKER for every non-inventory
-`coverage_edge_id`.
+`coverage_edge_id`; that prohibition is unchanged and is what seals the
+trap.
 Under `CompleteAdvertised` nothing changes, so this row is invisible to
 today's releases and load-bearing for every scoped one. That
 arm-state condition is deliberate and it leaves a **pre-existing**
@@ -6039,18 +6332,54 @@ per-SHA **artifact caches, not product releases** (its own header:
 Amendment: M27 (iv)'s reset lifecycle **creates** a window — between
 the reset commit and the next promotion merge the tree advertises
 nothing — and (i) makes that window unavoidable, because the reset
-commit must exist as the promotion merge's first parent. Every product
-release, tag, or publication path therefore asserts that the revision
+commit must exist as the promotion merge's first parent. Every **product
+release of the binary** — release, product tag, or package
+publication — therefore asserts that the revision
 being published carries a checked promotion admission with
 `authorized: true` and a non-null `admittedScopeDigest`, and
 **refuses** otherwise; the assertion is on the checked admission
 because that artifact is already domain-digest-verified before any
 field is trusted (`require_checked_promotion`,
-`src/host/portable_target_admission.rs:639`). Per-SHA diagnostic
-artifact caches are **explicitly outside** the gate — the reset commit
-is an ordinary reviewed commit whose cache a later ceremony consumes,
-and gating it would break the ceremony the gate protects. The
-staging-ref alternative (reset on a non-release ref, fast-forward the
+`src/host/portable_target_admission.rs:639`).
+**Excluded, with the reason (round-4 revision; Codex round-4 N3, Fable
+round-4 N4): every artifact-source-revision ceremony output** — the
+per-SHA diagnostic artifact cache
+(`.github/workflows/hermes-artifacts.yml:20-25`, push trigger `:35-36`)
+**and** the physical-promotion candidate ceremony
+(`.github/workflows/portable-engine-physical-promotion.yml:1-5`,
+checkout `:40-45`), which by construction runs at "exact source A" =
+the reset commit and may upload candidate bytes. Both run at a revision
+where the gate must fail, and both produce inputs the *next* promotion
+consumes; gating them makes promotion *n+1* circular.
+**The integration surface, enumerated (round-4 revision; Codex round-4
+N3 asked for exactly this, because a universal requirement with no
+named caller is not an executable worklist item).** The work is:
+1. **One shared checked-admission release command** — a single script
+   entry point that loads the build-embedded checked promotion
+   admission, verifies its domain digest, and exits non-zero unless
+   `authorized === true` and `admittedScopeDigest !== null`. There is
+   exactly one implementation; every gated path invokes it rather than
+   re-deriving the predicate.
+2. **Every product release / package / tag entry point invokes it**, and
+   the set is enumerated in the implementing change rather than assumed:
+   each product-release workflow under `.github/workflows/`, each
+   packaging or publish script, and each release-tag creation path. The
+   enumeration is part of the work item — today **no such gate and no
+   such enumeration exists**, which is why this row is not a
+   documentation row.
+3. **Raw tag creation is controlled or explicitly excluded.** A tag
+   pushed by hand is not an automatable call site; either product tags
+   are created only by a gated workflow (with direct tag pushes to the
+   product-tag namespace refused by branch/tag protection), or non-product
+   tags are named as an explicit exclusion in the same place the
+   ceremony outputs are.
+4. **The boundary must be explicit because the repository root is
+   itself a publishable package**: `Cargo.toml:1-7` declares
+   `[package] name = "ibex-runtime"` with **no `publish = false`**, so
+   "no automated product publisher exists today" is a statement about
+   present automation, not about the reachable surface.
+F6h-c asserts the caller set is exhaustive.
+The staging-ref alternative (reset on a non-release ref, fast-forward the
 release ref only once the promotion merge exists) is recorded in M27
 (iv) and not adopted. Fixture F6h.
 
@@ -6147,10 +6476,15 @@ both flip sets; recorded so round 3 reviews the settlement):
   F11's negative half is stated against the M15 constructors, where the
   module boundary is real.
 
-**Settled by the round-3 (final) design revision.** This revision is
-**UNREVIEWED** — the LLP 0049 §9 loop closed at three rounds with a
-split verdict, and no round 4 exists. These settlements are therefore
-the author's to accept or reject, not a reviewed consensus.
+**Settled by the round-3 design revision, and confirmed at round 4.**
+The author lifted the LLP 0049 §9 three-round bound on 2026-08-06,
+authorizing rounds 4–6 under a Fable-gated decision rule; **round 4 ran
+against this revision and both families returned READY**. These
+settlements are therefore reviewed consensus, not an unreviewed
+proposal — each was independently re-verified against code by both
+round-4 reviewers, and Codex recorded "ledger-worthy: none." The
+round-4 findings that follow from them are corrections applied in place
+by the round-4 revision, not reopenings.
 - **The historical hop is authenticated against content, not just
   shape** (round-3 Codex BLOCKER): M27 (i) gains the scope-critical
   artifact joins — changed-path-set equality, per-row blob
@@ -6277,6 +6611,13 @@ the author's to accept or reject, not a reviewed consensus.
    carries the lineage-resolved digests; the script-time verifier
    stamps them), so this item narrows to confirming the recommended
    placement: bundle-carried, with the lineage recording its digest.
+   **Closed by the round-4 revision (Fable round-4 N1):** the
+   checked-in-beside-`target-attestations.json` alternative is now
+   **forbidden**, not merely dispreferred — a tracked foundation path
+   drags the scope artifact into M18's pin-9/pin-14 coupling,
+   `assertSourceAuthorityClosed`'s source-foundation clauses and M27
+   (iv)'s reset lifecycle. The scope artifact is published under the
+   evidence prefix at the reserved path `capsec-scope.json` (M27 (i)).
 4. **`TargetArmState` payload:** `ScopedAdvertised` carrying the scope
    identity makes the enum non-`Copy`
    (`crates/capsec-semantics/src/decision.rs:52-56` derives `Copy`
@@ -6325,24 +6666,41 @@ the author's to accept or reject, not a reviewed consensus.
 
 ### Disagreement ledger (2026-08-06)
 
-The LLP 0049 Phase 1 review loop for this amendment is **closed at three
-rounds** (the §9 bound). It closed with a **split terminal verdict**, and
-this ledger is what carries the split to the author, per LLP 0005's rule
-that the author decides and nothing is fabricated to manufacture
-agreement.
+The LLP 0049 Phase 1 review loop for this amendment is **closed at round
+4**, and it closed **DUAL-READY**. The three-round §9 bound was **lifted
+by author directive on 2026-08-06** (recorded at `22abbc97`,
+`llp/0049-scoped-attestation-execution.plan.md` §9), authorizing rounds
+4–6 under an explicit decision rule — **the package moves forward when
+the Claude/Fable family reports READY**, regardless of the Codex
+verdict, with Codex findings continuing to inform revisions without
+gating progress. Round 4 ran under that rule against the previously
+unreviewed round-3 revision, and **both** families returned READY, so
+the rule is satisfied and the split this ledger was written to carry no
+longer exists. Per LLP 0005 the author still decides; nothing here was
+fabricated to manufacture agreement, and the round-3 split is recorded
+below as history rather than deleted.
 
-**Terminal verdicts (round 3, both at commit `8def7e20`, document
-revision `a770c2f95e9b`).**
+**Terminal verdicts (round 4, on the round-3 revision at commit
+`86662719`, document revision `1de5bb0b19aa`).**
 
 | family | verdict | findings |
 | --- | --- | --- |
-| Claude (Fable 5) | **READY** for the author's LLP 0044 item-5 decision | 3 MATERIAL + 5 MINOR, none blocking, all resolutions text-only |
-| OpenAI Codex (gpt-5.6-sol) | **NOT READY** | 1 IN-DELTA BLOCKER, 2 IN-DELTA MATERIAL, 1 PRE-EXISTING MATERIAL; two-item flip set |
+| Claude (Fable 5) | **READY** for the author's LLP 0044 item-5 decision | 5 MATERIAL + 4 MINOR, none blocking, every one fails closed, eight of nine resolutions text-only |
+| OpenAI Codex (gpt-5.6-sol) | **READY** — the first Codex READY of this loop; "ledger-worthy: none" | 3 IN-DELTA MATERIAL, 1 MINOR, 1 PRE-EXISTING process; all implementer-correctable or documentation |
+
+**Round-3 verdicts, for the record (both at commit `8def7e20`, document
+revision `a770c2f95e9b`): Fable READY** (3 MATERIAL + 5 MINOR, all
+text-only); **Codex NOT READY** (1 IN-DELTA BLOCKER, 2 IN-DELTA
+MATERIAL, 1 PRE-EXISTING MATERIAL). The round-3 revision answered all of
+it; round 4 confirmed the BLOCKER closed **by construction** — both
+families built a real promotion repository and ran the repository's own
+exported verifier primitives, and every F6f variant that the round-2
+predicate accepts is refused by the round-3 joins.
 
 Artifacts: `llp/reviews/0021-scoped-advertisement-amendment.fable.md` and
 `llp/reviews/0021-scoped-advertisement-amendment.codex.md`, "Round 3"
-sections. **This final revision is UNREVIEWED**; no round-4 review exists
-and none may be run.
+and "Round 4" sections. The round-4 revision applied every round-4
+finding from both families, all text-only.
 
 **The two Codex ledger-worthy items, and how this revision answers
 them.**
@@ -6376,7 +6734,12 @@ them.**
    author should know that a reviewer who examined the code
    independently would have chosen the stronger option**, and that
    choosing it becomes strictly better if the bundle verifier ever
-   becomes genuinely version-dispatching.
+   becomes genuinely version-dispatching. Round 4 verified the liveness
+   argument against hard-pinned, non-dispatching schema constants and
+   confirmed it sound — **but both round-4 reviewers independently found
+   the *reason* round 3 gave for the subset to be over-stated**, and it
+   over-stated it about the BLOCKER fix itself. See the second honesty
+   item below; the decision stands, its justification is narrowed.
 2. *"M27 lacks full tuple identity, colliding with A10 #7"* (MATERIAL).
    **Answered as asked.** The tracked admission revs to
    `ibex/portable-engine-promotion-admission/2` with a new digest domain
@@ -6416,10 +6779,37 @@ repository." The claim is therefore narrowed rather than defended:
 genesis is a positive fact about absence *within the checkout the
 verifier stands in*. §A5, M27 (vi) and A10 all carry the narrowed form.
 **This is the only round-3 finding that touches a security claim, and
-the author should read it before accepting.**
+the author should read it before accepting.** It survived round 4
+unchanged: Fable re-ran all three preconditions at HEAD, confirmed they
+pass, and confirmed the reconstruction lane costs one `git commit` and
+rewrites no published object. **Genesis closes truncation, not
+reconstruction** — the narrowed claim is the correct one.
 
-**Items both families agreed are implementer-correctable.** Neither
-family treated any of these as blocking, and every one fails closed:
+**The second honesty item — the subset's version-independence claim
+(round-4 Codex N2 / Fable N3, and the only round-4 finding that touches
+the argument the author is asked to accept).** Round 3 justified adopting
+the scope-critical subset over Codex's preferred full check set by
+saying the subset carries "no version dependency on the HEAD verifier's
+schema constants." **That was false of the subset's own load-bearing
+clause**: the digest recomputation is fixed to the
+`ibex:capsec:scope:1` canonical-form rule, `parseCatalog` and
+`validateAdmissionShape` compare against HEAD's `CATALOG_SCHEMA` /
+`ADMISSION_SCHEMA`, and `assertArtifactRolePath` plus the evidence-path
+templates encode HEAD's path grammar. The round-4 revision narrows the
+sentence to "no version dependency on the HEAD verifier's
+**artifact-schema validators**" and adds the normative rule that HEAD
+must retain the canonical-form rule and digest domain of **every**
+published `ibex/capsec-scope/N` and dispatch on the artifact's own
+`schema`. The actual argument for the subset is an **asymmetry of
+dispatch cost** — one canonical-form rule and one digest domain per
+version, versus a whole evidence-graph validator — not an absence of
+version dependency. The decision is unchanged; only its stated reason
+is. It fails closed either way: a hop that cannot be recomputed is a
+verification failure.
+
+**Items both families agreed are implementer-correctable (round 3).**
+Neither family treated any of these as blocking, and every one fails
+closed:
 - the composition of the ingress rule with the runtime-extension
   carve-out at `src/host/mod.rs:1304` — recomputation at the four `pub`
   entries and the C symbol, the extension path resolving its gate
@@ -6446,11 +6836,53 @@ for a cell the admitted map holds as `Closed` — is a genuine
 amendment's remit. It is
 `issues/20260806-abi-caller-supplied-targetcell-authoritative.md` (P2),
 not an amendment expansion. A3's ingress rule fixes it under
-`ScopedAdvertised` only.
+`ScopedAdvertised` only. Both round-4 reviewers re-verified the ticket
+and agreed it stays outside this amendment.
 
-**What remains.** Not another review round — the loop bound forbids one,
-and both families' round-3 dispositions show the remaining disagreement
-is about engineering preference and claim width, not about unresolved
-fact. What remains is the **author's LLP 0044 §7 register-item-5
-decision** (the runtime scope join, §A6), taken with this ledger and
-this UNREVIEWED final revision in hand.
+**Round-4 findings, and how the round-4 revision answers them.** Nine
+Fable findings and five Codex findings, with four overlapping pairs;
+none blocking, none reopening a decided item, and every one fails
+closed. All were applied as text corrections:
+
+| # | finding (family) | applied where |
+| --- | --- | --- |
+| 1 | `verifyChangedArtifacts`'s role predicate rejects the new `scope-artifact` role, and the cheap repair is a trap (Fable N1) | M27 (i) role-predicate paragraph + M19 amendment sentence + F6f-5 |
+| 2 | the tuple consumer list omits the lineage verification-result surface — the only channel features can reach the checked admission through (Codex N1, Fable N2) | M27 (ii) new "verification-result surface" paragraph; `:1100` relabelled; "Revised schema" reconciled |
+| 3 | the subset's version-independence claim is false of its own load-bearing clause (Codex N2, Fable N3) | M27 (iii) narrowing + normative retain-every-published-scope-rule; honesty item above |
+| 4 | M33's exclusion list misses the physical-promotion candidate ceremony, making promotion *n+1* circular; and M33 names no integration surface (Codex N3, Fable N4) | M27 (iv) gate clauses + M33 row's enumerated integration surface + F6h (b) and F6h-c |
+| 5 | "passes through ingress 1 unmodified" is not implementable at a `pub fn` that cannot see its caller (Fable N5) | §A3 composition rule + M32: the resolver calls the **private** `evaluate_typed_decision_inner` (`:3784`) |
+| 6 | `hostDisposition: "extension-declared"` is unreachable in a refusal-only envelope (Fable N6) | §A3 envelope field set + M32 + F3a-4 restated: diagnostic record, not envelope |
+| 7 | the joins never check the hop's own published advertisement (Fable N7) | M27 (i) sixth clause + F6f-4 |
+| 8 | "fixed scope-artifact path" was not fixed (Codex N4) | M27 (i): reserved `capsec-scope.json` with a role-specific equality check |
+| 9 | two more one-off pins (Fable N8) | `:736-738`, `:867-928` |
+| 10 | the package asserted this review could not exist (Codex N5, Fable N9) | status header, `Revised:` line, A10 preamble, and this ledger |
+
+Two round-4 pins failed re-verification and are corrected against code
+rather than against the review: the disabled verification-result branch
+is `:1051-1062` (its return object `:1056-1061`), not `:1052-1060`; the
+authorized result construction is `:1093-1103`, not `:1092-1101`; and
+`require_checked_promotion`'s current triple-only join is at `:707`, not
+`:705`. The enclosing claims were exact in every case.
+
+**What remains — an implementer worklist, not an author decision.** The
+loop is closed dual-READY and **LLP 0044 §7 register item 5 is
+ACCEPTED** (resolution record extended in LLP 0044 §7, 2026-08-06),
+which means the rest of this ledger is a worklist rather than a set of
+open questions. Gate code may now land against **§A9's 33-row join
+matrix as the authoritative worklist** (LLP 0049 §5.3). What an
+implementer must carry out of this ledger:
+- the ten round-4 corrections above, which are already in the rows —
+  they are the specification, not a to-do list appended to it;
+- the two author-facing honesty items above (genesis closes truncation
+  but not reconstruction; the subset is version-*dependent* and is
+  chosen on dispatch-cost asymmetry). Neither changes what to build;
+  both change what may be **claimed** about what is built, and both must
+  survive into the published claim wording;
+- the still-open items in **A10**, which are engineering choices inside
+  an accepted design — telemetry placement (#1), the M18 pin-9/pin-14
+  coupled-restamp option (#2, the one that gates shipping),
+  `TargetArmState` payload representation (#4), the M28 carriage rule
+  (#5), and the M30 rev-vs-evolve choice (#6);
+- the remaining LLP 0049 §5.3 exit conditions: gate code landed with its
+  adversarial fixtures green, `check:secure-mode` green, and the §5.2
+  disposition of the 73 poisoned cells.

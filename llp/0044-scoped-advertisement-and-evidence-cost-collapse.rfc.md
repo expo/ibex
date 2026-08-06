@@ -506,6 +506,53 @@ generator flag.
 > profile** — its rows classify as inapplicable under the secure feature
 > vector with a generated release constraint, not as unresolved
 > obligations. Execution sequencing: LLP 0049.
+>
+> **Item 5 resolved — ACCEPTED (2026-08-06, later the same day).** The
+> join-matrix review package (the LLP 0021 "Amendment: scoped
+> advertisement" and its §A9 33-row matrix) completed its LLP 0049
+> Phase 1 review loop, and item 5 is no longer blocked. The loop ran
+> **four rounds** — the §9 three-round bound was lifted by author
+> directive on 2026-08-06 authorizing rounds 4–6 under an explicit
+> decision rule, **the package moves forward when the Claude/Fable
+> family reports READY** — and round 4 closed **DUAL-READY** (Fable:
+> 5 MATERIAL + 4 MINOR, none blocking, all failing closed; Codex: its
+> first READY of the loop, "ledger-worthy: none"). Item 5 is therefore
+> **accepted under the author's standing Fable-gated directive**,
+> satisfied by the round-4 dual-READY. Artifacts:
+> `llp/reviews/0021-scoped-advertisement-amendment.{fable,codex}.md`,
+> "Round 4" sections.
+>
+> **The accepted design is Option B.** Scope identity is returned by
+> **report admission** and retained in the opaque
+> `AdmittedScopedTargetCells` aggregate, which is the sole introspection
+> authority; **the armed snapshot carries no scope identity** (so the
+> armed-snapshot producer, the `ibex/capsec-armed/1` parser,
+> `ExpectedArmingIdentity` and the remaining snapshot schema pins stay
+> scope-transparent — §2's consumer table row is answered). The arm
+> state gains `ScopedAdvertised` alongside `CompleteAdvertised`, with
+> `HostCellDisposition` distinguishing *uncertified* from
+> *incomplete-by-defect*; the **ingress rule** makes the retained
+> aggregate authoritative at every evaluator entrance (the four `pub`
+> Rust methods and the exported C symbol discard and recompute the
+> caller-supplied `target_cell`, with "absent ⇒ keep the caller's value"
+> explicitly forbidden); and monotone lineage is enforced by the **M27
+> lineage joins** — the historical promotion-revision predicate plus the
+> scope-critical artifact joins that bind a declared
+> `admittedScopeDigest` to content-hashed blobs actually present in the
+> hop's tree. All of it is specified row by row in the LLP 0021
+> amendment.
+>
+> **What this unblocks.** The amendment's own DRAFT status ends: **gate
+> code may now land against the §A9 join matrix as the authoritative
+> worklist**, per LLP 0049 §5.3. The remaining §5.3 exit conditions —
+> gate code landed with its adversarial fixtures green,
+> `check:secure-mode` green, and the §5.2 disposition of the 73 poisoned
+> cells — stay open. Two author-facing honesty items travel with the
+> acceptance and constrain the published claim wording: the genesis
+> preconditions close history **truncation but not reconstruction**, and
+> the reduced per-hop validation set **is** version-dependent (it is
+> chosen on an asymmetry of dispatch cost, not on an absence of
+> dependency). Both are recorded in the amendment's disagreement ledger.
 
 Decisions this RFC surfaces for the owner; each blocks the step noted:
 
@@ -526,11 +573,15 @@ Decisions this RFC surfaces for the owner; each blocks the step noted:
 4. **The v1.1 scope definition** (blocks Proposal 1 implementation;
    REQUIRES the §5 measurement first): which capability families/surface
    kinds are in the first scope, decided on the measured expansion.
-5. **The scoped arm state** (blocks arming amendments; BLOCKED until the
+5. **The scoped arm state** (blocked arming amendments until the
    complete armed-snapshot/report/cell-map scope-binding join matrix —
-   §2's lifecycle paragraph — is authored and reviewed): approve the
+   §2's lifecycle paragraph — was authored and reviewed): approve the
    distinct arm-state direction in §2's consumer table, with its design
    going through security review alongside this RFC's gate changes.
+   **RESOLVED 2026-08-06 — ACCEPTED, Option B; see the resolution
+   record at the head of this section.** The join matrix was authored as
+   the LLP 0021 amendment's §A9 appendix and reviewed to a round-4
+   dual-READY; arming amendments are unblocked and gate code may land.
 6. **Monotone lineage enforcement** (blocks the scope artifact schema):
    confirm intensional-superset + authenticated predecessor +
    expansion-diff artifact, with inventory retirements permitted and all

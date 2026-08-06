@@ -495,6 +495,28 @@ by a decided scope re-cut. `unresolved-in-scope === 0` is unreachable at
 Phase 3 while any of the 73 lacks a disposition, so this phase does not
 exit without one.
 
+> **Review-package exit-gate condition: MET (2026-08-06).** The first two
+> exit conditions are satisfied. Review artifacts exist under
+> `llp/reviews/` —
+> `0021-scoped-advertisement-amendment.fable.md` and
+> `…codex.md`, four rounds each, closing **DUAL-READY at round 4** under
+> the §9 author directive's Fable-gated decision rule. **LLP 0044
+> register item 5 is decided: ACCEPTED** (Option B — scope identity
+> returned by report admission and retained in
+> `AdmittedScopedTargetCells`; the armed snapshot carries no scope
+> identity), so this is a gate pass, not the §9 diversion. Every round-4
+> finding from both families was applied to the package as a text
+> revision; the LLP 0021 §A9 matrix is unchanged at **33 rows** and is
+> now the accepted authoritative worklist for the gate code below.
+>
+> **Still open in Phase 1**, and the only things now standing between
+> here and §5.3's exit: gate code landed with its adversarial fixtures
+> green (the LLP 0044 §2 seven classes plus the observed-closure-escape,
+> split/merge and adversarial-composition fixtures, and the LLP 0021 §A8
+> subcases the review rounds added — F3a-1…5, F6a…F6h with the round-4
+> additions F6f-4, F6f-5 and F6h-c); `check:secure-mode` green; and the
+> **§5.2 disposition of the 73 poisoned cells**.
+
 ## 6. Phase 2 — The authoring campaign (parallel with Phase 1)
 
 Authoring needs no gate code, so this phase starts once Phase 0 completes
