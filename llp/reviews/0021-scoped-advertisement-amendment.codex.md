@@ -434,3 +434,109 @@ Minimal flip set:
 
 1. Make each historical M27 hop prove the tracked `admittedScopeDigest` against an actual content-hashed scope artifact in that promotion tree, with scope-critical source/tree/artifact joins.
 2. Carry and verify the full canonical tuple, including features, through the tracked and checked admission schemas and historical predicate.
+
+## Round 4 — 2026-08-06
+
+- **Family:** OpenAI Codex (gpt-5.6-sol)
+- **Provider/runtime:** `codex exec` CLI 0.146.1,
+  `-c model_reasoning_effort="high"`, `--sandbox read-only`,
+  `--skip-git-repo-check`, brief on stdin
+- **Date:** 2026-08-06
+- **Redacted:** no (public-repo content only)
+- **Method:** delta round on the previously-unreviewed final revision at
+  `86662719` (HEAD `22abbc97`, drift limited to the LLP 0049 author
+  directive); **executed an in-memory F6f harness** built from the
+  repository's own `canonicalJson` / `rawDigest` / `semanticDigest`
+  primitives to run the shaped tree-unbacked-digest attack, plus a
+  positive control; verified the tuple consumer list, M33's gate, pin 14's
+  sweep, and the N1 ingress composition against current code
+- **Verdict:** **READY** — the first Codex READY of this loop.
+  "Ledger-worthy: none." 5 findings (3 IN-DELTA MATERIAL, 1 MINOR,
+  1 PRE-EXISTING process), all implementer-correctable or documentation
+
+### Review body (verbatim from codex exec stdout)
+
+## 1. Delta-verification results
+
+- **PASS — revision identity, with drift noted.** `git rev-parse HEAD` returned `22abbc9739037a58ec6fd36f9ed2c477b7bd65fd`; its direct parent is requested commit `8666271922c3163129c05fa7900cc83042298912`. `git diff --name-status 86662719 HEAD` reports only `M llp/0049-scoped-attestation-execution.plan.md`: the author directive authorizing rounds 4–6 and the Fable-gated decision rule (`llp/0049-scoped-attestation-execution.plan.md:666-677`). `git diff --quiet 86662719 -- <package-and-cited-code-files>` exited 0. The worktree has one unrelated untracked file, `scripts/.lineage-exported-review.mjs`; it was not used.
+
+- **PASS — M27(i) closes “authenticates a declaration, not a hop.”** The cited primitives are real: independently rehashed Git objects and tree collection at `scripts/portable-engine-promotion-lineage.mjs:571-670`; role validation at `:784-800`; changed-leaf computation at `:858-865`; exact changed-path equality at `:930-943`; per-row object-id, size, and raw-digest checks at `:954-968`; current role list/cardinalities at `:724-738`; and evidence prefix at `:761-763`. M27 adds the missing scope-role cardinality, tree/blob joins, digest recomputation, and tuple equality at `llp/0021-capsec-effect-model-migration.plan.md:5313-5360`. An executed in-memory F6f harness using the repository’s `canonicalJson`, `rawDigest`, and `semanticDigest` primitives observed `accepted=false` for no scope row, a row missing from the tree, and tree-backed bytes whose digest differs from `admittedScopeDigest`; the matching positive control returned `accepted=true` (`scripts/portable-engine-contract.mjs:287-298`). The shaped, self-consistent but tree-unbacked attack is therefore refused.
+
+- **PASS, with one MATERIAL precision defect — subset versus full set.** The full verifier really ends in `verifyPromotionBundleGraph` (`scripts/portable-engine-promotion-lineage.mjs:930-995`), which passes published attestation/advertisement bytes into the fixed v2 validator (`verify-capsec-portable-promotion-bundle.mjs:349-360`; schema constants/files at `capsec-portable-engine-evidence-contract.mjs:46-81`). Requiring it at every historical hop would require version dispatch across published schemas. The adopted subset is a genuine floor for the claimed historical scope binding because it proves exact changed membership, every declared blob, one scope artifact, recomputed scope identity, and tuple equality (`llp/0021…:5503-5512`). However, the claim that this subset has “no version dependency on the HEAD verifier’s schema constants” is false; see New Finding 2.
+
+- **FAIL — M27(ii)’s consumer list is not complete, although the tuple design and digest projection are sound.** Replacing `targetTriple` with closed `{triple, features}` and selecting on the full tuple is correct (`llp/0021…:5362-5374,5391-5435`). The whole-object digest projection automatically binds both `target` and `admittedScopeDigest`; mutation of either changed the computed digest in an executed `semanticDigest` check (`scripts/portable-engine-contract.mjs:291-298`; amendment `:5466-5474`). But the enumerated list at `llp/0021…:5437-5456` omits the lineage-result closed-key/shape parser (`scripts/portable-engine-promotion-lineage.mjs:1143-1168`), the binding comparison at `:1180`, and the Rust deserialization model at `src/host/portable_target_admission.rs:102-115`. The cited `:710`, `:739-740`, `:762`, `:814`, `:836`, `:840`, `:1100`, `:1192`, Rust `:613-628/:639`, and installer `:476` consumers are all real.
+
+- **PARTIAL — M33 states the correct gate but does not yet make its “every path” claim executable.** Checking `authorized: true` plus non-null `admittedScopeDigest` on the domain-verified checked admission correctly rejects reset revisions (`llp/0021…:5631-5679,6026-6055`; current null-report behavior at `build_support/portable_engine_promotion_report.rs:453-465`). The diagnostic-cache exclusion is correct: `.github/workflows/hermes-artifacts.yml` explicitly calls its releases diagnostic artifact caches and prereleases (`:20-25`) and runs on both manual dispatch and main pushes (`:28-36`). But M33 names no concrete product release, package-publication, or tag-control integration; it admits no gate exists today (`llp/0021…:6028-6049`). The authoritative worklist therefore cannot yet demonstrate that every release path invokes one common check.
+
+- **PASS — pin 14 correctly couples advertisements and attestations.** The recorded path sweep reproduces nine occurrences in seven files using `rg -n -F 'target-attestations.json' …`. The contract runner reads and v1-validates both HEAD documents (`capsec-contract.mjs:130-133,3514-3520,3680-3690`) and requires exact target-set equality (`:4212-4229`), while promotion emits v2 attestations (`capsec-portable-promotion-bundle.mjs:1089-1099`). M18 now requires both documents to use the same artifact-source revision or both to version-dispatch and restamp (`llp/0021…:5009-5036,5097-5138`). Its “bounded path sweep, not completeness claim” qualification is accurate.
+
+- **PASS — Fable N1’s ingress trap is closed at the design level.** Current code confirms that the runtime-extension path calls the public evaluator at `src/host/mod.rs:1304-1311`, while public evaluator ingresses accept caller-supplied gates at `:3776-3782,3844-3871,3942-3981`. A3/M32 now separate external-ingress recomputation from a Host-only runtime-extension resolver and explicitly forbid “absent ⇒ keep caller value” at ingress 1 (`llp/0021…:3803-3844,6000-6017`). Implemented structurally as specified—public ingress recomputes, while the private resolved path bypasses that external-ingress step—non-inventory extension semantics retain their intended `Complete` behavior without reopening the ABI channel.
+
+- **PASS — LLP 0032/0036 deltas remain coherent.** LLP 0032 adds only the report scope binding and retains phase/diagnostic separation (`llp/0032-capsec-conformance-execution-and-evidence-sharding.spec.md:803-834`). LLP 0036 consistently re-scopes the authoring program and Gate 2 without changing Gates 1 or 3 (`llp/0036-target-advertisement-completion.plan.md:414-445`).
+
+## 2. Round-3 disposition table
+
+| Family / round-3 finding | Disposition | Exact section or row |
+|---|---|---|
+| Codex BLOCKER — declaration, not authenticated hop | **RESOLVED** | M27(i) scope-critical joins (`llp/0021…:5313-5360`), reduced-set incorporation (`:5503-5512`), and F6f (`:4325-4340`). |
+| Codex MATERIAL — tuple identity | **PARTIAL** | Full-tuple schema/selection is resolved in M27(ii) (`:5362-5474`) and F6g (`:4341-4347`), but the consumer inventory omits three live sites; New Finding 1. |
+| Codex MATERIAL — reset has no mechanical non-release gate | **PARTIAL** | The predicate and F6h are supplied by M27(iv)/M33 (`:5631-5679,6026-6055`; F6h `:4348-4361`), but concrete release/tag/publication integration points are not enumerated; New Finding 3. |
+| Codex PRE-EXISTING MATERIAL — coupled target attestations | **RESOLVED** | M18 pin 9 correction and pin 14 (`:5009-5036,5097-5138`), plus A10 #2 (`:6257-6271`). |
+| Fable N1 — ingress/runtime-extension collision | **RESOLVED** | A3 composition rule (`:3803-3844`) and M32 structural work (`:6000-6017`). |
+| Fable N2 — floor’s parent wording false | **RESOLVED** | “First parent” and two-parent explanation in M27(v) (`:5700-5719`) and F6a (`:4293-4300`). |
+| Fable N3 — truncation versus reconstruction | **RESOLVED** | Narrowed boundary in A5 (`:3975-3990`) and M27(vi) (`:5751-5789`). |
+| Fable N4 — four off-by-one pins | **RESOLVED** | Corrected pins and explicit correction note (`:5295-5306`). |
+| Fable N5 — `admissionDigest` over-attributed | **RESOLVED** | Conjunct withdrawn; residual stated as reachability plus artifact joins (`:5571-5588`). |
+| Fable N6 — “only caller” overclaim | **RESOLVED** | Three test-gated callers enumerated in A3 (`:3723-3736`) and M32 (`:5959-5968`). |
+| Fable N7 — unpriced digest-contract → lineage dependency | **RESOLVED** | Dependency priced in pin 9 (`:5037-5050`) and A10 #2 (`:6267-6271`). |
+| Fable N8 — pre-existing `CompleteAdvertised` caller authority | **RESOLVED by filing outside this amendment** | Open P2 ticket with cause, scope, and done condition (`issues/20260806-abi-caller-supplied-targetcell-authoritative.md:1-22,82-119`). |
+
+## 3. New findings
+
+### N1 — IN-DELTA — MATERIAL — tuple consumer inventory remains incomplete
+
+M27 calls its `targetTriple → target.triple` list enumerated, but misses:
+
+- the active lineage-result exact-key and target-shape validation (`scripts/portable-engine-promotion-lineage.mjs:1143-1168`);
+- the lineage-to-selection comparison (`:1180`);
+- the Rust `CheckedPromotionAdmission` deserialization field (`src/host/portable_target_admission.rs:102-115`).
+
+These omissions fail closed through exact-key/Serde failures, but they would be discovered during implementation rather than by the authoritative worklist.
+
+**Exact resolution:** add all three sites to M27(ii); specify that the lineage result carries closed `target`, `bindVerifiedPortableEnginePromotionAdmission` compares `lineage.target.triple` with the triple-only deployment selection before copying the full `lineage.target`, and the Rust model changes to `target: AdvertisementTarget`. Extend F6g through both the JS checked-admission formatter and Rust parser.
+
+### N2 — IN-DELTA — MATERIAL — the subset is not schema-version-independent
+
+M27 says its reduced historical set has “no version dependency on the HEAD verifier’s schema constants” (`llp/0021…:5508-5512`). In fact, `parseCatalog` compares against the HEAD `CATALOG_SCHEMA` (`scripts/portable-engine-promotion-lineage.mjs:35,673-689`), and `validateAdmissionShape` compares against the HEAD `ADMISSION_SCHEMA` (`:36,691-710`). Historical scope recomputation is also fixed to `ibex:capsec:scope:1` (`llp/0021…:5349-5353`). A future catalog/admission/scope schema revision therefore produces the same historical-hop liveness problem, at a smaller surface, that M27 correctly identifies in the full bundle verifier.
+
+**Exact resolution:** either declare `/2` admission/catalog and scope `/1` permanently frozen lineage formats, or add explicit historical version dispatch for catalog, tracked admission, and scope artifacts. Replace “no version dependency” with the narrower true claim: the subset avoids dependency on every published report/attestation/advertisement/bundle schema.
+
+### N3 — IN-DELTA — MATERIAL — M33 lacks an exhaustive integration surface
+
+M33’s predicate is correct, but the row contains only a universal requirement and says no gate exists today (`llp/0021…:6026-6049`). Unlike M18/M27, it does not enumerate the product release workflows, package publishers, tag controls, or a shared command each must invoke. The root crate is itself a package without `publish = false` (`Cargo.toml:1-7`), illustrating why “every publication path” needs an explicit boundary even if no automated product publisher presently exists.
+
+**Exact resolution:** define one checked-admission release command, enumerate every product release/package/tag entry point that must invoke it, identify how raw tag creation is controlled or explicitly exclude non-product tags, and make F6h inspect that exhaustive caller set. Preserve `.github/workflows/hermes-artifacts.yml` as the named diagnostic-cache exception (`:20-36`).
+
+### N4 — IN-DELTA — MINOR — “fixed scope-artifact path” is not yet defined
+
+M27 requires exactly one `scope-artifact` row “at the fixed evidence-prefix path” (`llp/0021…:5342-5348`), but the cited `assertArtifactRolePath` only requires non-publication roles to use any safe `.json` path under `evidencePrefix` (`scripts/portable-engine-promotion-lineage.mjs:784-800`). No fixed scope filename appears in the amendment.
+
+**Exact resolution:** reserve an exact suffix such as `scope.json` and add a role-specific equality check, or change the claim from “fixed path” to “one safe JSON path under the fixed evidence prefix.” This does not weaken the blob/digest join.
+
+### N5 — PRE-EXISTING — MINOR — package process-status prose is stale at HEAD
+
+The amendment still says no round 4 exists or may run (`llp/0021…:3500-3504,6342-6345,6451-6455`), while HEAD’s author directive explicitly authorizes rounds 4–6 (`llp/0049-scoped-attestation-execution.plan.md:666-677`).
+
+**Exact resolution:** update the amendment status and disagreement-ledger preamble to record the lifted bound, the Fable-gated decision rule, and this round’s provenance.
+
+## 4. Verdict
+
+# READY
+
+READY for the author’s LLP 0044 register-item-5 decision. M27 now defeats the concrete shaped/tree-unbacked attack and carries full tuple identity in substance (`llp/0021…:5313-5474`). No new finding admits an unsound scoped certification: N1 and N2 fail closed during parsing/history traversal, N3 is missing implementation-surface enumeration for an otherwise correct reset predicate, and N4/N5 are precision/process defects.
+
+- **Ledger-worthy:** none.
+- **Implementer-correctable before gate code lands:** N1–N4.
+- **Documentation/process correction:** N5.
+
+The author’s decision rule is independently satisfied by Fable’s Round-3 READY and recorded at HEAD (`llp/reviews/0021-scoped-advertisement-amendment.fable.md:429-449`; `llp/0049-scoped-attestation-execution.plan.md:670-676`); this READY does not rely on that rule.
