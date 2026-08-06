@@ -1,4 +1,4 @@
-# LLP 0050: Host Activation Principals and Carrier Hop Consistency
+# LLP 0051: Host Activation Principals and Carrier Hop Consistency
 
 **Type:** RFC
 **Status:** Draft

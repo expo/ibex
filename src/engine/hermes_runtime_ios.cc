@@ -936,7 +936,7 @@ extern "C" int ex_hermes_dispatch_event(
   // Standard public-entry hygiene: every other embedder ingress validates the
   // generation/owner and enters the runtime security context before touching
   // JSI. Input dispatch previously skipped this, entering JS as an undeclared
-  // native boundary. @ref LLP 0050 (host activation principals)
+  // native boundary. @ref LLP 0051 (host activation principals)
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive || runtime->restricted) return -1;
   if (!exactRuntimeEnterUserExecution(runtime)) return -1;
