@@ -14325,7 +14325,7 @@ module.exports = JSON.stringify({
                     __exactFsPathAsync('truncate', '/project/existing.txt', '', 0, 0, 0);
                   });
                   expectClosed(function() {
-                    __exactFsStatAsync('/project/existing.txt', 'stat');
+                    __exactFsReadFileAsync('/project/existing.txt', 'r', 0, null);
                   });
                   expectClosed(function() {
                     __exactFsStatAsync('/project/existing.txt', 'lstat');
@@ -16883,16 +16883,24 @@ module.exports = JSON.stringify({
         assert!(!missing.exists());
     }
 
-    /// Diagnostic reproduction for the Exact-reported real-input carrier
-    /// defect (Exact issues/20260805-input-dispatch-no-user-carrier-...):
-    /// a host input activation delivered through ex_hermes_dispatch_event
-    /// seeds the promise-job constrained carrier, and the A/B contrast is
-    /// (a) a capability op in the activation's direct promise chain versus
-    /// (b) the identical op detached across setTimeout(0).
+    /// Regression for the Exact-reported real-input carrier defect (Exact
+    /// `issues/20260805-input-dispatch-no-user-carrier-...`): a host input
+    /// event delivered through `ex_hermes_dispatch_event` must run under the
+    /// standard runtime entry boundary, so a granted first-party capability
+    /// op succeeds identically (a) directly in the activation's promise
+    /// reaction, (b) nested through the resulting native async completion,
+    /// and (c) detached across `setTimeout(0)` — with no capability denial
+    /// recorded. Before the drive guard, this harness produced
+    /// `ERR_IBEX_STALE_SESSION` (no Host session was ever entered).
+    ///
+    /// The complementary no-shed direction (a constrained carrier must stay
+    /// constrained across the same hop) is pinned by `__deputyTimerResult`
+    /// in `src/engine/runtime_extension_conformance_tests.rs`.
+    /// @ref LLP 0051#acceptance-evidence — positive input A/B witness
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     #[cfg(not(feature = "insecure"))]
-    async fn input_dispatch_seeded_chain_capability_ab_diagnostic() {
+    async fn input_dispatch_entry_grants_first_party_capabilities_across_hops() {
         let _guard = hermes_engine_test_lock().lock().await;
         let project = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(project.path()).unwrap();
@@ -16913,7 +16921,7 @@ module.exports = JSON.stringify({
                   };
                   var probe = function(slot, next) {
                     try {
-                      __exactFsStatAsync('/project/existing.txt', 'stat').then(
+                      __exactFsReadFileAsync('/project/existing.txt', 'r', 0, null).then(
                         function() {
                           globalThis.__abResults[slot] = 'granted';
                           if (next) next();
@@ -16935,6 +16943,102 @@ module.exports = JSON.stringify({
                       probe('direct', function() { probe('nested', null); });
                     });
                     setTimeout(function() { probe('hop', null); }, 0);
+                  };
+                  return 'installed';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        runtime
+            .with_runtime(|raw| {
+                let dispatched = unsafe { ex_hermes_dispatch_event(raw, 1, std::ptr::null()) };
+                assert_eq!(dispatched, 0, "dispatch_event failed");
+            })
+            .unwrap();
+        let mut outcome = String::new();
+        for _ in 0..100 {
+            runtime
+                .with_runtime(|raw| {
+                    let _ = unsafe { ex_hermes_poll(raw, current_time_ms() + 50) };
+                })
+                .unwrap();
+            outcome = engine
+                .eval_immediate("JSON.stringify(globalThis.__abResults)")
+                .await
+                .unwrap()
+                .unwrap();
+            if !outcome.contains("pending") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&outcome).unwrap();
+        assert_eq!(parsed["handler"], "ran", "the dispatch handler never ran");
+        assert_eq!(parsed["direct"], "granted", "direct-chain op outcome");
+        assert_eq!(parsed["nested"], "granted", "nested-chain op outcome");
+        assert_eq!(parsed["hop"], "granted", "setTimeout-hop op outcome");
+
+        // No legacy capability denial may be recorded for the activation
+        // (the armed typed plane's positive gate-liveness control is the
+        // withheld-authority sibling test below).
+        let (legacy, _typed) = crate::host::abi::take_installed_conformance_observations();
+        let denials: Vec<_> = legacy
+            .iter()
+            .filter(|decision| !decision.allowed)
+            .map(|decision| decision.capability.clone())
+            .collect();
+        assert!(
+            denials.is_empty(),
+            "input-seeded chain recorded capability denials: {denials:?}"
+        );
+    }
+
+    /// Gate-liveness control for the positive A/B above: the identical
+    /// dispatch-seeded probe with read authority withheld must be DENIED on
+    /// every leg, proving the grants in the positive test are real decisions
+    /// by a live gate rather than an absence of checks.
+    /// @ref LLP 0051#acceptance-evidence — positive input A/B witness
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn input_dispatch_probe_is_gated_when_read_authority_is_withheld() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        std::fs::write(root.join("existing.txt"), b"payload").unwrap();
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        engine
+            .eval(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__abResults = {
+                    direct: 'pending',
+                    hop: 'pending',
+                    handler: 'pending'
+                  };
+                  var probe = function(slot) {
+                    try {
+                      __exactFsReadFileAsync('/project/existing.txt', 'r', 0, null).then(
+                        function() { globalThis.__abResults[slot] = 'granted'; },
+                        function(error) {
+                          globalThis.__abResults[slot] =
+                            'denied:' + String(error && (error.code || error.message));
+                        });
+                    } catch (error) {
+                      globalThis.__abResults[slot] =
+                        'denied-sync:' + String(error && error.message);
+                    }
+                  };
+                  globalThis.__exactDispatchEvent = function(id, payload) {
+                    globalThis.__abResults.handler = 'ran';
+                    Promise.resolve().then(function() { probe('direct'); });
+                    setTimeout(function() { probe('hop'); }, 0);
                   };
                   return 'installed';
                 })()"#,
@@ -16966,13 +17070,53 @@ module.exports = JSON.stringify({
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        // Diagnostic assertion intentionally records the observed truth; see
-        // the carrier LLP for the designed semantics.
-        eprintln!("input-dispatch A/B outcome: {outcome}");
         let parsed: serde_json::Value = serde_json::from_str(&outcome).unwrap();
-        assert_eq!(parsed["hop"], "granted", "setTimeout-hop op outcome");
-        assert_eq!(parsed["direct"], "granted", "direct-chain op outcome");
-        assert_eq!(parsed["nested"], "granted", "nested-chain op outcome");
+        assert_eq!(parsed["handler"], "ran", "the dispatch handler never ran");
+        for slot in ["direct", "hop"] {
+            let value = parsed[slot].as_str().unwrap_or("missing");
+            assert!(
+                value.starts_with("denied"),
+                "withheld-authority {slot} probe was not denied: {value}"
+            );
+        }
+    }
+
+    /// Runtime admission at the input ingress: `ex_hermes_dispatch_event` must
+    /// refuse a stale generation rather than dereferencing it. (Owner-thread
+    /// refusal is enforced by the same guard; `with_runtime` already asserts
+    /// owner-thread affinity in this harness, so the reachable admission
+    /// witness here is the post-shutdown generation.)
+    /// @ref LLP 0051#acceptance-evidence — admission tests
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn input_dispatch_refuses_a_stale_runtime_generation() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval("globalThis.__exactDispatchEvent = function() {}; 'installed'")
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let stale_address = runtime
+            .with_runtime(|raw| raw as usize)
+            .expect("runtime pointer");
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
+        let refused = unsafe {
+            ex_hermes_dispatch_event(
+                stale_address as *mut HermesRuntimeOpaque,
+                1,
+                std::ptr::null(),
+            )
+        };
+        assert_eq!(
+            refused, -1,
+            "input dispatch admitted a destroyed runtime generation"
+        );
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]

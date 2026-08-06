@@ -936,7 +936,11 @@ extern "C" int ex_hermes_dispatch_event(
   // Standard public-entry hygiene: every other embedder ingress validates the
   // generation/owner and enters the runtime security context before touching
   // JSI. Input dispatch previously skipped this, entering JS as an undeclared
-  // native boundary. @ref LLP 0051 (host activation principals)
+  // native boundary that inherited whatever residual principal/carrier state
+  // the thread last held. This API delivers FRESH host events only;
+  // continuations and completions must use the carrier-bearing queues, and a
+  // REENTRANT drive is a refusal (the host requeues as a new outer drive).
+  // @ref LLP 0051#a-runtime-entry-hygiene-at-ex_hermes_dispatch_event-landed-shape — fresh-host-event ingress takes the drive guard
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive || runtime->restricted) return -1;
   if (!exactRuntimeEnterUserExecution(runtime)) return -1;
