@@ -224,3 +224,88 @@ Minimal flip set:
 4. Expand A8 with stale/fresh artifact crossings, cross-tuple crossings, direct map/digest crossings, positive introspection coherence, and the decided rollback boundary.
 5. Correct A7’s universal callability and zero-decision-layer wording.
 6. Settle v2/v3 production-path ownership and scope-artifact placement.
+
+## Round 2 (delta) — 2026-08-06
+
+- **Family:** OpenAI Codex (gpt-5.6-sol)
+- **Provider/runtime:** `codex exec` CLI 0.146.1,
+  `-c model_reasoning_effort="high"`, `--sandbox read-only`,
+  `--skip-git-repo-check`, brief on stdin
+- **Date:** 2026-08-06
+- **Redacted:** no (public-repo content only)
+- **Method:** delta round at commit `38c382d2`, document revision
+  `9565a3cb8f30`; executed all mandated delta checks including a
+  `git grep` sweep against the committed tree and a git-history
+  reconstruction of the catalog foundation (`afad4af9`) to test genesis
+  admissibility; full disposition table over both families' round-1
+  findings
+- **Verdict:** NOT READY (2 new IN-DELTA BLOCKERs; three-item flip set)
+
+### Review body (verbatim from codex exec stdout)
+
+## 1. Delta-verification results
+
+- **PASS — revision identity.** `git rev-parse --verify 38c382d2^{commit}` returned `38c382d2eab6227c8abfc318635a61422f3a5f21`; `git show 38c382d2:llp/0021-capsec-effect-model-migration.plan.md | shasum -a 256` returned `9565a3cb8f30530f…`. The requested package matches.
+
+- **FAIL — M27 lineage topology and discovery walk.** The four current pins are accurate: the checked schema is closed (`schemas/portable-engine-checked-promotion-admission-v1.schema.json:6-18`), the producer freezes the same fields (`scripts/portable-engine-promotion-lineage.mjs:1185-1199`), the build carrier writes those exact bytes (`build_support/portable_engine_build_consumption.rs:118-139`), and Rust rejects any other key set before verifying the domain digest (`src/host/portable_target_admission.rs:587-628,639-668`). But M27’s walk does not work as specified. Today an active catalog is valid only when the examined revision itself is the exact two-parent promotion merge, its first parent is `sourceRevision`, its topic is one direct child, and that source revision contains a disabled, empty catalog and empty-v1 advertisement (`portable-engine-promotion-lineage.mjs:804-826,1064-1087`). A later ordinary first-parent commit continues to “carry an admission” but is not that merge, so M27 step 2 can select it and step 1 will reject it. Repeated promotion also conflicts with M18 pin 2: the previous promoted revision owns v2/v3 bytes, while unchanged `assertSourceAuthorityClosed` requires the next source revision’s copy to be empty v1. No enable→disable/reset lifecycle or exact “promotion revision” predicate is specified (`llp/0021…:4538-4568`). Genesis is under-specified too: `git log 38c382d2 --first-parent -- …catalog…` shows the catalog was introduced disabled at `afad4af9`; its parent lacks the path, while M27 says the walk runs to exhaustion without defining how pre-foundation absence is authenticated. `git log 38c382d2 --all -S'"enabled":true"' -- …catalog…` found no historical active admission, so this repository is a legitimate genesis only if that missing-path rule is supplied.
+
+- **FAIL — A3 aggregate/projection against real Host entry points.** The proposed Rust type placement is mechanically viable: `portable_target_admission` is a private child module (`src/host/mod.rs:14-24`), so a `pub(super)` opaque type with private fields can be returned by M7 and moved into Host without other production modules constructing it. The production cell map currently comes from `authenticated_report_target_cells` (`src/host/portable_target_admission.rs:1307-1322`); five synthetic complete-map constructors and two test-only direct calls also exist (`src/host/mod.rs:655-718,745-772,880-953,8151-8157,8979-8985`) and are correctly assigned to M15/F11. `HostCellDisposition::Uncertified → TargetCellDisposition::Incomplete` can occur in `Host::target_cell` and leave `decision.rs` unchanged (`src/host/mod.rs:956-961,2840-2851`; `crates/capsec-semantics/src/decision.rs:393-407,609-621`). However, the aggregate does **not** currently make every gate disposition map-derived: the C ABI accepts caller-supplied serialized `EffectGate.targetCell` (`src/host/abi.rs:5823-5839`; `src/host/mod.rs:3942-3981`), and `EffectGate` exposes that field publicly (`decision.rs:401-407`). There is also a direct production `TargetCellDisposition::Complete` construction for runtime-extension gates (`src/host/mod.rs:1266-1310`). Additionally, telemetry has three separate evaluation paths, not the claimed single receiver (`src/host/mod.rs:3794-3839,3844-3872,3874-3903`). Thus an out-of-scope ABI gate can bypass the retained aggregate and reached-gate refusal unless every ingress is rebound or checked.
+
+- **FAIL — M11 sweep and count.** Against the committed tree,  
+  `git grep -n -F '"ibex/capsec-armed/1"' 38c382d2 -- . ':!llp/**' ':!target/**' ':!node_modules/**'`  
+  returns **21 matching lines in 17 files**, and `git grep -o … | wc -l` returns **23 literal occurrences**. Excluding `vendored-generated/**` yields the amendment’s 20 lines/16 files, but still 21 literal occurrences because `crates/capsec-semantics/src/arming.rs:3679` contains the string twice. The omitted seventeenth file is `vendored-generated/capsec-runtime-projection.canonical.json:1`, itself generated and embedded through `generate-capsec-runtime-projection.mjs:31,156` and `src/capsec_runtime_projection_generated.rs:14`. Fable’s 21-hit observation was correct for the 16-file set; the revision’s recorded command does not exclude the additional generated mirror.
+
+- **FAIL — M18 eight-pin disposition.** All eight named pins are real (`llp/0021…:4342-4408`), including the three contrary assertions at `src/host/portable_target_admission.rs:1866-1879`, `scripts/hermes-artifacts-workflow-security.test.mjs:375-384`, and `scripts/package-portable-hermes-macos.test.mjs:773-782`. Retiring them or converting them to artifact-source fixtures is workable and fixes their HEAD-copy assertions. The settled owner is also correct for one promotion: the generator emits v1 (`generate-capsec-registry.mjs:1056-1082,1375-1381`), while the build selector requires v2 (`build_support/portable_engine_promotion_report.rs:23-30,314-336`). But pin 2 cannot remain unchanged under M27’s repeated-promotion story without a specified depublication/reset phase: `assertSourceAuthorityClosed` still requires empty-v1 source bytes (`portable-engine-promotion-lineage.mjs:804-826`), whereas the preceding promoted revision contains the v2/v3-owned path. Therefore the per-pin disposition is not yet coherent across multiple promotions.
+
+- **PASS — M28 strict parsers and carriage choice.** Both Rust parsers compare the binding object’s exact sorted key set and therefore reject an unknown `scopeDigest` today (`src/bin/ibex/engine/capsec_portable_public_batch.rs:96-104,183-204`; `src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs:175-183,489-508`). Both recompute the digest over the accepted whole binding object (`capsec_portable_public_batch.rs:213-220`; `capsec_exact_fixture_evidence_batch.rs:537-545`). Direct carriage is viable by revising all three lists; transitive carriage is also a real choice because `portableExecutionBindingDigest` already binds `recipeCatalogDigest` (`capsec-portable-engine-evidence-contract.mjs:216-235`) and the recipe-catalog digest commits its complete object (`:238-241`). The transitive option must retain M28’s proposed digest-reachability check.
+
+- **PASS — M7 scoped equalities.** Today admission constructs full-inventory fixture unions and requires `required == passed == executions`, exact summary counts, and zero missing/failed/incomplete (`src/host/portable_target_admission.rs:1443-1527`). M7 preserves that equation over the independently rederived in-scope set S, keeps the report exhaustive over the full inventory, and adds an explicit refusal for any out-of-scope authoritative fixture or execution (`llp/0021…:4140-4179`). Relative to scoped certification, this is equivalent on S and stronger at the diagnostic/authoritative boundary because of the zero-contribution rule.
+
+## 2. Round-1 disposition table
+
+The Codex artifact’s header says four MATERIAL findings, but its body contains five MATERIAL headings (`llp/reviews/0021-scoped-advertisement-amendment.codex.md:86,98,111,119,125`). All five are included below to satisfy “every finding.”
+
+| Family / finding | Disposition | Exact resolving or failing location |
+|---|---|---|
+| Codex BLOCKER 1 — authenticated predecessor carrier and evolvable lineage | **PARTIAL** | Carrier/schema/parser and rollback boundary added in M27 and M7 (`llp/0021…:4180-4191,4510-4576`), but M27’s “most recent revision carrying an admission” is not an exact promotion-revision predicate and conflicts with today’s source-empty topology (`portable-engine-promotion-lineage.mjs:804-826,1064-1087`). |
+| Codex BLOCKER 2 — opaque scope/map aggregate, host disposition, telemetry | **PARTIAL** | `AdmittedScopedTargetCells`, `HostCellDisposition`, atomic Host retention, projection, envelope, M12/M13, and F11 were added (`llp/0021…:3607-3666,3992-4003,4269-4309`). Caller-supplied ABI gates and the direct runtime-extension `Complete` gate remain outside that invariant (`src/host/abi.rs:5823-5839`; `src/host/mod.rs:1266-1310,3942-3981`). |
+| Codex MATERIAL — consumer matrix incomplete | **PARTIAL** | M27–M31 now cover the checked carrier, execution bindings, workflow, report restamps, and installer (`llp/0021…:4510-4651`), while M18 includes the generated advertisement carrier. M11 still omits the checked-in runtime-projection mirror and misstates its executed count (`vendored-generated/capsec-runtime-projection.canonical.json:1`). |
+| Codex MATERIAL — rename/split/merge and retirement narrowing | **PARTIAL** | Preservation rules, disjoint retirement/mapping sets, and independently regenerated inventory digests are now normative (`llp/0021…:3706-3728`). Feature-list/tuple migration remains undecided in A10 #7 (`:4718-4725`), and the history walk on which genesis depends remains incomplete. |
+| Codex MATERIAL — A7 overbroad callability/zero-decision wording | **RESOLVED** | A7 now says certification does not constrain availability, describes startup as scope/map-integrity only, and excludes typed/physical refusal for zero-decision surfaces (`llp/0021…:3881-3904`). |
+| Codex MATERIAL — substitution fixtures incomplete | **RESOLVED** | F1a–F1c cover stale/fresh, cross-tuple, and direct map/identity crossings; F6 states the whole-checkout rollback boundary; F11 adds positive introspection/map coherence (`llp/0021…:3926-3946,3967-3976,3992-4003`). |
+| Codex MATERIAL — M18 ownership left open | **PARTIAL** | A10 #2 assigns the path to v2/v3 and M18 dispositions all eight named pins (`llp/0021…:4342-4408,4677-4687`). The unchanged source-empty pin is not reconciled with repeated promotions, as described above. |
+| Codex MINOR — M11 terminology | **RESOLVED** | M11 separates direct schema pins, generated mirrors/emission sites/vectors, and transitive callers (`llp/0021…:4231-4261`). |
+| Fable MATERIAL 1 — missing M18 path pins | **PARTIAL** | The four requested missing pins plus the v1 schema are present with dispositions in M18 pins 4–8 (`llp/0021…:4377-4408`), but pin 2’s unchanged source-empty rule conflicts with M27’s repeated-promotion topology. |
+| Fable MATERIAL 2 — M11 enumeration/count | **PARTIAL** | Most missing pins were added (`llp/0021…:4231-4255`), but the recorded sweep actually returns 21 lines/17 files and omits `vendored-generated/capsec-runtime-projection.canonical.json:1`. |
+| Fable MATERIAL 3 — report-schema restamp chain | **PARTIAL** | M30 now enumerates both closed JSON Schemas and the four v1 digest-contract pins (`llp/0021…:4618-4638`; LLP 0032 delta `:810-822`). The requested rev-vs-evolve decision remains open in A10 #6 (`llp/0021…:4713-4717`). |
+| Fable MATERIAL 4 — scoped M7 equalities and zero contribution | **RESOLVED** | Normative equalities and zero-authoritative-contribution refusal are explicit in M7 and F4 (`llp/0021…:4162-4179,3954-3963`). |
+| Fable MATERIAL 5 — runtime lineage-anchor carrier unnamed | **PARTIAL** | M7/M20/M27 now name the build-embedded checked admission as anchor, script verifier as authority, and bundle-carried scope as the other input (`llp/0021…:4180-4191,4432-4441,4510-4576`). The carrier is specified, but the history algorithm that stamps it is not operationally complete. |
+| Fable MATERIAL 6 — uncertified type placement | **RESOLVED** | Host-side `HostCellDisposition`, projection at Host gate construction, and unchanged `decision.rs` are settled in A3/M13/M14/A10 (`llp/0021…:3628-3642,4285-4309,4657-4661`). |
+| Fable MINOR 7 — installer and v1-schema consumers | **RESOLVED** | Installer is M31 (`llp/0021…:4640-4651`); v1 schema is M18 pin 8 (`:4404-4407`). |
+| Fable MINOR 8 — denominator drift | **PARTIAL** | LLP 0036 now marks 3,922 as superseded by 3,927/73 (`llp/0036…:426-434`), but LLP 0049 still describes 610/536/74 and “the 74” (`llp/0049…:150-156,428-449`) while its evidence index says 610/537/73 (`:714`). The corpus still disagrees. |
+
+## 3. New findings
+
+### IN-DELTA — BLOCKER: M27 does not identify an authentic historical promotion revision
+
+M27 searches for the newest revision whose catalog “carries an admission,” but catalog contents persist into descendants; carrying the bytes is not proof that the revision is the promotion merge. Today that proof is tied to the examined checkout itself and requires the exact merge parents/tree (`portable-engine-promotion-lineage.mjs:1041-1087`). The algorithm also refers to `R_prev`’s `admittedScopeDigest`, although that value exists only in the proposed build-output checked admission; the tracked admission’s closed fields contain no such property (`portable-engine-promotion-lineage.mjs:691-704`; `llp/0021…:4530-4568`).
+
+**Exact resolution:** define a historical promotion-revision predicate and tracked source for its scope digest; specify the enabled/disabled catalog lifecycle between promotions; validate each selected promotion directly from commit/tree/blob objects; define behavior before the catalog foundation exists; then fixture genesis, promotion→ordinary commits/reset→second promotion, stale predecessor, and false genesis.
+
+### IN-DELTA — BLOCKER: scoped gate disposition remains caller-controlled through the Host ABI
+
+The revision says every per-gate disposition derives from the retained aggregate and that divergence is unrepresentable (`llp/0021…:3617-3627,3997-4003`). In reality, `ex_host_evaluate_typed_decision` accepts serialized gates from its caller (`src/host/abi.rs:5823-5839`), Host deserializes their public `targetCell` field and evaluates them unchanged (`src/host/mod.rs:3963-3981`; `crates/capsec-semantics/src/decision.rs:401-407`). An out-of-scope edge supplied as `complete` therefore bypasses the promised projection. The direct runtime-extension gate also manufactures `Complete` locally (`src/host/mod.rs:1266-1310`).
+
+**Exact resolution:** under `ScopedAdvertised`, every evaluator ingress must discard/recompute or equality-check `targetCell` against `AdmittedScopedTargetCells` by `coverageEdgeId`; eliminate or explicitly scope the runtime-extension exception; centralize the three evaluation/evidence paths for telemetry; add ABI-level F1c/F3 fixtures proving caller-supplied `complete` cannot override an uncertified cell.
+
+No additional PRE-EXISTING finding beyond issues already present in the round-1 artifacts.
+
+## 4. Verdict
+
+**NOT READY** for the author’s LLP 0044 item-5 decision.
+
+Minimal flip set:
+
+1. Replace M27’s discovery sketch with an implementable authenticated multi-promotion algorithm, including the catalog reset/persistence lifecycle, exact historical promotion predicate, tracked source of the prior scope digest, and pre-foundation genesis semantics; reconcile M18 pin 2 with that lifecycle.
+2. Make the scoped aggregate authoritative at **every** `EffectGate` ingress, including the C ABI/public JSON evaluators and the runtime-extension direct-`Complete` path, and identify one complete telemetry emission path covering all evaluator variants.
+3. Correct M11’s recorded sweep/count and include the checked-in generated runtime-projection mirror in the Option-A blast radius.
