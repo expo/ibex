@@ -7144,17 +7144,27 @@
         var cursor = 0;
         var prologueEnd = 0;
 
-        function skipWhitespaceAndComments(index) {
+        function skipWhitespaceAndComments(index, trackLineTerminator) {
           var current = index;
+          var sawLineTerminator = false;
           while (current < length) {
             var ch = sourceText.charAt(current);
-            if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n' || ch === '\f') {
+            if (ch === '\r' || ch === '\n' || ch === '\u2028' || ch === '\u2029') {
+              sawLineTerminator = true;
+              current++;
+              continue;
+            }
+            if (ch === ' ' || ch === '\t' || ch === '\f') {
               current++;
               continue;
             }
             if (ch === '/' && sourceText.charAt(current + 1) === '/') {
               current += 2;
-              while (current < length && sourceText.charAt(current) !== '\n') current++;
+              while (current < length &&
+                     sourceText.charAt(current) !== '\r' &&
+                     sourceText.charAt(current) !== '\n' &&
+                     sourceText.charAt(current) !== '\u2028' &&
+                     sourceText.charAt(current) !== '\u2029') current++;
               continue;
             }
             if (ch === '/' && sourceText.charAt(current + 1) === '*') {
@@ -7164,16 +7174,37 @@
                   current += 2;
                   break;
                 }
+                if (sourceText.charAt(current) === '\r' ||
+                    sourceText.charAt(current) === '\n' ||
+                    sourceText.charAt(current) === '\u2028' ||
+                    sourceText.charAt(current) === '\u2029') {
+                  sawLineTerminator = true;
+                }
                 current++;
               }
               continue;
             }
             break;
           }
-          return current;
+          return trackLineTerminator
+            ? { index: current, sawLineTerminator: sawLineTerminator }
+            : current;
         }
 
-        cursor = skipWhitespaceAndComments(0);
+        function continuesStringExpression(index) {
+          var ch = sourceText.charAt(index);
+          if (ch === '.' || ch === '[' || ch === '(' || ch === '`' ||
+              ch === '+' || ch === '-' || ch === '*' || ch === '/' ||
+              ch === '%' || ch === '<' || ch === '>' || ch === '=' ||
+              ch === '!' || ch === '&' || ch === '|' || ch === '^' ||
+              ch === '?' || ch === ',') {
+            return true;
+          }
+          var tail = sourceText.slice(index);
+          return /^(?:in|instanceof)\b/.test(tail);
+        }
+
+        cursor = skipWhitespaceAndComments(0, false);
         while (cursor < length) {
           var quote = sourceText.charAt(cursor);
           if (quote !== '"' && quote !== "'") break;
@@ -7189,18 +7220,21 @@
           }
           if (scan >= length || sourceText.charAt(scan) !== quote) break;
           scan++;
-          while (scan < length) {
-            var trailing = sourceText.charAt(scan);
-            if (trailing === ' ' || trailing === '\t' || trailing === '\r') {
-              scan++;
-              continue;
-            }
-            if (trailing === ';') {
-              scan++;
-            }
+          var trailing = skipWhitespaceAndComments(scan, true);
+          scan = trailing.index;
+          if (sourceText.charAt(scan) === ';') {
+            scan++;
+          } else if (scan < length &&
+                     (!trailing.sawLineTerminator || continuesStringExpression(scan))) {
+            // A Directive Prologue contains complete string-literal
+            // ExpressionStatements, not every leading string token. In
+            // particular, React's `"production" !== process.env.NODE_ENV`
+            // is one binary expression; inserting the eval shim after its
+            // first token produces invalid JavaScript.
+            // @ref LLP 0027#esmcommonjs-interop-matrix
             break;
           }
-          cursor = skipWhitespaceAndComments(scan);
+          cursor = skipWhitespaceAndComments(scan, false);
           prologueEnd = cursor;
         }
 

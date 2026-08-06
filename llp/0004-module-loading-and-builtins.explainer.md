@@ -5,6 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-06 (the bounded compatibility evaluator now preserves only complete Directive Prologue statements when injecting its per-module eval shim; a leading string token in an ordinary expression, including React's production guard, remains intact)
 **Revised:** 2026-07-24 (native generated-builtin records retain exact `bootstrapInternalModules` requires as sealed bootstrap-object edges rather than package-resolvable module edges)
 **Revised:** 2026-07-20 (records that the compatibility loader still owns the two public stream submodule names ahead of their manifest sources, while unrelated names no longer initialize stream merely to miss that table)
 **Revised:** 2026-07-23 (ENG-25390: the OpenSSL client-identity decoder is now the default-on `tls-client-identity-openssl` feature — feature-off builds refuse `pfx`/`passphrase` with a typed reduced-profile error; the standalone in-process swc tier lowers `import.meta.url` to the `__filename`-based `file://` expression before CommonJS lowering instead of depending on the `url` builtin); 2026-07-19 (bounds the `dns/promises` cross-source export projection to a canonical two-source AST review and keeps its 45 derived callable rows as residual presence evidence); 2026-07-17 (reconciled the shipped typed resolver and advertised-target native-runner route: import/require condition sets are separate; file-backed metadata resolution does not acquire, parse, transpile, or disclose executable source, while trusted integrity hashing may read raw bytes and builtin metadata retains embedded source internally; bootstrap resolution is compatibility-only); 2026-07-15 (ENG-25066 made authenticated ordinary ESM use the native module graph by default; unsupported interop retains the bounded 0.1 legacy path); 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
@@ -136,8 +137,15 @@ too broad `[observed]` (`src/module_loader/transpile.rs`,
 `transpile_with_swc`). On that legacy path, the embedded bootstrap's
 `transformEsmToCjs` scanner rewrites ESM syntax file by file before the
 synchronous `require()`-shaped evaluator sees it `[observed]`
-(`src/engine/bootstrap/module-loader.js`). The implementation-neutral current
-path inventory and Node/Hermes divergence baseline live under
+(`src/engine/bootstrap/module-loader.js`). That evaluator also injects one
+line-preserving eval-compatibility shim after a module's Directive Prologue.
+Its prologue scanner accepts only complete string-literal expression
+statements: it must not split an ordinary expression after its leading string
+token. The package regression is the common npm shape of a conditional
+`index.js` selecting a license-headed development file whose first ordinary
+statement is `"production" !== process.env.NODE_ENV && ...` `[observed]`
+(`tests/bootstrap_loader.rs`). The implementation-neutral current path
+inventory and Node/Hermes divergence baseline live under
 `tests/fixtures/module-semantics/`.
 
 ## The builtin module surface
