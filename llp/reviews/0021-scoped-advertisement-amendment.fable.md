@@ -290,3 +290,161 @@ Only one finding (genesis via truncated history) touches a security property; th
 4. **Give genesis a history-completeness precondition** (§A5, M27 step 3, F6) — non-shallow store, no grafts/replace refs, walk terminates at a pinned root — or explicitly name truncated history as a stated non-guarantee in M27's boundary paragraph, so the monotonicity claim is honest rather than overclaimed.
 
 With items 1–4 landed I would expect the package to be READY; if the author prefers to close the loop here, items 1–3 are worklist-accuracy defects that an implementer will discover and can correct in place, while **item 4 is the one I would not want carried into a disagreement ledger unaddressed**, since it is a live bypass of a guarantee the amendment newly claims.
+
+## Round 3 (final round) — 2026-08-06
+
+- **Family:** Claude (Fable 5)
+- **Provider/runtime:** fresh general-purpose subagent via Claude Code Agent
+  tool (independent context; authored neither the amendment nor any
+  revision of it)
+- **Date:** 2026-08-06
+- **Redacted:** no (public-repo content only)
+- **Method:** final delta round at commit `8def7e20`, document revision
+  `a770c2f95e9b`, clean working tree; 20 mandated delta checks executed
+  including an independent count of the evaluator ingresses, a git-object
+  reconstruction of the pinned lineage floor `afad4af9` and its parents,
+  both M11 sweep commands re-run verbatim with the causal claim tested to
+  the literal `orderBy` string, and an attempted construction of the
+  genesis bypass; findings sorted ledger-worthy vs implementer-correctable
+  per the final-round brief
+- **Verdict:** **READY** for the author's LLP 0044 item-5 decision
+  (3 MATERIAL + 5 MINOR, none blocking, all resolutions text-only)
+
+### Review body (verbatim)
+
+# Round 3 review — LLP 0021 scoped-advertisement amendment (final round)
+
+**Package identity: VERIFIED.** `git log --oneline -1` = `8def7e20 Merge origin/main into LLP 0049 Phase 1 round-2 revision`; `shasum -a 256 llp/0021-capsec-effect-model-migration.plan.md` = `a770c2f95e9b2360807c…`, matching the brief's `a770c2f95e9b`. `git status --porcelain` is empty — no concurrent-agent edits contaminate any read below. `git diff --name-only f154a5c5 8def7e20` touches only `issues/`, `src/bin/ibex/engine/hermes.rs`, `src/engine/hermes_runtime_ios.cc` and `llp/`, so every citation re-verified at `f154a5c5` by the round-2 revision holds unchanged at HEAD.
+
+---
+
+## 1. Delta-verification results
+
+| # | Check | Result | Observed |
+|---|---|---|---|
+| 1 | **Ingress count — "FIVE doors"** | **PASS (exact)** | `grep -n "fn .*decision" src/host/mod.rs`: `pub` at :3776, :3844, :3942, :3963; `evaluate_typed_decision_inner` (:3784), `_inner_and_then` (:3794), `evaluate_typed_path_decision_with_evidence` (:3874) are **private**. `grep -n 'pub unsafe extern "C" fn ex_host_.*decision' src/host/abi.rs` → exactly one symbol, `:5823`. Four `pub` + one C symbol = five. The count is right. |
+| 2 | **`EffectGate.target_cell` caller-constructible** | **PASS (exact)** | `crates/capsec-semantics/src/decision.rs:401-407`: `#[derive(Clone, Debug, Deserialize, …)] #[serde(rename_all="camelCase", deny_unknown_fields)] pub struct EffectGate { … pub target_cell: TargetCellDisposition, … }`. Public field on a `Deserialize` struct. Confirmed. |
+| 3 | **C symbol is unconditionally exported and passes gates through unchanged** | **PASS** | `src/host/abi.rs:5822-5839`: `#[no_mangle] pub unsafe extern "C" fn ex_host_evaluate_typed_decision(…)`, no `cfg`, `gates` taken as a raw caller buffer, dispatched at `:5835` to `host.evaluate_typed_decision_json_with_evidence`. |
+| 4 | **Runtime-extension path facts** | **PASS (exact)** | `src/host/mod.rs:1107` `pub(crate) fn authorize_runtime_extension_operation`, no `cfg(test)`; `effect_semantics: &str` param at `:1113`; `let coverage_edge_id = effect_semantics.clone();` at `:1266`; static-floor loop `static_authority_covers` at `:1255-1263` (inside A3's cited `:1245-1264`); gate literal `target_cell: TargetCellDisposition::Complete` at `:1306-1309`. Exported via `src/host/abi.rs:5447`; also reached from `src/host/embedder_artifacts.rs:2193`. |
+| 5 | **A3 ingress rule closes the caller-supplied `targetCell` hole?** | **PASS in substance, FAIL on composition** | Discard-and-recompute at the four `pub` methods does close it: after recomputation the caller's byte has no authority, and `fn target_cell`'s `unwrap_or(Incomplete)` gives the total answer for absent ids. **But** `authorize_runtime_extension_operation` reaches the evaluator by calling `self.evaluate_typed_decision(…)` at `src/host/mod.rs:1304` — ingress 2 physically flows **through** ingress 1. A3/M32 state two mutually contradictory dispositions for the same input at that one call site (absent edge ⇒ `Incomplete`/refuse for ingress 1; absent edge ⇒ keep literal `Complete` for ingress 2) and never say how they compose. **New finding N1.** |
+| 6 | **The projection funnel and eleven gate sites** | **PASS (exact)** | `grep -c "target_cell: self.target_cell" src/host/mod.rs` → **11**, at exactly :2346, :2846, :2929, :3002, :3107, :3188, :3346, :3495, :3588, :3684, :3768 — every line number in A3/M13 correct. `fn target_cell` at `:956-961` is `self.target_cells.get(edge).copied().unwrap_or(Incomplete)`; the `.copied()` makes A3's "`HostCellDisposition` must derive `Copy`" a real, load-bearing requirement, not a stylistic one. |
+| 7 | **Three evaluation bodies / no central refusal path** | **PASS (exact)** | `grep -n "evaluate_decision_set" src/host/mod.rs` → four call sites at :3811, :3820, :3857, :3888, in three bodies at :3794, :3844, :3874. The round-2 correction is accurate. |
+| 8 | **F3a-3 pins recomputation, not min-of-two** | **PASS** | `decision.rs:609-621` refuses on `Incomplete` before any lifecycle result, carrying `Some(gate.coverage_edge_id)` at `:618`. A "most-restrictive-wins" rule on (caller=`incomplete`, aggregate=`Complete`) yields refuse; recomputation yields `Complete`/allow. F3a-3 therefore genuinely discriminates the two rules. F3a-5's `CompleteAdvertised` no-op is consistent, because the rule is gated on the arm state. |
+| 9 | **M27 (i) predicate exact against `:1064-1087`?** | **PASS in substance, FAIL on four pins** | All seven clauses correspond to real asserts in the same order: 2 parents `:1065`✓, `parents[0]===sourceRevision` `:1066`✓, topic one-parent `:1070` (M27 says :1069), `R.tree===T.tree` `:1071` (M27 says :1070), `sourceCommit.tree===sourceTreeObjectId` `:1072` (M27 says :1071), `sourceCommit.tree!==R.tree` `:1073` (M27 says :1072). The **range** `:1064-1074` is right; four individual pins are off by one in a subsection that claims re-verification. Substantively the predicate **does** exclude catalog-byte-inheriting descendants — an ordinary first-parent descendant has one parent and fails clause 2; an unrelated merge fails `parents[0]===sourceRevision`. Codex's round-2 BLOCKER-1 defect is genuinely fixed. **New finding N4.** |
+| 10 | **M27 (ii) — does `admittedScopeDigest` on the tracked admission work?** | **PASS** | `validateAdmissionShape` at `:691-704` is exactly the eight keys named (`schema`…`admissionDigest`) — a one-string addition. Decisively, `:758` computes `semanticDigest(ADMISSION_DOMAIN, admission, ["admissionDigest"])` over the **whole** object minus its self-digest, so a new field is authenticated automatically. M27's "already covered by `admissionDigest`" is **true**. The companion `schemas/portable-engine-promotion-admission-catalog-v1.schema.json` does close with `"additionalProperties": false` (`:6`), and M27 names it. |
+| 11 | **M27 (iii) — is the reduced per-hop set sufficient?** | **PASS on mechanism, MINOR overstatement** | Every named primitive is real and independently re-hashing: `readGitObject` `:571`, `parseCommit` `:580`, `collectTreeLeaves` `:641`, `readTrackedBlob` `:667`, `parseCatalog` `:673-689`, `validateAdmissionShape` `:691-704`; `pinRunningAuthority` `:1010-1025` genuinely forbids literal re-run. Sufficiency: the only value read at R_prev is `admittedScopeDigest`, and structure+content is enough to prove R_prev *is* a promotion merge. But M27 says the ceremony result is "attested by R_prev's own `admissionDigest`" — that digest is self-computable by anyone who can write a commit and attests only internal consistency. The load-bearing fact is solely first-parent reachability in reviewed history. **New finding N5.** |
+| 12 | **M27 (iv) — does the reset lifecycle reconcile M18 pin 2 past promotion 1?** | **PASS, and stronger than stated** | `assertSourceAuthorityClosed` `:804`: catalog disabled+empty `:807`, attestations empty-v1 `:819-820`, advertisements empty-v1 `:825-826` — a reset commit restoring exactly those three satisfies all of them, so pin 2 is genuinely unchanged for every promotion. Two clauses the amendment does **not** discuss also survive, and I verified why: `assertSourceAuthorityClosed`'s trust-policy (`:812-814`) and CapSec-policy-rules (`:835-841`) clauses need no reset because `verifyChangedArtifacts` (`:930`) asserts the source→merge changed-path set equals **exactly** `[CATALOG_PATH, ...admission.artifacts]`, so a promotion never touches them; and its `conformance-evidence must be newly added` rule survives because `evidencePrefix` embeds `admission.sourceRevision`, making promotion n+1's evidence paths disjoint from n's. The lifecycle is mechanically sound. |
+| 13 | **What the stated cost breaks** | **PASS — honestly priced** | "Between the reset and the merge the tree advertises nothing" means the advertised window is exactly `R_n` → reset−1, and releases must be cut there. Consequences I confirmed: in that window the M18 pin 4/5/6/12 HEAD-copy emptiness assertions are red (which is why they retire), and pin 9 fails — the amendment says so. Nothing else breaks: today's tree already advertises nothing (`git log --all -S'"enabled": true' -- <catalog>` → no commit), so the depublished state is the status quo, not a regression. |
+| 14 | **M27 (v) — is `afad4af9` a sound lineage floor?** | **PASS on the floor, FAIL on the parent clause** | `afad4af9f4257eb8262cf8348e5fbb0a3c082ecf` = "Merge checked portable promotion admission"; its catalog is present, `"enabled":false`, `"admissions":[]` — verified by `git show`. It is first-parent-reachable from HEAD (`git rev-list --first-parent --count HEAD ^afad4af9` = 406). No `enabled: true` catalog has ever existed. **But `afad4af9` is itself a two-parent merge** (`3d778d22`, `00255532`), and the **second** parent contains the catalog path with byte-identical disabled/empty content. M27 (v) and F6a say "the floor's **parent**" (singular) must lack the path — false of the pinned object under any reading but "first parent." **New finding N2.** |
+| 15 | **M27 (vi) — does the genesis precondition close the truncated-history bypass?** | **PARTIAL** | All three assertions are real, correctly specified, and pass here: `git rev-parse --is-shallow-repository` → `false`; `.git/shallow` absent; `.git/info/grafts` absent; `git for-each-ref refs/replace` → 0 lines; floor reachable by first-parent. This **does** close the shallow-clone / CI-misconfiguration lane round-2 Fable found. It does **not** close reconstruction: one commit whose parent is `afad4af9` and whose tree is the current tree passes all three assertions with no promotion in the walk. **New finding N3.** |
+| 16 | **M11 re-adjudication — did `grep -v target/` eat a line?** | **PASS (exact, including the causal claim)** | Old pipeline re-run verbatim → **20 lines / 16 files**. New path-anchored command → **21 lines / 17 files**; with `-o` → **23 occurrences**. `diff` of the two file lists yields exactly one addition: `vendored-generated/capsec-runtime-projection.canonical.json`. That file is one line (`wc -l` = 0) and contains `"orderBy":["/edgeId","/target/triple","/target/features"]` — verified by `grep -o`. The content filter really did eat it, for the reason and with the verbatim string the row states. It carries the schema string **twice**, as does `arming.rs:3679`, reconciling 21 + 2 = 23. Fully vindicated. |
+| 17 | **M18 recorded sweep** | **PASS (exact)** | Re-ran the recorded command → **19 lines / 15 files**, matching the row to the number. |
+| 18 | **M18 pin 9 — release-breaking under the settled owner?** | **PASS — confirmed release-breaking** | `capsec-contract.mjs:3514-3517` reads the **HEAD** copy via `readConfinedGeneratedJson(path.join(capsecRoot,"generated/target-advertisements.json"))`; `:3680-3685` is `validateWith(ajv, SCHEMA_IDS.targetAdvertisements, targetAdvertisements, "target advertisements")`; `SCHEMA_IDS.targetAdvertisements` at `:130-131` = `https://ibex.dev/capsec/schema/target-advertisements.schema.json`, whose `:13` pins `"targetAdvertisementSchema": { "const": "ibex/capsec-target-advertisements/1" }`. v1-shaped reads confirmed at `:4205`, `:4218`, `:4231`, `:4426`, `:4495`; reachable because `capsec/contract-files.json:97` lists the path. v2/v3 bytes fail the runner outright. The row's "this pin, not pins 4–6, is the one that gates whether the settled owner can ship" is correct. Recommendation sound in direction, with one unpriced dependency — **New finding N7**. Pins 10 and 12 also verified real (`generate-capsec-registry.mjs:61-68`, `:154-158`, `:280`; `capsec-portable-engine-evidence-contract.test.mjs:1312-1314`). |
+| 19 | **A3 opacity narrowing** | **PASS (exact)** | `src/host/mod.rs:23` = `mod portable_target_admission;` (private child); `src/host/portable_target_admission.rs:1560` = `#[cfg(test)]` above `mod tests` (descendant with private access). The round-2 narrowing is precisely right. |
+| 20 | **Disclosed pin drift** | **PASS** | `assertRecipeCatalogComplete` is at `:5248` today, as the amendment's disclosure paragraph states; `packages/` is untouched between `f154a5c5` and HEAD. |
+
+---
+
+## 2. Disposition of every round-2 finding
+
+### Codex round-2 (2 IN-DELTA BLOCKERs, 3-item flip set)
+
+| Finding | Disposition | Exact resolving/failing location |
+|---|---|---|
+| **BLOCKER 1 — M27 does not identify an authentic historical promotion revision** | **RESOLVED** | M27 (i) supplies an exact predicate whose seven clauses map one-to-one onto `portable-engine-promotion-lineage.mjs:1065-1073` (check 9), and it demonstrably excludes catalog-byte-inheriting descendants. M27 (ii) resolves the "`R_prev`'s `admittedScopeDigest` does not exist" defect by moving the field into the **tracked** admission at `:691-704`, which check 10 confirms is a one-key addition automatically covered by the `:758` digest. Residuals are precision only (N4, N5). |
+| **BLOCKER 1a — enabled/disabled catalog lifecycle between promotions; reconcile M18 pin 2** | **RESOLVED** | M27 (iv). Check 12 confirms the reset satisfies `:807`/`:819-820`/`:825-826`, and additionally that `verifyChangedArtifacts` (`:930`) and the `conformance-evidence` newly-added rule do not obstruct it — a compatibility the amendment does not claim but which holds. M18 pin 2's amended disposition and M27 (iv) are mutually coherent. |
+| **BLOCKER 1b — pre-foundation genesis semantics** | **PARTIAL** | M27 (v) pins `afad4af9` by object id and check 14 confirms the floor's own state exactly. The "floor's parent lacks the path" clause is falsified by the floor being a two-parent merge (N2). |
+| **BLOCKER 2 — scoped gate disposition remains caller-controlled through the Host ABI** | **RESOLVED** | A3's ingress rule + M32 + F1c's ABI subcase + the new F3a class. Checks 1–4 confirm the diagnosis is exactly right and the door count complete; check 8 confirms F3a-3 is a genuine discriminator against a min-of-two rule; check 6 confirms the funnel and the `Copy` requirement. Codex's resolution text asked for "discard/recompute **or** equality-check"; the revision picked the stronger of the two and argued it correctly (totality, trust-boundary removal, no comparison to invert — all three arguments check out against `:956-961`). Residual: composition with ingress 2 (N1). |
+| **BLOCKER 2a — "identify one complete telemetry emission path covering all evaluator variants"** | **RESOLVED** | A3 withdraws the false "central path" claim, check 7 confirms the three-body/four-call-site fact exactly, M13 item 2 makes building the funnel explicit scope-validating work, and F3 drives the fixture through all three bodies. |
+| **Flip-set item 3 — correct M11's sweep/count, include the generated mirror** | **RESOLVED (exactly)** | Check 16. Both commands re-run; 20/16 vs 21/17 vs 23 all reproduce, the seventeenth file is the one Codex named, and the causal explanation is verified verbatim down to the `orderBy` string. |
+
+### Fable round-2 (4 MATERIAL + 5 MINOR, 4-item flip set)
+
+| Finding | Disposition | Exact resolving/failing location |
+|---|---|---|
+| **MATERIAL 1 — no central refusal path; projection site mis-pinned** | **RESOLVED (exactly)** | A3's "Projection site corrected" paragraph and M13 items 1–2. Check 6 confirms all eleven line numbers and the `:956-961` funnel; check 7 confirms :3794/:3844/:3874. |
+| **MATERIAL 2 — M18 inventory still incomplete; pin 8's disposition falsified** | **RESOLVED (exactly)** | Pins 9–13 added; pin 8's disposition corrected to "schema file unchanged, but its binding to the HEAD copy moves with pin 9"; "complete pin inventory" replaced by a recorded command that reproduces at 19/15 (check 17). Pin 9 verified release-breaking to the line (check 18). |
+| **MATERIAL 3a — M27 step 1 not executable (`pinRunningAuthority`)** | **RESOLVED** | M27 (iii) states the reduced set explicitly, drops "unchanged in kind", and argues the posture. Check 11 confirms every primitive and the `pinRunningAuthority` obstruction. |
+| **MATERIAL 3b — settled M18 owner vs. evolvable lineage inconsistent from promotion 2** | **RESOLVED** | M27 (iv), verified in check 12; the amendment explicitly rejects the alternative (revving `assertSourceAuthorityClosed`) with a stated reason. |
+| **MATERIAL 4 — genesis via truncated history (flagged as the one live bypass)** | **PARTIAL** | M27 (vi) + §A5 + F6e. Check 15: the three preconditions are real, correctly specified, and close the shallow/graft/replace-ref and CI-misconfiguration lanes completely. They do not close reconstruction on top of the pinned floor, so the amendment's "**closed**, not disclosed" and "absence … never the failure of a search" are stronger than what the mechanism delivers. **N3.** |
+| **MINOR — admission cardinality is global, not per tuple** | **RESOLVED** | M27's "Today's admission cardinality is GLOBAL" paragraph; `parseCatalog:686` verified (`admissions.length === 1` for any tuple), `:683` verified for the disabled case. |
+| **MINOR — M18 pin 4's source-revision alternative unavailable** | **RESOLVED** | M18 pin 4 now says only retirement or replacement is open, with the `include_str!`/`CARGO_MANIFEST_DIR` reason stated; A10 #2(b) records the same. |
+| **MINOR — A3's "no test constructor" is discipline, not a boundary** | **RESOLVED (exactly)** | A3's parenthetical + F11's negative half narrowing; check 19 confirms `mod.rs:23` and `portable_target_admission.rs:1560`. |
+| **MINOR — M7's zero-contribution sentence admits a contradictory reading** | **RESOLVED** | M7's "Scope of that rule, disambiguated" paragraph adopts reading (a) explicitly, names the three things reading (b) would contradict, and cites `portable_target_admission.rs:1481-1487` as the falsifier. |
+| **PRE-EXISTING MINOR — pin staleness in M2/A2** | **RESOLVED as disclosure** | The new "Disclosed pin drift" paragraph records `:5048` → `:5248`; check 20 confirms `:5248` today. |
+
+**Round-1 carry-forwards still PARTIAL entering round 3** (Codex's disposition table): C-B1 and C-B2 → now RESOLVED per the above; Codex-MATERIAL "consumer matrix incomplete" → **RESOLVED** (M11's mirror added, check 16); Codex-MATERIAL "rename/split/merge narrowing" → **RESOLVED** as to rules, with tuple migration correctly parked as A10 #7 (a decision, not a defect); Fable-MINOR 8 denominator drift → resolved inside the package, with the LLP 0049 residual correctly excluded as out-of-package.
+
+---
+
+## 3. New findings
+
+### N1 — IN-DELTA — MATERIAL — the ingress rule and the runtime-extension carve-out collide at one verified call site
+
+`Host::authorize_runtime_extension_operation` does not reach the evaluator independently: it calls `self.evaluate_typed_decision(&decision_set, &[EffectGate{ coverage_edge_id, target_cell: Complete, … }])` at `src/host/mod.rs:1304`, i.e. through **ingress 1** (`:3776`). A3 gives that call site two contradictory rules:
+
+- ingress 1: "**must discard the incoming `target_cell` and recompute it** from the aggregate" — and for an id absent from the aggregate "the honest answer there is already `target_cell`'s `unwrap_or(Incomplete)` default";
+- ingress 2: "if it is **not** a generated edge, the path keeps its literal `Complete`" with `hostDisposition: "extension-declared"`.
+
+Applied literally at `:3776`, the first rule makes the second unreachable, and **every** runtime-extension operation whose `effect_semantics` string is not a generated `edgeId` — which A3 itself says is the normal case — is refused under `ScopedAdvertised`. This fails closed (a liveness break, not a bypass) and F3a-4's second half would catch it immediately. The hazard is the *other* obvious repair: an implementer who reconciles them by making "absent from the aggregate ⇒ keep the caller's value" at ingress 1 silently reopens Codex BLOCKER 2 for every non-inventory `coverage_edge_id` presented over `ex_host_evaluate_typed_decision`.
+
+**Exact resolution (text-only):** in A3 and M32, state that the two rules apply at *different* points — recomputation at the four `pub` entry points and the C symbol (where the gate arrives from outside), with the runtime-extension path constructing its gate through a distinct internal resolver that has already applied the conditional rule — and state explicitly that "absent from the aggregate ⇒ keep the caller's value" is forbidden at ingress 1.
+
+### N2 — IN-DELTA — MATERIAL — M27 (v)'s floor-parent clause is false about the pinned floor object
+
+`git log -1 --format='%H %P' afad4af9` → `afad4af9f425… 3d778d2281d6… 0025553297f4…`. The pinned floor is a **two-parent merge**, and `git show 00255532:schemas/portable-engine-promotion-admission-catalog-v1.json` returns the catalog with identical `{"enabled":false,"admissions":[]}` bytes. M27 (v)'s normative "at the floor's parent the path must be **absent**" — and F6a's "whose floor parent lacks the catalog path entirely" — are true only of the **first** parent (`3d778d22`, verified absent). An implementation reading "the parent" as "every parent" fails on this repository and can never conclude genesis. This is fail-closed and the fix is one word, but the amendment elevated exactly this clause to "a positive, checkable object-level fact," and the fact as written is not one.
+
+**Exact resolution (text-only):** say "the floor's **first** parent," and note in M27 (v) that `afad4af9` is a merge whose second parent introduced the path, so the clause is a first-parent statement by construction.
+
+### N3 — IN-DELTA — MATERIAL — the genesis precondition closes truncation, not reconstruction; "closed, not disclosed" overstates it
+
+M27 (vi)'s three assertions are real, correctly specified, and all pass here (check 15). They fully close the lane round-2 Fable actually found — a shallow or graft-bearing checkout, including the accidental CI-misconfiguration form, can no longer mint genesis. But they do not make absence "a positive, checkable fact about content-hashed objects." A repository whose HEAD chain is `<one commit carrying the current tree> → afad4af9` is non-shallow, has no grafts or replace refs, and terminates first-parent at the pinned floor by object id — so all three assertions pass and the walk finds no prior admission. Constructing it costs one `git commit`; it does not require rewriting any published object, because `afad4af9` is reused verbatim. Nothing in `verifyPortableEnginePromotionAdmission` pins HEAD to an externally attested tip: `pinRunningAuthority` (`:1010-1025`) compares the current tree's verifier files against the *running* files, which such a checkout satisfies trivially.
+
+This residual is, in my judgement, genuinely of the same character as the whole-checkout-rollback boundary the amendment already documents as out of scope — so the design is not unsound, and the security *improvement* is real and large. What is wrong is only the claim's absoluteness, and the A10 preamble's explicit rejection of naming any residual ("a newly claimed monotonicity guarantee should not ship with a named bypass") is what makes the overstatement load-bearing: the author is being told the lane is shut.
+
+**Exact resolution (text-only, one sentence):** in M27 (vi) and A10, state that the preconditions close history *truncation* (shallow, grafts, replace refs, filtered history) and that history *reconstruction* on top of the pinned floor remains inside the documented whole-checkout boundary, where the trust assumption is "you are standing in the reviewed repository." Keep F6e as-is.
+
+### N4 — IN-DELTA — MINOR — four M27 (i) line pins are off by one
+
+The topic-parent clause is at `:1070` (M27 says `:1069`), `R.tree === T.tree` at `:1071` (says `:1070`), `sourceCommit.tree === A.sourceTreeObjectId` at `:1072` (says `:1071`), `sourceCommit.tree !== R.tree` at `:1073` (says `:1072`). The enclosing range `:1064-1074` is correct and the clauses are substantively exact. Notable only because this subsection states "All pins in this subsection re-verified at `f154a5c5`." **Resolution:** shift the four pins by one.
+
+### N5 — IN-DELTA — MINOR — M27 (iii) attributes attestation value to `admissionDigest` that it does not have
+
+M27 (iii) says the full ceremony's result "is attested by R_prev's own `admissionDigest` and by the fact that R_prev is in the first-parent chain of a reviewed history." `:758` computes `semanticDigest(ADMISSION_DOMAIN, admission, ["admissionDigest"])` — a self-digest anyone who can write a commit can compute. It proves internal consistency only. The second conjunct is the whole of the argument. Since M27 (iii) explicitly invites round-3 attack on this exact sentence, it should be precise. **Resolution:** drop the first conjunct.
+
+### N6 — IN-DELTA — MINOR — "the only in-repo caller of the C symbol" is three callers
+
+`grep -rn "ex_host_evaluate_typed_decision" src` returns `src/bin/ibex/engine/hermes.rs:1144`, `src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs:2014` (included from `hermes.rs:6301`), and `src/host/abi.rs:13208` (below the `#[cfg(test)]` at `:10476`). All three are test-gated, so the substance — no production in-repo caller, symbol exported unconditionally — holds. **Resolution:** "the in-repo callers are all test-gated," with the three sites named.
+
+### N7 — IN-DELTA — MINOR — M18 pin 9's preferred option carries an unpriced dependency
+
+"The runner reads the artifact-source revision's copy instead of HEAD" is recommended, but `capsec-contract.mjs` today is a pure working-tree checker (`readConfinedGeneratedJson`, `:3514-3517`) with no Git-object access and no lineage dependency. Making it read the artifact-source blob requires it to *resolve which revision that is* — i.e. to consume the promotion catalog or the lineage verifier — a new coupling from the digest contract to the lineage chain that the row does not price. It is probably still the right call (it keeps `capsec/contract-files.json:97`'s digest over unchanged empty-v1 bytes and leaves pin 11's vectors unrestamped), but the cost belongs in the row. **Resolution:** one clause naming the new dependency.
+
+### N8 — PRE-EXISTING — MINOR — under `CompleteAdvertised` a caller can present `complete` for a `Closed` cell
+
+F3a-5 correctly scopes the ingress rule to `ScopedAdvertised`, so today's releases are untouched — which also means the caller-supplied `target_cell` remains authoritative on every shipping build. Beyond the out-of-scope case the amendment analyses, the same channel lets a caller submit `target_cell: "complete"` for a cell the admitted map holds as `Closed`, converting a deny (`decision.rs:672-683`) into a pass, and lets any non-inventory `coverage_edge_id` evade the `unwrap_or(Incomplete)` default. The practical reach is bounded — `ex_host_evaluate_typed_decision` returns a verdict and grants nothing, so the exposure is to the typed-evidence stream and to embedders that treat the ABI answer as their enforcement point rather than to host-mediated capability — but this is a genuine pre-existing property that M32's survey uncovered and did not name. It is outside this amendment's remit. **Resolution:** file a ticket; do not expand this amendment.
+
+---
+
+## 4. Verdict
+
+# READY
+
+for the author's LLP 0044 register-item-5 decision.
+
+Both round-2 BLOCKERs are **substantively resolved**, and I verified the hard parts myself rather than taking the revision's word:
+
+- The ingress diagnosis is exactly right, the door count is exactly right (four `pub` methods at :3776/:3844/:3942/:3963 plus exactly one exported C evaluator symbol at `abi.rs:5823`, plus the runtime-extension path), discard-and-recompute is the stronger of the two remedies Codex offered and its three-part justification checks out against `fn target_cell:956-961`, and F3a-3 is a real discriminator against the weaker min-of-two rule that would otherwise have passed F3a-1.
+- The lineage algorithm is now implementable: the (i) predicate maps one-to-one onto `:1065-1073` and provably excludes the descendants that defeated the round-1 sketch; (ii)'s move of `admittedScopeDigest` into the tracked admission at `:691-704` works and is automatically authenticated by `:758`; (iv)'s reset lifecycle satisfies `assertSourceAuthorityClosed` at `:807`/`:819-820`/`:825-826` and — a compatibility the amendment does not even claim — also survives `verifyChangedArtifacts`'s exact changed-path-set equality and its newly-added-evidence rule; and (v)'s floor object is real, disabled, empty, and 406 first-parent commits below HEAD.
+- The two enumerations both families punished are now **exact and reproducible**: M11's 20/16 → 21/17 → 23 all reproduce, including the verbatim `orderBy` string that explains the content-filter defect; M18's recorded sweep reproduces at 19/15 and pin 9 is confirmed release-breaking to the line.
+
+My eight findings comprise three MATERIAL and five MINOR. **None is blocking**: every one fails closed, none admits an unsound certification or a broken arming, none reopens a decided register item, and none changes the answer to the question the author is being asked (Option B + `ScopedAdvertised` + the aggregate as sole introspection authority, all of which I verified are supported by the real code). All eight resolutions are text-only. Withholding READY here would buy a fourth round that the LLP 0049 §9 bound does not permit, in exchange for corrections the author or an implementer can make in place.
+
+**For the author (must reach them, one sentence each):**
+- **N3** — the genesis precondition closes truncation and misconfiguration, not reconstruction on the pinned floor. The author rejected "name it as a non-guarantee" in favour of "closed"; the honest position is that the residual falls inside the *already-documented* whole-checkout boundary. This is the only finding touching a security claim, and the author should see it before accepting.
+- **N8** — a pre-existing ABI property surfaced by M32's survey, out of this amendment's remit; it wants a ticket, not an amendment change.
+
+**For the implementer (correct in place before or during gate code):**
+- **N1** — state how the ingress rule and the extension carve-out compose at `mod.rs:1304`, and forbid "absent ⇒ keep the caller's value" at ingress 1. This is the one with a trap in it: the wrong repair silently reopens BLOCKER 2.
+- **N2** — "the floor's **first** parent."
+- **N4, N5, N6, N7** — four pins shifted by one, one over-attributed digest, one "only caller," one unpriced dependency.
