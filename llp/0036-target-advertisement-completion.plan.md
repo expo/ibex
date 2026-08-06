@@ -5,6 +5,10 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-08-06 (adds the DRAFT scoped-advertisement amendment delta
+at the end of this document — the step-2 authoring program is re-scoped to
+the certified scope; UNDER LLP 0049 PHASE 1 REVIEW with the LLP 0021
+amendment it accompanies)
 **Revised:** 2026-07-27 (the public-evidence program adds exactly 13 source-bound module-loader routes: eight loader functions, the two base import-policy facets, two physically reached internal aliases, and builtin-kind selection; every execution uses a fresh armed engine and requires one loader-private source-point receipt, normal return, quiescence, re-attestation, and zero decisions, while 87 nearby static candidates remain residual after physical Apple traversal failed to reach the claimed point or emitted typed authority; final source-bound Apple and Windows batches both pass 13/13 at source `362e21c7` / tree `sha256-7Rdvzwm5tGaDVNqW1U9sUiyp1VabIIhRuCT_iN-uOPI`; Apple catalog `sha256-YwyEGiU906sxfdDbSQreOmeQUuFcp_FzeFgFj-x5qbQ` reports 23,844 required / 3,531 fully executable / 3,134 internally verified / 17,179 unresolved and Windows catalog `sha256-Emt8544W78pVLMizBGhKaQt2tIJuqWE6Se383StPlu8` reports 23,503 / 3,190 / 3,120 / 17,193; neither target is advertised)
 **Revised:** 2026-07-25 (`node:fs.opendirSync` adds five Apple public recipes that physically select an empty `__exactReaddir` route and bind the returned `Dir` path plus close lifecycle; current Apple accounting is 2,666 fully executable / 3,114 internally verified / 18,260 unresolved)
 **Revised:** 2026-07-25 (`node:fs.openSync` adds fifteen Apple public recipes covering exact `r`, `a`, and `r+` authority branches with descriptor cleanup and unchanged-file postconditions; current Apple accounting is 2,661 fully executable / 3,114 internally verified / 18,265 unresolved)
@@ -406,3 +410,31 @@ estimates (a "96% clear" figure, a "~1,600" never-executable count) were
 superseded by these full-catalog measurements; the 96% figure measured only the
 560-row native executable batch, not the 24,585-row catalog, and the 1,600 was
 the global-family subset of the 3,727 catalog-wide.
+
+## Amendment delta: scoped advertisement (2026-08-06)
+
+> **Status: DRAFT, UNDER LLP 0049 PHASE 1 REVIEW; no gate code may land
+> until the review of the LLP 0021 scoped-advertisement amendment
+> completes (LLP 0044 §7 item 5).** This delta is deliberately small; the
+> design and the join matrix live in LLP 0021's amendment.
+
+- **The step-2 public-residual authoring program is re-scoped to the
+  certified scope.** The strategic question this plan forced was
+  answered: LLP 0044 items 1/2/4 are decided (scoped certification;
+  uncertified remainder; **fs+env+process** as the v1.1 scope — LLP 0044
+  §7, 2026-08-06), and LLP 0049 is the execution plan. Step 2's worklist
+  is no longer the full public-residual catalog (~18k rows): it is the
+  scoped clean authorable set re-derived at each phase boundary
+  (3,922 rows / 490 surfaces / 80 template classes at the 2026-08-05
+  measurement), driven by LLP 0049 §6's loop and discipline. The global
+  grind is not resumed for out-of-scope families; they remain honest
+  unresolved rows and the published claim treats them per LLP 0021
+  amendment §A7.
+- **Gate 2's meaning becomes scoped.** `assertRecipeCatalogComplete`
+  binds to `unresolved-in-scope === 0` per LLP 0021 amendment §A2 once
+  the reviewed gate code lands; until then the all-or-nothing gate
+  stands and this plan's measured description of it remains accurate.
+- **The internally-verified vocabulary stays closed.** Nothing in the
+  re-scoping grows `INTERNALLY_VERIFIED_SCENARIOS`; any growth remains
+  its own LLP 0021/0036 amendment per LLP 0044 §3.
+- Gates 1 and 3 are untouched.

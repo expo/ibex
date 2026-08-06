@@ -5,6 +5,10 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-08-06 (adds the DRAFT scoped-advertisement amendment delta
+at the end of this document — the report schema carries the scope digest, no
+phase, deadline, or sharding changes; UNDER LLP 0049 PHASE 1 REVIEW with the
+LLP 0021 amendment it accompanies)
 **Revised:** 2026-08-03 (timeout policy version 5 gives the exact Windows
 `public-fixtures-005-d0b17e51064234a80cd89dc1c8f4a2f2fbedab33b08f7d065b33f5926cfe3d5f`
 non-capability builtin batch a 420-second deadline after the hosted runner
@@ -795,3 +799,31 @@ introduce one cross-platform command envelope, apply it to the current
 sequential runner, and make command state visible while CI is running. Runtime
 measurements from that stage should determine where sharding actually pays for
 its additional provenance surface.
+
+## Amendment delta: scoped advertisement (2026-08-06)
+
+> **Status: DRAFT, UNDER LLP 0049 PHASE 1 REVIEW; no gate code may land
+> until the review of the LLP 0021 scoped-advertisement amendment
+> completes (LLP 0044 §7 item 5).** This delta is deliberately small; the
+> design and the join matrix live in LLP 0021's amendment.
+
+- **The report schema carries the scope digest.** Both report schemas —
+  the rich `ibex/capsec-conformance/1`
+  (`packages/ibex-devtools/src/scripts/capsec-conformance.mjs:571`) and
+  the portable `ibex/capsec-conformance/2`
+  (`src/host/portable_target_admission.rs:34`) — gain a `scopeDigest`
+  binding in `bindings`, alongside the existing catalog and evidence
+  digests. The scoped completeness semantics of that binding are LLP 0021
+  amendment §A2/§A9 M4, not this document's concern.
+- **No phase changes.** The phase graph, command envelope, deadline
+  policy (currently version 5), resumption rules, shard-manifest field
+  set, authority classes, and aggregate-validation rules are unchanged.
+  The suite-plan digest already commits to "all conformance inputs"
+  (Terminology); once the scope artifact is a conformance input, that
+  existing commitment covers it — stated here explicitly so a scope swap
+  between attempts is a plan mismatch, not a new rule.
+- **Diagnostic separation is reused, not extended.** Out-of-scope
+  negative-control and adversarial-composition runs are diagnostic
+  shards/artifacts under the existing authority boundary: distinct
+  authority label, distinct storage path, rejected by the authoritative
+  aggregator. No new authority class is created for them.
