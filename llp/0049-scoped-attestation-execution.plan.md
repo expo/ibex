@@ -667,7 +667,14 @@ loops (LLP 0026–0045) ran 3–8 rounds over 3–10 days.
   package goes to the author with the disagreement ledger, per LLP 0005 —
   the corpus precedent is that these loops end on author decisions, not
   convergence, and the serial critical path must not wait on a permanent
-  NOT READY stance.
+  NOT READY stance. **Amended by author directive 2026-08-06** after the
+  round-3 split verdict (Fable READY / Codex NOT READY): up to **three
+  further rounds** (4–6) are authorized, under an explicit decision rule —
+  **the package moves forward when the Claude/Fable family reports READY**,
+  regardless of the Codex verdict. Codex findings continue to inform
+  revisions; they no longer gate progress. If Fable has not reported READY
+  by the end of round 6, the loop stops and the package returns to the
+  author with the ledger.
 - Any phase-boundary re-measurement moves the worklist by more than 5% →
   re-cut the tranche plan (§3 rule 5) — routine, not fatal; but
   **cumulative** drift exceeding 15% since the last full re-plan forces a
