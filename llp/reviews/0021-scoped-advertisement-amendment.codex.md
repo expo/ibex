@@ -309,3 +309,128 @@ Minimal flip set:
 1. Replace M27’s discovery sketch with an implementable authenticated multi-promotion algorithm, including the catalog reset/persistence lifecycle, exact historical promotion predicate, tracked source of the prior scope digest, and pre-foundation genesis semantics; reconcile M18 pin 2 with that lifecycle.
 2. Make the scoped aggregate authoritative at **every** `EffectGate` ingress, including the C ABI/public JSON evaluators and the runtime-extension direct-`Complete` path, and identify one complete telemetry emission path covering all evaluator variants.
 3. Correct M11’s recorded sweep/count and include the checked-in generated runtime-projection mirror in the Option-A blast radius.
+
+## Round 3 (final round) — 2026-08-06
+
+- **Family:** OpenAI Codex (gpt-5.6-sol)
+- **Provider/runtime:** `codex exec` CLI 0.146.1,
+  `-c model_reasoning_effort="high"`, `--sandbox read-only`,
+  `--skip-git-repo-check`, brief on stdin
+- **Date:** 2026-08-06
+- **Redacted:** no (public-repo content only)
+- **Method:** final delta round at commit `8def7e20`, document revision
+  `a770c2f95e9b`; executed the mandated checks including direct AJV
+  execution against both v1 schemas, git-object verification of the
+  lineage floor and its parent, and both M11 sweep commands
+- **Verdict:** NOT READY (1 IN-DELTA BLOCKER, 2 IN-DELTA MATERIAL,
+  1 PRE-EXISTING MATERIAL; two-item flip set)
+
+### Review body (verbatim from codex exec stdout)
+
+## 1. Delta-verification results
+
+- **PASS — revision identity.** `git rev-parse HEAD` and `git rev-parse --verify 8def7e20^{commit}` both returned `8def7e20c363274b3228491df6dcbdf736754465`; `git show 8def7e20:llp/0021-capsec-effect-model-migration.plan.md | shasum -a 256` returned `a770c2f95e9b2360…`.
+
+- **PASS — A3/M32 closes caller-supplied `targetCell`.** There are exactly five caller-supplied-gate doors: four public Rust methods at `src/host/mod.rs:3776,3844,3942,3963` plus `ex_host_evaluate_typed_decision` at `src/host/abi.rs:5823-5839`; the two JSON methods delegate to the two typed methods (`src/host/mod.rs:3960,3981`). A3 normatively requires discard-and-recompute before every `evaluate_decision_set*` call (`llp/0021…:3683-3751`), and M32 carries the implementation work (`:5350-5412`). The private path-projection evaluator at `src/host/mod.rs:3874-3903` receives only Host-constructed gates, so it is not a sixth caller ingress.
+
+- **PASS — runtime-extension scoping.** Although the ABI supplies `effect_semantics`, Host rejects it unless it exactly equals the authenticated capsule operation’s semantics (`src/host/mod.rs:1202-1217`) before copying it into `coverage_edge_id` (`:1266`). A3/M32 then require an inventory-edge collision to use the aggregate disposition, while a genuinely non-inventory extension semantic remains explicitly `extension-declared` (`llp/0021…:3752-3774,5383-5412`). That boundary is sound.
+
+- **PASS — F3a pins recomputation, not min-of-two.** F3a-1/2 reject caller-presented `complete` for an uncertified edge, while F3a-3 requires caller-presented `incomplete` on an in-scope Complete edge to evaluate as Complete (`llp/0021…:4146-4164`). A min rule cannot pass both directions.
+
+- **FAIL — M27’s historical promotion predicate is not exact against the current verifier.** M27 lifts only the merge-shape checks corresponding to `portable-engine-promotion-lineage.mjs:1064-1074` (`llp/0021…:5059-5083`). Current authorization additionally collects the source tree, runs `assertSourceAuthorityClosed`, and runs `verifyChangedArtifacts` (`portable-engine-promotion-lineage.mjs:1075-1087`), which ties catalog artifact rows to actual tree blobs, raw digests, the exact changed-path set, and the verified bundle graph (`:930-995`). M27 explicitly omits those checks for historical hops (`llp/0021…:5129-5142`).
+
+- **PARTIAL — tracked `admittedScopeDigest`.** Adding it to `validateAdmissionShape`, the catalog schema, and `admissionDigest` would content-bind the declaration (`llp/0021…:5085-5107`; current digest recomputation at `portable-engine-promotion-lineage.mjs:757-758`). It does not prove the value equals a scope artifact in R’s tree. It also does not identify the canonical tuple: A1 defines tuple identity as triple plus sorted features (`llp/0021…:3531-3534`), while M27 searches only by `targetTriple` (`:5081-5083`) and adds no feature field to the tracked admission (`:5091-5099`).
+
+- **FAIL — reduced per-hop authentication is insufficient.** `parseCatalog`/`validateAdmissionShape` check canonical form, field shape, role counts, and the self-digest (`portable-engine-promotion-lineage.mjs:673-759`), but do not require the named blobs—or any scope artifact—to occur in R’s tree. A correctly shaped two-parent merge can therefore insert an arbitrary self-consistent `admittedScopeDigest`, which a later walk accepts as the predecessor anchor. `admissionDigest` is an unkeyed semantic digest, not evidence that the full ceremony ran (`:757-758`; contrary wording at `llp/0021…:5139-5142`).
+
+- **PARTIAL — enable/disable/RESET lifecycle.** The reset makes `assertSourceAuthorityClosed`’s empty-v1 rule coherent for promotion 2+ (`llp/0021…:5144-5187`; current rule at `portable-engine-promotion-lineage.mjs:804-826`). Its cost is real: a disabled checked admission causes the build selector to embed `null` (`build_support/portable_engine_promotion_report.rs:453-465`), so the reset revision cannot advertise or arm from the promoted report. The repository’s push-triggered publisher creates diagnostic artifact caches, not product releases (`.github/workflows/hermes-artifacts.yml:20-25,35-40`), so no present automation falsely publishes the claim; however, M27 supplies no mechanical tag/release gate enforcing its statement that the reset commit “must not be treated as release-able” (`llp/0021…:5177-5183`).
+
+- **PASS — lineage floor and truncated-history precondition.** `afad4af9f4257eb8262cf8348e5fbb0a3c082ecf` is a first-parent ancestor of `8def7e20`; its catalog is present, disabled, and empty, while `git cat-file -e afad4af9^:<catalog>` exits 128. Both `git log --all -S'"enabled":true'` and `-S'"enabled": true'` return zero commits. Requiring non-shallow history, no grafts/replace refs, and exact first-parent reachability to that object closes the truncated-history genesis bypass (`llp/0021…:5189-5235`; F6e at `:4220-4226`).
+
+- **PASS — M11 re-adjudication.** The new path-anchored command at `llp/0021…:4545-4555` returned **21 lines / 17 files / 23 occurrences**. The old `grep … | grep -v target/` pipeline returned **20 lines / 16 files**. The missing line is `vendored-generated/capsec-runtime-projection.canonical.json:1`, whose content includes `"/target/triple"`; applying the old content filter to the complete hit set reproduces the undercount exactly.
+
+- **FAIL — M18 pin 9 recommendation is incomplete.** The release-breaking claim is true: `capsec-contract.mjs` reads the HEAD advertisement (`:3514-3517`) and validates it against the v1 schema (`:130-131,3680-3685`); direct AJV execution produced `current_v1=true` and `promoted_v2_under_v1=false` with `/targetAdvertisementSchema must be equal to constant`. But moving only advertisements to the artifact-source copy is insufficient: the same runner reads HEAD target attestations (`:3518-3520`), validates them against v1 (`:132-133,3686-3690`), and requires advertisement/attestation target-set equality (`:4212-4229`). Promotion already emits v2 attestations at that tracked path (`capsec-portable-promotion-bundle.mjs:1089-1099`; v1 const at `capsec/schema/target-attestations.schema.json:8`). The recommendation must move both foundation documents together or version-dispatch both.
+
+## 2. Disposition tables
+
+### Round-2 findings
+
+| Family / finding | Disposition | Exact section or row |
+|---|---|---|
+| Codex BLOCKER — historical promotion-revision identification | **PARTIAL** | M27 (i)–(vi) fixes persistence, the tracked digest source, reset lifecycle, floor, and truncated history (`llp/0021…:5059-5273`), but M27 (iii) does not authenticate the historical scope/artifact binding; New Finding 1. |
+| Codex BLOCKER — caller-controlled gate disposition | **RESOLVED** | A3 ingress rule (`:3683-3774`), F1c/F3a (`:4119-4133,4146-4176`), M13/M32 (`:4662-4666,5350-5412`). |
+| Codex flip item — M11 undercount | **RESOLVED** | M11’s new command and 21/17/23 result (`:4508-4616`), independently reproduced above. |
+| Fable MATERIAL — nonexistent central refusal path | **RESOLVED** | A3 acknowledges three bodies and makes the funnel new work (`:3794-3820`); M13 carries it (`:4652-4661`); F3 covers all three (`:4137-4145`). |
+| Fable MATERIAL — incomplete M18 inventory/pin 8 | **RESOLVED as asked** | M18 requalifies completeness, records a 19-line/15-file sweep, and adds/corrects pins 9, 10, and 12 (`:4746-4903`). The adjacent attestation defect is a new finding. |
+| Fable MATERIAL — M27 algorithm/reset collision | **PARTIAL** | M27 (iii) and (iv) state the reduced set and reset lifecycle (`:5109-5187`), but the reduced set is not sufficient to authenticate a hop. |
+| Fable MATERIAL — genesis via truncated history | **RESOLVED** | A5 precondition (`:3883-3904`), M27 (v)/(vi) (`:5189-5235`), F6a/F6e (`:4203-4206,4220-4226`). |
+| Fable MINOR — global vs per-tuple cardinality | **RESOLVED** | M27 retains today’s global one-admission rule (`:5251-5263`). |
+| Fable MINOR — pin 4 cannot perform a source-revision check | **RESOLVED** | M18 pin 4 limits disposition to retirement/replacement (`:4798-4812`). |
+| Fable MINOR — “no test constructor” overclaim | **RESOLVED** | A3 narrows the type-system boundary (`:3622-3637`); F11 repeats it (`:4243-4255`). |
+| Fable MINOR — M7 zero-contribution ambiguity | **RESOLVED** | M7 explicitly distinguishes authoritative unions from row content (`:4441-4462`). |
+| Fable PRE-EXISTING MINOR — stale M2/A2 pins | **RESOLVED by disclosure** | Dated pin-drift note at `llp/0021…:3509-3519`; implementation still must re-pin. |
+
+### Round-1 carry-forward
+
+| Family / finding | Final disposition | Exact location |
+|---|---|---|
+| Codex B1 — predecessor carrier/evolvable lineage | **PARTIAL** | Carrier resolved by M27/M7 (`:5016-5107,4463-4474`); historical authentication remains unresolved. |
+| Codex B2 — opaque aggregate/host disposition | **RESOLVED** | A3 (`:3622-3682`) plus M12/M13/M32 (`:4618-4666,5350-5412`). |
+| Codex M1 — consumer matrix omissions | **RESOLVED for named omissions** | M27–M31 and M18 pin 7 (`:5016-5348,4823-4830`). |
+| Codex M2 — rename/split/merge narrowing | **RESOLVED** | A5 semantic-preservation rules (`:3860-3904`). |
+| Codex M3 — A7 overstatement | **RESOLVED** | A7 (`:4050-4090`). |
+| Codex M4 — substitution fixtures | **RESOLVED** | F1a–F1c, F6, F11 (`:4104-4133,4190-4227,4243-4266`). |
+| Codex M5 — M18 owner unsettled | **PARTIAL** | Owner is settled (`:5497-5524`), but pin 9’s recommended implementation omits the coupled attestation document. |
+| Codex minor — M11 terminology | **RESOLVED** | Direct/generated/transitive classification (`:4565-4607`). |
+| Fable M1 — missing M18 path pins | **RESOLVED** | Sweep-recorded thirteen-pin disposition (`:4746-4914`). |
+| Fable M2 — M11 enumeration/count | **RESOLVED** | M11 (`:4508-4616`). |
+| Fable M3 — report restamp chain | **RESOLVED** | M30 and LLP 0032 delta (`:5315-5335`; `llp/0032…:810-822`). |
+| Fable M4 — scoped M7 equations | **RESOLVED** | M7 (`:4429-4462`). |
+| Fable M5 — runtime lineage carrier unnamed | **RESOLVED** | M7 runtime anchor and M20 (`:4463-4474,4932-4947`). |
+| Fable M6 — uncertified type placement | **RESOLVED** | A3/M14 (`:3654-3682,4668-4695`). |
+| Fable minor — installer/v1-schema consumers | **RESOLVED** | M31 and M18 pin 8 (`:5337-5348,4831-4843`). |
+| Fable minor — denominator drift | **RESOLVED** | LLP 0036 amendment delta (`llp/0036…:414-446`). |
+
+## 3. New findings
+
+### IN-DELTA — BLOCKER — M27 authenticates a catalog declaration, not a historical promotion hop
+
+M27’s selected-hop predicate checks canonical catalog shape and merge topology but deliberately omits `assertSourceAuthorityClosed` and `verifyChangedArtifacts` (`llp/0021…:5059-5083,5109-5142`). Consequently, it never proves that the historical admission’s artifact rows match R’s tree, that the named scope artifact exists, or that recomputing that artifact yields `admittedScopeDigest`. `validateAdmissionShape` only validates field syntax and a self-digest (`portable-engine-promotion-lineage.mjs:691-759`); the omitted checks perform the actual tree/blob/bundle joins (`:930-995,1075-1087`).
+
+A shaped merge can therefore insert an arbitrary self-consistent predecessor digest without rewriting old history, and later promotions treat it as authoritative. That defeats the new monotone-lineage claim.
+
+**Exact resolution:** for every selected R, collect R/source leaves and verify at least the scope-critical subset of `verifyChangedArtifacts`: exactly one scope artifact row, row blob ID/size/raw digest equal to R’s tree, recomputed `scopeDigest == admission.admittedScopeDigest`, scope artifact canonical tuple equality, and source/current changed-path consistency. Full version-dispatched `assertSourceAuthorityClosed` plus `verifyChangedArtifacts` is stronger and preferable. Remove the statement that `admissionDigest` “attests” the prior ceremony unless a real attestation authority is added.
+
+### IN-DELTA — MATERIAL — M27 cannot identify a per-feature tuple
+
+The scope’s canonical tuple is triple plus sorted features (`llp/0021…:3531-3534`), and A10 explicitly says a feature-list change creates a fresh tuple (`:5555-5562`). M27’s historical selection filters only `targetTriple` (`:5081-5083`); its tracked admission work adds only `admittedScopeDigest` (`:5091-5107`). Promotions for two feature vectors on the same triple are therefore indistinguishable: the walk either incorrectly forces cross-feature ancestry or cannot validate genesis.
+
+**Exact resolution:** add the canonical feature list—or one closed canonical `target` object—to the tracked admission, checked admission, catalog schema, digest projection, historical predicate, and fixtures. Rev the tracked admission schema/domain rather than silently changing the closed `/1` contract, or derive and verify the full tuple from the historically authenticated scope artifact.
+
+### IN-DELTA — MATERIAL — reset revisions lack a mechanical non-release gate
+
+M27 acknowledges that reset-to-empty-v1 withdraws the advertisement and that the reset revision must not be releaseable (`llp/0021…:5164-5183`). Disabled admission embeds no promoted report (`build_support/portable_engine_promotion_report.rs:461-465`). The reset reconciles M18 pin 2 safely, but “reset and promotion as a single reviewed sequence” is not atomic in the required Git topology: the reset must first exist as the next promotion’s first parent.
+
+**Exact resolution:** add a release/tag/product-publication gate that refuses a disabled/reset catalog, or perform the reset in a non-release staging ref and promote atomically into the release ref. Keep ordinary diagnostic per-SHA artifact caches explicitly outside that gate (`.github/workflows/hermes-artifacts.yml:20-25,35-40`).
+
+### PRE-EXISTING — MATERIAL — M18 pin 9’s recommended fix ignores the coupled target-attestation publication
+
+The contract runner reads and v1-validates both HEAD publications (`capsec-contract.mjs:130-133,3514-3520,3680-3690`) and requires their advertised target sets to match (`:4212-4229`). Promotion emits v2 target attestations now (`capsec-portable-promotion-bundle.mjs:1089-1099`), while the amendment proposes v3 in M5 (`llp/0021…:4380-4388`). Moving only target advertisements to their artifact-source v1 copy therefore still fails schema validation and, if validation were version-dispatched, produces a foundation-advertisement/current-attestation set mismatch.
+
+**Exact resolution:** the recommended frozen-contract option must read both target advertisements and target attestations from the same authenticated artifact-source revision. The alternative must version-dispatch and restamp both documents together.
+
+## 4. Verdict
+
+**NOT READY.**
+
+The ledger-worthy findings are:
+
+1. **M27 does not authenticate the historical scope artifact behind `admittedScopeDigest`**; this is a direct defect in the newly claimed monotone lineage.
+2. **M27 lacks full tuple identity**, colliding with the author-facing tuple-migration decision in A10 #7.
+
+The reset release gate and paired target-attestation correction are implementer-correctable: both fail closed and will surface immediately during gate implementation.
+
+Minimal flip set:
+
+1. Make each historical M27 hop prove the tracked `admittedScopeDigest` against an actual content-hashed scope artifact in that promotion tree, with scope-critical source/tree/artifact joins.
+2. Carry and verify the full canonical tuple, including features, through the tracked and checked admission schemas and historical predicate.
