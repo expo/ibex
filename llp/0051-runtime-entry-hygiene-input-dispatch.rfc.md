@@ -220,6 +220,22 @@ real-click A/B flips to granted on the direct path with zero
 and the cold-boot real-click navigation smoke passes. The Exact submodule
 pointer bump lands separately with the standing mac compile check.
 
+**Downstream result (2026-08-06, recorded):** ExactAppMac built green against
+this tree (ibex main + fix; the future pointer-bump compile check), and a
+cold-boot real-input smoke on macOS — isolated per-trial `HOME`, dev-table
+session, one `windowSendEvent` click (real responder chain, root coordinate
+space) on the labs-home `lab-contract-basics-lab` tile as the first action —
+mounted the Contract Basics Lab with `EXACT_SECURITY_LOG=1` armed:
+**91 `capability_granted`, 0 `capability_denied`** across the activation,
+including the deferred route-module loads on the input-seeded chain that the
+original ticket observed failing closed. ibex-side suite posture: the three
+new regressions plus the conformance no-shed witness green; the full
+observer-feature bin suite shows the same 19 environment-dependent failures
+as pristine `origin/main` on this machine plus one load-order flake
+(`legacy_host_path_variants_and_readdir_emit_only_bounded_observations`)
+that passes in isolation and in four consecutive co-scheduled runs with the
+new tests.
+
 ## Open questions
 
 1. Design C helper ordering: is clear-outgoing-then-switch safe for the
