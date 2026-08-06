@@ -502,6 +502,20 @@ fn install_hermes_profile_provenance(install: HermesProfileProvenanceInstall<'_>
             output.display()
         )
     });
+
+    // Classification is an authenticated artifact property, not an OS probe.
+    // This point is reached only after the receipt, reviewed profile identity,
+    // selected runtime image, linked dependency, and link artifact (when any)
+    // have all validated. Portable selection bypasses this function entirely.
+    // @ref LLP 0050#2-decision-d1--artifact-bound-capability-classification
+    let finalization_capable = match target_os {
+        "macos" | "linux" => receipt["profileId"] == "source-patched",
+        "windows" => receipt["profileId"] == "windows-source-patched",
+        _ => false,
+    };
+    if finalization_capable {
+        println!("cargo:rustc-cfg=ibex_hermes_finalization_capable");
+    }
 }
 
 fn windows_import_library_for_link(
@@ -679,6 +693,7 @@ fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
 }
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(ibex_hermes_finalization_capable)");
     println!("cargo:rerun-if-env-changed=IBEX_LEGACY_HERMES_BLOCK_SCOPING");
     let manifest_dir = env_path("CARGO_MANIFEST_DIR");
     precompute_capsec_registry_record_digest(&manifest_dir);

@@ -323,6 +323,49 @@ std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
 // ran a JSI destructor off the Hermes thread.
 std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOnOwnerThread{0};
 std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOffOwnerThread{0};
+std::mutex g_runtimeFinalizerTestMutex;
+RuntimeCallbackTarget g_runtimeFinalizerTestTarget{};
+std::thread::id g_runtimeFinalizerTestOwnerThread{};
+std::thread::id g_runtimeFinalizerTestProducerThread{};
+std::thread::id g_runtimeFinalizerTestRunThread{};
+std::thread::id g_runtimeFinalizerTestRefusalDestructionThread{};
+std::atomic<uint64_t> g_runtimeFinalizerTestRunCount{0};
+std::atomic<uint64_t> g_runtimeFinalizerTestGoodRunCount{0};
+std::atomic<uint64_t> g_runtimeFinalizerTestDestroyedWithoutRunCount{0};
+std::atomic<uint64_t> g_runtimeFinalizerTestLoggedFailureCount{0};
+
+struct RuntimeFinalizerTestCapture {
+  explicit RuntimeFinalizerTestCapture(bool shouldThrow)
+      : shouldThrow(shouldThrow) {}
+
+  ~RuntimeFinalizerTestCapture() {
+    if (ran.load(std::memory_order_acquire)) return;
+    g_runtimeFinalizerTestDestroyedWithoutRunCount.fetch_add(
+        1, std::memory_order_seq_cst);
+    std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+    g_runtimeFinalizerTestRefusalDestructionThread =
+        std::this_thread::get_id();
+  }
+
+  void invoke() {
+    ran.store(true, std::memory_order_release);
+    g_runtimeFinalizerTestRunCount.fetch_add(1, std::memory_order_seq_cst);
+    if (!shouldThrow) {
+      g_runtimeFinalizerTestGoodRunCount.fetch_add(
+          1, std::memory_order_seq_cst);
+    }
+    {
+      std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+      g_runtimeFinalizerTestRunThread = std::this_thread::get_id();
+    }
+    if (shouldThrow) {
+      throw std::runtime_error("injected runtime finalizer failure");
+    }
+  }
+
+  const bool shouldThrow;
+  std::atomic<bool> ran{false};
+};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
@@ -3215,6 +3258,10 @@ static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
     } catch (...) {
       // Native finalizers must be noexcept. Continue draining so one broken
       // resource cannot strand another JSI owner past Hermes deletion.
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+      g_runtimeFinalizerTestLoggedFailureCount.fetch_add(
+          1, std::memory_order_seq_cst);
+#endif
       ex_host_console_log(1, "Runtime-owned native finalizer failed");
     }
   }
@@ -3384,7 +3431,9 @@ extern "C" void native_ws_release_context(void* context) {
     // The final release can land on an NSURLSession/dispatch thread. The
     // context's producer pin keeps its exact runtime generation in Closing
     // until this JSI-owning object has been marshalled to the owner thread.
-    // @ref LLP 0003#the-event-loop
+    // Refusal-impossible producer: the context's native-worker pin is the
+    // lifetime proof that keeps this generation admitted through handoff.
+    // @ref LLP 0050#4-decision-d3--native-tier-contract-and-the-staleness-story
     auto target = ctx->target;
     bool onRuntimeThread = false;
     {
@@ -3402,7 +3451,9 @@ extern "C" void native_ws_release_context(void* context) {
       exactUnpinRuntimeNativeWorker(target);
       return;
     }
-    if (!pushRuntimeFinalizer(target, [ctx]() { delete ctx; })) {
+    std::function<void()> finalizer = [ctx]() { delete ctx; };
+    if (pushRuntimeFinalizer(target, finalizer) !=
+        PushRuntimeFinalizerResult::Accepted) {
       std::terminate();
     }
     // Ownership of ctx is now in finalizerQueue. Publishing the last unpin lets
@@ -3581,11 +3632,17 @@ extern "C" int32_t ibex_test_runtime_extension_with_native_worker_lock_v1(
 }
 #endif
 
-bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
-                          std::function<void()> fn) {
+PushRuntimeFinalizerResult pushRuntimeFinalizer(
+    RuntimeCallbackTarget target,
+    std::function<void()>& fn) {
+  if (!target.runtime || target.nonce == 0 || !fn) {
+    return PushRuntimeFinalizerResult::Invalid;
+  }
   {
     std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-    if (!runtimeTargetMatchesLocked(target, true)) return false;
+    if (!runtimeTargetMatchesLocked(target, true)) {
+      return PushRuntimeFinalizerResult::Stale;
+    }
     auto* runtime = target.runtime;
     {
       std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
@@ -3597,8 +3654,92 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
   // runtime. Wake its owner just like a JS callback so the queued JSI owner is
   // not retained until unrelated work happens or the runtime is destroyed.
   ex_hermes_notify_callback();
-  return true;
+  return PushRuntimeFinalizerResult::Accepted;
 }
+
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" void ibex_test_reset_runtime_finalizer_observer() {
+  std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+  g_runtimeFinalizerTestTarget = {};
+  g_runtimeFinalizerTestOwnerThread = {};
+  g_runtimeFinalizerTestProducerThread = {};
+  g_runtimeFinalizerTestRunThread = {};
+  g_runtimeFinalizerTestRefusalDestructionThread = {};
+  g_runtimeFinalizerTestRunCount.store(0, std::memory_order_seq_cst);
+  g_runtimeFinalizerTestGoodRunCount.store(0, std::memory_order_seq_cst);
+  g_runtimeFinalizerTestDestroyedWithoutRunCount.store(
+      0, std::memory_order_seq_cst);
+  g_runtimeFinalizerTestLoggedFailureCount.store(
+      0, std::memory_order_seq_cst);
+}
+
+extern "C" int32_t ibex_test_capture_runtime_finalizer_target(
+    ExactHermesRuntime* runtime) {
+  if (!runtime) return 0;
+  std::lock_guard<std::mutex> registryLock(g_runtimeRegistryMutex);
+  auto found = g_activeRuntimes.find(runtime);
+  if (found == g_activeRuntimes.end() ||
+      found->second.state != RuntimeLifecycleState::Running) {
+    return 0;
+  }
+  std::lock_guard<std::mutex> testLock(g_runtimeFinalizerTestMutex);
+  g_runtimeFinalizerTestTarget = RuntimeCallbackTarget{runtime, found->second.nonce};
+  g_runtimeFinalizerTestOwnerThread = found->second.owner;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_push_captured_runtime_finalizer(uint32_t mode) {
+  RuntimeCallbackTarget target;
+  {
+    std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+    target = g_runtimeFinalizerTestTarget;
+    g_runtimeFinalizerTestProducerThread = std::this_thread::get_id();
+  }
+
+  PushRuntimeFinalizerResult result;
+  if (mode == 2) {
+    std::function<void()> empty;
+    result = pushRuntimeFinalizer(target, empty);
+  } else {
+    auto capture =
+        std::make_shared<RuntimeFinalizerTestCapture>(mode == 1);
+    std::function<void()> finalizer = [capture]() { capture->invoke(); };
+    result = pushRuntimeFinalizer(target, finalizer);
+  }
+  return static_cast<int32_t>(result);
+}
+
+extern "C" uint64_t ibex_test_runtime_finalizer_run_count() {
+  return g_runtimeFinalizerTestRunCount.load(std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t ibex_test_runtime_finalizer_good_run_count() {
+  return g_runtimeFinalizerTestGoodRunCount.load(std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t
+ibex_test_runtime_finalizer_destroyed_without_run_count() {
+  return g_runtimeFinalizerTestDestroyedWithoutRunCount.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t ibex_test_runtime_finalizer_logged_failure_count() {
+  return g_runtimeFinalizerTestLoggedFailureCount.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" int32_t ibex_test_runtime_finalizer_ran_on_owner_thread() {
+  std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+  return g_runtimeFinalizerTestRunThread == g_runtimeFinalizerTestOwnerThread;
+}
+
+extern "C" int32_t
+ibex_test_runtime_finalizer_refusal_destroyed_on_producer_thread() {
+  std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+  return g_runtimeFinalizerTestRefusalDestructionThread ==
+      g_runtimeFinalizerTestProducerThread;
+}
+#endif
 
 void sealGlobalHostFunction(
     facebook::jsi::Runtime& rt,
@@ -6972,6 +7113,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   ];
   if (typeof BigInt === 'function') roots.push(BigInt);
   if (typeof Proxy === 'function') roots.push(Proxy);
+  if (typeof WeakRef === 'function') roots.push(WeakRef);
+  if (typeof FinalizationRegistry === 'function') roots.push(FinalizationRegistry);
   var typedArrays = ['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array',
     'Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array',
     'BigInt64Array','BigUint64Array'];

@@ -32,7 +32,10 @@ fn dead_runtime_callbacks_are_not_intentionally_leaked() {
     let push = runtime
         .split("void pushRuntimeCallback(")
         .nth(1)
-        .and_then(|tail| tail.split("bool pushRuntimeFinalizer(").next())
+        .and_then(|tail| {
+            tail.split("PushRuntimeFinalizerResult pushRuntimeFinalizer(")
+                .next()
+        })
         .expect("pushRuntimeCallback body");
 
     assert!(push.contains("RuntimeCallbackTarget target"));
@@ -41,6 +44,44 @@ fn dead_runtime_callbacks_are_not_intentionally_leaked() {
     assert!(!push.contains("leak-on-dead-runtime"));
     assert!(runtime.contains("discardRuntimeCallbacksOnOwnerThread(runtime)"));
     assert!(runtime.contains("drainRuntimeFinalizers(runtime)"));
+}
+
+#[test]
+fn runtime_finalizer_refusal_preserves_ownership_and_names_producer_classes() {
+    let runtime = source("src/engine/hermes_runtime.cc");
+    let header = source("src/engine/hermes_runtime_internal.h");
+
+    assert!(header.contains("enum class PushRuntimeFinalizerResult : uint8_t"));
+    assert!(header.contains("Accepted,\n  Stale,\n  Invalid,"));
+    assert!(header.contains("PushRuntimeFinalizerResult pushRuntimeFinalizer("));
+    assert!(header.contains("std::function<void()>& fn);"));
+    assert!(!header.contains("pushRuntimeFinalizer(RuntimeCallbackTarget target,\n                          std::function<void()> fn)"));
+    assert!(header.contains("Refusal transfers nothing"));
+    assert!(header.contains("refusal-impossible"));
+    assert!(header.contains("fallback-backed"));
+    assert!(header.contains("exactly one owner-thread"));
+    assert!(header.contains("effectively noexcept, non-blocking"));
+    assert!(header.contains("invoke no user JavaScript"));
+    assert!(header.contains("never\n// re-enter Hermes"));
+    assert!(header.contains("idempotent against the owner's authoritative sweep"));
+
+    let push = runtime
+        .split("PushRuntimeFinalizerResult pushRuntimeFinalizer(")
+        .nth(1)
+        .and_then(|tail| tail.split("#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER").next())
+        .expect("pushRuntimeFinalizer body");
+    let validation = push
+        .find("if (!target.runtime || target.nonce == 0 || !fn)")
+        .unwrap();
+    let transfer = push
+        .find("runtime->finalizerQueue.push_back(std::move(fn))")
+        .unwrap();
+    assert!(
+        validation < transfer,
+        "admission must validate before ownership transfer"
+    );
+    assert!(push.contains("return PushRuntimeFinalizerResult::Stale;"));
+    assert!(push.contains("return PushRuntimeFinalizerResult::Invalid;"));
 }
 
 #[test]
@@ -183,7 +224,12 @@ fn websocket_final_release_is_marshaled_without_a_leak_fallback() {
     let websocket = source("src/engine/hermes_runtime_websocket.cc");
 
     assert!(websocket.contains("callbackContext->runtime_pin_held = true;"));
-    assert!(runtime.contains("pushRuntimeFinalizer(target, [ctx]() { delete ctx; })"));
+    assert!(runtime.contains("std::function<void()> finalizer = [ctx]() { delete ctx; };"));
+    assert!(runtime.contains("pushRuntimeFinalizer(target, finalizer) !="));
+    assert!(runtime.contains("Refusal-impossible producer"));
+    assert!(
+        runtime.contains("LLP 0050#4-decision-d3--native-tier-contract-and-the-staleness-story")
+    );
     assert!(runtime.contains("backlog += runtime->finalizerQueue.size();"));
     assert!(runtime.contains("exactUnpinRuntimeNativeWorker(target);"));
     assert!(!runtime.contains("intentionally leak the context"));

@@ -1264,6 +1264,24 @@ mod tests {
         #[cfg(feature = "capsec-conformance-observer")]
         fn ibex_test_jsi_owner_final_releases_off_owner_thread() -> u64;
         #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_reset_runtime_finalizer_observer();
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_capture_runtime_finalizer_target(runtime: *mut HermesRuntimeOpaque) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_push_captured_runtime_finalizer(mode: u32) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_finalizer_run_count() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_finalizer_good_run_count() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_finalizer_destroyed_without_run_count() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_finalizer_logged_failure_count() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_finalizer_ran_on_owner_thread() -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_finalizer_refusal_destroyed_on_producer_thread() -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
         fn ex_hermes_set_host_call_async(
             runtime: *mut HermesRuntimeOpaque,
             callback: extern "C" fn(
@@ -2190,6 +2208,55 @@ mod tests {
         (status, value)
     }
 
+    fn finalization_primitives_available(runtime: *mut HermesRuntimeOpaque) -> bool {
+        let (status, kinds) = eval(
+            runtime,
+            "typeof FinalizationRegistry + ',' + typeof WeakRef",
+        );
+        assert_eq!(status, 0, "finalization capability probe failed: {kinds:?}");
+        if kinds.as_deref() == Some("function,function") {
+            return true;
+        }
+
+        #[cfg(ibex_hermes_finalization_capable)]
+        panic!(
+            "authenticated finalization-capable Hermes profile lacks FinalizationRegistry/WeakRef: {kinds:?}"
+        );
+        #[cfg(not(ibex_hermes_finalization_capable))]
+        false
+    }
+
+    fn poll_finalization_until(runtime: *mut HermesRuntimeOpaque, predicate: &str, failure: &str) {
+        for _ in 0..64 {
+            unsafe {
+                ex_hermes_gc(runtime);
+                assert!(
+                    ex_hermes_poll(runtime, ex_hermes_now_ms()) >= 0,
+                    "FinalizationRegistry cleanup must not make polling fatal"
+                );
+            }
+            if eval(runtime, predicate).1.as_deref() == Some("true") {
+                return;
+            }
+        }
+        panic!("{failure}");
+    }
+
+    fn heap_allocated_bytes(runtime: *mut HermesRuntimeOpaque) -> Option<u64> {
+        let raw = unsafe { ex_hermes_get_heap_info(runtime, 0) };
+        if raw.is_null() {
+            return None;
+        }
+        let text = unsafe { CStr::from_ptr(raw) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { ex_hermes_free_string(raw) };
+        let info: serde_json::Value = serde_json::from_str(&text).ok()?;
+        info.get("allocatedBytes")
+            .or_else(|| info.get("hermes_allocatedBytes"))
+            .and_then(serde_json::Value::as_u64)
+    }
+
     /// The restricted consumer constructor keeps host-selected evaluation
     /// available while closing every JavaScript-reachable string compiler,
     /// including Hermes's cached Function("return this") fast path.
@@ -2320,6 +2387,543 @@ mod tests {
         source
     }
 
+    /// A classified artifact must execute ordinary user registrations with the
+    /// standard unregister and weak-target behavior after forced collection and
+    /// bounded owner-thread checkpoints.
+    #[test]
+    fn js_finalization_registry_fires_for_user_registrations_after_gc() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            if !finalization_primitives_available(runtime) {
+                ex_hermes_destroy(runtime);
+                return;
+            }
+
+            let (status, value) = eval(
+                runtime,
+                r#"(function () {
+                  globalThis.__userFinalized = Object.create(null);
+                  globalThis.__userFinalizedTotal = 0;
+                  globalThis.__userRegistry = new FinalizationRegistry(function (held) {
+                    __userFinalized[held] = (__userFinalized[held] || 0) + 1;
+                    __userFinalizedTotal++;
+                  });
+                  (function () {
+                    var targets = [];
+                    var tokens = [];
+                    for (var i = 0; i < 1000; i++) {
+                      var target = { index: i };
+                      var token = {};
+                      targets.push(target);
+                      tokens.push(token);
+                      __userRegistry.register(target, i, token);
+                      if (i === 1) globalThis.__userWeakSample = new WeakRef(target);
+                    }
+                    for (var j = 0; j < 1000; j += 2) {
+                      if (!__userRegistry.unregister(tokens[j])) {
+                        throw new Error('failed to unregister token ' + j);
+                      }
+                    }
+                  })();
+                  globalThis.__userFinalizationPressure = new Uint8Array(8 * 1024 * 1024);
+                  globalThis.__userFinalizationPressure = null;
+                  return 'registered';
+                })()"#,
+            );
+            assert_eq!(status, 0, "user registration setup failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("registered"));
+
+            poll_finalization_until(
+                runtime,
+                "String(__userFinalizedTotal === 500)",
+                "user FinalizationRegistry population did not stabilize within 64 GC/checkpoints",
+            );
+            // Additional bounded checkpoints make duplicate delivery visible.
+            for _ in 0..4 {
+                ex_hermes_gc(runtime);
+                assert!(ex_hermes_poll(runtime, ex_hermes_now_ms()) >= 0);
+            }
+
+            let (status, summary) = eval(
+                runtime,
+                r#"JSON.stringify({
+                  counts: (function () {
+                    var result = [];
+                    for (var i = 0; i < 1000; i++) result.push(__userFinalized[i] || 0);
+                    return result;
+                  })(),
+                  weakCleared: __userWeakSample.deref() === undefined,
+                  total: __userFinalizedTotal
+                })"#,
+            );
+            assert_eq!(status, 0, "user finalization summary failed: {summary:?}");
+            let summary: serde_json::Value =
+                serde_json::from_str(summary.as_deref().expect("user finalization summary JSON"))
+                    .expect("valid user finalization summary JSON");
+            assert_eq!(summary["total"].as_u64(), Some(500));
+            assert_eq!(summary["weakCleared"].as_bool(), Some(true));
+            let counts = summary["counts"].as_array().expect("per-held-value counts");
+            assert_eq!(counts.len(), 1000);
+            for (index, count) in counts.iter().enumerate() {
+                assert_eq!(
+                    count.as_u64(),
+                    Some(if index % 2 == 0 { 0 } else { 1 }),
+                    "held value {index} had the wrong cleanup count"
+                );
+            }
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// Repeated wrapper waves gate both synthetic native-handle count and
+    /// declared native byte weight, including mixed retention and deterministic
+    /// explicit disposal.
+    #[test]
+    fn js_finalization_registry_reclaims_webgpu_shaped_wrappers_under_sustained_load() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            if !finalization_primitives_available(runtime) {
+                ex_hermes_destroy(runtime);
+                return;
+            }
+
+            let (status, value) = eval(
+                runtime,
+                r#"(function () {
+                  globalThis.__syntheticGpu = (function () {
+                    var nextId = 1;
+                    var live = Object.create(null);
+                    var liveCount = 0;
+                    var liveBytes = 0;
+                    var created = 0;
+                    var released = [];
+                    var releaseCounts = Object.create(null);
+                    function release(record) {
+                      if (!live[record.id]) return;
+                      delete live[record.id];
+                      liveCount--;
+                      liveBytes -= record.bytes;
+                      released.push(record.id);
+                      releaseCounts[record.id] = (releaseCounts[record.id] || 0) + 1;
+                    }
+                    var registry = new FinalizationRegistry(release);
+                    function wrap(bytes) {
+                      var record = { id: nextId++, bytes: bytes };
+                      var token = {};
+                      var disposed = false;
+                      live[record.id] = record;
+                      liveCount++;
+                      liveBytes += bytes;
+                      created++;
+                      var wrapper = {
+                        id: record.id,
+                        bytes: bytes,
+                        dispose: function () {
+                          if (disposed) return;
+                          disposed = true;
+                          registry.unregister(token);
+                          release(record);
+                        }
+                      };
+                      registry.register(wrapper, record, token);
+                      return wrapper;
+                    }
+                    return {
+                      wrap: wrap,
+                      allReleased: function (ids) {
+                        for (var i = 0; i < ids.length; i++) {
+                          if (!releaseCounts[ids[i]]) return false;
+                        }
+                        return true;
+                      },
+                      summary: function () {
+                        return {
+                          created: created,
+                          released: released.length,
+                          liveCount: liveCount,
+                          liveBytes: liveBytes
+                        };
+                      },
+                      releaseCount: function (id) { return releaseCounts[id] || 0; }
+                    };
+                  })();
+                  return 'installed';
+                })()"#,
+            );
+            assert_eq!(status, 0, "synthetic GPU library failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("installed"));
+
+            const BATCH_SIZE: u64 = 500;
+            const BATCH_WEIGHT: u64 = 9_183_232;
+            let mut heap_samples = Vec::new();
+            for batch in 0..10 {
+                let (status, ids) = eval(
+                    runtime,
+                    r#"(function () {
+                      var ids = [];
+                      (function () {
+                        var wrappers = [];
+                        for (var i = 0; i < 500; i++) {
+                          var wrapper = __syntheticGpu.wrap(((i % 8) + 1) * 4096);
+                          ids.push(wrapper.id);
+                          wrappers.push(wrapper);
+                        }
+                      })();
+                      globalThis.__syntheticGpuPressure = new Uint8Array(8 * 1024 * 1024);
+                      globalThis.__syntheticGpuPressure = null;
+                      return JSON.stringify(ids);
+                    })()"#,
+                );
+                assert_eq!(status, 0, "synthetic GPU batch {batch} failed: {ids:?}");
+                let ids = ids.expect("synthetic GPU batch ids");
+                let predicate = format!("String(__syntheticGpu.allReleased({ids}))");
+                poll_finalization_until(
+                    runtime,
+                    &predicate,
+                    &format!("synthetic GPU batch {batch} did not drain within 64 GC/checkpoints"),
+                );
+                let summary = eval(runtime, "JSON.stringify(__syntheticGpu.summary())")
+                    .1
+                    .expect("synthetic GPU batch summary");
+                let summary: serde_json::Value =
+                    serde_json::from_str(&summary).expect("valid synthetic GPU summary");
+                assert!(summary["liveCount"].as_u64().unwrap() <= BATCH_SIZE);
+                assert!(summary["liveBytes"].as_u64().unwrap() <= BATCH_WEIGHT);
+                if let Some(bytes) = heap_allocated_bytes(runtime) {
+                    heap_samples.push(bytes);
+                }
+            }
+
+            let (status, mixed) = eval(
+                runtime,
+                r#"(function () {
+                  var all = [];
+                  var dropped = [];
+                  var retained = [];
+                  (function () {
+                    for (var i = 0; i < 500; i++) {
+                      var wrapper = __syntheticGpu.wrap(((i % 8) + 1) * 4096);
+                      all.push(wrapper.id);
+                      if (i % 2 === 0) retained.push(wrapper);
+                      else dropped.push(wrapper.id);
+                    }
+                  })();
+                  globalThis.__syntheticGpuRetained = retained;
+                  globalThis.__syntheticGpuMixedAll = all;
+                  return JSON.stringify(dropped);
+                })()"#,
+            );
+            assert_eq!(status, 0, "mixed synthetic GPU batch failed: {mixed:?}");
+            let dropped = mixed.expect("mixed dropped ids");
+            poll_finalization_until(
+                runtime,
+                &format!("String(__syntheticGpu.allReleased({dropped}))"),
+                "dropped half of mixed synthetic GPU batch did not drain",
+            );
+            let mixed_summary = eval(
+                runtime,
+                r#"JSON.stringify({
+                  retainedReleased: __syntheticGpuRetained.some(function (w) {
+                    return __syntheticGpu.releaseCount(w.id) !== 0;
+                  }),
+                  state: __syntheticGpu.summary()
+                })"#,
+            )
+            .1
+            .expect("mixed synthetic GPU summary");
+            let mixed_summary: serde_json::Value =
+                serde_json::from_str(&mixed_summary).expect("valid mixed GPU summary");
+            assert_eq!(mixed_summary["retainedReleased"].as_bool(), Some(false));
+            assert!(mixed_summary["state"]["liveCount"].as_u64().unwrap() <= BATCH_SIZE);
+            assert!(mixed_summary["state"]["liveBytes"].as_u64().unwrap() <= BATCH_WEIGHT);
+
+            assert_eq!(
+                eval(runtime, "__syntheticGpuRetained = null; 'dropped-retained'")
+                    .1
+                    .as_deref(),
+                Some("dropped-retained")
+            );
+            poll_finalization_until(
+                runtime,
+                "String(__syntheticGpu.allReleased(__syntheticGpuMixedAll))",
+                "retained half of mixed synthetic GPU batch did not drain after release",
+            );
+
+            let explicit_id: u64 = eval(
+                runtime,
+                r#"(function () {
+                  var wrapper = __syntheticGpu.wrap(65536);
+                  var id = wrapper.id;
+                  wrapper.dispose();
+                  wrapper = null;
+                  return String(id);
+                })()"#,
+            )
+            .1
+            .expect("explicitly disposed wrapper id")
+            .parse()
+            .expect("numeric explicitly disposed wrapper id");
+            for _ in 0..8 {
+                ex_hermes_gc(runtime);
+                assert!(ex_hermes_poll(runtime, ex_hermes_now_ms()) >= 0);
+            }
+            assert_eq!(
+                eval(
+                    runtime,
+                    &format!("String(__syntheticGpu.releaseCount({explicit_id}))"),
+                )
+                .1
+                .as_deref(),
+                Some("1"),
+                "explicit dispose followed by GC must release exactly once"
+            );
+
+            let total = eval(runtime, "JSON.stringify(__syntheticGpu.summary())")
+                .1
+                .expect("final synthetic GPU summary");
+            let total: serde_json::Value =
+                serde_json::from_str(&total).expect("valid final synthetic GPU summary");
+            assert_eq!(total["created"].as_u64(), Some(5_501));
+            assert_eq!(total["released"], total["created"]);
+            assert_eq!(total["liveCount"].as_u64(), Some(0));
+            assert_eq!(total["liveBytes"].as_u64(), Some(0));
+
+            // Secondary, deliberately non-gating evidence: the exposed Hermes
+            // allocatedBytes series should settle after repeated drained waves,
+            // while synthetic native count/weight above remain the hard gates.
+            let _allocated_bytes_plateau_observed = heap_samples
+                .windows(3)
+                .any(|window| window[2] <= window[0].saturating_add(BATCH_WEIGHT));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// Collection without a following checkpoint leaves JS cleanup pending;
+    /// destroy discards it without running user code. FsHandle grants expose the
+    /// currently documented host-global retained-authority residual.
+    #[test]
+    fn pending_js_cleanup_is_dropped_at_destroy_without_fault() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::default_legacy();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let capable = finalization_primitives_available(runtime);
+            if capable {
+                let (status, value) = eval(
+                    runtime,
+                    r#"(function () {
+                      globalThis.__destroyCleanupRan = 0;
+                      globalThis.__destroyRegistry = new FinalizationRegistry(function () {
+                        __destroyCleanupRan++;
+                        throw new Error('cleanup must not run during destroy');
+                      });
+                      (function () {
+                        for (var i = 0; i < 256; i++) __destroyRegistry.register({}, i);
+                      })();
+                      return 'registered';
+                    })()"#,
+                );
+                assert_eq!(status, 0, "pending cleanup setup failed: {value:?}");
+            }
+
+            let (status, ids_json) = eval(
+                runtime,
+                r#"(function () {
+                  var ids = [];
+                  (function () {
+                    for (var i = 0; i < 256; i++) {
+                      var handle = Ibex.fs.readHandle('/tmp');
+                      ids.push(handle._id);
+                    }
+                  })();
+                  return JSON.stringify(ids);
+                })()"#,
+            );
+            assert_eq!(status, 0, "pending FsHandle setup failed: {ids_json:?}");
+            let ids: Vec<u64> =
+                serde_json::from_str(ids_json.as_deref().expect("pending FsHandle ids JSON"))
+                    .expect("valid pending FsHandle ids JSON");
+            ex_hermes_gc(runtime);
+            // Intentionally no ex_hermes_poll/eval checkpoint after collection.
+            ex_hermes_destroy(runtime);
+
+            // @ref LLP 0050#5-decision-d4--honest-teardown-contract — the
+            // host-global registry has no runtime key or destroy-time sweep.
+            assert!(ids
+                .iter()
+                .all(|id| host.handles().check(*id, "fs:read:/tmp/finalization-probe")));
+        }
+    }
+
+    /// Accepted entries transfer to the owner queue; stale/invalid refusals do
+    /// not. The observer uses an RAII-bearing capture so its destruction thread
+    /// and whether it ever ran are executable facts.
+    /// @ref LLP 0050#4-decision-d3--native-tier-contract-and-the-staleness-story
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn push_runtime_finalizer_refusal_transfers_nothing() {
+        const ACCEPTED: i32 = 0;
+        const STALE: i32 = 1;
+        const INVALID: i32 = 2;
+        const GOOD: u32 = 0;
+        const THROWING: u32 = 1;
+        const EMPTY: u32 = 2;
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        unsafe {
+            ibex_test_reset_runtime_finalizer_observer();
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            assert_eq!(ibex_test_capture_runtime_finalizer_target(runtime), 1);
+
+            assert_eq!(ibex_test_push_captured_runtime_finalizer(GOOD), ACCEPTED);
+            assert_eq!(ibex_test_runtime_finalizer_run_count(), 0);
+            assert!(ex_hermes_poll(runtime, ex_hermes_now_ms()) >= 0);
+            assert_eq!(ibex_test_runtime_finalizer_run_count(), 1);
+            assert_eq!(ibex_test_runtime_finalizer_good_run_count(), 1);
+            assert_eq!(ibex_test_runtime_finalizer_ran_on_owner_thread(), 1);
+
+            assert_eq!(
+                ibex_test_push_captured_runtime_finalizer(THROWING),
+                ACCEPTED
+            );
+            assert_eq!(ibex_test_push_captured_runtime_finalizer(GOOD), ACCEPTED);
+            assert!(ex_hermes_poll(runtime, ex_hermes_now_ms()) >= 0);
+            assert_eq!(ibex_test_runtime_finalizer_run_count(), 3);
+            assert_eq!(
+                ibex_test_runtime_finalizer_good_run_count(),
+                2,
+                "a throwing finalizer must not strand the following good entry"
+            );
+            assert_eq!(
+                ibex_test_runtime_finalizer_logged_failure_count(),
+                1,
+                "the throwing finalizer must be logged exactly once"
+            );
+
+            assert_eq!(
+                ibex_test_push_captured_runtime_finalizer(EMPTY),
+                INVALID,
+                "an empty finalizer is malformed, not stale"
+            );
+            assert_eq!(ibex_test_runtime_finalizer_destroyed_without_run_count(), 0);
+            ex_hermes_destroy(runtime);
+        }
+
+        let stale_result =
+            std::thread::spawn(|| unsafe { ibex_test_push_captured_runtime_finalizer(GOOD) })
+                .join()
+                .expect("stale finalizer producer thread");
+        assert_eq!(stale_result, STALE);
+        unsafe {
+            assert_eq!(ibex_test_runtime_finalizer_run_count(), 3);
+            assert_eq!(ibex_test_runtime_finalizer_destroyed_without_run_count(), 1);
+            assert_eq!(
+                ibex_test_runtime_finalizer_refusal_destroyed_on_producer_thread(),
+                1,
+                "stale refusal must leave capture destruction with its producer"
+            );
+        }
+    }
+
+    /// Weak intrinsic identities are shared by package compartments, so the
+    /// lockdown root walk must freeze both constructors and prototypes.
+    #[test]
+    fn lockdown_freezes_weak_intrinsics_and_blocks_cross_package_mutation() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+
+        unsafe {
+            let previous_compartments = std::env::var_os("IBEX_COMPARTMENTS");
+            std::env::set_var("IBEX_COMPARTMENTS", "1");
+            let runtime = ex_hermes_create_diagnostic();
+            match previous_compartments {
+                Some(value) => std::env::set_var("IBEX_COMPARTMENTS", value),
+                None => std::env::remove_var("IBEX_COMPARTMENTS"),
+            }
+            assert!(!runtime.is_null());
+            if !finalization_primitives_available(runtime) {
+                ex_hermes_destroy(runtime);
+                return;
+            }
+            let (status, value) = eval(
+                runtime,
+                r#"(function () {
+                  var packageA = __compartments['finalization-package-a'];
+                  var packageB = __compartments['finalization-package-b'];
+                  function mutationBlocked(owner, observer, key) {
+                    var threw = false;
+                    try {
+                      (function () { 'use strict'; owner.prototype[key] = 1; })();
+                    } catch (_) {
+                      threw = true;
+                    }
+                    return threw && !Object.prototype.hasOwnProperty.call(observer.prototype, key);
+                  }
+                  return JSON.stringify({
+                    weakRefConstructorFrozen: Object.isFrozen(WeakRef),
+                    weakRefPrototypeFrozen: Object.isFrozen(WeakRef.prototype),
+                    registryConstructorFrozen: Object.isFrozen(FinalizationRegistry),
+                    registryPrototypeFrozen: Object.isFrozen(FinalizationRegistry.prototype),
+                    weakRefShared: packageA.WeakRef === packageB.WeakRef,
+                    registryShared: packageA.FinalizationRegistry === packageB.FinalizationRegistry,
+                    weakRefMutationBlocked: mutationBlocked(
+                      packageA.WeakRef, packageB.WeakRef, '__ibexCrossPackageWeakRefMutation'),
+                    registryMutationBlocked: mutationBlocked(
+                      packageA.FinalizationRegistry,
+                      packageB.FinalizationRegistry,
+                      '__ibexCrossPackageFinalizationRegistryMutation')
+                  });
+                })()"#,
+            );
+            assert_eq!(status, 0, "weak intrinsic lockdown probe failed: {value:?}");
+            let value: serde_json::Value =
+                serde_json::from_str(value.as_deref().expect("weak intrinsic lockdown JSON"))
+                    .expect("valid weak intrinsic lockdown JSON");
+            for key in [
+                "weakRefConstructorFrozen",
+                "weakRefPrototypeFrozen",
+                "registryConstructorFrozen",
+                "registryPrototypeFrozen",
+                "weakRefShared",
+                "registryShared",
+                "weakRefMutationBlocked",
+                "registryMutationBlocked",
+            ] {
+                assert_eq!(
+                    value[key].as_bool(),
+                    Some(true),
+                    "failed lockdown check {key}"
+                );
+            }
+            ex_hermes_destroy(runtime);
+        }
+    }
+
     /// The pinned Hermes runtime owns the weak reachability semantics. Dropping
     /// wrappers must reclaim their native HandleRegistry entries while the
     /// realm remains alive; destroying the realm would only prove teardown.
@@ -2335,14 +2939,21 @@ mod tests {
             let (status, registry_kind) = eval(runtime, "typeof FinalizationRegistry");
             assert_eq!(status, 0, "FinalizationRegistry capability probe failed");
             if registry_kind.as_deref() != Some("function") {
-                assert_eq!(
-                    eval(runtime, "'persistent-runtime-without-finalization'")
-                        .1
-                        .as_deref(),
-                    Some("persistent-runtime-without-finalization")
+                #[cfg(ibex_hermes_finalization_capable)]
+                panic!(
+                    "authenticated finalization-capable Hermes profile lacks FinalizationRegistry"
                 );
-                ex_hermes_destroy(runtime);
-                return;
+                #[cfg(not(ibex_hermes_finalization_capable))]
+                {
+                    assert_eq!(
+                        eval(runtime, "'persistent-runtime-without-finalization'")
+                            .1
+                            .as_deref(),
+                        Some("persistent-runtime-without-finalization")
+                    );
+                    ex_hermes_destroy(runtime);
+                    return;
+                }
             }
 
             let (status, ids_json) = eval(
