@@ -486,6 +486,27 @@ generator flag.
 
 ## 7. Author-decision register
 
+> **Resolution record — 2026-08-06 (the LLP 0049 §4.2 decision packet,
+> decided on the post-seeding re-measurement at catalog
+> `sha256-C4T2GOmlKtNepQb5tBc5gulZ9MVwVsGJf5mwqyYzmhw`, fs+env+process =
+> 610 cells / 537 clean / 73 poisoned / 3,927 authorable rows):**
+> item **1 ACCEPTED** (scoped certification adopted); item **2 =
+> UNCERTIFIED remainder** (author choice; the physically-refused posture
+> declined); item **3 = complete-cell unit** and item **6 = monotone
+> lineage as specified** and item **8 = Lanes A–D audit scopes as
+> specified** and item **9 = budget per calibration** and item **10 =
+> formal multi-model loop for the gate/arming package** — these five
+> taken as the RFC's recommendations under the author's standing
+> default-recommendation disposition (2026-08-06) and recorded here as
+> author decisions; item **4 = fs+env+process** as the v1.1 scope. Item
+> **5 remains BLOCKED** on the join-matrix review package (LLP 0049
+> Phase 1); item **7 remains deferred** with the second tuple.
+> Additional ruling in the same packet: `ex_host_env_ambient_set`
+> (`surface.host.abi × env:write`) is **target-inapplicable in the secure
+> profile** — its rows classify as inapplicable under the secure feature
+> vector with a generated release constraint, not as unresolved
+> obligations. Execution sequencing: LLP 0049.
+
 Decisions this RFC surfaces for the owner; each blocks the step noted:
 
 1. **Accept scoped certification at all** (blocks everything; this is

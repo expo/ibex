@@ -95,3 +95,14 @@ than being worked in parallel.
 - target advertisements are generated only from complete passing reports; and
 - remaining unsupported product surfaces are stated as release constraints,
   not hidden by aggregate coverage counts.
+
+## 2026-08-06 — ambient env:write ruling (LLP 0049 §4.2 packet)
+
+Author ruling: `ex_host_env_ambient_set` (`surface.host.abi × env:write`,
+sourced from the compile-time `insecure` ambient projection, inactive in
+the secure profile — ABI returns −1 with no typed decision) is
+**target-inapplicable in the secure profile**. Its rows classify as
+inapplicable under the secure feature vector with a **generated release
+constraint**, not as unresolved obligations. Implementation of the
+classification lands with the Phase 1/Phase 2 work it gates; recorded in
+LLP 0044 §7 (2026-08-06 resolution record) and LLP 0049 §10.

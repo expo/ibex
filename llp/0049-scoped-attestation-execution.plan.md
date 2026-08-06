@@ -661,6 +661,17 @@ loops (LLP 0026–0045) ran 3–8 rounds over 3–10 days.
 
 ## 10. Decisions this plan surfaces (author register)
 
+> **Ledger — 2026-08-06:** item (a) DECIDED — the full §4.2 packet
+> resolved (see the dated resolution record in LLP 0044 §7): items 1, 2,
+> 4 and the ambient-set ruling by explicit author choice (all four
+> recommendations accepted: scoped certification adopted; uncertified
+> remainder; fs+env+process; target-inapplicable-in-secure-profile with a
+> generated release constraint); items 3, 6, 8, 9, 10 taken as
+> recommendations under the author's standing default-recommendation
+> disposition and recorded. Item (c) is thereby discharged (the packet is
+> decided; Phase 2 may enter). Items (b), (d), (e) stand as written —
+> (b) activates in Phase 1, (d) at Phase 3 close.
+
 a. **Adopt the Phase 0 decision packet** (LLP 0044 items 1, 2, 3, 4, 6, 8,
    9, 10 — all eight decided at §4.2 exit — plus the
    `ex_host_env_ambient_set` disposition). Recommendations: accept scoped
