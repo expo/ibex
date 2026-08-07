@@ -1,15 +1,17 @@
-//! Select the exact promoted v2 conformance report for runtime embedding.
+//! Select the exact promoted scoped conformance report and scope artifact for
+//! runtime embedding.
 //!
 //! The promotion verifier has already established Git topology before Cargo
 //! starts. This Rust-side join nevertheless reopens no caller-selected path:
 //! it recomputes the active catalog admission, derives one fixed report path,
-//! verifies that path's role/blob/raw identity, and rejoins the report to the
-//! tracked v2 advertisement before copying its exact bytes into `OUT_DIR`.
+//! verifies both paths' role/blob/raw identity, and rejoins the report and
+//! scope to the tracked v3 advertisement before copying their exact bytes into
+//! `OUT_DIR`.
 //!
 //! @ref LLP 0035#promotion-lineage-and-admission — promoted evidence is
 //! selected by the checked admission, never by an ambient path.
 //! @ref LLP 0035#reports-and-advertisements — the advertisement binds the
-//! exact raw v2 report whose complete cells Host consumes.
+//! exact scoped v3 report and its carried scope artifact.
 
 use serde_json::{Map, Value};
 use sha1::{Digest as _, Sha1};
@@ -21,20 +23,22 @@ use std::path::{Component, Path, PathBuf};
 
 const CATALOG_PATH: &str = "schemas/portable-engine-promotion-admission-catalog-v1.json";
 const ADVERTISEMENT_PATH: &str = "capsec/generated/target-advertisements.json";
-const CATALOG_SCHEMA: &str = "ibex/portable-engine-promotion-admission-catalog/1";
-const ADMISSION_SCHEMA: &str = "ibex/portable-engine-promotion-admission/1";
-const ADMISSION_DOMAIN: &str = "ibex.portable-engine-promotion-admission.v1";
+const CATALOG_SCHEMA: &str = "ibex/portable-engine-promotion-admission-catalog/2";
+const ADMISSION_SCHEMA: &str = "ibex/portable-engine-promotion-admission/2";
+const ADMISSION_DOMAIN: &str = "ibex.portable-engine-promotion-admission.v2";
 const MERGE_TOPOLOGY: &str = "github-pull-request-merge/direct-single-commit-topic/1";
-const CHECKED_ADMISSION_SCHEMA: &str = "ibex/portable-engine-checked-promotion-admission/1";
-const ADVERTISEMENT_SCHEMA: &str = "ibex/capsec-target-advertisements/2";
-const REPORT_SCHEMA: &str = "ibex/capsec-conformance/2";
-const REPORT_DOMAIN: &str = "ibex:capsec:conformance:2";
+const CHECKED_ADMISSION_SCHEMA: &str = "ibex/portable-engine-checked-promotion-admission/2";
+const ADVERTISEMENT_SCHEMA: &str = "ibex/capsec-target-advertisements/3";
+const REPORT_SCHEMA: &str = "ibex/capsec-conformance/3";
+const REPORT_DOMAIN: &str = "ibex:capsec:conformance:3";
+const SCOPE_SCHEMA: &str = "ibex/capsec-scope/1";
 const PROFILE: &str = "ibex/capsec/1";
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct EmbeddedPromotionReport {
-    pub bytes: Vec<u8>,
+    pub report_bytes: Vec<u8>,
+    pub scope_bytes: Vec<u8>,
     pub rerun_if_changed: Vec<PathBuf>,
 }
 
@@ -193,6 +197,10 @@ fn fixed_report_path(source: &str, target: &str, artifact: &str) -> String {
     )
 }
 
+fn fixed_scope_path(source: &str, target: &str, artifact: &str) -> String {
+    format!("capsec/conformance/portable-promotions/{source}/{target}/{artifact}/capsec-scope.json")
+}
+
 fn checked_admission(bytes: &[u8]) -> Result<Value, String> {
     let value = parse_canonical_line(bytes, "checked promotion admission")?;
     let object = exact_object(
@@ -204,9 +212,11 @@ fn checked_admission(bytes: &[u8]) -> Result<Value, String> {
             "sourceRevision",
             "promotionTopicRevision",
             "sourceTreeObjectId",
-            "targetTriple",
+            "target",
             "portableArtifactId",
             "admissionDigest",
+            "admittedScopeDigest",
+            "predecessorScopeDigest",
             "verificationDigest",
         ],
         "checked promotion admission",
@@ -247,9 +257,10 @@ fn selected_admission<'a>(
             "sourceRevision",
             "sourceTreeObjectId",
             "topology",
-            "targetTriple",
+            "target",
             "portableArtifactId",
             "artifacts",
+            "admittedScopeDigest",
             "admissionDigest",
         ],
         "promotion catalog admission",
@@ -257,8 +268,9 @@ fn selected_admission<'a>(
     for field in [
         "sourceRevision",
         "sourceTreeObjectId",
-        "targetTriple",
+        "target",
         "portableArtifactId",
+        "admittedScopeDigest",
         "admissionDigest",
     ] {
         if object.get(field) != checked.get(field) {
@@ -283,9 +295,11 @@ fn selected_admission<'a>(
     Ok(admission)
 }
 
-fn select_report_artifact<'a>(
+fn select_artifact<'a>(
     admission: &'a Value,
     expected_path: &str,
+    expected_role: &str,
+    label: &str,
 ) -> Result<&'a Map<String, Value>, String> {
     let artifacts = admission
         .get("artifacts")
@@ -296,17 +310,18 @@ fn select_report_artifact<'a>(
         .filter(|artifact| artifact.get("path").and_then(Value::as_str) == Some(expected_path))
         .collect::<Vec<_>>();
     if matching.len() != 1 {
-        return Err("promotion admission does not select one fixed conformance report".to_owned());
+        return Err(format!(
+            "promotion admission does not select one fixed {label}"
+        ));
     }
     let artifact = exact_object(
         matching[0],
         &["role", "path", "mode", "blobObjectId", "size", "digest"],
-        "promoted conformance-report artifact",
+        label,
     )?;
-    if text(artifact, "role", "promoted conformance-report artifact")? != "conformance-evidence"
-        || text(artifact, "mode", "promoted conformance-report artifact")? != "100644"
+    if text(artifact, "role", label)? != expected_role || text(artifact, "mode", label)? != "100644"
     {
-        return Err("fixed promoted report has the wrong role or mode".to_owned());
+        return Err(format!("fixed promoted {label} has the wrong role or mode"));
     }
     Ok(artifact)
 }
@@ -332,7 +347,7 @@ fn matching_advertisement<'a>(
     )? != ADVERTISEMENT_SCHEMA
         || text(root, "profile", "tracked target advertisements")? != PROFILE
     {
-        return Err("tracked target advertisements are not exact v2 publication bytes".to_owned());
+        return Err("tracked target advertisements are not exact v3 publication bytes".to_owned());
     }
     let rows = root
         .get("advertisements")
@@ -343,8 +358,7 @@ fn matching_advertisement<'a>(
         .filter_map(Value::as_object)
         .filter(|row| {
             row.get("sourceRevision") == checked.get("sourceRevision")
-                && row.get("target").and_then(|target| target.get("triple"))
-                    == checked.get("targetTriple")
+                && row.get("target") == checked.get("target")
                 && row
                     .get("engine")
                     .and_then(|engine| engine.get("artifactId"))
@@ -353,7 +367,7 @@ fn matching_advertisement<'a>(
         .collect::<Vec<_>>();
     if matching.len() != 1 {
         return Err(
-            "tracked v2 publication has no unique checked target/artifact/source row".to_owned(),
+            "tracked v3 publication has no unique checked target/artifact/source row".to_owned(),
         );
     }
     Ok(matching[0])
@@ -361,6 +375,7 @@ fn matching_advertisement<'a>(
 
 fn verify_report_advertisement_join(
     report_bytes: &[u8],
+    scope_bytes: &[u8],
     advertisement_catalog: &Value,
     checked: &Map<String, Value>,
 ) -> Result<(), String> {
@@ -390,7 +405,7 @@ fn verify_report_advertisement_join(
         || text(report_root, "profile", "promoted conformance report")? != PROFILE
         || text(report_root, "status", "promoted conformance report")? != "conformant"
     {
-        return Err("promoted report is not one conformant v2 report".to_owned());
+        return Err("promoted report is not one conformant v3 report".to_owned());
     }
     let computed = crate::portable_engine_build_consumption::semantic_digest_without(
         REPORT_DOMAIN,
@@ -418,6 +433,24 @@ fn verify_report_advertisement_join(
         .get("bindings")
         .and_then(Value::as_object)
         .ok_or_else(|| "promoted report bindings are not an object".to_owned())?;
+    let scope = crate::portable_engine_build_consumption::parse_strict(
+        scope_bytes,
+        "promoted scope artifact",
+    )?;
+    let scope_root = scope
+        .as_object()
+        .ok_or_else(|| "promoted scope artifact is not an object".to_owned())?;
+    if scope_root.get("schema").and_then(Value::as_str) != Some(SCOPE_SCHEMA)
+        || scope_root.get("profile").and_then(Value::as_str) != Some(PROFILE)
+        || scope_root.get("target") != checked.get("target")
+        || scope_root.get("scopeDigest") != checked.get("admittedScopeDigest")
+        || advertisement.get("scopeDigest") != checked.get("admittedScopeDigest")
+        || bindings.get("scopeDigest") != checked.get("admittedScopeDigest")
+    {
+        return Err(
+            "promoted scope/report/advertisement/checked-admission join differs".to_owned(),
+        );
+    }
     for field in [
         "target",
         "sourceRevision",
@@ -454,13 +487,21 @@ pub fn select_embedded_report(
     repo_root: &Path,
     checked_admission_bytes: &[u8],
 ) -> Result<EmbeddedPromotionReport, String> {
+    if checked_admission_bytes == b"null\n" {
+        return Ok(EmbeddedPromotionReport {
+            report_bytes: b"null\n".to_vec(),
+            scope_bytes: b"null\n".to_vec(),
+            rerun_if_changed: Vec::new(),
+        });
+    }
     let checked_value = checked_admission(checked_admission_bytes)?;
     let checked = checked_value
         .as_object()
         .ok_or_else(|| "checked promotion admission is not an object".to_owned())?;
     if checked.get("authorized") == Some(&Value::Bool(false)) {
         return Ok(EmbeddedPromotionReport {
-            bytes: b"null\n".to_vec(),
+            report_bytes: b"null\n".to_vec(),
+            scope_bytes: b"null\n".to_vec(),
             rerun_if_changed: Vec::new(),
         });
     }
@@ -475,10 +516,19 @@ pub fn select_embedded_report(
     let catalog = parse_canonical_line(&catalog_bytes, "tracked promotion admission catalog")?;
     let admission = selected_admission(&catalog, checked)?;
     let source = text(checked, "sourceRevision", "checked promotion admission")?;
-    let target = text(checked, "targetTriple", "checked promotion admission")?;
+    let target = checked
+        .get("target")
+        .and_then(|target| target.get("triple"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "checked promotion admission target.triple is not a string".to_owned())?;
     let artifact = text(checked, "portableArtifactId", "checked promotion admission")?;
     let report_path = fixed_report_path(source, target, artifact);
-    let report_artifact = select_report_artifact(admission, &report_path)?;
+    let report_artifact = select_artifact(
+        admission,
+        &report_path,
+        "conformance-evidence",
+        "promoted conformance-report artifact",
+    )?;
     let report_bytes =
         read_checked_repository_file(repo_root, &report_path, "promoted conformance report")?;
     if report_artifact.get("size").and_then(Value::as_u64) != Some(report_bytes.len() as u64)
@@ -497,6 +547,24 @@ pub fn select_embedded_report(
             "promoted report bytes differ from their catalog size/raw/blob binding".to_owned(),
         );
     }
+    let scope_path = fixed_scope_path(source, target, artifact);
+    let scope_artifact = select_artifact(
+        admission,
+        &scope_path,
+        "scope-artifact",
+        "promoted scope artifact",
+    )?;
+    let scope_bytes =
+        read_checked_repository_file(repo_root, &scope_path, "promoted scope artifact")?;
+    if scope_artifact.get("size").and_then(Value::as_u64) != Some(scope_bytes.len() as u64)
+        || text(scope_artifact, "digest", "promoted scope artifact")? != raw_digest(&scope_bytes)
+        || text(scope_artifact, "blobObjectId", "promoted scope artifact")?
+            != git_blob_object_id(&scope_bytes)
+    {
+        return Err(
+            "promoted scope bytes differ from their catalog size/raw/blob binding".to_owned(),
+        );
+    }
     let advertisement_bytes = read_checked_repository_file(
         repo_root,
         ADVERTISEMENT_PATH,
@@ -506,13 +574,15 @@ pub fn select_embedded_report(
         &advertisement_bytes,
         "tracked target advertisements",
     )?;
-    verify_report_advertisement_join(&report_bytes, &advertisements, checked)?;
+    verify_report_advertisement_join(&report_bytes, &scope_bytes, &advertisements, checked)?;
     Ok(EmbeddedPromotionReport {
-        bytes: report_bytes,
+        report_bytes,
+        scope_bytes,
         rerun_if_changed: vec![
             repo_root.join(CATALOG_PATH),
             repo_root.join(ADVERTISEMENT_PATH),
             repo_root.join(report_path),
+            repo_root.join(scope_path),
         ],
     })
 }
@@ -563,6 +633,7 @@ mod tests {
         checked: Vec<u8>,
         report_path: String,
         report_bytes: Vec<u8>,
+        scope_bytes: Vec<u8>,
     }
 
     fn fixture() -> Fixture {
@@ -582,6 +653,23 @@ mod tests {
             "attemptRawContentDigest": digest("attempt-raw"),
         }]);
         let target_cells_digest = digest("target-cells");
+        let scope_digest = digest("scope");
+        let scope = serde_json::json!({
+            "schema": SCOPE_SCHEMA,
+            "profile": PROFILE,
+            "target": target,
+            "intensionalDefinition": {
+                "capabilityFamilies": ["fs"],
+                "surfaceKinds": ["native"]
+            },
+            "expandedCells": ["surface.native.test"],
+            "closureEdges": [],
+            "predecessorScopeDigest": "genesis",
+            "expansionDiffDigest": digest("scope-diff"),
+            "cellMappingDigest": digest("scope-mapping"),
+            "scopeDigest": scope_digest,
+        });
+        let scope_bytes = canonical_line(&scope);
         let mut report = serde_json::json!({
             "conformanceSchema": REPORT_SCHEMA,
             "profile": PROFILE,
@@ -602,6 +690,7 @@ mod tests {
                 "targetCellsRawContentDigest": target_cells_digest,
                 "outputDispositionEvidenceRawContentDigest": digest("output-raw"),
                 "mappedEngineExecutionEvidence": mapped,
+                "scopeDigest": scope_digest,
             },
             "summary": {},
             "executions": [],
@@ -634,6 +723,7 @@ mod tests {
             "publicSurfaceExecutionDigest": report["bindings"]["publicSurfaceExecutionDigest"],
             "publicSurfaceExecutionRawContentDigest": report["bindings"]["publicSurfaceExecutionRawContentDigest"],
             "outputDispositionEvidenceRawContentDigest": report["bindings"]["outputDispositionEvidenceRawContentDigest"],
+            "scopeDigest": report["bindings"]["scopeDigest"],
         });
         let advertisements = serde_json::json!({
             "targetAdvertisementSchema": ADVERTISEMENT_SCHEMA,
@@ -645,21 +735,34 @@ mod tests {
 
         let report_path = fixed_report_path(SOURCE, TARGET, &artifact);
         write_tracked(&root, &report_path, &report_bytes);
+        let scope_path = fixed_scope_path(SOURCE, TARGET, &artifact);
+        write_tracked(&root, &scope_path, &scope_bytes);
         let mut admission = serde_json::json!({
             "schema": ADMISSION_SCHEMA,
             "sourceRevision": SOURCE,
             "sourceTreeObjectId": TREE,
             "topology": MERGE_TOPOLOGY,
-            "targetTriple": TARGET,
+            "target": target,
             "portableArtifactId": artifact,
-            "artifacts": [{
-                "role": "conformance-evidence",
-                "path": report_path,
-                "mode": "100644",
-                "blobObjectId": git_blob_object_id(&report_bytes),
-                "size": report_bytes.len(),
-                "digest": raw_digest(&report_bytes),
-            }],
+            "artifacts": [
+                {
+                    "role": "conformance-evidence",
+                    "path": report_path,
+                    "mode": "100644",
+                    "blobObjectId": git_blob_object_id(&report_bytes),
+                    "size": report_bytes.len(),
+                    "digest": raw_digest(&report_bytes),
+                },
+                {
+                    "role": "scope-artifact",
+                    "path": scope_path,
+                    "mode": "100644",
+                    "blobObjectId": git_blob_object_id(&scope_bytes),
+                    "size": scope_bytes.len(),
+                    "digest": raw_digest(&scope_bytes),
+                }
+            ],
+            "admittedScopeDigest": scope_digest,
             "admissionDigest": digest("placeholder-admission"),
         });
         admission["admissionDigest"] = Value::String(
@@ -684,9 +787,11 @@ mod tests {
             "sourceRevision": SOURCE,
             "promotionTopicRevision": TOPIC,
             "sourceTreeObjectId": TREE,
-            "targetTriple": TARGET,
+            "target": target,
             "portableArtifactId": artifact,
             "admissionDigest": admission["admissionDigest"],
+            "admittedScopeDigest": scope_digest,
+            "predecessorScopeDigest": "genesis",
             "verificationDigest": digest("checked"),
         });
         Fixture {
@@ -695,6 +800,7 @@ mod tests {
             checked: canonical_line(&checked_value),
             report_path,
             report_bytes,
+            scope_bytes,
         }
     }
 
@@ -707,14 +813,17 @@ mod tests {
             "sourceRevision": SOURCE,
             "promotionTopicRevision": null,
             "sourceTreeObjectId": null,
-            "targetTriple": TARGET,
+            "target": {"triple": TARGET, "features": ["native-lockdown"]},
             "portableArtifactId": digest("artifact"),
             "admissionDigest": null,
+            "admittedScopeDigest": null,
+            "predecessorScopeDigest": null,
             "verificationDigest": digest("checked"),
         });
         let selected =
             select_embedded_report(Path::new("/unused"), &canonical_line(&checked)).unwrap();
-        assert_eq!(selected.bytes, b"null\n");
+        assert_eq!(selected.report_bytes, b"null\n");
+        assert_eq!(selected.scope_bytes, b"null\n");
         assert!(selected.rerun_if_changed.is_empty());
     }
 
@@ -722,8 +831,9 @@ mod tests {
     fn active_catalog_selects_one_fixed_blob_and_refuses_mutation() {
         let fixture = fixture();
         let selected = select_embedded_report(&fixture.root, &fixture.checked).unwrap();
-        assert_eq!(selected.bytes, fixture.report_bytes);
-        assert_eq!(selected.rerun_if_changed.len(), 3);
+        assert_eq!(selected.report_bytes, fixture.report_bytes);
+        assert_eq!(selected.scope_bytes, fixture.scope_bytes);
+        assert_eq!(selected.rerun_if_changed.len(), 4);
 
         fs::write(
             fixture.root.join(&fixture.report_path),
@@ -732,5 +842,34 @@ mod tests {
         .unwrap();
         let error = select_embedded_report(&fixture.root, &fixture.checked).unwrap_err();
         assert!(error.contains("size/raw/blob binding"), "{error}");
+    }
+
+    #[test]
+    fn advertisement_selection_uses_the_full_target_tuple() {
+        let checked_value = serde_json::json!({
+            "sourceRevision": SOURCE,
+            "target": {
+                "triple": TARGET,
+                "features": ["native-lockdown"],
+            },
+            "portableArtifactId": digest("artifact"),
+        });
+        let checked = checked_value.as_object().unwrap();
+        let advertisements = serde_json::json!({
+            "targetAdvertisementSchema": ADVERTISEMENT_SCHEMA,
+            "profile": PROFILE,
+            "targetCellsRawContentDigest": digest("target-cells"),
+            "advertisements": [{
+                "sourceRevision": SOURCE,
+                "target": {
+                    "triple": TARGET,
+                    "features": ["another-feature"],
+                },
+                "engine": {"artifactId": digest("artifact")},
+            }],
+        });
+
+        let error = matching_advertisement(&advertisements, checked).unwrap_err();
+        assert!(error.contains("checked target/artifact/source"), "{error}");
     }
 }

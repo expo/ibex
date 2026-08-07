@@ -153,6 +153,7 @@ pub fn write_absent_embedded_outputs(out_dir: &Path) -> Result<(), String> {
         "portable_engine_build_consumption.json",
         "portable_engine_promotion_admission.json",
         "portable_engine_promotion_report.json",
+        "portable_engine_promotion_scope.json",
     ] {
         fs::write(out_dir.join(name), b"null\n")
             .map_err(|error| format!("write absent portable engine marker {name}: {error}"))?;

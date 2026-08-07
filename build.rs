@@ -870,10 +870,17 @@ fn main() {
             });
             std::fs::write(
                 out_dir.join("portable_engine_promotion_report.json"),
-                &promoted_report.bytes,
+                &promoted_report.report_bytes,
             )
             .unwrap_or_else(|error| {
                 panic!("Failed to write embedded portable promotion report: {error}")
+            });
+            std::fs::write(
+                out_dir.join("portable_engine_promotion_scope.json"),
+                &promoted_report.scope_bytes,
+            )
+            .unwrap_or_else(|error| {
+                panic!("Failed to write embedded portable promotion scope: {error}")
             });
             for path in promoted_report.rerun_if_changed {
                 println!("cargo:rerun-if-changed={}", path.display());

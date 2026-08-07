@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-scoped-refusal-v1.schema.json",
+  "title": "Ibex CapSec scoped refusal telemetry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["coverageEdgeId", "scopeDigest", "hostDisposition", "decisionReason"],
+  "properties": {
+    "coverageEdgeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "scopeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "hostDisposition": {
+      "enum": ["uncertified", "incomplete-defect", "absent-edge"]
+    },
+    "presentedTargetCell": {
+      "enum": ["complete", "closed", "incomplete"]
+    },
+    "decisionReason": { "const": "target-cell-incomplete" }
+  }
+}

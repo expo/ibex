@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-scope-diagnostic-record-v1.schema.json",
+  "title": "Ibex CapSec scope diagnostic record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "coverageEdgeId", "scopeDigest", "diagnosticKind"],
+  "properties": {
+    "schema": { "const": "ibex/capsec-scope-diagnostic-record/1" },
+    "coverageEdgeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "scopeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "diagnosticKind": { "const": "extension-declared" }
+  }
+}

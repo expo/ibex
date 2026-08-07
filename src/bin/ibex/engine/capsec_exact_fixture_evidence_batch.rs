@@ -17,16 +17,18 @@ const FIXTURE_COMMAND: [&str; 11] = [
     "--nocapture",
 ];
 
-const PORTABLE_FIXTURE_EVIDENCE_DOMAIN: &str =
-    "ibex:capsec:portable-fixture-evidence:1";
+const PORTABLE_FIXTURE_EVIDENCE_DOMAIN: &str = "ibex:capsec:portable-fixture-evidence:1";
 const PORTABLE_EXECUTION_BINDING_DOMAIN: &str = "ibex:capsec:portable-execution-binding:1";
+// Scope remains transitively bound through the recipe catalog. The direct
+// execution-plan field set is intentionally unchanged.
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — A10 #5 / M28.
+const PORTABLE_SCOPE_TRANSITIVE_BINDING_KEY: &str = "recipeCatalogDigest";
 const MAPPED_ENGINE_EXECUTION_EVIDENCE_DOMAIN: &str =
     "ibex:capsec:mapped-engine-execution-evidence:1";
 const PORTABLE_COMMAND_ID: &str = "exact-fixture-evidence-portable-pilot";
 const PORTABLE_PHASE_ID: &str = "fixture-evidence";
 const PORTABLE_EXECUTOR: &str = "ibex-exact-fixture-evidence-pilot";
-const SUPERVISOR_COMMAND_IDENTITY_ENV: &str =
-    "IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST";
+const SUPERVISOR_COMMAND_IDENTITY_ENV: &str = "IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST";
 
 #[derive(Clone, Debug)]
 struct PortableFixtureOutput {
@@ -113,7 +115,10 @@ fn domain_digest(value: &serde_json::Value, domain: &str, omit: &[&str]) -> Stri
     capsec_semantics::digest::compute_domain_digest(
         domain,
         value,
-        &omit.iter().map(|field| (*field).to_owned()).collect::<Vec<_>>(),
+        &omit
+            .iter()
+            .map(|field| (*field).to_owned())
+            .collect::<Vec<_>>(),
     )
     .unwrap_or_else(|error| panic!("compute {domain} digest: {error}"))
 }
@@ -344,11 +349,7 @@ fn portable_fixture_domain_matches_the_frozen_cross_language_vector() {
         binding_digest: "sha256-YRBVCE6H6u5yTEnh8f4r4YneABEr_A3ZsLv0yLMkGXI".into(),
         fixture_outputs: Vec::new(),
     };
-    let artifact = portable_fixture_artifact(
-        &plan,
-        &engine,
-        "fixture.portable-engine-example",
-    );
+    let artifact = portable_fixture_artifact(&plan, &engine, "fixture.portable-engine-example");
     assert_exact_keys(
         &artifact,
         &[
@@ -356,7 +357,6 @@ fn portable_fixture_domain_matches_the_frozen_cross_language_vector() {
             "profile",
             "sourceRevision",
             "sourceTreeDigest",
-            "conformanceRunner",
             "target",
             "engine",
             "fixtureId",
@@ -448,8 +448,8 @@ fn validate_binding(
         loaded_engine_value["structuralFeatures"]
     );
     assert_eq!(
-        execution_binding["recipeCatalogDigest"],
-        catalog["recipeCatalogDigest"]
+        execution_binding[PORTABLE_SCOPE_TRANSITIVE_BINDING_KEY],
+        catalog[PORTABLE_SCOPE_TRANSITIVE_BINDING_KEY]
     );
 
     let plans = binding_artifact["fixturePlans"]
@@ -507,7 +507,10 @@ fn load_portable_evidence_plan(
         ],
         "portable execution bindings",
     );
-    assert_eq!(bindings["sourceRevision"], legacy_execution_binding["sourceRevision"]);
+    assert_eq!(
+        bindings["sourceRevision"],
+        legacy_execution_binding["sourceRevision"]
+    );
     assert_eq!(
         bindings["sourceTreeDigest"],
         legacy_execution_binding["sourceTreeDigest"]
@@ -532,8 +535,15 @@ fn load_portable_evidence_plan(
     let mut sorted_features = target_features.clone();
     sorted_features.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
     sorted_features.dedup();
-    assert_eq!(target_features, sorted_features, "target features must be a set");
+    assert_eq!(
+        target_features, sorted_features,
+        "target features must be a set"
+    );
 
+    assert!(
+        bindings.get("scopeDigest").is_none(),
+        "portable execution bindings keep scope transitive through recipeCatalogDigest"
+    );
     let binding_digest = value["bindingDigest"]
         .as_str()
         .expect("portable evidence plan has no bindingDigest")
@@ -549,11 +559,7 @@ fn load_portable_evidence_plan(
         .expect("portable evidence plan fixtureOutputs must be an array");
     let mut fixture_outputs = Vec::with_capacity(output_values.len());
     for output in output_values {
-        assert_exact_keys(
-            output,
-            &["fixtureId", "path"],
-            "portable fixture output",
-        );
+        assert_exact_keys(output, &["fixtureId", "path"], "portable fixture output");
         let fixture_id = output["fixtureId"]
             .as_str()
             .expect("portable fixture output has no fixtureId")
@@ -563,7 +569,10 @@ fn load_portable_evidence_plan(
                 .as_str()
                 .expect("portable fixture output has no path"),
         );
-        assert!(output_path.is_absolute(), "portable fixture output path must be absolute");
+        assert!(
+            output_path.is_absolute(),
+            "portable fixture output path must be absolute"
+        );
         assert!(
             !output_path.exists(),
             "portable fixture output must not already exist: {}",
@@ -751,11 +760,8 @@ async fn capsec_exact_fixture_evidence_batch() {
         );
 
         for output in &portable_plan.fixture_outputs {
-            let artifact = portable_fixture_artifact(
-                &portable_plan,
-                &portable_engine,
-                &output.fixture_id,
-            );
+            let artifact =
+                portable_fixture_artifact(&portable_plan, &portable_engine, &output.fixture_id);
             write_new_synced(
                 &output.path,
                 &pretty_json_bytes(&artifact),
