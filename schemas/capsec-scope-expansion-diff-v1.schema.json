@@ -35,7 +35,7 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "pattern": "^surface\\.[a-z0-9]+(?:\\.[a-z0-9]+)+$"
+        "pattern": "^surface\\.[a-z0-9]+(?:[._/-][a-z0-9]+)+$"
       }
     }
   }
