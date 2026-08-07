@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ibex.dev/schemas/capsec-conformance-report-v2.schema.json",
-  "title": "Ibex CapSec portable-engine exact-target conformance report v2",
+  "title": "Ibex CapSec portable-engine scoped conformance report v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,7 +15,7 @@
     "conformanceDigest"
   ],
   "properties": {
-    "conformanceSchema": { "const": "ibex/capsec-conformance/2" },
+    "conformanceSchema": { "const": "ibex/capsec-conformance/3" },
     "profile": { "const": "ibex/capsec/1" },
     "status": { "enum": ["conformant", "incomplete"] },
     "bindings": {
@@ -32,6 +32,7 @@
         "implementationManifestDigest",
         "fixtureCatalogDigest",
         "recipeCatalogDigest",
+        "scopeDigest",
         "recipeCatalogRawContentDigest",
         "publicSurfaceExecutionDigest",
         "publicSurfaceExecutionRawContentDigest",
@@ -68,6 +69,9 @@
         "recipeCatalogDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
         },
+        "scopeDigest": {
+          "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+        },
         "recipeCatalogRawContentDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
         },
@@ -101,7 +105,7 @@
     },
     "conformanceDigest": {
       "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
-      "$comment": "SHA-256 over JCS(report without conformanceDigest), domain ibex:capsec:conformance:2 followed by one NUL byte."
+      "$comment": "SHA-256 over JCS(report without conformanceDigest), domain ibex:capsec:conformance:3 followed by one NUL byte."
     }
   },
   "allOf": [
@@ -132,6 +136,7 @@
       "required": [
         "cells",
         "conformantCells",
+        "uncertifiedCells",
         "incompleteCells",
         "requiredFixtures",
         "passedFixtures",
@@ -141,6 +146,7 @@
       "properties": {
         "cells": { "type": "integer", "minimum": 1 },
         "conformantCells": { "type": "integer", "minimum": 0 },
+        "uncertifiedCells": { "type": "integer", "minimum": 0 },
         "incompleteCells": { "type": "integer", "minimum": 0 },
         "requiredFixtures": { "type": "integer", "minimum": 1 },
         "passedFixtures": { "type": "integer", "minimum": 0 },
@@ -208,7 +214,7 @@
         "enforcementBranchIds": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
         },
-        "status": { "enum": ["conformant", "incomplete"] },
+        "status": { "enum": ["conformant", "uncertified", "incomplete"] },
         "requiredFixtures": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/idSet"
         },

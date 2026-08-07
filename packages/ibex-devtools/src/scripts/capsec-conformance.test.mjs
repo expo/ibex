@@ -26,6 +26,16 @@ const readSchema = (name) =>
       "utf8",
     ),
   );
+const readPortableReportSchema = () =>
+  JSON.parse(
+    fs.readFileSync(
+      new URL(
+        "../../../../schemas/capsec-conformance-report-v2.schema.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 
 const compileConformanceSchema = (schema) => {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -78,11 +88,12 @@ const bindings = {
   publicSurfaceExecutionDigest: `sha256-${"G".repeat(43)}`,
   outputDispositionEvidenceRawContentDigest: `sha256-${"H".repeat(43)}`,
 };
+const scopeDigest = `sha256-${"A".repeat(43)}`;
 const digestContract = {
   domains: { conformance: "ibex:capsec:conformance:1" },
   projections: {
     conformance: {
-      inputSchema: "ibex/capsec-conformance/1",
+      inputSchema: "ibex/capsec-conformance/3",
       status: "available",
       members: ["conformance-report-object"],
       omitFields: ["conformanceDigest"],
@@ -105,11 +116,31 @@ const recipeCatalog = {
   recipes: [
     {
       fixtureId: fixturePlan.fixtureId,
+      edgeIds: fixturePlan.edgeIds,
       status: "fully-executable",
       planDigest: sha(fixturePlan),
       terminalObservedKey: fixturePlan.terminalObservedKey,
     },
   ],
+  summary: {
+    scopeDigest,
+    expandedCellIds: ["edge.one"],
+    requiredFixtures: 1,
+    fullyExecutableFixtures: 1,
+    internallyVerifiedFixtures: 0,
+    adapterExecutableFixtures: 0,
+    unresolvedFixtures: 0,
+    byScenario: {},
+    residualReasons: {},
+    requiredFixturesInScope: 1,
+    fullyExecutableFixturesInScope: 1,
+    internallyVerifiedFixturesInScope: 0,
+    unresolvedFixturesInScope: 0,
+    requiredFixturesOutOfScope: 0,
+    fullyExecutableFixturesOutOfScope: 0,
+    internallyVerifiedFixturesOutOfScope: 0,
+    unresolvedFixturesOutOfScope: 0,
+  },
 };
 recipeCatalog.recipeCatalogDigest = sha(recipeCatalog);
 bindings.recipeCatalogDigest = recipeCatalog.recipeCatalogDigest;
@@ -173,6 +204,20 @@ const buildTestReport = (options) =>
   buildConformanceReport({ ...reportValidation, ...options });
 
 describe("capsec target conformance", () => {
+  test("revs both report schemas to the required scoped v3 binding", () => {
+    const rich = readSchema("conformance-report.schema.json");
+    const portable = readPortableReportSchema();
+    for (const schema of [rich, portable]) {
+      expect(schema.properties.conformanceSchema.const).toBe(
+        "ibex/capsec-conformance/3",
+      );
+      expect(schema.properties.bindings.required).toContain("scopeDigest");
+      expect(schema.properties.bindings.properties.scopeDigest).toBeObject();
+    }
+    expect(rich.properties.summary.required).toContain("uncertifiedCells");
+    expect(portable.$defs.summary.required).toContain("uncertifiedCells");
+  });
+
   test("strict schema requires exact output evidence only for a conformant report", () => {
     const schema = readSchema("conformance-report.schema.json");
     const validate = compileConformanceSchema(schema);
@@ -632,6 +677,7 @@ describe("capsec target conformance", () => {
     expect(report.status).toBe("conformant");
     expect(report.summary).toMatchObject({
       conformantCells: 1,
+      uncertifiedCells: 0,
       requiredFixtures: 1,
       passedFixtures: 1,
     });
@@ -640,7 +686,7 @@ describe("capsec target conformance", () => {
     const unbound = structuredClone(report);
     delete unbound.bindings.publicSurfaceExecutionDigest;
     expect(() => assertReportMayAdvertise(unbound)).toThrow(
-      /without recipe, public-surface, and output-disposition evidence bindings/,
+      /without schema-v3 scope, recipe, public-surface, and output-disposition evidence bindings/,
     );
     const noOutputEvidence = structuredClone(report);
     delete noOutputEvidence.bindings.outputDispositionEvidenceRawContentDigest;
@@ -708,6 +754,148 @@ describe("capsec target conformance", () => {
     );
   });
 
+  test("advertises a complete scoped set while accounting for the uncertified remainder", () => {
+    const scopedCoverage = {
+      edges: [
+        ...coverage.edges,
+        {
+          id: "edge.two",
+          classification: "closed",
+          surface: { kind: "native-op", name: "testUncertified" },
+        },
+      ],
+    };
+    const scopedImplementation = {
+      surfaces: [
+        ...implementation.surfaces,
+        {
+          edgeId: "edge.two",
+          observedKey: "native-op:testUncertified",
+          branchId: "edge.two.main",
+          enforcementBranchId: "edge.two.main",
+          enforcementRoute: {
+            terminalObservedKey: "native-op:testUncertified",
+          },
+          targetVariant: "all",
+          targetApplicability: { kind: "all" },
+          fixtureObligations: ["edge.two.main.closed"],
+        },
+      ],
+    };
+    const scopedCatalog = fixtureCatalogForTarget({
+      coverage: scopedCoverage,
+      implementation: scopedImplementation,
+      target,
+    });
+    const inScopePlan = fixtureExecutionPlan(
+      scopedCatalog,
+      "edge.one.main.closed",
+    );
+    const outOfScopePlan = fixtureExecutionPlan(
+      scopedCatalog,
+      "edge.two.main.closed",
+    );
+    const scopedRecipeCatalog = {
+      recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+      profile: "ibex/capsec/1",
+      target,
+      recipes: [
+        {
+          fixtureId: inScopePlan.fixtureId,
+          edgeIds: inScopePlan.edgeIds,
+          status: "fully-executable",
+          planDigest: sha(inScopePlan),
+          terminalObservedKey: inScopePlan.terminalObservedKey,
+        },
+        {
+          fixtureId: outOfScopePlan.fixtureId,
+          edgeIds: outOfScopePlan.edgeIds,
+          status: "unresolved",
+          planDigest: sha(outOfScopePlan),
+          terminalObservedKey: outOfScopePlan.terminalObservedKey,
+        },
+      ],
+      summary: {
+        scopeDigest,
+        expandedCellIds: ["edge.one"],
+        requiredFixtures: 2,
+        requiredFixturesInScope: 1,
+        requiredFixturesOutOfScope: 1,
+      },
+    };
+    scopedRecipeCatalog.recipeCatalogDigest = sha(scopedRecipeCatalog);
+    const scopedBindings = {
+      ...bindings,
+      recipeCatalogDigest: scopedRecipeCatalog.recipeCatalogDigest,
+    };
+    const scopedExecutionBinding = {
+      ...passExecutionBinding,
+      implementationManifestDigest: sha(scopedImplementation),
+      fixtureCatalogDigest: sha(scopedCatalog),
+      recipeCatalogDigest: scopedRecipeCatalog.recipeCatalogDigest,
+    };
+    const scopedEvidence = {
+      ...pass.evidence,
+      planDigest: sha(inScopePlan),
+      fixturePlan: inScopePlan,
+      executionBinding: scopedExecutionBinding,
+    };
+    const scopedExecution = {
+      ...pass,
+      artifactDigest: sha(scopedEvidence),
+      bindingDigest: executionBindingDigest({
+        bindings: {
+          ...scopedBindings,
+          implementationManifestDigest: sha(scopedImplementation),
+        },
+        target,
+        fixtureCatalogDigest: sha(scopedCatalog),
+      }),
+      evidence: scopedEvidence,
+    };
+    const report = buildTestReport({
+      coverage: scopedCoverage,
+      implementation: scopedImplementation,
+      target,
+      executions: [scopedExecution],
+      bindings: scopedBindings,
+      digestContract,
+      recipeCatalog: scopedRecipeCatalog,
+    });
+
+    expect(report.status).toBe("conformant");
+    expect(report.summary).toEqual({
+      cells: 2,
+      conformantCells: 1,
+      uncertifiedCells: 1,
+      incompleteCells: 0,
+      requiredFixtures: 1,
+      passedFixtures: 1,
+      missingFixtures: 0,
+      failedFixtures: 0,
+    });
+    expect(report.cells[1]).toMatchObject({
+      edgeId: "edge.two",
+      status: "uncertified",
+      requiredFixtures: ["edge.two.main.closed"],
+      passedFixtures: [],
+      missingFixtures: [],
+      failedFixtures: [],
+    });
+    expect(() => assertReportMayAdvertise(report)).not.toThrow();
+
+    const unscoped = structuredClone(report);
+    delete unscoped.bindings.scopeDigest;
+    expect(() => assertReportMayAdvertise(unscoped)).toThrow(/scope/u);
+
+    const remainderAsIncomplete = structuredClone(report);
+    remainderAsIncomplete.summary.uncertifiedCells = 0;
+    remainderAsIncomplete.summary.incompleteCells = 1;
+    expect(() => assertReportMayAdvertise(remainderAsIncomplete)).toThrow(
+      /uncertified remainder/u,
+    );
+  });
+
   test("credits seven fixture records while the residual target remains incomplete", () => {
     const fixtureIds = Array.from(
       { length: 8 },
@@ -747,15 +935,23 @@ describe("capsec target conformance", () => {
       recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
       profile: "ibex/capsec/1",
       target,
-      recipes: fixtureIds.slice(0, 7).map((fixtureId) => {
+      recipes: fixtureIds.map((fixtureId, index) => {
         const plan = fixtureExecutionPlan(pilotCatalog, fixtureId);
         return {
           fixtureId,
-          status: "fully-executable",
+          edgeIds: plan.edgeIds,
+          status: index < 7 ? "fully-executable" : "unresolved",
           planDigest: sha(plan),
           terminalObservedKey: plan.terminalObservedKey,
         };
       }),
+      summary: {
+        scopeDigest,
+        expandedCellIds: ["edge.pilot"],
+        requiredFixtures: 8,
+        requiredFixturesInScope: 8,
+        requiredFixturesOutOfScope: 0,
+      },
     };
     pilotRecipeCatalog.recipeCatalogDigest = sha(pilotRecipeCatalog);
     const pilotBindings = {

@@ -428,17 +428,51 @@ export function buildConformanceReport({
       typeof recipe?.fixtureId !== "string" ||
       recipes.has(recipe.fixtureId)
     ) {
-      throw new Error("conformance recipe catalog has a malformed or duplicate fixture");
+      throw new Error(
+        "conformance recipe catalog has a malformed or duplicate fixture",
+      );
     }
     recipes.set(recipe.fixtureId, recipe);
   }
   const catalog = fixtureCatalogForTarget({ coverage, implementation, target });
   const expected = new Set(catalog.flatMap((cell) => cell.requiredFixtures));
+  const scopeDigest = recipeCatalog.summary?.scopeDigest;
+  const expandedCellIds = recipeCatalog.summary?.expandedCellIds;
+  const knownCellIds = new Set(catalog.map((cell) => cell.edgeId));
+  if (
+    !DIGEST_PATTERN.test(scopeDigest ?? "") ||
+    !Array.isArray(expandedCellIds) ||
+    expandedCellIds.length === 0 ||
+    canonicalJson(expandedCellIds) !==
+      canonicalJson(canonicalSet(expandedCellIds)) ||
+    expandedCellIds.some((edgeId) => !knownCellIds.has(edgeId)) ||
+    (bindings.scopeDigest !== undefined && bindings.scopeDigest !== scopeDigest)
+  ) {
+    throw new Error(
+      "conformance generation requires the recipe catalog's exact scoped cell binding",
+    );
+  }
+  const expandedCells = new Set(expandedCellIds);
+  const expectedInScope = new Set(
+    catalog
+      .filter((cell) => expandedCells.has(cell.edgeId))
+      .flatMap((cell) => cell.requiredFixtures),
+  );
+  if (
+    recipeCatalog.summary.requiredFixturesInScope !== expectedInScope.size ||
+    recipeCatalog.summary.requiredFixturesOutOfScope !==
+      expected.size - expectedInScope.size
+  ) {
+    throw new Error(
+      "conformance generation scope summary disagrees with the full fixture inventory",
+    );
+  }
   const plans = fixturePlans(catalog);
   const implementationManifestDigest = digest(implementation);
   const fixtureCatalogDigest = digest(catalog);
   const completeBindings = {
     ...bindings,
+    scopeDigest,
     implementationManifestDigest,
   };
   const requiredBindingDigest = executionBindingDigest({
@@ -467,6 +501,11 @@ export function buildConformanceReport({
     }
     if (results.has(execution.fixtureId)) {
       throw new Error(`duplicate execution for fixture ${execution.fixtureId}`);
+    }
+    if (!expectedInScope.has(execution.fixtureId)) {
+      throw new Error(
+        `execution references uncertified out-of-scope fixture ${execution.fixtureId}`,
+      );
     }
     const recipe = recipes.get(execution.fixtureId);
     const plan = plans.get(execution.fixtureId);
@@ -524,21 +563,26 @@ export function buildConformanceReport({
   // source-bound internal proof is supplied and validated. A digest-bound
   // catalog can name the proof obligation, but cannot satisfy it by itself.
   // @ref LLP 0036#correctness-owed-the-deliberately-deferred-verification
+  // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — M4 makes
+  // incomplete mean an unsatisfied in-scope obligation. A full-inventory cell
+  // outside the bound expansion remains explicit as uncertified accounting.
   const cells = catalog.map((cell) => {
+    const inScope = expandedCells.has(cell.edgeId);
     const passedFixtures = cell.requiredFixtures.filter(
-      (id) => results.get(id) === "passed",
+      (id) => inScope && results.get(id) === "passed",
     );
     const failedFixtures = cell.requiredFixtures.filter(
-      (id) => results.get(id) === "failed",
+      (id) => inScope && results.get(id) === "failed",
     );
     const missingFixtures = cell.requiredFixtures.filter(
-      (id) => !results.has(id),
+      (id) => inScope && !results.has(id),
     );
     const { fixtureBindings: _fixtureBindings, ...publicCell } = cell;
     return {
       ...publicCell,
-      status:
-        failedFixtures.length === 0 && missingFixtures.length === 0
+      status: !inScope
+        ? "uncertified"
+        : failedFixtures.length === 0 && missingFixtures.length === 0
           ? "conformant"
           : "incomplete",
       passedFixtures,
@@ -546,7 +590,7 @@ export function buildConformanceReport({
       failedFixtures,
     };
   });
-  const status = cells.every((cell) => cell.status === "conformant")
+  const status = cells.every((cell) => cell.status !== "incomplete")
     ? "conformant"
     : "incomplete";
   const outputDispositionEvidenceRawContentDigest =
@@ -568,11 +612,12 @@ export function buildConformanceReport({
     );
   }
   const report = {
-    conformanceSchema: "ibex/capsec-conformance/1",
+    conformanceSchema: "ibex/capsec-conformance/3",
     profile: "ibex/capsec/1",
     status,
     bindings: {
       ...bindings,
+      scopeDigest,
       target,
       implementationManifestDigest,
       fixtureCatalogDigest,
@@ -581,20 +626,19 @@ export function buildConformanceReport({
       cells: cells.length,
       conformantCells: cells.filter((cell) => cell.status === "conformant")
         .length,
-      incompleteCells: cells.filter((cell) => cell.status !== "conformant")
+      uncertifiedCells: cells.filter((cell) => cell.status === "uncertified")
         .length,
-      requiredFixtures: expected.size,
+      incompleteCells: cells.filter((cell) => cell.status === "incomplete")
+        .length,
+      requiredFixtures: expectedInScope.size,
       passedFixtures: [...results.values()].filter(
         (outcome) => outcome === "passed",
       ).length,
-      missingFixtures: cells.reduce(
-        (sum, cell) => sum + cell.missingFixtures.length,
-        0,
-      ),
-      failedFixtures: cells.reduce(
-        (sum, cell) => sum + cell.failedFixtures.length,
-        0,
-      ),
+      missingFixtures: [...expectedInScope].filter((id) => !results.has(id))
+        .length,
+      failedFixtures: [...results.values()].filter(
+        (outcome) => outcome === "failed",
+      ).length,
     },
     executions: [...executions].sort((left, right) =>
       compareText(left.fixtureId, right.fixtureId),
@@ -611,9 +655,11 @@ export function buildConformanceReport({
 
 export function assertReportMayAdvertise(report) {
   if (
+    report?.conformanceSchema !== "ibex/capsec-conformance/3" ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
       report.bindings?.recipeCatalogDigest ?? "",
     ) ||
+    !DIGEST_PATTERN.test(report.bindings?.scopeDigest ?? "") ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
       report.bindings?.publicSurfaceExecutionDigest ?? "",
     ) ||
@@ -622,13 +668,52 @@ export function assertReportMayAdvertise(report) {
     )
   ) {
     throw new Error(
-      "conformance report cannot advertise without recipe, public-surface, and output-disposition evidence bindings",
+      "conformance report cannot advertise without schema-v3 scope, recipe, public-surface, and output-disposition evidence bindings",
     );
   }
   if (report.status !== "conformant")
     throw new Error("incomplete conformance report cannot advertise a target");
+  const cells = Array.isArray(report.cells) ? report.cells : [];
+  const conformantCells = cells.filter((cell) => cell.status === "conformant");
+  const uncertifiedCells = cells.filter(
+    (cell) => cell.status === "uncertified",
+  );
+  const incompleteCells = cells.filter((cell) => cell.status === "incomplete");
+  const scopedRequiredFixtures = new Set(
+    [...conformantCells, ...incompleteCells].flatMap(
+      (cell) => cell.requiredFixtures ?? [],
+    ),
+  );
+  const scopedPassedFixtures = new Set(
+    [...conformantCells, ...incompleteCells].flatMap(
+      (cell) => cell.passedFixtures ?? [],
+    ),
+  );
   if (
-    report.summary.incompleteCells !== 0 ||
+    cells.length === 0 ||
+    cells.length !==
+      conformantCells.length +
+        uncertifiedCells.length +
+        incompleteCells.length ||
+    uncertifiedCells.some(
+      (cell) =>
+        (cell.passedFixtures?.length ?? 0) !== 0 ||
+        (cell.missingFixtures?.length ?? 0) !== 0 ||
+        (cell.failedFixtures?.length ?? 0) !== 0,
+    ) ||
+    report.summary.cells !== cells.length ||
+    report.summary.conformantCells !== conformantCells.length ||
+    report.summary.uncertifiedCells !== uncertifiedCells.length ||
+    report.summary.incompleteCells !== incompleteCells.length ||
+    report.summary.requiredFixtures !== scopedRequiredFixtures.size ||
+    report.summary.passedFixtures !== scopedPassedFixtures.size
+  ) {
+    throw new Error(
+      "conformance summary does not exactly account for the scoped required set and uncertified remainder",
+    );
+  }
+  if (
+    incompleteCells.length !== 0 ||
     report.summary.missingFixtures !== 0 ||
     report.summary.failedFixtures !== 0
   ) {
@@ -637,7 +722,9 @@ export function assertReportMayAdvertise(report) {
     );
   }
   if (report.summary.passedFixtures !== report.summary.requiredFixtures) {
-    throw new Error("conformance report did not pass every required fixture");
+    throw new Error(
+      "conformance report did not pass every scoped required fixture",
+    );
   }
 }
 
@@ -670,6 +757,7 @@ export function validateConformanceReportSemantics(
       vocabularyDigest: report.bindings.vocabularyDigest,
       registryDigest: report.bindings.registryDigest,
       recipeCatalogDigest: report.bindings.recipeCatalogDigest,
+      scopeDigest: report.bindings.scopeDigest,
       publicSurfaceExecutionDigest:
         report.bindings.publicSurfaceExecutionDigest,
       ...(report.bindings.outputDispositionEvidenceRawContentDigest ===

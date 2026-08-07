@@ -4834,6 +4834,7 @@ function scopedSummary(recipes, { scopeDigest, expandedEdgeIds }) {
   return {
     ...summarize(recipes),
     scopeDigest,
+    expandedCellIds: [...expandedEdgeIds],
     requiredFixturesInScope: inScopeSummary.requiredFixtures,
     fullyExecutableFixturesInScope:
       inScopeSummary.fullyExecutableFixtures,
@@ -5325,12 +5326,15 @@ export function validateRecipeCatalog(
     );
   }
   const hasScopeBinding = recipeCatalog.summary.scopeDigest !== undefined;
+  const boundExpandedEdgeIds = hasScopeBinding
+    ? recipeCatalog.summary.expandedCellIds
+    : null;
   const expectedSummary = hasScopeBinding
-    ? expandedEdgeIds === null
+    ? expandedEdgeIds === null && boundExpandedEdgeIds === undefined
       ? null
       : scopedSummary(recipeCatalog.recipes, {
           scopeDigest: scopeDigest ?? recipeCatalog.summary.scopeDigest,
-          expandedEdgeIds,
+          expandedEdgeIds: expandedEdgeIds ?? boundExpandedEdgeIds,
         })
     : summarize(recipeCatalog.recipes);
   if (
@@ -5355,6 +5359,7 @@ export function validateRecipeCatalog(
           [
             ...Object.keys(global),
             "scopeDigest",
+            "expandedCellIds",
             "requiredFixturesInScope",
             "fullyExecutableFixturesInScope",
             "internallyVerifiedFixturesInScope",

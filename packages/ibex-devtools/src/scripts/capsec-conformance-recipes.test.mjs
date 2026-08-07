@@ -714,6 +714,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(canonicalJson(scoped.recipes)).toBe(originalRows);
     expect(scoped.summary).toMatchObject({
       scopeDigest,
+      expandedCellIds: [completeEdge],
       requiredFixturesInScope: expectedInScope.length,
       unresolvedFixturesInScope: 0,
       requiredFixturesOutOfScope:
