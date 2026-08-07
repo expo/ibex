@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/portable-engine-checked-promotion-admission-v2.schema.json",
+  "title": "Ibex checked portable-engine promotion admission v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "authorized",
+    "currentRevision",
+    "sourceRevision",
+    "promotionTopicRevision",
+    "sourceTreeObjectId",
+    "target",
+    "portableArtifactId",
+    "admissionDigest",
+    "admittedScopeDigest",
+    "predecessorScopeDigest",
+    "verificationDigest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ibex/portable-engine-checked-promotion-admission/2"
+    },
+    "authorized": {
+      "type": "boolean"
+    },
+    "currentRevision": {
+      "$ref": "#/$defs/sha1ObjectId"
+    },
+    "sourceRevision": {
+      "$ref": "#/$defs/sha1ObjectId"
+    },
+    "promotionTopicRevision": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sourceTreeObjectId": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha1ObjectId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "portableArtifactId": {
+      "$ref": "#/$defs/semanticDigest"
+    },
+    "admissionDigest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/semanticDigest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "admittedScopeDigest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/semanticDigest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "predecessorScopeDigest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/semanticDigest"
+        },
+        {
+          "const": "genesis"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verificationDigest": {
+      "$ref": "#/$defs/semanticDigest"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "authorized": {
+            "const": false
+          }
+        },
+        "required": [
+          "authorized"
+        ]
+      },
+      "then": {
+        "properties": {
+          "promotionTopicRevision": {
+            "type": "null"
+          },
+          "sourceTreeObjectId": {
+            "type": "null"
+          },
+          "admissionDigest": {
+            "type": "null"
+          },
+          "admittedScopeDigest": {
+            "type": "null"
+          },
+          "predecessorScopeDigest": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "promotionTopicRevision": {
+            "$ref": "#/$defs/sha1ObjectId"
+          },
+          "sourceTreeObjectId": {
+            "$ref": "#/$defs/sha1ObjectId"
+          },
+          "admissionDigest": {
+            "$ref": "#/$defs/semanticDigest"
+          },
+          "admittedScopeDigest": {
+            "$ref": "#/$defs/semanticDigest"
+          },
+          "predecessorScopeDigest": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/semanticDigest"
+              },
+              {
+                "const": "genesis"
+              }
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "features": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha1ObjectId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "semanticDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "triple",
+        "features"
+      ],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+)+$",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        }
+      }
+    }
+  }
+}

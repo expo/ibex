@@ -1,0 +1,196 @@
+{
+  "disabledCatalog": {
+    "admissionPath": "schemas/portable-engine-promotion-admission-catalog-v1.json",
+    "admissions": [],
+    "enabled": false,
+    "schema": "ibex/portable-engine-promotion-admission-catalog/2"
+  },
+  "activeCatalog": {
+    "admissionPath": "schemas/portable-engine-promotion-admission-catalog-v1.json",
+    "admissions": [
+      {
+        "schema": "ibex/portable-engine-promotion-admission/2",
+        "sourceRevision": "1111111111111111111111111111111111111111",
+        "sourceTreeObjectId": "2222222222222222222222222222222222222222",
+        "topology": "github-pull-request-merge/direct-single-commit-topic/1",
+        "portableArtifactId": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "artifacts": [
+          {
+            "role": "scope-artifact",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/capsec-scope.json",
+            "mode": "100644",
+            "blobObjectId": "1212121212121212121212121212121212121212",
+            "size": 17,
+            "digest": "sha256-8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/conformance-report.json",
+            "mode": "100644",
+            "blobObjectId": "3333333333333333333333333333333333333333",
+            "size": 17,
+            "digest": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/output-dispositions.json",
+            "mode": "100644",
+            "blobObjectId": "7777777777777777777777777777777777777777",
+            "size": 17,
+            "digest": "sha256-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/portable-promotion-authority.json",
+            "mode": "100644",
+            "blobObjectId": "8888888888888888888888888888888888888888",
+            "size": 17,
+            "digest": "sha256-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/process-0001.command-attempt.json",
+            "mode": "100644",
+            "blobObjectId": "9999999999999999999999999999999999999999",
+            "size": 17,
+            "digest": "sha256-0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/process-0001.fixture-000001.json",
+            "mode": "100644",
+            "blobObjectId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "size": 17,
+            "digest": "sha256-1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/process-0001.mapped-evidence.json",
+            "mode": "100644",
+            "blobObjectId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "size": 17,
+            "digest": "sha256-2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/promotion-bundle-manifest.json",
+            "mode": "100644",
+            "blobObjectId": "6666666666666666666666666666666666666666",
+            "size": 17,
+            "digest": "sha256-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/public-surface.json",
+            "mode": "100644",
+            "blobObjectId": "cccccccccccccccccccccccccccccccccccccccc",
+            "size": 17,
+            "digest": "sha256-3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/recipes.json",
+            "mode": "100644",
+            "blobObjectId": "dddddddddddddddddddddddddddddddddddddddd",
+            "size": 17,
+            "digest": "sha256-4444444444444444444444444444444444444444444444444444444444444444"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/target-advertisements.json",
+            "mode": "100644",
+            "blobObjectId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "size": 17,
+            "digest": "sha256-5555555555555555555555555555555555555555555555555555555555555555"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/target-attestations.json",
+            "mode": "100644",
+            "blobObjectId": "ffffffffffffffffffffffffffffffffffffffff",
+            "size": 17,
+            "digest": "sha256-6666666666666666666666666666666666666666666666666666666666666666"
+          },
+          {
+            "role": "conformance-evidence",
+            "path": "capsec/conformance/portable-promotions/1111111111111111111111111111111111111111/aarch64-apple-darwin/sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/target-cells.json",
+            "mode": "100644",
+            "blobObjectId": "0000000000000000000000000000000000000000",
+            "size": 17,
+            "digest": "sha256-7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          {
+            "role": "target-attestation",
+            "path": "capsec/conformance/target-attestations.json",
+            "mode": "100644",
+            "blobObjectId": "4444444444444444444444444444444444444444",
+            "size": 17,
+            "digest": "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "role": "target-advertisement",
+            "path": "capsec/generated/target-advertisements.json",
+            "mode": "100644",
+            "blobObjectId": "5555555555555555555555555555555555555555",
+            "size": 17,
+            "digest": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "admissionDigest": "sha256-VIOAmp6ERDdRM5r12skbLMx5yyqrxCuCBb54ZZPdkQI",
+        "target": {
+          "triple": "aarch64-apple-darwin",
+          "features": [
+            "hermes-frame-attribution",
+            "native-compartments",
+            "native-lockdown"
+          ]
+        },
+        "admittedScopeDigest": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA"
+      }
+    ],
+    "enabled": true,
+    "schema": "ibex/portable-engine-promotion-admission-catalog/2"
+  },
+  "checkedDiagnostic": {
+    "schema": "ibex/portable-engine-checked-promotion-admission/2",
+    "authorized": false,
+    "currentRevision": "1111111111111111111111111111111111111111",
+    "sourceRevision": "1111111111111111111111111111111111111111",
+    "promotionTopicRevision": null,
+    "sourceTreeObjectId": null,
+    "target": {
+      "triple": "aarch64-apple-darwin",
+      "features": [
+        "hermes-frame-attribution",
+        "native-compartments",
+        "native-lockdown"
+      ]
+    },
+    "portableArtifactId": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "admissionDigest": null,
+    "admittedScopeDigest": null,
+    "predecessorScopeDigest": null,
+    "verificationDigest": "sha256-0Rm2xUdSdPO2Fe3jzYB4hCZqSo_H9B6ZERnoTDjS4EU"
+  },
+  "checkedAuthorized": {
+    "schema": "ibex/portable-engine-checked-promotion-admission/2",
+    "authorized": true,
+    "currentRevision": "4444444444444444444444444444444444444444",
+    "sourceRevision": "1111111111111111111111111111111111111111",
+    "promotionTopicRevision": "3333333333333333333333333333333333333333",
+    "sourceTreeObjectId": "2222222222222222222222222222222222222222",
+    "target": {
+      "triple": "aarch64-apple-darwin",
+      "features": [
+        "hermes-frame-attribution",
+        "native-compartments",
+        "native-lockdown"
+      ]
+    },
+    "portableArtifactId": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "admissionDigest": "sha256-VIOAmp6ERDdRM5r12skbLMx5yyqrxCuCBb54ZZPdkQI",
+    "admittedScopeDigest": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
+    "predecessorScopeDigest": "genesis",
+    "verificationDigest": "sha256-uD5Xub_FyECCtRZBSFFDbHmptfhNdw0SVUFAsbYaSLI"
+  }
+}

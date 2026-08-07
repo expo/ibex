@@ -10,7 +10,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { deflateSync, gzipSync } from "node:zlib";
-import { afterEach, describe, test } from "node:test";
+import { after, afterEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -47,6 +47,8 @@ import { runPortableHermesCargo as runPortableHermesCargoProduction } from "./ru
 
 const sourceRepo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = new Set();
+const secureTemporaryRoot = fs.mkdtempSync(path.join(os.homedir(), ".cache/ibex-installer-tests-"));
+fs.chmodSync(secureTemporaryRoot, 0o700);
 
 function checkedPromotionAdmission({
   sourceRevision,
@@ -95,12 +97,26 @@ async function makeWritable(root) {
   }
 }
 
+async function removeGroupWorldWrite(root) {
+  const status = await fsp.lstat(root);
+  if (status.isSymbolicLink()) return;
+  await fsp.chmod(root, status.mode & ~0o022);
+  if (status.isDirectory()) {
+    for (const child of await fsp.readdir(root)) await removeGroupWorldWrite(path.join(root, child));
+  }
+}
+
 afterEach(async () => {
   for (const root of temporaryRoots) {
     await makeWritable(root);
     await fsp.rm(root, { recursive: true, force: true });
   }
   temporaryRoots.clear();
+});
+
+after(async () => {
+  await makeWritable(secureTemporaryRoot);
+  await fsp.rm(secureTemporaryRoot, { recursive: true, force: true });
 });
 
 function gitBytes(args) {
@@ -128,16 +144,18 @@ async function writeLooseObjectAtId(repoRoot, objectId, type, bytes) {
 }
 
 async function createLooseObjectRepository() {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-git-authority-"));
+  const root = await fsp.mkdtemp(path.join(secureTemporaryRoot, "ibex-portable-git-authority-"));
   temporaryRoots.add(root);
   const repoRoot = path.join(root, "checkout");
   await fsp.mkdir(path.join(repoRoot, "authority"), { recursive: true });
   systemGitBytes(root, ["init", "--quiet", repoRoot]);
+  await fsp.chmod(repoRoot, 0o700);
   systemGitBytes(repoRoot, ["config", "user.name", "Ibex test"]);
   systemGitBytes(repoRoot, ["config", "user.email", "ibex@example.invalid"]);
   await fsp.writeFile(path.join(repoRoot, "authority", "policy.json"), "{\"trusted\":true}\n");
   systemGitBytes(repoRoot, ["add", "authority/policy.json"]);
   systemGitBytes(repoRoot, ["commit", "--quiet", "-m", "fixture"]);
+  await removeGroupWorldWrite(repoRoot);
   const revision = systemGitBytes(repoRoot, ["rev-parse", "HEAD"]).toString("ascii").trim();
   return { root, repoRoot, revision };
 }
@@ -529,14 +547,15 @@ function buildFixture() {
 }
 
 async function createCase(fixture = buildFixture()) {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-installer-"));
+  const root = await fsp.mkdtemp(path.join(secureTemporaryRoot, "ibex-portable-installer-"));
   temporaryRoots.add(root);
   const archivePath = path.join(root, "fixture-portable-hermes.tar.gz");
   const bundlePath = path.join(root, "fixture.sigstore.json");
   await fsp.writeFile(archivePath, fixture.archive);
   await fsp.writeFile(bundlePath, Buffer.from(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","fixture":true}\n`, "utf8"));
   const repoRoot = path.join(root, "checkout");
-  await fsp.mkdir(repoRoot);
+  await fsp.mkdir(repoRoot, { mode: 0o700 });
+  await fsp.chmod(repoRoot, 0o700);
   return { root, repoRoot, archivePath, bundlePath, fixture };
 }
 
@@ -752,9 +771,11 @@ describe("portable engine installer core", () => {
       promotionTopicRevision: "b".repeat(40),
       sourceRevision: testCase.fixture.revision,
       sourceTreeObjectId: "d".repeat(40),
-      targetTriple: "aarch64-apple-darwin",
+      target: { triple: "aarch64-apple-darwin", features: ["native-compartments"] },
       portableArtifactId: semanticDigest("ibex.test.wrong-promoted-artifact.v1", {}),
       admissionDigest: semanticDigest("ibex.test.promotion-admission.v1", {}),
+      admittedScopeDigest: semanticDigest("ibex.test.admitted-scope.v1", {}),
+      predecessorScopeDigest: "genesis",
     };
     await assert.rejects(() => installPortableEngineWithPromotionLineage({
       repoRoot: testCase.repoRoot,
@@ -812,7 +833,7 @@ describe("portable engine installer core", () => {
   test("production build runner refuses a synthetic store before resolving Cargo", async () => {
     const testCase = await createCase();
     const installed = await installCase(testCase);
-    const markerRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-fake-cargo-"));
+    const markerRoot = await fsp.mkdtemp(path.join(secureTemporaryRoot, "ibex-fake-cargo-"));
     temporaryRoots.add(markerRoot);
     const marker = path.join(markerRoot, "cargo-ran");
     const fakeCargo = path.join(markerRoot, "cargo");
@@ -826,7 +847,7 @@ describe("portable engine installer core", () => {
         artifactId: installed.manifest.artifactId,
         archiveDigest: rawDigest(testCase.fixture.archive),
         cargoArgs: ["build"],
-      }), /ENOENT|portable artifact store entry|test-only|receipt|schema|checked Git|not a git repository/u);
+      }), /Darwin-only|ENOENT|portable artifact store entry|test-only|receipt|schema|checked Git|not a git repository/u);
     } finally {
       if (priorPath === undefined) delete process.env.PATH;
       else process.env.PATH = priorPath;
@@ -877,7 +898,7 @@ describe("portable engine installer core", () => {
   test("diagnostic A mints one live capability and an exact LF-terminated admission marker", {
     skip: process.platform !== "darwin",
   }, async () => {
-    const temporaryRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-build-live-"));
+    const temporaryRoot = await fsp.mkdtemp(path.join(secureTemporaryRoot, "ibex-portable-build-live-"));
     temporaryRoots.add(temporaryRoot);
     const root = await fsp.realpath(temporaryRoot);
     await fsp.mkdir(path.join(root, "src"));
@@ -962,11 +983,12 @@ describe("portable engine installer core", () => {
   });
 
   test("production build checkout and Cargo target discovery distinguish diagnostic A, admitted C, and refused D", async () => {
-    const temporaryRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-portable-build-checkout-"));
+    const temporaryRoot = await fsp.mkdtemp(path.join(secureTemporaryRoot, "ibex-portable-build-checkout-"));
     temporaryRoots.add(temporaryRoot);
     const root = await fsp.realpath(temporaryRoot);
     await fsp.mkdir(path.join(root, "src"));
     await fsp.writeFile(path.join(root, "Cargo.toml"), `[package]\nname = "clean-probe"\nversion = "0.1.0"\nedition = "2021"\n`);
+    await fsp.chmod(path.join(root, "Cargo.toml"), 0o600);
     await fsp.writeFile(path.join(root, "src/lib.rs"), "pub fn clean() {}\n");
     execFileSync("/usr/bin/git", ["init", "-q"], { cwd: root });
     execFileSync("/usr/bin/git", ["config", "user.name", "Portable Build Test"], { cwd: root });
@@ -1019,16 +1041,23 @@ describe("portable engine installer core", () => {
       repoRoot: root,
       expectedCurrentRevision: currentRevision,
     });
-    const targetMap = await loadProductionCargoTargetMap({
-      repoRoot: root,
-      expectedSourceRevision: sourceRevision,
-    });
-    assert.deepEqual(targetMap.targets, [{
-      kind: "lib",
-      name: "clean_probe",
-      crateName: "clean_probe",
-      source: "src/lib.rs",
-    }]);
+    if (process.platform === "darwin") {
+      const targetMap = await loadProductionCargoTargetMap({
+        repoRoot: root,
+        expectedSourceRevision: sourceRevision,
+      });
+      assert.deepEqual(targetMap.targets, [{
+        kind: "lib",
+        name: "clean_probe",
+        crateName: "clean_probe",
+        source: "src/lib.rs",
+      }]);
+    } else {
+      await assert.rejects(
+        () => loadProductionCargoTargetMap({ repoRoot: root, expectedSourceRevision: sourceRevision }),
+        /requires Darwin ACL inspection/u,
+      );
+    }
     for (const [name, mutate, pattern] of [
       ["source", (record) => { record.sourceRevision = "c".repeat(40); }, /source revision/u],
       ["artifact", (record) => { record.portableArtifactId = `sha256-${"B".repeat(43)}`; }, /portable artifact/u],
@@ -1178,18 +1207,17 @@ describe("portable engine installer core", () => {
   });
 
   test("checked revision reads independently traverse and hash the selected commit graph", async () => {
-    const revision = systemGitBytes(sourceRepo, ["rev-parse", "HEAD"]).toString("ascii").trim();
+    const fixture = await createLooseObjectRepository();
+    const { repoRoot, revision } = fixture;
     assert.deepEqual(
-      readCheckedRevisionFile(sourceRepo, revision, "schemas/portable-engine-provenance-trust-policy-v1.json"),
-      systemGitBytes(sourceRepo, ["show", `${revision}:schemas/portable-engine-provenance-trust-policy-v1.json`]),
+      readCheckedRevisionFile(repoRoot, revision, "authority/policy.json"),
+      systemGitBytes(repoRoot, ["show", `${revision}:authority/policy.json`]),
     );
-    const patches = listCheckedRevisionFiles(sourceRepo, revision, "patches/hermes");
-    assert(patches.length > 0);
-    assert(patches.every((pathname, index) => pathname.startsWith("patches/hermes/") && (index === 0 || patches[index - 1] < pathname)));
-    const control = resolveGitControlPaths(sourceRepo);
+    assert.deepEqual(listCheckedRevisionFiles(repoRoot, revision, "authority"), ["authority/policy.json"]);
+    const control = resolveGitControlPaths(repoRoot);
     assert.deepEqual(Object.keys(control).sort(), ["commonDir", "gitDir", "objectDir"]);
     assert(path.isAbsolute(control.gitDir) && path.isAbsolute(control.commonDir) && path.isAbsolute(control.objectDir));
-    await validateGitControlPlane(sourceRepo);
+    await validateGitControlPlane(repoRoot);
   });
 
   test("checked revision reads reject a different blob stored under the selected object ID", async () => {

@@ -467,13 +467,15 @@ function assertCurrentCheckoutRevision(repoRoot, expected, dependencies) {
 // @ref LLP 0035#promotion-lineage-and-admission — package authority remains at
 // source A while only the exact reviewed merge C grants current-checkout
 // admission; a later descendant cannot inherit C's result.
+// @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M31 deliberately
+// selects deployment by triple while lineage identity carries the full tuple.
 function assertProductionPromotionPreselection(lineage, sourceRevision) {
   assert(lineage && typeof lineage === "object" && !Array.isArray(lineage), "fixed promotion verifier returned no checked result");
   assert(typeof lineage.authorized === "boolean", "fixed promotion verifier returned no closed authorization outcome");
   assertSourceRevision(lineage.currentRevision, "promotion checkout revision");
   if (lineage.authorized) {
     assert(lineage.sourceRevision === sourceRevision, "promoted artifact source revision differs from the selected installer source revision");
-    assert(lineage.targetTriple === TARGET_TRIPLE, "promoted target triple differs from the production portable installer target");
+    assert(lineage.target?.triple === TARGET_TRIPLE, "promoted target triple differs from the production portable installer target");
   } else {
     assert(lineage.currentRevision === sourceRevision, "a disabled promotion catalog is diagnostic only at its exact artifact-source checkout");
   }

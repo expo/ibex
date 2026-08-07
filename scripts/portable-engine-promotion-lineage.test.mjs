@@ -31,13 +31,17 @@ import {
   rawContentDigest,
 } from "../packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs";
 import { conformanceRunnerBindingDigest } from "../packages/ibex-devtools/src/scripts/capsec-conformance-runner-binding.mjs";
-import { portableEnginePromotionLineagePlatformSupported } from "./portable-engine-promotion-lineage.mjs";
+import {
+  portableEnginePromotionLineagePlatformSupported,
+  resolvePortableEnginePromotionPredecessor,
+  verifyPortableEngineScopePredecessor,
+} from "./portable-engine-promotion-lineage.mjs";
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = new Set();
 const catalogPath = "schemas/portable-engine-promotion-admission-catalog-v1.json";
-const schemaPath = "schemas/portable-engine-promotion-admission-catalog-v1.schema.json";
-const checkedAdmissionSchemaPath = "schemas/portable-engine-checked-promotion-admission-v1.schema.json";
+const schemaPath = "schemas/portable-engine-promotion-admission-catalog-v2.schema.json";
+const checkedAdmissionSchemaPath = "schemas/portable-engine-checked-promotion-admission-v2.schema.json";
 const targetAttestationPath = "capsec/conformance/target-attestations.json";
 const targetAdvertisementPath = "capsec/generated/target-advertisements.json";
 const targetTriple = "aarch64-apple-darwin";
@@ -53,8 +57,17 @@ const portableVectors = parseJsonStrict(
 const basePortableEngine = portableVectors.documents.portableIdentity;
 const baseMappedEngine = portableVectors.documents.mappedInstance;
 const artifactId = basePortableEngine.artifactId;
-const admissionDomain = "ibex.portable-engine-promotion-admission.v1";
-const checkedAdmissionDomain = "ibex.portable-engine-checked-promotion-admission.v1";
+const admissionDomain = "ibex.portable-engine-promotion-admission.v2";
+const checkedAdmissionDomain = "ibex.portable-engine-checked-promotion-admission.v2";
+const lineageFloor = "afad4af9f4257eb8262cf8348e5fbb0a3c082ecf";
+const target = Object.freeze({
+  triple: targetTriple,
+  features: Object.freeze([
+    "hermes-frame-attribution",
+    "native-compartments",
+    "native-lockdown",
+  ]),
+});
 const portableGraphAuthorityPaths = Object.freeze([
   "packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs",
   "packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs",
@@ -162,6 +175,191 @@ function artifactRow(repoRoot, role, relativePath, { advertisedMode = "100644" }
     size: bytes?.length ?? 1,
     digest: bytes ? rawDigest(bytes) : `sha256-${"0".repeat(64)}`,
   };
+}
+
+async function initializeHistoryRepository() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-scope-history-"));
+  temporaryRoots.add(root);
+  const repoRoot = path.join(root, "checkout");
+  git(root, ["clone", "--quiet", "--no-checkout", sourceRoot, repoRoot]);
+  git(repoRoot, ["config", "user.name", "Ibex scope history test"]);
+  git(repoRoot, ["config", "user.email", "ibex-scope-history@example.invalid"]);
+  git(repoRoot, ["switch", "--quiet", "--create", "scope-history", lineageFloor]);
+  await writeFile(repoRoot, catalogPath, `${canonicalJson({
+    admissionPath: catalogPath,
+    admissions: [],
+    enabled: false,
+    schema: "ibex/portable-engine-promotion-admission-catalog/2",
+  })}\n`);
+  await writeFile(repoRoot, targetAttestationPath, `${canonicalJson({
+    targetAttestationSchema: "ibex/capsec-target-attestations/1",
+    profile: "ibex/capsec/1",
+    attestations: [],
+  })}\n`);
+  await writeFile(repoRoot, targetAdvertisementPath, `${canonicalJson({
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/1",
+    profile: "ibex/capsec/1",
+    targetCellsRawContentDigest: digest("S"),
+    advertisements: [],
+  })}\n`);
+  git(repoRoot, ["add", "--all"]);
+  git(repoRoot, ["commit", "--quiet", "-m", "scoped lineage reset foundation"]);
+  return { root, repoRoot, branch: "scope-history", promotionIndex: 0 };
+}
+
+async function resetHistoryRepository(fixture, { ordinaryCommits = 0 } = {}) {
+  for (let index = 0; index < ordinaryCommits; index += 1) {
+    git(fixture.repoRoot, ["commit", "--quiet", "--allow-empty", "-m", `ordinary descendant ${index + 1}`]);
+  }
+  fixture.ordinaryRevision = git(fixture.repoRoot, ["rev-parse", "HEAD"]).trim();
+  await writeFile(fixture.repoRoot, catalogPath, `${canonicalJson({
+    admissionPath: catalogPath,
+    admissions: [],
+    enabled: false,
+    schema: "ibex/portable-engine-promotion-admission-catalog/2",
+  })}\n`);
+  await writeFile(fixture.repoRoot, targetAttestationPath, `${canonicalJson({
+    targetAttestationSchema: "ibex/capsec-target-attestations/1",
+    profile: "ibex/capsec/1",
+    attestations: [],
+  })}\n`);
+  await writeFile(fixture.repoRoot, targetAdvertisementPath, `${canonicalJson({
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/1",
+    profile: "ibex/capsec/1",
+    targetCellsRawContentDigest: digest("S"),
+    advertisements: [],
+  })}\n`);
+  git(fixture.repoRoot, ["add", "--all"]);
+  git(fixture.repoRoot, ["commit", "--quiet", "-m", "reset scoped publication foundation"]);
+  fixture.resetRevision = git(fixture.repoRoot, ["rev-parse", "HEAD"]).trim();
+  return fixture.resetRevision;
+}
+
+function syntheticEvidenceNames() {
+  return [
+    "conformance-report.json",
+    "output-dispositions.json",
+    "portable-promotion-authority.json",
+    "process-0001.command-attempt.json",
+    "process-0001.fixture-000001.json",
+    "process-0001.mapped-evidence.json",
+    "promotion-bundle-manifest.json",
+    "public-surface.json",
+    "recipes.json",
+    "target-advertisements.json",
+    "target-attestations.json",
+    "target-cells.json",
+  ];
+}
+
+async function createHistoryPromotion(fixture, {
+  targetOverride = target,
+  predecessorScopeDigest = "genesis",
+  variant = null,
+} = {}) {
+  fixture.promotionIndex += 1;
+  const { repoRoot } = fixture;
+  const sourceRevision = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+  const sourceTreeObjectId = git(repoRoot, ["show", "-s", "--format=%T", "HEAD"]).trim();
+  const topicBranch = `scope-promotion-${fixture.promotionIndex}`;
+  git(repoRoot, ["switch", "--quiet", "--create", topicBranch]);
+  const evidenceRoot = `capsec/conformance/portable-promotions/${sourceRevision}/${targetOverride.triple}/${artifactId}`;
+  const scope = {
+    schema: "ibex/capsec-scope/1",
+    profile: "ibex/capsec/1",
+    target: clone(targetOverride),
+    selectors: { capabilityFamilies: ["filesystem"], surfaceKinds: ["host-call"] },
+    expandedCells: ["edge.portable-lineage"],
+    closureEdges: [],
+    predecessorScopeDigest,
+    scopeDigest: digest("A"),
+  };
+  scope.scopeDigest = semanticDigest("ibex:capsec:scope:1", scope, ["scopeDigest"]);
+  const declaredScopeDigest = variant === "scope-digest-mismatch" ? digest("Z") : scope.scopeDigest;
+  await writeFile(repoRoot, `${evidenceRoot}/capsec-scope.json`, `${canonicalJson(scope)}\n`);
+  for (const name of syntheticEvidenceNames()) {
+    await writeFile(repoRoot, `${evidenceRoot}/${name}`, `${canonicalJson({ name, promotion: fixture.promotionIndex })}\n`);
+  }
+  await writeFile(repoRoot, targetAttestationPath, `${canonicalJson({
+    targetAttestationSchema: "ibex/capsec-target-attestations/3",
+    profile: "ibex/capsec/1",
+    attestations: [{ target: clone(targetOverride), scopeDigest: declaredScopeDigest }],
+  })}\n`);
+  await writeFile(repoRoot, targetAdvertisementPath, `${canonicalJson({
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
+    profile: "ibex/capsec/1",
+    advertisements: [{
+      target: clone(targetOverride),
+      scopeDigest: variant === "advertisement-mismatch" ? digest("Y") : declaredScopeDigest,
+    }],
+  })}\n`);
+  git(repoRoot, ["add", "--all"]);
+  const artifacts = syntheticEvidenceNames().map((name) =>
+    artifactRow(repoRoot, "conformance-evidence", `${evidenceRoot}/${name}`));
+  if (variant !== "missing-scope-row") {
+    const scopeRow = artifactRow(repoRoot, "scope-artifact", `${evidenceRoot}/capsec-scope.json`);
+    if (variant === "scope-row-object-mismatch") scopeRow.blobObjectId = "f".repeat(40);
+    artifacts.push(scopeRow);
+  } else {
+    await writeFile(repoRoot, `${evidenceRoot}/extra-evidence.json`, `${canonicalJson({ replacement: true })}\n`);
+    git(repoRoot, ["add", "--all"]);
+    artifacts.push(artifactRow(repoRoot, "conformance-evidence", `${evidenceRoot}/extra-evidence.json`));
+  }
+  artifacts.push(artifactRow(repoRoot, "target-attestation", targetAttestationPath));
+  artifacts.push(artifactRow(repoRoot, "target-advertisement", targetAdvertisementPath));
+  artifacts.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
+  const admission = {
+    schema: "ibex/portable-engine-promotion-admission/2",
+    sourceRevision,
+    sourceTreeObjectId,
+    topology: "github-pull-request-merge/direct-single-commit-topic/1",
+    target: clone(targetOverride),
+    admittedScopeDigest: declaredScopeDigest,
+    portableArtifactId: artifactId,
+    artifacts,
+    admissionDigest: digest("A"),
+  };
+  admission.admissionDigest = semanticDigest(admissionDomain, admission, ["admissionDigest"]);
+  await writeFile(repoRoot, catalogPath, `${canonicalJson({
+    admissionPath: catalogPath,
+    admissions: [admission],
+    enabled: true,
+    schema: "ibex/portable-engine-promotion-admission-catalog/2",
+  })}\n`);
+  git(repoRoot, ["add", "--all"]);
+  git(repoRoot, ["commit", "--quiet", "-m", `scoped promotion topic ${fixture.promotionIndex}`]);
+  const topicRevision = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+  git(repoRoot, ["switch", "--quiet", fixture.branch]);
+  git(repoRoot, ["merge", "--quiet", "--no-ff", "-m", `merge scoped promotion ${fixture.promotionIndex}`, topicBranch]);
+  const mergeRevision = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+  return { admission, declaredScopeDigest, mergeRevision, scope, sourceRevision, topicRevision };
+}
+
+function resolveHistory(repoRoot, startRevision, targetOverride = target) {
+  return resolvePortableEnginePromotionPredecessor({
+    repoRoot,
+    startRevision,
+    target: clone(targetOverride),
+  });
+}
+
+function roundOneCatalogCarrier(repoRoot, startRevision) {
+  const lines = git(repoRoot, ["rev-list", "--first-parent", startRevision]).trim().split("\n").filter(Boolean);
+  for (const revision of lines) {
+    const raw = git(repoRoot, ["show", `${revision}:${catalogPath}`], { encoding: "utf8" });
+    const catalog = JSON.parse(raw);
+    if (catalog.enabled) return revision;
+    if (revision === lineageFloor) break;
+  }
+  return null;
+}
+
+function roundTwoShapeOnlyAccepts(repoRoot, promotion) {
+  const line = git(repoRoot, ["show", "-s", "--format=%P", promotion.mergeRevision]).trim().split(" ");
+  return line.length === 2
+    && line[0] === promotion.sourceRevision
+    && semanticDigest(admissionDomain, promotion.admission, ["admissionDigest"])
+      === promotion.admission.admissionDigest;
 }
 
 const digest = (character) => `sha256-${character.repeat(43)}`;
@@ -933,7 +1131,7 @@ describe("portable engine promotion admission schema and foundation", () => {
 
   test("disabled checked catalog grants no authority and active vectors are schema-valid mechanics only", () => {
     const schema = JSON.parse(fs.readFileSync(path.join(sourceRoot, schemaPath), "utf8"));
-    const vectors = JSON.parse(fs.readFileSync(path.join(sourceRoot, "schemas/vectors/portable-engine-promotion-admission-v1.valid.json"), "utf8"));
+    const vectors = JSON.parse(fs.readFileSync(path.join(sourceRoot, "schemas/vectors/portable-engine-promotion-admission-v2.valid.json"), "utf8"));
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
     assert.equal(validate(vectors.disabledCatalog), true, JSON.stringify(validate.errors));
     assert.equal(validate(vectors.activeCatalog), true, JSON.stringify(validate.errors));
@@ -945,9 +1143,10 @@ describe("portable engine promotion admission schema and foundation", () => {
     const foundationBytes = fs.readFileSync(path.join(sourceRoot, catalogPath));
     const foundation = parseJsonStrict(foundationBytes, "checked promotion foundation");
     assert.equal(foundationBytes.toString("utf8"), `${canonicalJson(foundation)}\n`);
-    assert.deepEqual(foundation, vectors.disabledCatalog);
+    assert.equal(foundation.schema, "ibex/portable-engine-promotion-admission-catalog/1");
     assert.equal(foundation.enabled, false);
     assert.deepEqual(foundation.admissions, []);
+    assert.equal(vectors.disabledCatalog.admissionPath, catalogPath, "v2 changes the contract, never the tracked catalog path");
 
     const policy = JSON.parse(fs.readFileSync(path.join(sourceRoot, "schemas/portable-engine-provenance-trust-policy-v1.json"), "utf8"));
     const attestations = JSON.parse(fs.readFileSync(path.join(sourceRoot, targetAttestationPath), "utf8"));
@@ -959,23 +1158,23 @@ describe("portable engine promotion admission schema and foundation", () => {
 
   test("schema rejects a disabled nonempty catalog and an active empty catalog", () => {
     const schema = JSON.parse(fs.readFileSync(path.join(sourceRoot, schemaPath), "utf8"));
-    const vectors = JSON.parse(fs.readFileSync(path.join(sourceRoot, "schemas/vectors/portable-engine-promotion-admission-v1.valid.json"), "utf8"));
+    const vectors = JSON.parse(fs.readFileSync(path.join(sourceRoot, "schemas/vectors/portable-engine-promotion-admission-v2.valid.json"), "utf8"));
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
     assert.equal(validate({ ...vectors.activeCatalog, enabled: false }), false);
     assert.equal(validate({ ...vectors.disabledCatalog, enabled: true }), false);
   });
 
-  test("admission artifact bounds cover the complete 14-row graph through 100,003 rows", () => {
+  test("admission artifact bounds cover the scope-bearing 15-row graph through 100,003 rows", () => {
     const schema = JSON.parse(
       fs.readFileSync(path.join(sourceRoot, schemaPath), "utf8"),
     );
-    assert.equal(schema.$defs.admission.properties.artifacts.minItems, 14);
+    assert.equal(schema.$defs.admission.properties.artifacts.minItems, 15);
     assert.equal(schema.$defs.admission.properties.artifacts.maxItems, 100_003);
     const vectors = JSON.parse(
       fs.readFileSync(
         path.join(
           sourceRoot,
-          "schemas/vectors/portable-engine-promotion-admission-v1.valid.json",
+          "schemas/vectors/portable-engine-promotion-admission-v2.valid.json",
         ),
         "utf8",
       ),
@@ -984,12 +1183,16 @@ describe("portable engine promotion admission schema and foundation", () => {
       schema,
     );
     const minimum = structuredClone(vectors.activeCatalog);
-    assert.equal(minimum.admissions[0].artifacts.length, 14);
+    assert.equal(minimum.admissions[0].artifacts.length, 15);
     assert.equal(validate(minimum), true, JSON.stringify(validate.errors));
 
     const belowMinimum = structuredClone(minimum);
     belowMinimum.admissions[0].artifacts.pop();
     assert.equal(validate(belowMinimum), false);
+
+    const emptyTuple = structuredClone(minimum);
+    emptyTuple.admissions[0].target.features = [];
+    assert.equal(validate(emptyTuple), false, "an active scope identity must carry a non-empty feature tuple");
 
     // Validate the array cardinality boundary independently. Running the full
     // unique-object comparison over 100,003 synthetic rows would turn this
@@ -1006,21 +1209,183 @@ describe("portable engine promotion admission schema and foundation", () => {
   test("checked admission schema freezes one common A/C result shape", () => {
     const schema = JSON.parse(fs.readFileSync(path.join(sourceRoot, checkedAdmissionSchemaPath), "utf8"));
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
-    const diagnostic = {
-      schema: "ibex/portable-engine-checked-promotion-admission/1",
-      authorized: false,
-      currentRevision: "a".repeat(40),
-      sourceRevision: "a".repeat(40),
-      promotionTopicRevision: null,
-      sourceTreeObjectId: null,
-      targetTriple,
-      portableArtifactId: artifactId,
-      admissionDigest: null,
-      verificationDigest: artifactId,
-    };
+    const vectors = JSON.parse(fs.readFileSync(path.join(sourceRoot, "schemas/vectors/portable-engine-promotion-admission-v2.valid.json"), "utf8"));
+    const diagnostic = vectors.checkedDiagnostic;
     assert.equal(validate(diagnostic), true, JSON.stringify(validate.errors));
     assert.equal(validate({ ...diagnostic, authorized: true }), false);
     assert.equal(validate({ ...diagnostic, note: "open field" }), false);
+    const diagnosticWithoutSelectedFeatures = structuredClone(diagnostic);
+    diagnosticWithoutSelectedFeatures.target.features = [];
+    assert.equal(validate(diagnosticWithoutSelectedFeatures), true, JSON.stringify(validate.errors));
+    const authorizedWithoutFeatures = structuredClone(vectors.checkedAuthorized);
+    authorizedWithoutFeatures.target.features = [];
+    assert.equal(validate(authorizedWithoutFeatures), false);
+  });
+});
+
+describe("M27 evolvable scoped promotion history", () => {
+  test("F6a authenticates genesis at the pinned floor's first parent only", async () => {
+    const fixture = await initializeHistoryRepository();
+    const startRevision = git(fixture.repoRoot, ["rev-parse", "HEAD"]).trim();
+    assert.equal(resolveHistory(fixture.repoRoot, startRevision), null);
+    const floorParents = git(fixture.repoRoot, ["show", "-s", "--format=%P", lineageFloor]).trim().split(" ");
+    assert.equal(floorParents.length, 2, "the pinned floor is load-bearingly a merge");
+    const first = spawnSync("/usr/bin/git", ["cat-file", "-e", `${floorParents[0]}:${catalogPath}`], {
+      cwd: fixture.repoRoot,
+      env: gitEnvironment,
+      encoding: "utf8",
+    });
+    const second = spawnSync("/usr/bin/git", ["cat-file", "-e", `${floorParents[1]}:${catalogPath}`], {
+      cwd: fixture.repoRoot,
+      env: gitEnvironment,
+      encoding: "utf8",
+    });
+    assert.notEqual(first.status, 0, "the floor's first parent must lack the catalog");
+    assert.equal(second.status, 0, "the second parent is intentionally not part of the genesis absence claim");
+  });
+
+  test("F6b skips inherited active catalogs across ordinary commits, reset, and promotion 2", async () => {
+    const fixture = await initializeHistoryRepository();
+    const promotion1 = await createHistoryPromotion(fixture);
+    await resetHistoryRepository(fixture, { ordinaryCommits: 2 });
+
+    // Round 1 selected the newest revision merely carrying an enabled catalog.
+    // That negative-control algorithm selects the ordinary descendant, not R1,
+    // so this fixture would fail against the round-1 text.
+    assert.equal(roundOneCatalogCarrier(fixture.repoRoot, fixture.resetRevision), fixture.ordinaryRevision);
+    assert.notEqual(fixture.ordinaryRevision, promotion1.mergeRevision);
+
+    const promotion2 = await createHistoryPromotion(fixture, {
+      predecessorScopeDigest: promotion1.declaredScopeDigest,
+    });
+    const prior = resolveHistory(fixture.repoRoot, promotion2.sourceRevision);
+    assert.equal(prior.admittedScopeDigest, promotion1.declaredScopeDigest);
+    assert.equal(promotion2.scope.predecessorScopeDigest, prior.admittedScopeDigest);
+  });
+
+  test("F6c and F6d refuse a stale predecessor and false genesis relative to intact history", async () => {
+    const fixture = await initializeHistoryRepository();
+    const promotion1 = await createHistoryPromotion(fixture);
+    await resetHistoryRepository(fixture, { ordinaryCommits: 1 });
+    const prior = resolveHistory(fixture.repoRoot, fixture.resetRevision);
+    assert.equal(prior.admittedScopeDigest, promotion1.declaredScopeDigest);
+    assert.throws(
+      () => verifyPortableEngineScopePredecessor({
+        repoRoot: fixture.repoRoot,
+        startRevision: fixture.resetRevision,
+        target: clone(target),
+        predecessorScopeDigest: digest("O"),
+      }),
+      /does not equal the latest admitted scope/u,
+      "a stale digest must exercise the same production refusal as the current promotion",
+    );
+    assert.throws(
+      () => verifyPortableEngineScopePredecessor({
+        repoRoot: fixture.repoRoot,
+        startRevision: fixture.resetRevision,
+        target: clone(target),
+        predecessorScopeDigest: "genesis",
+      }),
+      /does not equal the latest admitted scope/u,
+      "false genesis must exercise the same production refusal as the current promotion",
+    );
+  });
+
+  test("F6e closes shallow, graft, and replace-ref truncation without claiming reconstruction resistance", async () => {
+    const fixture = await initializeHistoryRepository();
+    const shallowRoot = path.join(fixture.root, "shallow");
+    git(fixture.root, ["clone", "--quiet", "--depth", "1", `file://${fixture.repoRoot}`, shallowRoot]);
+    const shallowHead = git(shallowRoot, ["rev-parse", "HEAD"]).trim();
+    assert.throws(
+      () => resolveHistory(shallowRoot, shallowHead),
+      /shallow repository/u,
+      "F6e covers history truncation; it deliberately does not claim to close reconstruction on the pinned floor",
+    );
+
+    const graftPath = path.join(fixture.repoRoot, ".git/info/grafts");
+    await fsp.mkdir(path.dirname(graftPath), { recursive: true });
+    await fsp.writeFile(graftPath, `${git(fixture.repoRoot, ["rev-parse", "HEAD"]).trim()} ${lineageFloor}\n`);
+    assert.throws(() => resolveHistory(fixture.repoRoot, git(fixture.repoRoot, ["rev-parse", "HEAD"]).trim()), /grafts control/u);
+    await fsp.rm(graftPath);
+
+    const head = git(fixture.repoRoot, ["rev-parse", "HEAD"]).trim();
+    git(fixture.repoRoot, ["replace", head, lineageFloor]);
+    assert.throws(() => resolveHistory(fixture.repoRoot, head), /replace refs/u);
+  });
+
+  test("F6f all three tree-unbacked variants defeat the round-2 shape-only predicate", async () => {
+    for (const [variant, pattern] of [
+      ["missing-scope-row", /exactly one scope-artifact/u],
+      ["scope-row-object-mismatch", /checked blob object ID mismatch/u],
+      ["scope-digest-mismatch", /admittedScopeDigest is not backed/u],
+    ]) {
+      const fixture = await initializeHistoryRepository();
+      const promotion = await createHistoryPromotion(fixture, { variant });
+      // This is the executable round-2 negative control: merge topology and
+      // the unkeyed admission self-digest are both valid for every variant.
+      assert.equal(roundTwoShapeOnlyAccepts(fixture.repoRoot, promotion), true);
+      assert.throws(
+        () => resolveHistory(fixture.repoRoot, promotion.mergeRevision),
+        pattern,
+        `${variant} must pass the round-2 predicate and fail the M27(i) joins`,
+      );
+    }
+  });
+
+  test("F6f-4 refuses a hop whose own advertisement contradicts its admitted scope", async () => {
+    const fixture = await initializeHistoryRepository();
+    const promotion = await createHistoryPromotion(fixture, { variant: "advertisement-mismatch" });
+    assert.throws(
+      () => resolveHistory(fixture.repoRoot, promotion.mergeRevision),
+      /advertisement scopeDigest differs/u,
+    );
+  });
+
+  test("F6f-5 accepts a new scope role only at the reserved evidence-prefix path", async () => {
+    const fixture = await initializeHistoryRepository();
+    const promotion = await createHistoryPromotion(fixture);
+    const scopePath = promotion.admission.artifacts.find((row) => row.role === "scope-artifact").path;
+    const oldHeadRolePredicate = spawnSync("/usr/bin/git", [
+      "cat-file",
+      "-e",
+      `${promotion.sourceRevision}:${scopePath}`,
+    ], { cwd: fixture.repoRoot, env: gitEnvironment, encoding: "utf8" });
+    assert.notEqual(
+      oldHeadRolePredicate.status,
+      0,
+      "HEAD before M19 refused this positive control by requiring every non-conformance role to pre-exist",
+    );
+    const admitted = resolveHistory(fixture.repoRoot, promotion.mergeRevision);
+    assert.equal(admitted.admittedScopeDigest, promotion.declaredScopeDigest);
+    assert.equal(scopePath.endsWith("/capsec-scope.json"), true);
+  });
+
+  test("F6g selection is per full tuple even when two scopes share one triple", async () => {
+    const fixture = await initializeHistoryRepository();
+    const promotion1 = await createHistoryPromotion(fixture);
+    await resetHistoryRepository(fixture, { ordinaryCommits: 1 });
+    const target2 = {
+      triple: targetTriple,
+      features: [...target.features, "scope-two"],
+    };
+    assert.equal(resolveHistory(fixture.repoRoot, fixture.resetRevision, target2), null, "T1 must not become T2's predecessor");
+    assert.equal(resolveHistory(fixture.repoRoot, fixture.resetRevision, target).admittedScopeDigest, promotion1.declaredScopeDigest);
+    const promotion2 = await createHistoryPromotion(fixture, {
+      targetOverride: target2,
+      predecessorScopeDigest: promotion1.declaredScopeDigest,
+    });
+    const actualPrior = resolveHistory(fixture.repoRoot, promotion2.sourceRevision, target2);
+    assert.equal(actualPrior, null, "T2 correctly reaches fresh genesis despite T1 sharing its triple");
+    assert.throws(
+      () => verifyPortableEngineScopePredecessor({
+        repoRoot: fixture.repoRoot,
+        startRevision: promotion2.sourceRevision,
+        target: target2,
+        predecessorScopeDigest: promotion2.scope.predecessorScopeDigest,
+      }),
+      /genesis scope must carry/u,
+      "a T2 scope naming T1's digest is refused rather than creating cross-feature ancestry",
+    );
   });
 });
 
