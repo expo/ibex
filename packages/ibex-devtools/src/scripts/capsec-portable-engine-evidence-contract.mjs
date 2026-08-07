@@ -34,8 +34,7 @@ const PORTABLE_FIXTURE_EVIDENCE_DOMAIN =
   "ibex:capsec:portable-fixture-evidence:1";
 const PORTABLE_EXECUTION_BINDING_DOMAIN =
   "ibex:capsec:portable-execution-binding:1";
-const PORTABLE_RECIPE_PLAN_DOMAIN =
-  "ibex:capsec:executable-recipe-plan:1";
+const PORTABLE_RECIPE_PLAN_DOMAIN = "ibex:capsec:executable-recipe-plan:1";
 const PORTABLE_RECIPE_CATALOG_DOMAIN = "ibex:capsec:executable-recipes:2";
 const PORTABLE_PUBLIC_SURFACE_EXECUTION_DOMAIN =
   "ibex:capsec:public-surface-executions:2";
@@ -45,12 +44,19 @@ const PORTABLE_OUTPUT_DISPOSITION_OBSERVATION_DOMAIN =
   "ibex:capsec:output-disposition-observation:1";
 const PORTABLE_CONFORMANCE_SCHEMA = "ibex/capsec-conformance/2";
 const PORTABLE_CONFORMANCE_DOMAIN = "ibex:capsec:conformance:2";
-const PORTABLE_TARGET_ATTESTATIONS_SCHEMA =
-  "ibex/capsec-target-attestations/2";
+const PORTABLE_TARGET_ATTESTATIONS_SCHEMA = "ibex/capsec-target-attestations/3";
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — publication v3 names scoped certification and binds
+// scopeDigest without changing tuple-keyed catalog selection.
 const PORTABLE_TARGET_ADVERTISEMENTS_SCHEMA =
-  "ibex/capsec-target-advertisements/2";
+  "ibex/capsec-target-advertisements/3";
 const PORTABLE_PROMOTION_AUTHORITY_SCHEMA =
   "ibex/capsec-portable-promotion-authority/1";
+const CAPSEC_SCOPE_SCHEMA = "ibex/capsec-scope/1";
+const CAPSEC_SCOPE_DOMAIN = "ibex:capsec:scope:1";
+const CAPSEC_SCOPE_EXPANSION_DIFF_SCHEMA = "ibex/capsec-scope-expansion-diff/1";
+const CAPSEC_SCOPE_EXPANSION_DIFF_DOMAIN = "ibex:capsec:scope-expansion-diff:1";
+const CAPSEC_SCOPE_CELL_MAPPING_SCHEMA = "ibex/capsec-scope-cell-mapping/1";
+const CAPSEC_SCOPE_CELL_MAPPING_DOMAIN = "ibex:capsec:scope-cell-mapping:1";
 const COMMAND_ATTEMPT_DOMAIN = "ibex/capsec-command-attempt/1";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -70,13 +76,13 @@ const schemaPaths = [
   "schemas/capsec-mapped-engine-execution-evidence-v1.schema.json",
   "schemas/capsec-conformance-report-v2.schema.json",
   "schemas/capsec-target-attestations-v2.schema.json",
-  "schemas/capsec-target-advertisements-v2.schema.json",
+  "schemas/capsec-target-advertisements-v3.schema.json",
   "schemas/capsec-portable-promotion-authority-v1.schema.json",
 ];
 
 const schemaIds = Object.freeze({
   advertisements:
-    "https://ibex.dev/schemas/capsec-target-advertisements-v2.schema.json",
+    "https://ibex.dev/schemas/capsec-target-advertisements-v3.schema.json",
   attestations:
     "https://ibex.dev/schemas/capsec-target-attestations-v2.schema.json",
   authority:
@@ -87,8 +93,7 @@ const schemaIds = Object.freeze({
   fixture:
     "https://ibex.dev/schemas/capsec-portable-fixture-evidence-v1.schema.json",
   report: "https://ibex.dev/schemas/capsec-conformance-report-v2.schema.json",
-  recipe:
-    "https://ibex.dev/schemas/capsec-executable-recipes-v2.schema.json",
+  recipe: "https://ibex.dev/schemas/capsec-executable-recipes-v2.schema.json",
   publicSurface:
     "https://ibex.dev/schemas/capsec-public-surface-executions-v2.schema.json",
   outputDisposition:
@@ -170,9 +175,74 @@ function assertCapsecStableId(value, label) {
   );
 }
 
+function assertScopeDigest(value, label) {
+  invariant(
+    typeof value === "string" && /^sha256-[A-Za-z0-9_-]{43}$/u.test(value),
+    `${label} is not a scope digest`,
+  );
+}
+
+// The amendment evolves authority v1 in place and revs attestations to v3,
+// while the slice ownership table assigns neither companion schema file to
+// this slice. Keep validation closed during that cross-slice handoff by
+// validating an exact one-field scoped extension over the settled schemas.
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — v3 attestations bind the admitted scope.
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — independent promotion authority binds the same scope.
+function parseScopedSchemaExtension(bytes, name, label) {
+  assertBytes(bytes, label);
+  const value = parseJsonStrict(bytes, label);
+  const projection = structuredClone(value);
+  const entries =
+    name === "authority" ? projection.targets : projection.attestations;
+  invariant(Array.isArray(entries), `${label} scoped entries are malformed`);
+  for (const [index, entry] of entries.entries()) {
+    assertScopeDigest(entry?.scopeDigest, `${label}[${index}].scopeDigest`);
+    delete entry.scopeDigest;
+  }
+  if (name === "attestations") {
+    invariant(
+      projection.targetAttestationSchema ===
+        PORTABLE_TARGET_ATTESTATIONS_SCHEMA,
+      `${label} catalog has the wrong schema`,
+    );
+    projection.targetAttestationSchema = "ibex/capsec-target-attestations/2";
+  }
+  const { ajv, validate } = validators()[name];
+  invariant(
+    validate(projection),
+    `${label} schema invalid: ${ajv.errorsText(validate.errors)}`,
+  );
+  return value;
+}
+
+function parseScopedReport(bytes, label) {
+  assertBytes(bytes, label);
+  const value = parseJsonStrict(bytes, label);
+  assertScopeDigest(
+    value?.bindings?.scopeDigest,
+    `${label}.bindings.scopeDigest`,
+  );
+  const projection = structuredClone(value);
+  delete projection.bindings.scopeDigest;
+  delete projection.summary.uncertifiedCells;
+  for (const cell of projection.cells ?? []) {
+    if (cell.status === "uncertified") cell.status = "incomplete";
+  }
+  const { ajv, validate } = validators().report;
+  invariant(
+    validate(projection),
+    `${label} schema invalid: ${ajv.errorsText(validate.errors)}`,
+  );
+  return value;
+}
+
 function validators() {
   if (compiledValidators) return compiledValidators;
-  const ajv = new Ajv2020({ allErrors: true, strict: true, validateSchema: true });
+  const ajv = new Ajv2020({
+    allErrors: true,
+    strict: true,
+    validateSchema: true,
+  });
   for (const relativePath of schemaPaths) {
     const absolutePath = path.join(repoRoot, relativePath);
     ajv.addSchema(parseJsonStrict(fs.readFileSync(absolutePath), relativePath));
@@ -191,12 +261,144 @@ function parseValidated(bytes, name, label) {
   assertBytes(bytes, label);
   const value = parseJsonStrict(bytes, label);
   const { ajv, validate } = validators()[name];
-  invariant(validate(value), `${label} schema invalid: ${ajv.errorsText(validate.errors)}`);
+  invariant(
+    validate(value),
+    `${label} schema invalid: ${ajv.errorsText(validate.errors)}`,
+  );
   return value;
 }
 
 export function rawContentDigest(bytes) {
   return `sha256-${createHash("sha256").update(bytes).digest("base64url")}`;
+}
+
+/**
+ * Validate the exact scope-member identity joins carried by a promotion
+ * bundle. Scope expansion authority remains with admission; this gate checks
+ * only closed shape, self-digests, companion binding, tuple, and membership.
+ *
+ * @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — the bundle binds one scope and both companions.
+ * @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — graph validation is limited to membership/digest joins.
+ */
+export function validatePortableScopeBundle({
+  scopeArtifactBytes,
+  scopeExpansionDiffBytes,
+  scopeCellMappingBytes,
+  expectedTarget = null,
+}) {
+  const scope = parseJsonStrict(scopeArtifactBytes, "CapSec scope artifact");
+  const diff = parseJsonStrict(
+    scopeExpansionDiffBytes,
+    "CapSec scope expansion diff",
+  );
+  const mapping = parseJsonStrict(
+    scopeCellMappingBytes,
+    "CapSec scope cell mapping",
+  );
+  exactKeys(
+    scope,
+    [
+      "scopeSchema",
+      "profile",
+      "target",
+      "intensionalDefinition",
+      "expandedCellIds",
+      "closureEdges",
+      "predecessor",
+      "scopeExpansionDiffDigest",
+      "scopeCellMappingDigest",
+      "scopeDigest",
+    ],
+    "CapSec scope artifact",
+  );
+  exactKeys(
+    diff,
+    [
+      "scopeExpansionDiffSchema",
+      "profile",
+      "target",
+      "predecessor",
+      "previousExpandedCellIds",
+      "currentExpandedCellIds",
+      "addedCellIds",
+      "retiredCellIds",
+      "scopeExpansionDiffDigest",
+    ],
+    "CapSec scope expansion diff",
+  );
+  exactKeys(
+    mapping,
+    [
+      "scopeCellMappingSchema",
+      "profile",
+      "target",
+      "predecessor",
+      "additions",
+      "retirements",
+      "mappings",
+      "scopeCellMappingDigest",
+    ],
+    "CapSec scope cell mapping",
+  );
+  assertCanonicalScalarSet(scope.target?.features, "scope target.features");
+  assertCanonicalScalarSet(scope.expandedCellIds, "scope expandedCellIds");
+  assertCanonicalScalarSet(
+    diff.previousExpandedCellIds,
+    "scope diff previousExpandedCellIds",
+  );
+  assertCanonicalScalarSet(
+    diff.currentExpandedCellIds,
+    "scope diff currentExpandedCellIds",
+  );
+  assertCanonicalScalarSet(diff.addedCellIds, "scope diff addedCellIds");
+  assertCanonicalScalarSet(diff.retiredCellIds, "scope diff retiredCellIds");
+  assertCanonicalScalarSet(mapping.additions, "scope mapping additions");
+  assertCanonicalScalarSet(mapping.retirements, "scope mapping retirements");
+  for (const [value, label] of [
+    [scope.scopeDigest, "scope.scopeDigest"],
+    [scope.scopeExpansionDiffDigest, "scope.scopeExpansionDiffDigest"],
+    [scope.scopeCellMappingDigest, "scope.scopeCellMappingDigest"],
+    [diff.scopeExpansionDiffDigest, "diff.scopeExpansionDiffDigest"],
+    [mapping.scopeCellMappingDigest, "mapping.scopeCellMappingDigest"],
+  ]) {
+    assertScopeDigest(value, label);
+  }
+  invariant(
+    scope.scopeSchema === CAPSEC_SCOPE_SCHEMA &&
+      diff.scopeExpansionDiffSchema === CAPSEC_SCOPE_EXPANSION_DIFF_SCHEMA &&
+      mapping.scopeCellMappingSchema === CAPSEC_SCOPE_CELL_MAPPING_SCHEMA &&
+      scope.profile === "ibex/capsec/1" &&
+      diff.profile === scope.profile &&
+      mapping.profile === scope.profile &&
+      scope.expandedCellIds.length > 0 &&
+      Array.isArray(scope.closureEdges) &&
+      Array.isArray(mapping.mappings) &&
+      same(diff.target, scope.target) &&
+      same(mapping.target, scope.target) &&
+      same(diff.predecessor, scope.predecessor) &&
+      same(mapping.predecessor, scope.predecessor) &&
+      same(diff.currentExpandedCellIds, scope.expandedCellIds) &&
+      same(mapping.additions, diff.addedCellIds) &&
+      same(mapping.retirements, diff.retiredCellIds) &&
+      (expectedTarget === null || same(scope.target, expectedTarget)),
+    "CapSec scope members differ in schema, profile, tuple, predecessor, or expansion",
+  );
+  invariant(
+    diff.scopeExpansionDiffDigest ===
+      computeDomainDigest(CAPSEC_SCOPE_EXPANSION_DIFF_DOMAIN, diff, [
+        "scopeExpansionDiffDigest",
+      ]) &&
+      mapping.scopeCellMappingDigest ===
+        computeDomainDigest(CAPSEC_SCOPE_CELL_MAPPING_DOMAIN, mapping, [
+          "scopeCellMappingDigest",
+        ]) &&
+      scope.scopeExpansionDiffDigest === diff.scopeExpansionDiffDigest &&
+      scope.scopeCellMappingDigest === mapping.scopeCellMappingDigest &&
+      scope.scopeDigest ===
+        computeDomainDigest(CAPSEC_SCOPE_DOMAIN, scope, ["scopeDigest"]),
+    "CapSec scope or companion digest mismatch",
+  );
+  return { scope, diff, mapping };
 }
 
 export function mappedEngineExecutionEvidenceDigest(evidence) {
@@ -250,9 +452,11 @@ export function portableRecipePlanDigest(recipe) {
 }
 
 export function portablePublicSurfaceExecutionDigest(artifact) {
-  return computeDomainDigest(PORTABLE_PUBLIC_SURFACE_EXECUTION_DOMAIN, artifact, [
-    "publicSurfaceExecutionDigest",
-  ]);
+  return computeDomainDigest(
+    PORTABLE_PUBLIC_SURFACE_EXECUTION_DOMAIN,
+    artifact,
+    ["publicSurfaceExecutionDigest"],
+  );
 }
 
 export function portablePublicSurfaceExecutionEvidenceDigest(execution) {
@@ -281,7 +485,9 @@ export function portableConformanceDigest(report) {
 }
 
 export function commandAttemptDigest(attempt) {
-  return computeDomainDigest(COMMAND_ATTEMPT_DOMAIN, attempt, ["attemptDigest"]);
+  return computeDomainDigest(COMMAND_ATTEMPT_DOMAIN, attempt, [
+    "attemptDigest",
+  ]);
 }
 
 function decodedStringVariants(value) {
@@ -348,15 +554,21 @@ function assertNoPublishedLocality(value, label = "$") {
 }
 
 function targetFamily(triple) {
-  const matching = Object.entries(FAMILY_TRIPLE_PATTERNS).filter(([, pattern]) =>
-    pattern.test(triple),
+  const matching = Object.entries(FAMILY_TRIPLE_PATTERNS).filter(
+    ([, pattern]) => pattern.test(triple),
   );
-  invariant(matching.length === 1, `unsupported or ambiguous target family: ${triple}`);
+  invariant(
+    matching.length === 1,
+    `unsupported or ambiguous target family: ${triple}`,
+  );
   return matching[0][0];
 }
 
 function assertCanonicalEvidenceReferences(references, label) {
-  invariant(Array.isArray(references) && references.length > 0, `${label} is empty`);
+  invariant(
+    Array.isArray(references) && references.length > 0,
+    `${label} is empty`,
+  );
   const canonical = [...references].sort((left, right) =>
     compareUtf8(
       canonicalJson([
@@ -390,9 +602,8 @@ function assertCanonicalEvidenceReferences(references, label) {
     `${label} repeats an attempt digest`,
   );
   invariant(
-    new Set(
-      references.map((reference) => reference.attemptRawContentDigest),
-    ).size === references.length,
+    new Set(references.map((reference) => reference.attemptRawContentDigest))
+      .size === references.length,
     `${label} repeats an attempt raw-content digest`,
   );
 }
@@ -439,7 +650,10 @@ function authorityForReport(authority, report) {
   const matches = authority.targets.filter(
     (entry) => canonicalJson(entry.target) === targetKey,
   );
-  invariant(matches.length === 1, "report has no unique independently derived target authority");
+  invariant(
+    matches.length === 1,
+    "report has no unique independently derived target authority",
+  );
   const [entry] = matches;
   const bindings = report.bindings;
   invariant(
@@ -449,14 +663,17 @@ function authorityForReport(authority, report) {
       same(entry.conformanceRunner, bindings.conformanceRunner) &&
       entry.vocabularyDigest === bindings.vocabularyDigest &&
       entry.registryDigest === bindings.registryDigest &&
-      entry.implementationManifestDigest === bindings.implementationManifestDigest &&
+      entry.implementationManifestDigest ===
+        bindings.implementationManifestDigest &&
       entry.fixtureCatalogDigest === bindings.fixtureCatalogDigest &&
+      entry.scopeDigest === bindings.scopeDigest &&
       entry.targetCellsRawContentDigest ===
         bindings.targetCellsRawContentDigest &&
       entry.recipeCatalogDigest === bindings.recipeCatalogDigest &&
       entry.recipeCatalogRawContentDigest ===
         bindings.recipeCatalogRawContentDigest &&
-      entry.publicSurfaceExecutionDigest === bindings.publicSurfaceExecutionDigest &&
+      entry.publicSurfaceExecutionDigest ===
+        bindings.publicSurfaceExecutionDigest &&
       entry.publicSurfaceExecutionRawContentDigest ===
         bindings.publicSurfaceExecutionRawContentDigest &&
       entry.outputDispositionEvidenceRawContentDigest ===
@@ -478,13 +695,19 @@ function validateMappedEvidence(evidence, authorityEntry, authority) {
   );
   assertCapsecStableId(evidence.phaseId, "mapped evidence phaseId");
   assertCapsecStableId(evidence.commandId, "mapped evidence commandId");
-  assertCanonicalScalarSet(evidence.target.features, "mapped evidence target.features");
+  assertCanonicalScalarSet(
+    evidence.target.features,
+    "mapped evidence target.features",
+  );
   assertCanonicalScalarSet(
     evidence.engine.target.structuralFeatures,
     "mapped evidence engine.target.structuralFeatures",
   );
   assertCanonicalScalarSet(evidence.fixtureIds, "mapped evidence fixtureIds");
-  assertCanonicalScalarSet(evidence.outputDigests, "mapped evidence outputDigests");
+  assertCanonicalScalarSet(
+    evidence.outputDigests,
+    "mapped evidence outputDigests",
+  );
   invariant(
     evidence.sourceRevision === authority.sourceRevision &&
       evidence.sourceTreeDigest === authority.sourceTreeDigest &&
@@ -587,8 +810,14 @@ function validateAttempt(attempt, evidence, authorityEntry) {
   );
   const paths = attempt.outputs.map((output) => output.path);
   const digests = attempt.outputs.map((output) => output.digest);
-  invariant(new Set(paths).size === paths.length, "supervisor attempt repeats an output path");
-  invariant(new Set(digests).size === digests.length, "supervisor attempt has ambiguous equal-digest output rows");
+  invariant(
+    new Set(paths).size === paths.length,
+    "supervisor attempt repeats an output path",
+  );
+  invariant(
+    new Set(digests).size === digests.length,
+    "supervisor attempt has ambiguous equal-digest output rows",
+  );
 }
 
 function validateFixtureArtifact(
@@ -623,13 +852,22 @@ function validateFixtureArtifact(
   );
 }
 
-function validateProcessRecord({ process, reference, report, authorityEntry, authority }) {
+function validateProcessRecord({
+  process,
+  reference,
+  report,
+  authorityEntry,
+  authority,
+}) {
   exactKeys(
     process,
     ["mappedEvidenceBytes", "commandAttemptBytes", "outputArtifactBytes"],
     "detached process record",
   );
-  invariant(Array.isArray(process.outputArtifactBytes), "detached process outputs must be an array");
+  invariant(
+    Array.isArray(process.outputArtifactBytes),
+    "detached process outputs must be an array",
+  );
   const evidence = parseValidated(
     process.mappedEvidenceBytes,
     "evidence",
@@ -637,7 +875,8 @@ function validateProcessRecord({ process, reference, report, authorityEntry, aut
   );
   invariant(
     evidence.evidenceDigest === reference.evidenceDigest &&
-      rawContentDigest(process.mappedEvidenceBytes) === reference.rawContentDigest,
+      rawContentDigest(process.mappedEvidenceBytes) ===
+        reference.rawContentDigest,
     "detached mapped-engine evidence does not match the report reference",
   );
   validateMappedEvidence(evidence, authorityEntry, authority);
@@ -686,8 +925,14 @@ function validateProcessRecord({ process, reference, report, authorityEntry, aut
     const outputRows = otherOutputs.filter(
       (output) => output.digest === digest && output.bytes === bytes.byteLength,
     );
-    invariant(outputRows.length === 1, "detached output bytes do not match one exact supervisor output row");
-    invariant(!outputByDigest.has(digest), "detached output artifacts repeat a raw digest");
+    invariant(
+      outputRows.length === 1,
+      "detached output bytes do not match one exact supervisor output row",
+    );
+    invariant(
+      !outputByDigest.has(digest),
+      "detached output artifacts repeat a raw digest",
+    );
     outputByDigest.set(digest, bytes);
   }
 
@@ -702,7 +947,10 @@ function validateProcessRecord({ process, reference, report, authorityEntry, aut
   const fixtureIds = [];
   for (const execution of reportExecutions) {
     const bytes = outputByDigest.get(execution.rawContentDigest);
-    invariant(bytes, `${execution.fixtureId}: report raw digest is not a supervisor output`);
+    invariant(
+      bytes,
+      `${execution.fixtureId}: report raw digest is not a supervisor output`,
+    );
     const fixture = parseValidated(
       bytes,
       "fixture",
@@ -725,13 +973,22 @@ function validateProcessRecord({ process, reference, report, authorityEntry, aut
   return { attempt, evidence };
 }
 
-function validateCompleteReport(report, mappedEvidenceReferences) {
-  invariant(report.status === "conformant", "only a conformant report may promote a target");
+function validateCompleteReport(report, mappedEvidenceReferences, scope) {
+  invariant(
+    report.status === "conformant",
+    "only a conformant report may promote a target",
+  );
   invariant(report.cells.length > 0, "conformant report has no target cells");
   const executionsByFixture = new Map();
   for (const execution of report.executions) {
-    invariant(!executionsByFixture.has(execution.fixtureId), "report repeats a fixture execution");
-    invariant(execution.outcome === "passed", `${execution.fixtureId}: non-passing execution cannot promote`);
+    invariant(
+      !executionsByFixture.has(execution.fixtureId),
+      "report repeats a fixture execution",
+    );
+    invariant(
+      execution.outcome === "passed",
+      `${execution.fixtureId}: non-passing execution cannot promote`,
+    );
     invariant(
       mappedEvidenceReferences.has(
         execution.mappedEngineExecutionEvidenceDigest,
@@ -749,36 +1006,77 @@ function validateCompleteReport(report, mappedEvidenceReferences) {
   );
   const required = new Set();
   const edgeIds = new Set();
+  const inScope = new Set(scope.expandedCellIds);
   let passedRows = 0;
   for (const cell of report.cells) {
     invariant(!edgeIds.has(cell.edgeId), "report repeats an exact target cell");
     edgeIds.add(cell.edgeId);
-    assertCanonicalScalarSet(cell.implementationBranchIds, `${cell.edgeId}.implementationBranchIds`);
-    assertCanonicalScalarSet(cell.enforcementBranchIds, `${cell.edgeId}.enforcementBranchIds`);
-    assertCanonicalScalarSet(cell.requiredFixtures, `${cell.edgeId}.requiredFixtures`);
-    assertCanonicalScalarSet(cell.passedFixtures, `${cell.edgeId}.passedFixtures`);
-    assertCanonicalScalarSet(cell.missingFixtures, `${cell.edgeId}.missingFixtures`);
-    assertCanonicalScalarSet(cell.failedFixtures, `${cell.edgeId}.failedFixtures`);
-    invariant(
-      cell.status === "conformant" &&
-        cell.missingFixtures.length === 0 &&
-        cell.failedFixtures.length === 0 &&
-        same(cell.passedFixtures, cell.requiredFixtures),
-      `${cell.edgeId}: incomplete cell cannot promote`,
+    assertCanonicalScalarSet(
+      cell.implementationBranchIds,
+      `${cell.edgeId}.implementationBranchIds`,
     );
-    for (const fixtureId of cell.requiredFixtures) {
-      required.add(fixtureId);
-      invariant(executionsByFixture.has(fixtureId), `${cell.edgeId}: required fixture has no execution`);
+    assertCanonicalScalarSet(
+      cell.enforcementBranchIds,
+      `${cell.edgeId}.enforcementBranchIds`,
+    );
+    assertCanonicalScalarSet(
+      cell.requiredFixtures,
+      `${cell.edgeId}.requiredFixtures`,
+    );
+    assertCanonicalScalarSet(
+      cell.passedFixtures,
+      `${cell.edgeId}.passedFixtures`,
+    );
+    assertCanonicalScalarSet(
+      cell.missingFixtures,
+      `${cell.edgeId}.missingFixtures`,
+    );
+    assertCanonicalScalarSet(
+      cell.failedFixtures,
+      `${cell.edgeId}.failedFixtures`,
+    );
+    invariant(
+      cell.missingFixtures.length === 0 && cell.failedFixtures.length === 0,
+      `${cell.edgeId}: failed or missing fixture cannot promote`,
+    );
+    if (inScope.has(cell.edgeId)) {
+      invariant(
+        cell.status === "conformant" &&
+          same(cell.passedFixtures, cell.requiredFixtures),
+        `${cell.edgeId}: in-scope cell is not conformant`,
+      );
+      for (const fixtureId of cell.requiredFixtures) {
+        required.add(fixtureId);
+        invariant(
+          executionsByFixture.has(fixtureId),
+          `${cell.edgeId}: required in-scope fixture has no execution`,
+        );
+      }
+      passedRows += cell.passedFixtures.length;
+    } else {
+      invariant(
+        cell.status === "uncertified" && cell.passedFixtures.length === 0,
+        `${cell.edgeId}: out-of-scope cell contributes authoritative evidence`,
+      );
     }
-    passedRows += cell.passedFixtures.length;
   }
+  invariant(
+    inScope.size > 0 &&
+      inScope.size <= edgeIds.size &&
+      [...inScope].every((edgeId) => edgeIds.has(edgeId)),
+    "scope expansion differs from report cell membership",
+  );
   const executionIds = [...executionsByFixture.keys()].sort(compareUtf8);
   const requiredIds = [...required].sort(compareUtf8);
-  invariant(same(executionIds, requiredIds), "report executions differ from exact required fixture membership");
+  invariant(
+    same(executionIds, requiredIds),
+    "report executions differ from exact required fixture membership",
+  );
   invariant(
     report.summary.cells === report.cells.length &&
-      report.summary.conformantCells === report.cells.length &&
+      report.summary.conformantCells === inScope.size &&
       report.summary.incompleteCells === 0 &&
+      report.summary.uncertifiedCells === report.cells.length - inScope.size &&
       report.summary.requiredFixtures === required.size &&
       report.summary.passedFixtures === required.size &&
       report.summary.missingFixtures === 0 &&
@@ -792,9 +1090,17 @@ function validateCompleteReport(report, mappedEvidenceReferences) {
   );
 }
 
-function validateTargetCells(targetCells, targetCellsBytes, report, authorityEntry, advertisements) {
+function validateTargetCells(
+  targetCells,
+  targetCellsBytes,
+  report,
+  authorityEntry,
+  advertisements,
+  scope,
+) {
   invariant(
-    rawContentDigest(targetCellsBytes) === authorityEntry.targetCellsRawContentDigest &&
+    rawContentDigest(targetCellsBytes) ===
+      authorityEntry.targetCellsRawContentDigest &&
       report.bindings.targetCellsRawContentDigest ===
         authorityEntry.targetCellsRawContentDigest &&
       advertisements.targetCellsRawContentDigest ===
@@ -805,7 +1111,10 @@ function validateTargetCells(targetCells, targetCellsBytes, report, authorityEnt
   const rows = targetCells.cells.filter(
     (cell) => canonicalJson(cell.target) === targetKey,
   );
-  invariant(rows.length === report.cells.length, "target-cell catalog membership differs from the report");
+  invariant(
+    rows.length === report.cells.length,
+    "target-cell catalog membership differs from the report",
+  );
   invariant(
     same(
       rows.map((row) => row.edgeId),
@@ -815,22 +1124,35 @@ function validateTargetCells(targetCells, targetCellsBytes, report, authorityEnt
   );
   const rowByEdge = new Map();
   for (const row of rows) {
-    invariant(!rowByEdge.has(row.edgeId), "target-cell catalog repeats an exact target edge");
+    invariant(
+      !rowByEdge.has(row.edgeId),
+      "target-cell catalog repeats an exact target edge",
+    );
     rowByEdge.set(row.edgeId, row);
   }
+  const inScope = new Set(scope.expandedCellIds);
+  invariant(
+    scope.expandedCellIds.every((edgeId) => rowByEdge.has(edgeId)),
+    "scope expansion names a non-inventory target cell",
+  );
   for (const cell of report.cells) {
     const row = rowByEdge.get(cell.edgeId);
     invariant(
       row &&
-        row.disposition !== "unsupported" &&
+        (inScope.has(cell.edgeId)
+          ? row.disposition !== "unsupported"
+          : row.disposition === "unsupported") &&
         same(row.implementationBranchIds, cell.implementationBranchIds) &&
-        same(row.fixtures, cell.requiredFixtures),
+        same(
+          row.fixtures,
+          inScope.has(cell.edgeId) ? cell.requiredFixtures : [],
+        ),
       `${cell.edgeId}: report cell differs from the exact target-cell catalog`,
     );
   }
 }
 
-function validateRecipeCatalog(bytes, report, authorityEntry) {
+function validateRecipeCatalog(bytes, report, authorityEntry, scope) {
   const recipeCatalog = parseValidated(
     bytes,
     "recipe",
@@ -848,13 +1170,23 @@ function validateRecipeCatalog(bytes, report, authorityEntry) {
   );
   const fixtureIds = recipeCatalog.recipes.map((recipe) => recipe.fixtureId);
   fixtureIds.forEach((fixtureId, index) =>
-    assertCapsecStableId(fixtureId, `recipeCatalog.recipes[${index}].fixtureId`),
+    assertCapsecStableId(
+      fixtureId,
+      `recipeCatalog.recipes[${index}].fixtureId`,
+    ),
   );
   assertCanonicalScalarSet(fixtureIds, "recipe catalog fixture IDs");
   const required = [
-    ...new Set(report.cells.flatMap((cell) => cell.requiredFixtures)),
+    ...new Set(
+      report.cells
+        .filter((cell) => scope.expandedCellIds.includes(cell.edgeId))
+        .flatMap((cell) => cell.requiredFixtures),
+    ),
   ].sort(compareUtf8);
-  invariant(same(fixtureIds, required), "recipe catalog differs from exact required fixture membership");
+  invariant(
+    same(fixtureIds, required),
+    "recipe catalog differs from exact required fixture membership",
+  );
   const reportExecutions = new Map(
     report.executions.map((execution) => [execution.fixtureId, execution]),
   );
@@ -865,21 +1197,20 @@ function validateRecipeCatalog(bytes, report, authorityEntry) {
     (recipe) => recipe.status === "internally-verified",
   );
   invariant(
-    recipeCatalog.recipes.every(
-      (recipe) => {
-        const statusAndExecutor =
-          recipe.status === "fully-executable" ||
-          (recipe.status === "internally-verified" &&
-            recipe.executor === INTERNAL_INVARIANT_EXECUTOR);
-        return (
-          statusAndExecutor &&
-          recipe.planDigest === portableRecipePlanDigest(recipe) &&
-          recipe.executor === reportExecutions.get(recipe.fixtureId)?.executor
-        );
-      },
-    ) &&
+    recipeCatalog.recipes.every((recipe) => {
+      const statusAndExecutor =
+        recipe.status === "fully-executable" ||
+        (recipe.status === "internally-verified" &&
+          recipe.executor === INTERNAL_INVARIANT_EXECUTOR);
+      return (
+        statusAndExecutor &&
+        recipe.planDigest === portableRecipePlanDigest(recipe) &&
+        recipe.executor === reportExecutions.get(recipe.fixtureId)?.executor
+      );
+    }) &&
       recipeCatalog.summary.requiredFixtures === required.length &&
-      recipeCatalog.summary.fullyExecutableFixtures === fullyExecutable.length &&
+      recipeCatalog.summary.fullyExecutableFixtures ===
+        fullyExecutable.length &&
       recipeCatalog.summary.internallyVerifiedFixtures ===
         internallyVerified.length &&
       recipeCatalog.summary.unresolvedFixtures === 0,
@@ -887,7 +1218,8 @@ function validateRecipeCatalog(bytes, report, authorityEntry) {
   );
   invariant(
     recipeCatalog.recipeCatalogDigest === authorityEntry.recipeCatalogDigest &&
-      recipeCatalog.recipeCatalogDigest === report.bindings.recipeCatalogDigest &&
+      recipeCatalog.recipeCatalogDigest ===
+        report.bindings.recipeCatalogDigest &&
       rawDigest === authorityEntry.recipeCatalogRawContentDigest &&
       rawDigest === report.bindings.recipeCatalogRawContentDigest,
     "recipe catalog raw or semantic identity differs from independent authority",
@@ -921,7 +1253,9 @@ function validatePublicSurfaceExecution(bytes, report, authorityEntry) {
         portablePublicSurfaceExecutionDigest(artifact),
     "public-surface execution semantic identity is invalid",
   );
-  const fixtureIds = artifact.executions.map((execution) => execution.fixtureId);
+  const fixtureIds = artifact.executions.map(
+    (execution) => execution.fixtureId,
+  );
   fixtureIds.forEach((fixtureId, index) =>
     assertCapsecStableId(
       fixtureId,
@@ -930,16 +1264,13 @@ function validatePublicSurfaceExecution(bytes, report, authorityEntry) {
   );
   assertCanonicalScalarSet(fixtureIds, "public-surface execution fixture IDs");
   const required = [
-    ...new Set(report.cells.flatMap((cell) => cell.requiredFixtures)),
+    ...new Set(report.executions.map((execution) => execution.fixtureId)),
   ].sort(compareUtf8);
   const reportExecutions = new Map(
     report.executions.map((execution) => [execution.fixtureId, execution]),
   );
   const publicRequired = report.executions
-    .filter(
-      (execution) =>
-        execution.executor !== INTERNAL_INVARIANT_EXECUTOR,
-    )
+    .filter((execution) => execution.executor !== INTERNAL_INVARIANT_EXECUTOR)
     .map((execution) => execution.fixtureId)
     .sort(compareUtf8);
   const internalRequiredCount = required.length - publicRequired.length;
@@ -968,7 +1299,7 @@ function validatePublicSurfaceExecution(bytes, report, authorityEntry) {
   );
   invariant(
     artifact.publicSurfaceExecutionDigest ===
-        authorityEntry.publicSurfaceExecutionDigest &&
+      authorityEntry.publicSurfaceExecutionDigest &&
       artifact.publicSurfaceExecutionDigest ===
         report.bindings.publicSurfaceExecutionDigest &&
       rawDigest === authorityEntry.publicSurfaceExecutionRawContentDigest &&
@@ -993,10 +1324,7 @@ function validateOutputDispositionEvidence(bytes, report, authorityEntry) {
       artifact.sourceRevision === report.bindings.sourceRevision &&
       artifact.sourceTreeDigest === report.bindings.sourceTreeDigest &&
       same(artifact.conformanceRunner, authorityEntry.conformanceRunner) &&
-      same(
-        artifact.conformanceRunner,
-        report.bindings.conformanceRunner,
-      ) &&
+      same(artifact.conformanceRunner, report.bindings.conformanceRunner) &&
       same(artifact.target, authorityEntry.target) &&
       targetFamily(artifact.target.triple) === authorityEntry.family &&
       same(artifact.engine, authorityEntry.engine),
@@ -1005,7 +1333,10 @@ function validateOutputDispositionEvidence(bytes, report, authorityEntry) {
   const observationKeys = artifact.observations.map(
     (observation) => observation.key,
   );
-  assertCanonicalScalarSet(observationKeys, "output-disposition observation keys");
+  assertCanonicalScalarSet(
+    observationKeys,
+    "output-disposition observation keys",
+  );
   invariant(
     artifact.summary.observations === artifact.observations.length &&
       artifact.observations.every(
@@ -1030,7 +1361,10 @@ function matchingCatalogEntry(catalog, key, schema, target, label) {
   const matches = catalog[label].filter(
     (entry) => canonicalJson(entry.target) === targetKey,
   );
-  invariant(matches.length === 1, `${label} catalog requires one exact target entry`);
+  invariant(
+    matches.length === 1,
+    `${label} catalog requires one exact target entry`,
+  );
   return matches[0];
 }
 
@@ -1068,7 +1402,12 @@ function validatePublicationJoins({
       attestation.sourceRevision === authority.sourceRevision &&
       attestation.sourceTreeDigest === authority.sourceTreeDigest &&
       attestation.portableArtifactId === authorityEntry.engine.artifactId &&
-      same(attestation.mappedEngineExecutionEvidence, bindings.mappedEngineExecutionEvidence) &&
+      attestation.scopeDigest === bindings.scopeDigest &&
+      attestation.scopeDigest === authorityEntry.scopeDigest &&
+      same(
+        attestation.mappedEngineExecutionEvidence,
+        bindings.mappedEngineExecutionEvidence,
+      ) &&
       attestation.recipeCatalogDigest === authorityEntry.recipeCatalogDigest &&
       attestation.recipeCatalogRawContentDigest ===
         authorityEntry.recipeCatalogRawContentDigest &&
@@ -1087,13 +1426,20 @@ function validatePublicationJoins({
       advertisement.sourceRevision === authority.sourceRevision &&
       advertisement.sourceTreeDigest === authority.sourceTreeDigest &&
       same(advertisement.engine, authorityEntry.engine) &&
-      same(advertisement.mappedEngineExecutionEvidence, bindings.mappedEngineExecutionEvidence) &&
+      advertisement.scopeDigest === bindings.scopeDigest &&
+      advertisement.scopeDigest === authorityEntry.scopeDigest &&
+      same(
+        advertisement.mappedEngineExecutionEvidence,
+        bindings.mappedEngineExecutionEvidence,
+      ) &&
       advertisement.vocabularyDigest === authorityEntry.vocabularyDigest &&
       advertisement.registryDigest === authorityEntry.registryDigest &&
       advertisement.implementationManifestDigest ===
         authorityEntry.implementationManifestDigest &&
-      advertisement.fixtureCatalogDigest === authorityEntry.fixtureCatalogDigest &&
-      advertisement.recipeCatalogDigest === authorityEntry.recipeCatalogDigest &&
+      advertisement.fixtureCatalogDigest ===
+        authorityEntry.fixtureCatalogDigest &&
+      advertisement.recipeCatalogDigest ===
+        authorityEntry.recipeCatalogDigest &&
       advertisement.recipeCatalogRawContentDigest ===
         authorityEntry.recipeCatalogRawContentDigest &&
       advertisement.publicSurfaceExecutionDigest ===
@@ -1123,19 +1469,32 @@ export function validatePortablePromotionV2(input) {
       "advertisementCatalogBytes",
       "targetCellsBytes",
       "recipeCatalogBytes",
+      "scopeArtifactBytes",
+      "scopeExpansionDiffBytes",
+      "scopeCellMappingBytes",
       "publicSurfaceExecutionBytes",
       "outputDispositionEvidenceBytes",
       "processes",
     ],
     "portable promotion validation input",
   );
-  invariant(Array.isArray(input.processes) && input.processes.length > 0, "portable promotion requires detached mapped evidence");
+  invariant(
+    Array.isArray(input.processes) && input.processes.length > 0,
+    "portable promotion requires detached mapped evidence",
+  );
 
   const authority = validateAuthority(
-    parseValidated(input.authorityBytes, "authority", "portable promotion authority"),
+    parseScopedSchemaExtension(
+      input.authorityBytes,
+      "authority",
+      "portable promotion authority",
+    ),
   );
-  const report = parseValidated(input.reportBytes, "report", "portable conformance report");
-  const attestations = parseValidated(
+  const report = parseScopedReport(
+    input.reportBytes,
+    "portable conformance report",
+  );
+  const attestations = parseScopedSchemaExtension(
     input.attestationCatalogBytes,
     "attestations",
     "portable target attestations",
@@ -1145,14 +1504,35 @@ export function validatePortablePromotionV2(input) {
     "advertisements",
     "portable target advertisements",
   );
-  const targetCells = parseValidated(input.targetCellsBytes, "targetCells", "target-cell catalog");
-  invariant(report.conformanceSchema === PORTABLE_CONFORMANCE_SCHEMA, "portable conformance report has the wrong schema");
-  assertCanonicalScalarSet(report.bindings.target.features, "report target.features");
+  const targetCells = parseValidated(
+    input.targetCellsBytes,
+    "targetCells",
+    "target-cell catalog",
+  );
+  invariant(
+    report.conformanceSchema === PORTABLE_CONFORMANCE_SCHEMA,
+    "portable conformance report has the wrong schema",
+  );
+  assertCanonicalScalarSet(
+    report.bindings.target.features,
+    "report target.features",
+  );
   assertCanonicalScalarSet(
     report.bindings.engine.target.structuralFeatures,
     "report engine.target.structuralFeatures",
   );
   const authorityEntry = authorityForReport(authority, report);
+  const scopeBundle = validatePortableScopeBundle({
+    scopeArtifactBytes: input.scopeArtifactBytes,
+    scopeExpansionDiffBytes: input.scopeExpansionDiffBytes,
+    scopeCellMappingBytes: input.scopeCellMappingBytes,
+    expectedTarget: authorityEntry.target,
+  });
+  invariant(
+    scopeBundle.scope.scopeDigest === report.bindings.scopeDigest &&
+      scopeBundle.scope.scopeDigest === authorityEntry.scopeDigest,
+    "scope artifact differs from report or independent authority",
+  );
   assertCanonicalEvidenceReferences(
     report.bindings.mappedEngineExecutionEvidence,
     "report bindings.mappedEngineExecutionEvidence",
@@ -1163,7 +1543,7 @@ export function validatePortablePromotionV2(input) {
       reference,
     ]),
   );
-  validateCompleteReport(report, references);
+  validateCompleteReport(report, references, scopeBundle.scope);
   invariant(
     input.processes.length === references.size,
     "detached mapped-evidence membership differs from the report",
@@ -1171,11 +1551,23 @@ export function validatePortablePromotionV2(input) {
   const seenEvidence = new Set();
   const processes = [];
   for (const process of input.processes) {
-    assertBytes(process?.mappedEvidenceBytes, "detached mapped-engine evidence");
-    const peek = parseJsonStrict(process.mappedEvidenceBytes, "detached mapped-engine evidence");
+    assertBytes(
+      process?.mappedEvidenceBytes,
+      "detached mapped-engine evidence",
+    );
+    const peek = parseJsonStrict(
+      process.mappedEvidenceBytes,
+      "detached mapped-engine evidence",
+    );
     const reference = references.get(peek?.evidenceDigest);
-    invariant(reference, "detached mapped-engine evidence is not referenced by the report");
-    invariant(!seenEvidence.has(reference.evidenceDigest), "detached mapped-engine evidence is duplicated");
+    invariant(
+      reference,
+      "detached mapped-engine evidence is not referenced by the report",
+    );
+    invariant(
+      !seenEvidence.has(reference.evidenceDigest),
+      "detached mapped-engine evidence is duplicated",
+    );
     seenEvidence.add(reference.evidenceDigest);
     processes.push(
       validateProcessRecord({
@@ -1187,7 +1579,10 @@ export function validatePortablePromotionV2(input) {
       }),
     );
   }
-  invariant(seenEvidence.size === references.size, "report references missing detached mapped-engine evidence");
+  invariant(
+    seenEvidence.size === references.size,
+    "report references missing detached mapped-engine evidence",
+  );
 
   validateTargetCells(
     targetCells,
@@ -1195,11 +1590,13 @@ export function validatePortablePromotionV2(input) {
     report,
     authorityEntry,
     advertisements,
+    scopeBundle.scope,
   );
   const recipeCatalog = validateRecipeCatalog(
     input.recipeCatalogBytes,
     report,
     authorityEntry,
+    scopeBundle.scope,
   );
   const publicSurfaceExecution = validatePublicSurfaceExecution(
     input.publicSurfaceExecutionBytes,
@@ -1227,6 +1624,9 @@ export function validatePortablePromotionV2(input) {
     publicSurfaceExecution,
     recipeCatalog,
     report,
+    scopeArtifact: scopeBundle.scope,
+    scopeCellMapping: scopeBundle.mapping,
+    scopeExpansionDiff: scopeBundle.diff,
     targetCells,
   };
 }

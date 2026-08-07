@@ -40,8 +40,13 @@ const EFFECTIVE_UID =
     : typeof process.getuid === "function"
       ? BigInt(process.getuid())
       : null;
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — the scope artifact and both companions are mandatory,
+// singleton members of the closed portable bundle graph.
 const CORE_NAMES = Object.freeze([
   "portable-promotion-authority",
+  "scope-artifact",
+  "scope-expansion-diff",
+  "scope-cell-mapping",
   "portable-conformance-report",
   "target-attestations",
   "target-advertisements",
@@ -139,14 +144,23 @@ function processGroups(files) {
       fixtureBytes: new Map(),
     };
     if (match[2] === "mapped-evidence") {
-      invariant(group.mappedEvidenceBytes === null, "duplicate mapped evidence member");
+      invariant(
+        group.mappedEvidenceBytes === null,
+        "duplicate mapped evidence member",
+      );
       group.mappedEvidenceBytes = file.bytes;
     } else if (match[2] === "command-attempt") {
-      invariant(group.commandAttemptBytes === null, "duplicate command-attempt member");
+      invariant(
+        group.commandAttemptBytes === null,
+        "duplicate command-attempt member",
+      );
       group.commandAttemptBytes = file.bytes;
     } else {
       const fixtureIndex = Number(match[3]);
-      invariant(!group.fixtureBytes.has(fixtureIndex), "duplicate fixture member");
+      invariant(
+        !group.fixtureBytes.has(fixtureIndex),
+        "duplicate fixture member",
+      );
       group.fixtureBytes.set(fixtureIndex, file.bytes);
     }
     groups.set(processIndex, group);
@@ -168,7 +182,9 @@ function processGroups(files) {
     );
     invariant(
       fixtureIndexes.length > 0 &&
-        fixtureIndexes.every((value, fixtureIndex) => value === fixtureIndex + 1),
+        fixtureIndexes.every(
+          (value, fixtureIndex) => value === fixtureIndex + 1,
+        ),
       `process ${index}: fixture numbering is empty or noncontiguous`,
     );
     return {
@@ -247,7 +263,9 @@ function parseManifest(manifestBytes, expectedSourceRevision) {
     logicalNames.push(file.logicalName);
   }
   invariant(
-    CORE_NAMES.every((logicalName, index) => logicalNames[index] === logicalName),
+    CORE_NAMES.every(
+      (logicalName, index) => logicalNames[index] === logicalName,
+    ),
     "portable bundle does not carry the exact ordered core logical members",
   );
   invariant(
@@ -303,7 +321,11 @@ export function validatePortablePromotionBundleGraph({
   );
   const supplied = new Map();
   for (const [index, member] of members.entries()) {
-    exactKeys(member, ["logicalName", "bytes"], `portable bundle member ${index}`);
+    exactKeys(
+      member,
+      ["logicalName", "bytes"],
+      `portable bundle member ${index}`,
+    );
     invariant(
       typeof member.logicalName === "string" &&
         LOGICAL_NAME_PATTERN.test(member.logicalName) &&
@@ -322,8 +344,14 @@ export function validatePortablePromotionBundleGraph({
   const files = manifest.files.map((file) => {
     const bytes = supplied.get(file.logicalName);
     totalBytes += bytes.byteLength;
-    invariant(totalBytes <= MAX_TOTAL_BYTES, "portable bundle exceeds its total byte bound");
-    invariant(bytes.byteLength === file.byteLength, `${file.logicalName}: byte length mismatch`);
+    invariant(
+      totalBytes <= MAX_TOTAL_BYTES,
+      "portable bundle exceeds its total byte bound",
+    );
+    invariant(
+      bytes.byteLength === file.byteLength,
+      `${file.logicalName}: byte length mismatch`,
+    );
     invariant(
       rawContentDigest(bytes) === file.rawContentDigest,
       `${file.logicalName}: raw-content digest mismatch`,
@@ -334,7 +362,10 @@ export function validatePortablePromotionBundleGraph({
   const expectedOrder = [...CORE_NAMES];
   processes.forEach((process, processIndex) => {
     const prefix = `process-${String(processIndex + 1).padStart(4, "0")}`;
-    expectedOrder.push(`${prefix}.mapped-evidence`, `${prefix}.command-attempt`);
+    expectedOrder.push(
+      `${prefix}.mapped-evidence`,
+      `${prefix}.command-attempt`,
+    );
     process.outputArtifactBytes.forEach((_bytes, fixtureIndex) => {
       expectedOrder.push(
         `${prefix}.fixture-${String(fixtureIndex + 1).padStart(6, "0")}`,
@@ -343,12 +374,17 @@ export function validatePortablePromotionBundleGraph({
   });
   invariant(
     logicalNames.length === expectedOrder.length &&
-      logicalNames.every((logicalName, index) => logicalName === expectedOrder[index]),
+      logicalNames.every(
+        (logicalName, index) => logicalName === expectedOrder[index],
+      ),
     "portable bundle member order or detached process groups are incomplete",
   );
   const byName = new Map(files.map((file) => [file.logicalName, file.bytes]));
   const validated = validatePortablePromotionV2({
     authorityBytes: byName.get("portable-promotion-authority"),
+    scopeArtifactBytes: byName.get("scope-artifact"),
+    scopeExpansionDiffBytes: byName.get("scope-expansion-diff"),
+    scopeCellMappingBytes: byName.get("scope-cell-mapping"),
     reportBytes: byName.get("portable-conformance-report"),
     attestationCatalogBytes: byName.get("target-attestations"),
     advertisementCatalogBytes: byName.get("target-advertisements"),
@@ -360,10 +396,13 @@ export function validatePortablePromotionBundleGraph({
   });
   invariant(
     validated.report.bindings?.sourceRevision === expectedSourceRevision &&
-      validated.report.bindings?.sourceTreeDigest === manifest.sourceTreeDigest &&
-      canonicalJson(validated.report.bindings?.target) === canonicalJson(manifest.target) &&
+      validated.report.bindings?.sourceTreeDigest ===
+        manifest.sourceTreeDigest &&
+      canonicalJson(validated.report.bindings?.target) ===
+        canonicalJson(manifest.target) &&
       (expectedPortableArtifactId === null ||
-        validated.report.bindings?.engine?.artifactId === expectedPortableArtifactId),
+        validated.report.bindings?.engine?.artifactId ===
+          expectedPortableArtifactId),
     "portable bundle validator, manifest, and checked identities differ",
   );
   return { bundleDigest: manifest.bundleDigest, manifest, validated };
@@ -378,7 +417,10 @@ export function verifyPortablePromotionBundleDirectory({
     "expected source revision must be one lowercase SHA-1 commit ID",
   );
   const absolute = path.resolve(directory);
-  invariant(fs.realpathSync(absolute) === absolute, "portable bundle directory is redirected");
+  invariant(
+    fs.realpathSync(absolute) === absolute,
+    "portable bundle directory is redirected",
+  );
   const directoryStatus = fs.lstatSync(absolute, { bigint: true });
   invariant(
     directoryStatus.isDirectory() && !directoryStatus.isSymbolicLink(),

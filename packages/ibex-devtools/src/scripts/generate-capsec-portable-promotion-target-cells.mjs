@@ -25,7 +25,11 @@ import {
   assertRecipeCatalogComplete,
   validateCurrentSourceRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
-import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
+import {
+  canonicalJson,
+  computeDomainDigest,
+  readJsonStrict,
+} from "./capsec-contract.mjs";
 import { portablePromotionJsonBytes } from "./capsec-portable-promotion-bundle.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 
@@ -60,25 +64,25 @@ function dispositionFor(edge, catalogRow) {
   return null;
 }
 
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — serialized `unsupported` is the exact uncertified
+// remainder; certified cells retain their source-derived disposition.
 export function derivePortablePromotionTargetCells({
   coverage,
   fixtureCatalog,
+  inScopeEdgeIds,
   target,
 }) {
   invariant(
     Array.isArray(coverage?.edges) &&
       Array.isArray(fixtureCatalog) &&
+      Array.isArray(inScopeEdgeIds) &&
       target &&
       typeof target === "object" &&
       !Array.isArray(target),
     "portable target-cell derivation inputs are malformed",
   );
-  const coverageById = new Map(
-    coverage.edges.map((edge) => [edge.id, edge]),
-  );
-  const catalogById = new Map(
-    fixtureCatalog.map((row) => [row.edgeId, row]),
-  );
+  const coverageById = new Map(coverage.edges.map((edge) => [edge.id, edge]));
+  const catalogById = new Map(fixtureCatalog.map((row) => [row.edgeId, row]));
   invariant(
     coverageById.size === coverage.edges.length &&
       catalogById.size === fixtureCatalog.length &&
@@ -86,14 +90,23 @@ export function derivePortablePromotionTargetCells({
     "portable target-cell derivation has duplicate or incomplete edge membership",
   );
   const edgeIds = [...coverageById.keys()].sort(compareUtf8);
+  const scopedEdgeIds = canonicalSet(inScopeEdgeIds);
   invariant(
-    edgeIds.every((edgeId) => catalogById.has(edgeId)),
+    edgeIds.every((edgeId) => catalogById.has(edgeId)) &&
+      scopedEdgeIds.length > 0 &&
+      scopedEdgeIds.length === inScopeEdgeIds.length &&
+      canonicalJson(scopedEdgeIds) === canonicalJson(inScopeEdgeIds) &&
+      scopedEdgeIds.every((edgeId) => coverageById.has(edgeId)),
     "portable target-cell fixture catalog differs from coverage membership",
   );
+  const inScope = new Set(scopedEdgeIds);
   const cells = edgeIds.map((edgeId) => {
     const edge = coverageById.get(edgeId);
     const catalogRow = catalogById.get(edgeId);
-    const disposition = dispositionFor(edge, catalogRow);
+    const certified = inScope.has(edgeId);
+    const disposition = certified
+      ? dispositionFor(edge, catalogRow)
+      : "unsupported";
     invariant(
       disposition !== null,
       `${edgeId}: reviewed source closure has no promotable target disposition`,
@@ -101,15 +114,17 @@ export function derivePortablePromotionTargetCells({
     const implementationBranchIds = canonicalSet(
       catalogRow.implementationBranchIds,
     );
-    const fixtures = canonicalSet(catalogRow.requiredFixtures);
+    const fixtures = certified ? canonicalSet(catalogRow.requiredFixtures) : [];
     invariant(
-      fixtures.length > 0,
+      !certified || fixtures.length > 0,
       `${edgeId}: promotable target cell has no required fixture`,
     );
     invariant(
-      disposition === "absent"
-        ? implementationBranchIds.length === 0
-        : implementationBranchIds.length > 0,
+      disposition === "unsupported"
+        ? true
+        : disposition === "absent"
+          ? implementationBranchIds.length === 0
+          : implementationBranchIds.length > 0,
       `${edgeId}: target disposition and implementation membership disagree`,
     );
     return {
@@ -118,8 +133,9 @@ export function derivePortablePromotionTargetCells({
       disposition,
       implementationBranchIds,
       fixtures,
-      rationale:
-        "Source-derived physical-promotion candidate; authority requires complete v2 execution evidence.",
+      rationale: certified
+        ? "Source-derived scoped physical-promotion candidate; authority requires complete execution evidence."
+        : "Outside the certified scope; no conformance claim is made.",
     };
   });
   return {
@@ -130,7 +146,12 @@ export function derivePortablePromotionTargetCells({
 }
 
 function parseArguments(argv) {
-  const allowed = new Set(["--target", "--recipe-catalog", "--output"]);
+  const allowed = new Set([
+    "--target",
+    "--scope",
+    "--recipe-catalog",
+    "--output",
+  ]);
   const values = new Map();
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
@@ -143,7 +164,8 @@ function parseArguments(argv) {
     invariant(!values.has(name), `duplicate option ${name}`);
     values.set(name, value);
   }
-  for (const name of allowed) invariant(values.has(name), `missing option ${name}`);
+  for (const name of allowed)
+    invariant(values.has(name), `missing option ${name}`);
   return values;
 }
 
@@ -218,11 +240,24 @@ function writeExclusive(filePath, value) {
 async function main(argv) {
   const options = parseArguments(argv);
   const initial = sourceState();
-  invariant(initial.dirty === "", "portable target-cell derivation requires a clean checkout");
+  invariant(
+    initial.dirty === "",
+    "portable target-cell derivation requires a clean checkout",
+  );
   const capsecRoot = path.join(repoRoot, "capsec");
   const target = selectCandidateTarget(
     readJsonStrict(path.join(capsecRoot, "registry/policy-rules.json")),
     options.get("--target"),
+  );
+  const scope = readJsonStrict(path.resolve(repoRoot, options.get("--scope")));
+  invariant(
+    scope?.scopeSchema === "ibex/capsec-scope/1" &&
+      scope.profile === PROFILE &&
+      same(scope.target, target) &&
+      Array.isArray(scope.expandedCellIds) &&
+      scope.scopeDigest ===
+        computeDomainDigest("ibex:capsec:scope:1", scope, ["scopeDigest"]),
+    "portable target-cell scope artifact is malformed or names another target",
   );
   const coverage = readJsonStrict(
     path.join(capsecRoot, "registry/coverage-edges.json"),
@@ -264,6 +299,7 @@ async function main(argv) {
   const candidate = derivePortablePromotionTargetCells({
     coverage,
     fixtureCatalog,
+    inScopeEdgeIds: scope.expandedCellIds,
     target,
   });
   const final = sourceState();
