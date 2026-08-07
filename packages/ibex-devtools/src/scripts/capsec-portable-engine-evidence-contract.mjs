@@ -437,10 +437,41 @@ export function portableExecutionBindingDigest(bindings) {
   });
 }
 
-export function portableRecipeCatalogDigest(catalog) {
-  return computeDomainDigest(PORTABLE_RECIPE_CATALOG_DOMAIN, catalog, [
-    "recipeCatalogDigest",
-  ]);
+// M28 transitivity rule: execution-plan bindings remain closed and carry no
+// direct scopeDigest. Their existing recipeCatalogDigest instead commits the
+// independently recomputed scope digest through this scoped digest envelope.
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — M28 permits transitive scope carriage only when reachability is machine-checked.
+export function portableRecipeCatalogDigest(catalog, scopeDigest) {
+  assertScopeDigest(scopeDigest, "portable recipe catalog scopeDigest");
+  const catalogWithoutSelfDigest = structuredClone(catalog);
+  delete catalogWithoutSelfDigest.recipeCatalogDigest;
+  return computeDomainDigest(PORTABLE_RECIPE_CATALOG_DOMAIN, {
+    scopeDigest,
+    recipeCatalog: catalogWithoutSelfDigest,
+  });
+}
+
+export function assertPortableExecutionBindingScopeReachable({
+  bindingDigest,
+  bindings,
+  recipeCatalog,
+  scopeArtifact,
+}) {
+  const recomputedScopeDigest = computeDomainDigest(
+    CAPSEC_SCOPE_DOMAIN,
+    scopeArtifact,
+    ["scopeDigest"],
+  );
+  invariant(
+    scopeArtifact?.scopeSchema === CAPSEC_SCOPE_SCHEMA &&
+      scopeArtifact.scopeDigest === recomputedScopeDigest &&
+      recipeCatalog?.recipeCatalogDigest ===
+        portableRecipeCatalogDigest(recipeCatalog, recomputedScopeDigest) &&
+      bindings?.recipeCatalogDigest === recipeCatalog.recipeCatalogDigest &&
+      bindingDigest === portableExecutionBindingDigest(bindings),
+    "scope artifact is not digest-reachable from the portable execution binding",
+  );
+  return true;
 }
 
 export function portableRecipePlanDigest(recipe) {
@@ -1165,7 +1196,7 @@ function validateRecipeCatalog(bytes, report, authorityEntry, scope) {
       same(recipeCatalog.target, authorityEntry.target) &&
       targetFamily(recipeCatalog.target.triple) === authorityEntry.family &&
       recipeCatalog.recipeCatalogDigest ===
-        portableRecipeCatalogDigest(recipeCatalog),
+        portableRecipeCatalogDigest(recipeCatalog, scope.scopeDigest),
     "recipe catalog semantic identity is invalid",
   );
   const fixtureIds = recipeCatalog.recipes.map((recipe) => recipe.fixtureId);
@@ -1598,6 +1629,14 @@ export function validatePortablePromotionV2(input) {
     authorityEntry,
     scopeBundle.scope,
   );
+  for (const execution of report.executions) {
+    assertPortableExecutionBindingScopeReachable({
+      bindingDigest: execution.bindingDigest,
+      bindings: report.bindings,
+      recipeCatalog,
+      scopeArtifact: scopeBundle.scope,
+    });
+  }
   const publicSurfaceExecution = validatePublicSurfaceExecution(
     input.publicSurfaceExecutionBytes,
     report,

@@ -366,14 +366,20 @@ export function derivePortableRecipeCatalogV2({
   richRecipeCatalog,
   target,
   expectedFixtureIds,
+  scopeDigest,
+  expandedEdgeIds,
 }) {
   validateRecipeCatalog(richRecipeCatalog, {
     target,
     expectedFixtureIds,
+    scopeDigest,
+    expandedEdgeIds,
   });
   assertRecipeCatalogComplete(richRecipeCatalog, {
     target,
     expectedFixtureIds,
+    scopeDigest,
+    expandedEdgeIds,
   });
   const recipes = richRecipeCatalog.recipes.map((richRecipe) => {
     const internallyVerified = richRecipe.status === "internally-verified";
@@ -405,7 +411,10 @@ export function derivePortableRecipeCatalogV2({
     },
     recipeCatalogDigest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   };
-  catalog.recipeCatalogDigest = portableRecipeCatalogDigest(catalog);
+  catalog.recipeCatalogDigest = portableRecipeCatalogDigest(
+    catalog,
+    scopeDigest,
+  );
   return catalog;
 }
 
@@ -625,7 +634,7 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
   invariant(
     recipeCatalog.recipeCatalogSchema === "ibex/capsec-executable-recipes/2" &&
       recipeCatalog.recipeCatalogDigest ===
-        portableRecipeCatalogDigest(recipeCatalog) &&
+        portableRecipeCatalogDigest(recipeCatalog, scopeDigest) &&
       same(recipeCatalog.target, source.target) &&
       same(
         recipeCatalog.recipes.map((row) => row.fixtureId),
@@ -914,6 +923,8 @@ export function preparePortablePromotionV2({
     richRecipeCatalog,
     target: source.target,
     expectedFixtureIds: fixtures,
+    scopeDigest: scopeBundle.scope.scopeDigest,
+    expandedEdgeIds: inScopeEdgeIds,
   });
   const recipeCatalogBytes = exactJsonBytes(recipeCatalog);
   const publicSurfaceExecution = derivePortablePublicSurfaceExecutionV2({

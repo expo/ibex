@@ -7,7 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
-import { computeRecipeCatalogDigest } from "./capsec-conformance-recipes.mjs";
+import {
+  bindRecipeCatalogScope,
+  computeRecipeCatalogDigest,
+} from "./capsec-conformance-recipes.mjs";
 import { computeDomainDigest, parseJsonStrict } from "./capsec-contract.mjs";
 import { conformanceRunnerBindingDigest } from "./capsec-conformance-runner-binding.mjs";
 import {
@@ -72,6 +75,21 @@ function target() {
       "native-compartments",
       "native-lockdown",
     ],
+  };
+}
+
+function bindRichRecipeCatalogScope(recipeCatalog) {
+  const expandedEdgeIds = [
+    ...new Set(recipeCatalog.recipes.flatMap((recipe) => recipe.edgeIds)),
+  ].sort();
+  const scopeDigest = digest("S");
+  return {
+    expandedEdgeIds,
+    scopeDigest,
+    catalog: bindRecipeCatalogScope(recipeCatalog, {
+      scopeDigest,
+      expandedEdgeIds,
+    }),
   };
 }
 
@@ -255,8 +273,12 @@ function derivedPreparation() {
     },
     recipeCatalogDigest: digest("A"),
   };
+  const scopeDigest = parseJsonStrict(
+    scoped.scopeArtifactBytes,
+    "test scope artifact",
+  ).scopeDigest;
   recipeCatalog.recipeCatalogDigest =
-    portableRecipeCatalogDigest(recipeCatalog);
+    portableRecipeCatalogDigest(recipeCatalog, scopeDigest);
   const recipeCatalogBytes = exactBytes(recipeCatalog);
   const publicExecution = {
     fixtureId: closure.fixtureId,
@@ -847,7 +869,7 @@ describe("rich-to-portable projections", () => {
       status: "fully-executable",
       residualReasons: [],
     };
-    const richRecipes = {
+    let richRecipes = {
       recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
       profile: "ibex/capsec/1",
       target: target(),
@@ -864,10 +886,14 @@ describe("rich-to-portable projections", () => {
       recipeCatalogDigest: digest("A"),
     };
     richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
+    const scopeBinding = bindRichRecipeCatalogScope(richRecipes);
+    richRecipes = scopeBinding.catalog;
     const recipes = derivePortableRecipeCatalogV2({
       richRecipeCatalog: richRecipes,
       target: target(),
       expectedFixtureIds: [fixtureId],
+      scopeDigest: scopeBinding.scopeDigest,
+      expandedEdgeIds: scopeBinding.expandedEdgeIds,
     });
     const recipeBytes = exactBytes(recipes);
     const publicSurface = derivePortablePublicSurfaceExecutionV2({
@@ -944,7 +970,7 @@ describe("rich-to-portable projections", () => {
         "callback-invariant-attribution-missing-deny-probe-not-authored",
       ],
     };
-    const richRecipes = {
+    let richRecipes = {
       recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
       profile: "ibex/capsec/1",
       target: target(),
@@ -966,10 +992,14 @@ describe("rich-to-portable projections", () => {
       recipeCatalogDigest: digest("A"),
     };
     richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
+    const scopeBinding = bindRichRecipeCatalogScope(richRecipes);
+    richRecipes = scopeBinding.catalog;
     const recipes = derivePortableRecipeCatalogV2({
       richRecipeCatalog: richRecipes,
       target: target(),
       expectedFixtureIds: [publicFixtureId, internalFixtureId],
+      scopeDigest: scopeBinding.scopeDigest,
+      expandedEdgeIds: scopeBinding.expandedEdgeIds,
     });
     const publicSurface = derivePortablePublicSurfaceExecutionV2({
       richPublicSurfaceExecution: {
@@ -1043,7 +1073,7 @@ describe("rich-to-portable projections", () => {
       status: "fully-executable",
       residualReasons: [],
     };
-    const richRecipes = {
+    let richRecipes = {
       recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
       profile: "ibex/capsec/1",
       target: target(),
@@ -1060,10 +1090,14 @@ describe("rich-to-portable projections", () => {
       recipeCatalogDigest: digest("A"),
     };
     richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
+    const scopeBinding = bindRichRecipeCatalogScope(richRecipes);
+    richRecipes = scopeBinding.catalog;
     const recipes = derivePortableRecipeCatalogV2({
       richRecipeCatalog: richRecipes,
       target: target(),
       expectedFixtureIds: [fixtureId],
+      scopeDigest: scopeBinding.scopeDigest,
+      expandedEdgeIds: scopeBinding.expandedEdgeIds,
     });
     const recipeBytes = exactBytes(recipes);
     expect(() =>
@@ -1090,13 +1124,19 @@ describe("rich-to-portable projections", () => {
       }),
     ).toThrow(/executor differs/u);
 
-    richRecipe.publicSurfaceProbe.command = ["cargo", "test", "unreviewed"];
+    richRecipes.recipes[0].publicSurfaceProbe.command = [
+      "cargo",
+      "test",
+      "unreviewed",
+    ];
     richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
     expect(() =>
       derivePortableRecipeCatalogV2({
         richRecipeCatalog: richRecipes,
         target: target(),
         expectedFixtureIds: [fixtureId],
+        scopeDigest: scopeBinding.scopeDigest,
+        expandedEdgeIds: scopeBinding.expandedEdgeIds,
       }),
     ).toThrow(/no reviewed executor/u);
   });
