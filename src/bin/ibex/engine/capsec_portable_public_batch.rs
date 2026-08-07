@@ -8,12 +8,14 @@ use std::io::Write as _;
 
 const PLAN_ENV: &str = "IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN";
 const MAPPED_OUTPUT_ENV: &str = "IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT";
-const SUPERVISOR_COMMAND_IDENTITY_ENV: &str =
-    "IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST";
-const PORTABLE_FIXTURE_EVIDENCE_DOMAIN: &str =
-    "ibex:capsec:portable-fixture-evidence:1";
-const PORTABLE_EXECUTION_BINDING_DOMAIN: &str =
-    "ibex:capsec:portable-execution-binding:1";
+const SUPERVISOR_COMMAND_IDENTITY_ENV: &str = "IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST";
+const PORTABLE_FIXTURE_EVIDENCE_DOMAIN: &str = "ibex:capsec:portable-fixture-evidence:1";
+const PORTABLE_EXECUTION_BINDING_DOMAIN: &str = "ibex:capsec:portable-execution-binding:1";
+// Scope remains transitively bound through the recipe catalog. Keep the
+// strict execution-plan surface frozen while making the transitive carrier an
+// explicit parser requirement.
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — A10 #5 / M28.
+const PORTABLE_SCOPE_TRANSITIVE_BINDING_KEY: &str = "recipeCatalogDigest";
 const MAPPED_ENGINE_EXECUTION_EVIDENCE_DOMAIN: &str =
     "ibex:capsec:mapped-engine-execution-evidence:1";
 
@@ -44,7 +46,10 @@ fn domain_digest(value: &serde_json::Value, domain: &str, omit: &[&str]) -> Stri
     capsec_semantics::digest::compute_domain_digest(
         domain,
         value,
-        &omit.iter().map(|field| (*field).to_owned()).collect::<Vec<_>>(),
+        &omit
+            .iter()
+            .map(|field| (*field).to_owned())
+            .collect::<Vec<_>>(),
     )
     .unwrap_or_else(|error| panic!("compute {domain} digest: {error}"))
 }
@@ -201,6 +206,13 @@ fn load_plan(
             "outputDispositionEvidenceRawContentDigest",
         ],
         "portable public-batch bindings",
+    );
+    assert!(
+        bindings
+            .get(PORTABLE_SCOPE_TRANSITIVE_BINDING_KEY)
+            .is_some()
+            && bindings.get("scopeDigest").is_none(),
+        "portable execution bindings keep scope transitive through recipeCatalogDigest"
     );
     assert_eq!(bindings["target"]["triple"], compiled_target_triple());
     let engine = HermesEngine::loaded_engine_portable_identity()

@@ -51,6 +51,7 @@ pub struct SemanticIdentity {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetArmState {
     CompleteAdvertised,
+    ScopedAdvertised,
     Incomplete,
     Unadvertised,
 }
@@ -226,7 +227,10 @@ impl VerifiedDecisionContext {
         {
             return arm_refused("loaded profile or semantic-core identity is unknown");
         }
-        if !matches!(inputs.target, TargetArmState::CompleteAdvertised) {
+        if !matches!(
+            inputs.target,
+            TargetArmState::CompleteAdvertised | TargetArmState::ScopedAdvertised
+        ) {
             return arm_refused("target is incomplete or unadvertised");
         }
         validate_authority_state(&inputs.loaded_identity, &definitions, &authority)?;
@@ -1930,6 +1934,43 @@ mod tests {
             authority,
             path_canonicalizers,
         )
+    }
+
+    #[test]
+    fn scoped_arm_marker_preserves_incomplete_gate_semantics() {
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<TargetArmState>();
+
+        let authority = empty_authority();
+        let identity = identity();
+        let scoped = VerifiedDecisionContext::arm_with_path_canonicalizers(
+            ArmInputs {
+                expected_identity: identity.clone(),
+                loaded_identity: identity,
+                target: TargetArmState::ScopedAdvertised,
+                structure_valid: true,
+            },
+            definitions(),
+            authority,
+            test_path_canonicalizers(&empty_authority()),
+        )
+        .unwrap();
+        let occurrence = env_occurrence();
+        let mut incomplete = gate();
+        incomplete.target_cell = TargetCellDisposition::Incomplete;
+        let decision = evaluate_decision_set(
+            &scoped,
+            &set_from(&occurrence),
+            &[incomplete],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::RefuseArming);
+        assert_eq!(
+            decision.evidence[0].reason,
+            DecisionReason::TargetCellIncomplete
+        );
     }
 
     #[test]

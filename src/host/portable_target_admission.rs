@@ -1,7 +1,7 @@
 //! Production admission for portable-engine CapSec target advertisements.
 //!
 //! This module deliberately keeps the three authorities separate: checked
-//! publication bytes select one v2 target row, the build-authenticated A/P/C
+//! publication bytes select one v3 target row, the build-authenticated A/P/C
 //! marker opens that row, and fresh process-local reconstruction proves the
 //! engine that is actually mapped. None of the mapped identity is serialized
 //! into the publication.
@@ -10,7 +10,7 @@
 //! open production; A and later descendants remain closed.
 //! @ref LLP 0035#runtime-identity-split — portable equality and an independent
 //! mapped-instance proof are both required at Host startup.
-//! @ref LLP 0035#reports-and-advertisements — v2 advertisements publish the
+//! @ref LLP 0035#reports-and-advertisements — advertisements publish the
 //! portable identity and detached mapped-evidence references, never locality.
 
 use crate::engine::portable_identity::{
@@ -27,12 +27,15 @@ use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 const ADVERTISEMENT_SCHEMA_V1: &str = "ibex/capsec-target-advertisements/1";
-const ADVERTISEMENT_SCHEMA_V2: &str = "ibex/capsec-target-advertisements/2";
+const ADVERTISEMENT_SCHEMA_V3: &str = "ibex/capsec-target-advertisements/3";
 const CAPSEC_PROFILE: &str = "ibex/capsec/1";
-const PROMOTION_ADMISSION_SCHEMA: &str = "ibex/portable-engine-checked-promotion-admission/1";
-const PROMOTION_ADMISSION_DOMAIN: &str = "ibex.portable-engine-checked-promotion-admission.v1";
-const REPORT_SCHEMA_V2: &str = "ibex/capsec-conformance/2";
-const REPORT_DOMAIN_V2: &str = "ibex:capsec:conformance:2";
+const PROMOTION_ADMISSION_SCHEMA: &str = "ibex/portable-engine-checked-promotion-admission/2";
+const PROMOTION_ADMISSION_DOMAIN: &str = "ibex.portable-engine-checked-promotion-admission.v2";
+const REPORT_SCHEMA_V3: &str = "ibex/capsec-conformance/3";
+const REPORT_DOMAIN_V3: &str = "ibex:capsec:conformance:3";
+const SCOPE_SCHEMA_V1: &str = "ibex/capsec-scope/1";
+const SCOPE_DOMAIN_V1: &str = "ibex:capsec:scope:1";
+const SCOPE_GENESIS: &str = "genesis";
 const MAX_IJSON_INTEGER: u64 = 9_007_199_254_740_991;
 const CHECKED_IMPLEMENTATION_MANIFEST_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -44,6 +47,161 @@ const CHECKED_IMPLEMENTATION_MANIFEST_JSON: &str = include_str!(concat!(
 struct AdvertisementTarget {
     triple: String,
     features: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ScopeIntensionalDefinition {
+    capability_families: Vec<String>,
+    surface_kinds: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ScopeClosureEdge {
+    from_edge_id: String,
+    to_edge_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CapsecScopeArtifact {
+    schema: String,
+    profile: String,
+    target: AdvertisementTarget,
+    intensional_definition: ScopeIntensionalDefinition,
+    expanded_cells: Vec<String>,
+    closure_edges: Vec<ScopeClosureEdge>,
+    predecessor_scope_digest: String,
+    expansion_diff_digest: Digest,
+    cell_mapping_digest: Digest,
+    scope_digest: Digest,
+}
+
+/// Host-only cell posture retained in the admitted scoped aggregate.
+///
+/// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — uncertified is
+/// a host admission fact and projects to the unchanged typed `Incomplete`
+/// disposition only at Host's single projection funnel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum HostCellDisposition {
+    Certified(TargetCellDisposition),
+    Uncertified,
+}
+
+/// The inseparable output of scoped report admission.
+///
+/// Its fields and constructor stay private to this module. `Host` can consume
+/// the value and use these read-only projections, but cannot mint or splice a
+/// scope identity, expansion, and disposition map itself.
+/// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — Option B makes
+/// this aggregate the sole runtime authority for scope introspection and gate
+/// projection; the armed snapshot carries no scope identity.
+#[derive(Debug)]
+pub(super) struct AdmittedScopedTargetCells {
+    scope_digest: Digest,
+    predecessor_scope_digest: String,
+    expanded_cells: BTreeSet<String>,
+    dispositions: BTreeMap<String, HostCellDisposition>,
+    uncertified_remainder: usize,
+}
+
+impl AdmittedScopedTargetCells {
+    fn new(
+        scope_digest: Digest,
+        predecessor_scope_digest: String,
+        expanded_cells: BTreeSet<String>,
+        dispositions: BTreeMap<String, HostCellDisposition>,
+    ) -> Result<Self> {
+        let inventory = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS;
+        let exhaustive = dispositions.len() == inventory.len()
+            && inventory
+                .iter()
+                .all(|edge| dispositions.contains_key(*edge));
+        let expansion_is_exact = !expanded_cells.is_empty()
+            && expanded_cells
+                .iter()
+                .all(|edge| inventory.binary_search(&edge.as_str()).is_ok());
+        let predecessor_is_valid = predecessor_scope_digest == SCOPE_GENESIS
+            || Digest::new(&predecessor_scope_digest).is_ok();
+        let partition_matches = dispositions.iter().all(|(edge, disposition)| {
+            matches!(
+                (expanded_cells.contains(edge), disposition),
+                (
+                    true,
+                    HostCellDisposition::Certified(
+                        TargetCellDisposition::Complete | TargetCellDisposition::Closed
+                    )
+                ) | (false, HostCellDisposition::Uncertified)
+            )
+        });
+        if !exhaustive || !expansion_is_exact || !predecessor_is_valid || !partition_matches {
+            return Err(refused(
+                "admitted scoped target cells do not exhaustively match their carried expansion",
+            ));
+        }
+        let uncertified_remainder = dispositions
+            .values()
+            .filter(|disposition| matches!(disposition, HostCellDisposition::Uncertified))
+            .count();
+        Ok(Self {
+            scope_digest,
+            predecessor_scope_digest,
+            expanded_cells,
+            dispositions,
+            uncertified_remainder,
+        })
+    }
+
+    pub(super) fn scope_digest(&self) -> &Digest {
+        &self.scope_digest
+    }
+
+    pub(super) fn disposition(&self, edge: &str) -> Option<HostCellDisposition> {
+        self.dispositions.get(edge).copied()
+    }
+
+    pub(super) fn uncertified_remainder(&self) -> usize {
+        self.uncertified_remainder
+    }
+
+    pub(super) fn uncertified_edge_ids(&self) -> impl Iterator<Item = &str> {
+        self.dispositions.iter().filter_map(|(edge, disposition)| {
+            matches!(disposition, HostCellDisposition::Uncertified).then_some(edge.as_str())
+        })
+    }
+
+    pub(super) fn is_coherent(&self) -> bool {
+        let inventory = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS;
+        (self.predecessor_scope_digest == SCOPE_GENESIS
+            || Digest::new(&self.predecessor_scope_digest).is_ok())
+            && !self.expanded_cells.is_empty()
+            && self.dispositions.len() == inventory.len()
+            && inventory
+                .iter()
+                .all(|edge| self.dispositions.contains_key(*edge))
+            && self
+                .expanded_cells
+                .iter()
+                .all(|edge| inventory.binary_search(&edge.as_str()).is_ok())
+            && self.uncertified_remainder
+                == self
+                    .dispositions
+                    .values()
+                    .filter(|disposition| matches!(disposition, HostCellDisposition::Uncertified))
+                    .count()
+            && self.dispositions.iter().all(|(edge, disposition)| {
+                matches!(
+                    (self.expanded_cells.contains(edge), disposition),
+                    (
+                        true,
+                        HostCellDisposition::Certified(
+                            TargetCellDisposition::Complete | TargetCellDisposition::Closed
+                        )
+                    ) | (false, HostCellDisposition::Uncertified)
+                )
+            })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
@@ -74,6 +232,7 @@ pub(super) struct TargetAdvertisement {
     public_surface_execution_digest: Digest,
     public_surface_execution_raw_content_digest: Digest,
     output_disposition_evidence_raw_content_digest: Digest,
+    scope_digest: Digest,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,10 +267,18 @@ struct CheckedPromotionAdmission {
     source_revision: String,
     promotion_topic_revision: Option<String>,
     source_tree_object_id: Option<String>,
-    target_triple: String,
+    target: AdvertisementTarget,
     portable_artifact_id: Digest,
     admission_digest: Option<Digest>,
+    admitted_scope_digest: Option<Digest>,
+    predecessor_scope_digest: Option<String>,
     verification_digest: Digest,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedPromotionScopeAnchor {
+    admitted_scope_digest: Digest,
+    predecessor_scope_digest: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -145,6 +312,7 @@ struct ReportBindings {
     target_cells_raw_content_digest: Digest,
     output_disposition_evidence_raw_content_digest: Digest,
     mapped_engine_execution_evidence: Vec<MappedEvidenceReference>,
+    scope_digest: Digest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -153,6 +321,7 @@ struct ReportSummary {
     cells: u64,
     conformant_cells: u64,
     incomplete_cells: u64,
+    uncertified_cells: u64,
     required_fixtures: u64,
     passed_fixtures: u64,
     missing_fixtures: u64,
@@ -253,6 +422,11 @@ fn validate_target(target: &AdvertisementTarget, label: &str) -> Result<()> {
     if !valid_portable_target_triple(&target.triple) {
         return Err(invalid(format!(
             "{label}.triple is unsupported or malformed"
+        )));
+    }
+    if target.features.is_empty() {
+        return Err(invalid(format!(
+            "{label}.features is not a non-empty canonical tuple component"
         )));
     }
     for feature in &target.features {
@@ -522,11 +696,11 @@ fn validate_advertisement(advertisement: &TargetAdvertisement, index: usize) -> 
     validate_evidence_references(&advertisement.mapped_engine_execution_evidence)
 }
 
-/// Select one exact v2 row. Legacy v1 is recognized only as an explicitly
+/// Select one exact v3 row. Legacy v1 is recognized only as an explicitly
 /// closed compatibility state. The target-cell digest is joined later to the
 /// exact promoted report because source A intentionally retains only its
 /// all-unsupported diagnostic catalog.
-pub(super) fn select_v2_advertisement(
+pub(super) fn select_v3_advertisement(
     advertisements_text: &str,
     target: &str,
     features: &[String],
@@ -539,10 +713,10 @@ pub(super) fn select_v2_advertisement(
         .ok_or_else(|| invalid("checked target advertisements have no schema"))?;
     if schema == ADVERTISEMENT_SCHEMA_V1 {
         return Err(refused(
-            "legacy v1 target advertisements are diagnostic-only and remain closed; ordinary `ibex run` cannot arm until the standard promotion pipeline ships a generated v2 advertisement for this target; `--project-root` selects the mounted project but does not mint advertisements; use `ibex capsec audit <file>` only for unarmed diagnostics",
+            "legacy v1 target advertisements are diagnostic-only and remain closed; ordinary `ibex run` cannot arm until the standard promotion pipeline ships a generated v3 advertisement for this target; `--project-root` selects the mounted project but does not mint advertisements; use `ibex capsec audit <file>` only for unarmed diagnostics",
         ));
     }
-    if schema != ADVERTISEMENT_SCHEMA_V2 {
+    if schema != ADVERTISEMENT_SCHEMA_V3 {
         return Err(invalid(format!(
             "unsupported target advertisement schema {schema:?}"
         )));
@@ -550,14 +724,14 @@ pub(super) fn select_v2_advertisement(
     reject_published_locality(&value, "targetAdvertisements")?;
     let catalog: TargetAdvertisementCatalog = serde_json::from_value(value).map_err(|error| {
         invalid(format!(
-            "invalid checked v2 target advertisement model: {error}"
+            "invalid checked v3 target advertisement model: {error}"
         ))
     })?;
-    if catalog.target_advertisement_schema != ADVERTISEMENT_SCHEMA_V2
+    if catalog.target_advertisement_schema != ADVERTISEMENT_SCHEMA_V3
         || catalog.profile != CAPSEC_PROFILE
     {
         return Err(invalid(
-            "checked v2 target advertisements have the wrong schema or profile",
+            "checked v3 target advertisements have the wrong schema or profile",
         ));
     }
     for (index, advertisement) in catalog.advertisements.iter().enumerate() {
@@ -619,9 +793,11 @@ fn parse_checked_promotion_admission(text: &str) -> Result<(Value, CheckedPromot
             "sourceRevision",
             "promotionTopicRevision",
             "sourceTreeObjectId",
-            "targetTriple",
+            "target",
             "portableArtifactId",
             "admissionDigest",
+            "admittedScopeDigest",
+            "predecessorScopeDigest",
             "verificationDigest",
         ],
         "checked promotion admission",
@@ -635,11 +811,11 @@ fn parse_checked_promotion_admission(text: &str) -> Result<(Value, CheckedPromot
 }
 
 /// Require the exact build-authenticated A/P/C admission and join all selectors
-/// that are independently present in the v2 publication.
+/// that are independently present in the v3 publication.
 pub(super) fn require_checked_promotion(
     advertisement: &SelectedTargetAdvertisement,
     admission_text: &str,
-) -> Result<()> {
+) -> Result<CheckedPromotionScopeAnchor> {
     let (value, admission) = parse_checked_promotion_admission(admission_text)?;
     if admission.schema != PROMOTION_ADMISSION_SCHEMA {
         return Err(invalid("checked promotion admission has the wrong schema"));
@@ -666,11 +842,14 @@ pub(super) fn require_checked_promotion(
             "checked promotion admission verification digest does not bind its exact fields",
         ));
     }
+    validate_target(&admission.target, "checked promotion admission.target")?;
     if !admission.authorized {
         if admission.current_revision != admission.source_revision
             || admission.promotion_topic_revision.is_some()
             || admission.source_tree_object_id.is_some()
             || admission.admission_digest.is_some()
+            || admission.admitted_scope_digest.is_some()
+            || admission.predecessor_scope_digest.is_some()
         {
             return Err(invalid(
                 "diagnostic promotion admission carries unauthorized lineage authority",
@@ -691,6 +870,8 @@ pub(super) fn require_checked_promotion(
     if !valid_sha1_object_id(topic)
         || !valid_sha1_object_id(source_tree)
         || admission.admission_digest.is_none()
+        || admission.admitted_scope_digest.is_none()
+        || admission.predecessor_scope_digest.is_none()
         || admission.current_revision == admission.source_revision
         || admission.current_revision == topic
         || admission.source_revision == topic
@@ -704,7 +885,7 @@ pub(super) fn require_checked_promotion(
             "promotion admission source revision differs from the advertisement",
         ));
     }
-    if admission.target_triple != advertisement.target.triple {
+    if admission.target != advertisement.target {
         return Err(refused(
             "promotion admission target differs from the advertisement",
         ));
@@ -714,15 +895,33 @@ pub(super) fn require_checked_promotion(
             "promotion admission artifact differs from the advertisement",
         ));
     }
-    Ok(())
+    let admitted_scope_digest = admission
+        .admitted_scope_digest
+        .expect("authorized admission checked above");
+    let predecessor_scope_digest = admission
+        .predecessor_scope_digest
+        .expect("authorized admission checked above");
+    if predecessor_scope_digest != SCOPE_GENESIS && Digest::new(&predecessor_scope_digest).is_err()
+    {
+        return Err(invalid(
+            "checked promotion admission predecessor scope identity is malformed",
+        ));
+    }
+    if admitted_scope_digest != advertisement.scope_digest {
+        return Err(refused(
+            "promotion admission scope differs from the advertisement",
+        ));
+    }
+    Ok(CheckedPromotionScopeAnchor {
+        admitted_scope_digest,
+        predecessor_scope_digest,
+    })
 }
 
 fn validate_report_cell(cell: &ReportCell, index: usize) -> Result<()> {
     let label = format!("promoted report cells[{index}]");
-    if !valid_capsec_stable_id(&cell.edge_id) || cell.status != "conformant" {
-        return Err(invalid(format!(
-            "{label} has a malformed edge or non-conformant status"
-        )));
+    if !valid_capsec_stable_id(&cell.edge_id) {
+        return Err(invalid(format!("{label} has a malformed edge")));
     }
     for (values, field) in [
         (&cell.implementation_branch_ids, "implementationBranchIds"),
@@ -733,14 +932,6 @@ fn validate_report_cell(cell: &ReportCell, index: usize) -> Result<()> {
         (&cell.failed_fixtures, "failedFixtures"),
     ] {
         validate_canonical_ids(values, &format!("{label}.{field}"))?;
-    }
-    if cell.required_fixtures != cell.passed_fixtures
-        || !cell.missing_fixtures.is_empty()
-        || !cell.failed_fixtures.is_empty()
-    {
-        return Err(refused(format!(
-            "{label} does not carry complete passing fixture evidence"
-        )));
     }
     let implementation_prefix = format!("{}.", cell.edge_id);
     if cell.implementation_branch_ids.iter().any(|branch| {
@@ -764,6 +955,7 @@ fn validate_report_cell(cell: &ReportCell, index: usize) -> Result<()> {
 struct CheckedCoverageSemantics {
     classification: String,
     effect_mode: Option<String>,
+    surface_kind: String,
     surface_observed_key: String,
     action_ids: Vec<String>,
     logical_branch_action_ids: Vec<(String, Vec<String>)>,
@@ -774,6 +966,9 @@ struct CheckedTargetCellAuthority {
     implementation_branch_ids: Vec<String>,
     enforcement_branch_ids: Vec<String>,
     required_fixtures: Vec<String>,
+    fixture_action_families: BTreeMap<String, BTreeSet<String>>,
+    surface_kind: String,
+    closure_dependencies: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -788,6 +983,7 @@ struct CheckedImplementationRow {
     edge_id: String,
     branch_id: String,
     enforcement_branch_id: String,
+    observed_key: String,
     terminal_observed_key: String,
     fixture_obligations: Vec<String>,
 }
@@ -951,6 +1147,7 @@ fn checked_coverage_semantics() -> Result<BTreeMap<String, CheckedCoverageSemant
                 CheckedCoverageSemantics {
                     classification: classification.to_owned(),
                     effect_mode,
+                    surface_kind: surface_kind.to_owned(),
                     surface_observed_key: format!("{surface_kind}:{surface_name}"),
                     action_ids,
                     logical_branch_action_ids,
@@ -1120,6 +1317,7 @@ fn checked_implementation_rows(
             edge_id,
             branch_id: branch_id.clone(),
             enforcement_branch_id,
+            observed_key,
             terminal_observed_key,
             fixture_obligations,
         };
@@ -1180,6 +1378,18 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
         ));
     }
     let implementation_rows = checked_implementation_rows(&implementation)?;
+    let mut observed_edges = BTreeMap::<String, BTreeSet<String>>::new();
+    for (edge_id, branch_ids) in &target_branches {
+        for branch_id in branch_ids {
+            let row = implementation_rows.get(branch_id).ok_or_else(|| {
+                invalid(format!("checked target selects unknown branch {branch_id}"))
+            })?;
+            observed_edges
+                .entry(row.observed_key.clone())
+                .or_default()
+                .insert(edge_id.clone());
+        }
+    }
     let mut cells = BTreeMap::new();
     let mut fixture_catalog = Vec::with_capacity(coverage.len());
     for edge_id in crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS {
@@ -1219,7 +1429,7 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
                 .into_iter()
                 .collect::<Vec<_>>()
         };
-        let fixture_bindings = required_fixtures
+        let fixture_binding_rows = required_fixtures
             .iter()
             .map(|fixture_id| {
                 let matching_rows = selected_rows
@@ -1269,16 +1479,45 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
                             .then(|| actions.clone())
                     })
                     .unwrap_or_else(|| semantics.action_ids.clone());
-                Ok(serde_json::json!({
-                    "fixtureId": fixture_id,
-                    "implementationBranchIds": fixture_implementation_ids,
-                    "enforcementBranchIds": fixture_enforcement_ids,
-                    "terminalObservedKeys": terminal_observed_keys,
-                    "classifications": [semantics.classification],
-                    "actionIds": action_ids,
-                }))
+                let action_families = action_ids
+                    .iter()
+                    .filter_map(|action| {
+                        action.split_once(':').map(|(family, _)| family.to_owned())
+                    })
+                    .collect::<BTreeSet<_>>();
+                Ok((
+                    serde_json::json!({
+                        "fixtureId": fixture_id,
+                        "implementationBranchIds": fixture_implementation_ids,
+                        "enforcementBranchIds": fixture_enforcement_ids,
+                        "terminalObservedKeys": terminal_observed_keys,
+                        "classifications": [semantics.classification],
+                        "actionIds": action_ids,
+                    }),
+                    fixture_id.clone(),
+                    action_families,
+                ))
             })
             .collect::<Result<Vec<_>>>()?;
+        let fixture_bindings = fixture_binding_rows
+            .iter()
+            .map(|(binding, _, _)| binding.clone())
+            .collect::<Vec<_>>();
+        let fixture_action_families = fixture_binding_rows
+            .into_iter()
+            .map(|(_, fixture_id, families)| (fixture_id, families))
+            .collect::<BTreeMap<_, _>>();
+        let closure_dependencies = selected_rows
+            .iter()
+            .flat_map(|row| {
+                observed_edges
+                    .get(&row.terminal_observed_key)
+                    .into_iter()
+                    .flatten()
+            })
+            .filter(|dependency| dependency.as_str() != *edge_id)
+            .cloned()
+            .collect::<BTreeSet<_>>();
         fixture_catalog.push(serde_json::json!({
             "edgeId": edge_id,
             "implementationBranchIds": implementation_branch_ids,
@@ -1292,6 +1531,9 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
                 implementation_branch_ids,
                 enforcement_branch_ids,
                 required_fixtures,
+                fixture_action_families,
+                surface_kind: semantics.surface_kind.clone(),
+                closure_dependencies,
             },
         );
     }
@@ -1304,22 +1546,212 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
     })
 }
 
+fn parse_scope_artifact(scope_text: &str) -> Result<(Value, CapsecScopeArtifact)> {
+    if scope_text == "null\n" {
+        return Err(refused(
+            "promoted CapSec scope artifact is absent from this build",
+        ));
+    }
+    let canonical = scope_text
+        .strip_suffix('\n')
+        .ok_or_else(|| invalid("promoted scope artifact must end in exactly one line feed"))?;
+    if canonical.ends_with('\n') {
+        return Err(invalid(
+            "promoted scope artifact has more than one trailing line feed",
+        ));
+    }
+    let value = capsec_semantics::strict_json::parse_strict(canonical)
+        .map_err(|error| invalid(format!("invalid promoted scope artifact: {error}")))?;
+    let expected = capsec_semantics::canonical::to_jcs(&value)
+        .map_err(|error| invalid(format!("promoted scope artifact is not I-JSON: {error}")))?;
+    if expected != canonical {
+        return Err(invalid(
+            "promoted scope artifact bytes are not exact RFC 8785 JCS",
+        ));
+    }
+    let scope = serde_json::from_value(value.clone())
+        .map_err(|error| invalid(format!("invalid promoted scope artifact model: {error}")))?;
+    Ok((value, scope))
+}
+
+fn validate_scope_selector(selector: &ScopeIntensionalDefinition) -> Result<()> {
+    let validate = |values: &[String], label: &str| -> Result<()> {
+        if values.is_empty()
+            || values
+                .iter()
+                .any(|value| value.is_empty() || !valid_capsec_stable_id(value))
+            || values
+                .windows(2)
+                .any(|pair| pair[0].as_bytes() >= pair[1].as_bytes())
+        {
+            return Err(invalid(format!(
+                "promoted scope {label} is not a non-empty canonical selector set"
+            )));
+        }
+        Ok(())
+    };
+    validate(&selector.capability_families, "capabilityFamilies")?;
+    validate(&selector.surface_kinds, "surfaceKinds")
+}
+
+fn derive_scope_expansion(
+    authority: &CheckedReportAuthority,
+    selector: &ScopeIntensionalDefinition,
+) -> Result<(BTreeSet<String>, BTreeSet<ScopeClosureEdge>)> {
+    validate_scope_selector(selector)?;
+    let families = selector
+        .capability_families
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let surface_kinds = selector
+        .surface_kinds
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut expanded = authority
+        .cells
+        .iter()
+        .filter(|(_, cell)| {
+            surface_kinds.contains(cell.surface_kind.as_str())
+                && cell
+                    .fixture_action_families
+                    .values()
+                    .any(|fixture_families| {
+                        !fixture_families.is_empty()
+                            && fixture_families
+                                .iter()
+                                .all(|family| families.contains(family.as_str()))
+                    })
+        })
+        .map(|(edge, _)| edge.clone())
+        .collect::<BTreeSet<_>>();
+    if expanded.is_empty() {
+        return Err(refused(
+            "promoted scope selector expands to no checked target cells",
+        ));
+    }
+
+    let mut pending = expanded.iter().cloned().collect::<Vec<_>>();
+    let mut closure = BTreeSet::new();
+    while let Some(from_edge_id) = pending.pop() {
+        let cell = authority.cells.get(&from_edge_id).ok_or_else(|| {
+            invalid(format!(
+                "derived scope edge {from_edge_id} has no checked report authority"
+            ))
+        })?;
+        for to_edge_id in &cell.closure_dependencies {
+            closure.insert(ScopeClosureEdge {
+                from_edge_id: from_edge_id.clone(),
+                to_edge_id: to_edge_id.clone(),
+            });
+            if expanded.insert(to_edge_id.clone()) {
+                pending.push(to_edge_id.clone());
+            }
+        }
+    }
+    Ok((expanded, closure))
+}
+
+fn admit_scope_artifact(
+    advertisement: &SelectedTargetAdvertisement,
+    scope_text: &str,
+    authority: &CheckedReportAuthority,
+    anchor: &CheckedPromotionScopeAnchor,
+) -> Result<(CapsecScopeArtifact, BTreeSet<String>)> {
+    let (value, scope) = parse_scope_artifact(scope_text)?;
+    if scope.schema != SCOPE_SCHEMA_V1 || scope.profile != CAPSEC_PROFILE {
+        return Err(invalid(
+            "promoted scope artifact has the wrong schema or profile",
+        ));
+    }
+    validate_target(&scope.target, "promotedScope.target")?;
+    if scope.target != advertisement.target {
+        return Err(refused(
+            "promoted scope target differs from the advertisement",
+        ));
+    }
+    let recomputed = capsec_semantics::digest::compute_domain_digest(
+        SCOPE_DOMAIN_V1,
+        &value,
+        &["scopeDigest".to_owned()],
+    )
+    .map_err(|error| invalid(format!("cannot recompute promoted scope digest: {error}")))?;
+    if scope.scope_digest.as_str() != recomputed
+        || scope.scope_digest != advertisement.scope_digest
+        || scope.scope_digest != anchor.admitted_scope_digest
+    {
+        return Err(refused(
+            "promoted scope digest does not rejoin its advertisement and lineage anchor",
+        ));
+    }
+    if scope.predecessor_scope_digest != anchor.predecessor_scope_digest
+        || (scope.predecessor_scope_digest != SCOPE_GENESIS
+            && Digest::new(&scope.predecessor_scope_digest).is_err())
+    {
+        return Err(refused(
+            "promoted scope predecessor differs from the lineage-resolved anchor",
+        ));
+    }
+    if scope
+        .expanded_cells
+        .windows(2)
+        .any(|pair| pair[0].as_bytes() >= pair[1].as_bytes())
+        || scope
+            .expanded_cells
+            .iter()
+            .any(|edge| !valid_capsec_stable_id(edge) || !authority.cells.contains_key(edge))
+        || scope
+            .closure_edges
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(invalid(
+            "promoted scope expansion or closure is not canonical over the checked inventory",
+        ));
+    }
+    let (expanded, closure) = derive_scope_expansion(authority, &scope.intensional_definition)?;
+    if scope
+        .expanded_cells
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        != expanded
+        || scope.closure_edges.iter().cloned().collect::<BTreeSet<_>>() != closure
+    {
+        return Err(refused(
+            "promoted scope expansion or closure differs from source-derived recomputation",
+        ));
+    }
+    Ok((scope, expanded))
+}
+
 /// Validate the exact embedded report selected by build.rs and derive Host's
 /// complete/closed map from its complete conformant cell membership plus the
 /// checked source classification. No source-A `unsupported` row is borrowed.
 pub(super) fn authenticated_report_target_cells(
     advertisement: &SelectedTargetAdvertisement,
     report_text: &str,
-) -> Result<BTreeMap<String, TargetCellDisposition>> {
+    scope_text: &str,
+    anchor: &CheckedPromotionScopeAnchor,
+) -> Result<AdmittedScopedTargetCells> {
     let authority = checked_report_authority(&advertisement.target)?;
-    authenticated_report_target_cells_with_authority(advertisement, report_text, &authority)
+    authenticated_report_target_cells_with_authority(
+        advertisement,
+        report_text,
+        scope_text,
+        anchor,
+        &authority,
+    )
 }
 
 fn authenticated_report_target_cells_with_authority(
     advertisement: &SelectedTargetAdvertisement,
     report_text: &str,
+    scope_text: &str,
+    anchor: &CheckedPromotionScopeAnchor,
     authority: &CheckedReportAuthority,
-) -> Result<BTreeMap<String, TargetCellDisposition>> {
+) -> Result<AdmittedScopedTargetCells> {
     if report_text == "null\n" {
         return Err(refused(
             "promoted portable conformance report is absent from this build",
@@ -1330,16 +1762,18 @@ fn authenticated_report_target_cells_with_authority(
     reject_published_locality(&value, "promotedReport")?;
     let report: PortableConformanceReport = serde_json::from_value(value.clone())
         .map_err(|error| invalid(format!("invalid embedded promoted report model: {error}")))?;
-    if report.conformance_schema != REPORT_SCHEMA_V2
+    let (scope, expanded_cells) =
+        admit_scope_artifact(advertisement, scope_text, authority, anchor)?;
+    if report.conformance_schema != REPORT_SCHEMA_V3
         || report.profile != CAPSEC_PROFILE
         || report.status != "conformant"
     {
         return Err(refused(
-            "embedded promoted report is not one conformant v2 report",
+            "embedded promoted report is not one conformant v3 report",
         ));
     }
     let expected_digest = capsec_semantics::digest::compute_domain_digest(
-        REPORT_DOMAIN_V2,
+        REPORT_DOMAIN_V3,
         &value,
         &["conformanceDigest".to_owned()],
     )
@@ -1379,6 +1813,8 @@ fn authenticated_report_target_cells_with_authority(
         || bindings.output_disposition_evidence_raw_content_digest
             != advertisement.output_disposition_evidence_raw_content_digest
         || bindings.target_cells_raw_content_digest != advertisement.target_cells_raw_content_digest
+        || bindings.scope_digest != advertisement.scope_digest
+        || bindings.scope_digest != scope.scope_digest
     {
         return Err(refused(
             "promoted report bindings differ from the target advertisement",
@@ -1398,6 +1834,7 @@ fn authenticated_report_target_cells_with_authority(
         report.summary.cells,
         report.summary.conformant_cells,
         report.summary.incomplete_cells,
+        report.summary.uncertified_cells,
         report.summary.required_fixtures,
         report.summary.passed_fixtures,
         report.summary.missing_fixtures,
@@ -1468,8 +1905,6 @@ fn authenticated_report_target_cells_with_authority(
                 cell.edge_id
             )));
         }
-        required_fixtures.extend(cell.required_fixtures.iter().cloned());
-        passed_fixtures.extend(cell.passed_fixtures.iter().cloned());
         let semantics = coverage_semantics
             .get(*expected_edge)
             .ok_or_else(|| invalid(format!("checked edge {expected_edge} has no semantics")))?;
@@ -1486,7 +1921,7 @@ fn authenticated_report_target_cells_with_authority(
                 "promoted report cell {expected_edge} does not equal its complete checked source-derived branch and fixture authority"
             )));
         }
-        let disposition = if cell.implementation_branch_ids.is_empty() {
+        let certified_disposition = if cell.implementation_branch_ids.is_empty() {
             TargetCellDisposition::Closed
         } else if semantics.effect_mode.as_deref() == Some("conditional-unrefined") {
             return Err(refused(format!(
@@ -1503,7 +1938,37 @@ fn authenticated_report_target_cells_with_authority(
                 }
             }
         };
-        result.insert((*expected_edge).to_owned(), disposition);
+        if expanded_cells.contains(*expected_edge) {
+            if cell.status != "conformant"
+                || cell.required_fixtures != cell.passed_fixtures
+                || !cell.missing_fixtures.is_empty()
+                || !cell.failed_fixtures.is_empty()
+            {
+                return Err(refused(format!(
+                    "in-scope promoted report cell {expected_edge} does not carry complete passing fixture evidence"
+                )));
+            }
+            required_fixtures.extend(cell.required_fixtures.iter().cloned());
+            passed_fixtures.extend(cell.passed_fixtures.iter().cloned());
+            result.insert(
+                (*expected_edge).to_owned(),
+                HostCellDisposition::Certified(certified_disposition),
+            );
+        } else {
+            if cell.status != "uncertified"
+                || !cell.passed_fixtures.is_empty()
+                || !cell.missing_fixtures.is_empty()
+                || !cell.failed_fixtures.is_empty()
+            {
+                return Err(refused(format!(
+                    "out-of-scope promoted report cell {expected_edge} does not carry the zero-contribution uncertified disposition"
+                )));
+            }
+            result.insert(
+                (*expected_edge).to_owned(),
+                HostCellDisposition::Uncertified,
+            );
+        }
     }
     let execution_fixtures = report
         .executions
@@ -1514,8 +1979,9 @@ fn authenticated_report_target_cells_with_authority(
         || required_fixtures != passed_fixtures
         || passed_fixtures != execution_fixtures
         || report.summary.cells != report.cells.len() as u64
-        || report.summary.conformant_cells != report.cells.len() as u64
+        || report.summary.conformant_cells != expanded_cells.len() as u64
         || report.summary.incomplete_cells != 0
+        || report.summary.uncertified_cells != (report.cells.len() - expanded_cells.len()) as u64
         || report.summary.required_fixtures != required_fixtures.len() as u64
         || report.summary.passed_fixtures != passed_fixtures.len() as u64
         || report.summary.missing_fixtures != 0
@@ -1525,7 +1991,12 @@ fn authenticated_report_target_cells_with_authority(
             "promoted report summary or fixture membership is incomplete",
         ));
     }
-    Ok(result)
+    AdmittedScopedTargetCells::new(
+        scope.scope_digest,
+        scope.predecessor_scope_digest,
+        expanded_cells,
+        result,
+    )
 }
 
 /// Reconstruct and validate both runtime identity layers without ever copying
@@ -1570,6 +2041,7 @@ mod tests {
     struct Fixture {
         advertisements: Value,
         report: String,
+        scope: String,
         authority: CheckedReportAuthority,
         admission: Value,
         portable: PortableEngineArtifactIdentity,
@@ -1612,44 +2084,130 @@ mod tests {
         (portable, mapped)
     }
 
-    fn report_for(advertisement: &Value, target_cells_digest: &str) -> String {
-        let evidence_digest =
-            advertisement["mappedEngineExecutionEvidence"][0]["evidenceDigest"].clone();
+    fn test_authority(advertisement: &Value) -> CheckedReportAuthority {
         let cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
             .iter()
             .enumerate()
             .map(|(index, edge)| {
                 let prefix = format!("{edge}.");
-                let implementation =
+                let implementation_branch_ids =
                     crate::capsec_registry_generated::CAPSEC_IMPLEMENTATION_BRANCH_IDS
                         .iter()
                         .filter(|branch| branch.starts_with(&prefix))
-                        .copied()
+                        .map(|branch| (*branch).to_owned())
                         .collect::<Vec<_>>();
-                let enforcement = crate::capsec_registry_generated::CAPSEC_ENFORCEMENT_BRANCH_IDS
-                    .iter()
-                    .filter(|branch| branch.starts_with(&prefix))
-                    .copied()
-                    .collect::<Vec<_>>();
-                let fixtures = if index == 0 {
-                    serde_json::json!(["fixture.host-admission.a", "fixture.host-admission.b"])
-                } else {
-                    serde_json::json!([])
+                let enforcement_branch_ids =
+                    crate::capsec_registry_generated::CAPSEC_ENFORCEMENT_BRANCH_IDS
+                        .iter()
+                        .filter(|branch| branch.starts_with(&prefix))
+                        .map(|branch| (*branch).to_owned())
+                        .collect::<Vec<_>>();
+                let required_fixtures = match index {
+                    0 => vec![
+                        "fixture.host-admission.a".to_owned(),
+                        "fixture.host-admission.b".to_owned(),
+                    ],
+                    1 => vec!["fixture.host-admission.out-of-scope".to_owned()],
+                    _ => Vec::new(),
                 };
+                let fixture_action_families = required_fixtures
+                    .iter()
+                    .map(|fixture| {
+                        let families = if index == 0 {
+                            BTreeSet::from(["scope.family".to_owned()])
+                        } else {
+                            BTreeSet::from(["outside.family".to_owned()])
+                        };
+                        (fixture.clone(), families)
+                    })
+                    .collect();
+                (
+                    (*edge).to_owned(),
+                    CheckedTargetCellAuthority {
+                        implementation_branch_ids,
+                        enforcement_branch_ids,
+                        required_fixtures,
+                        fixture_action_families,
+                        surface_kind: if index == 0 {
+                            "native.test".to_owned()
+                        } else {
+                            "other.test".to_owned()
+                        },
+                        closure_dependencies: BTreeSet::new(),
+                    },
+                )
+            })
+            .collect();
+        CheckedReportAuthority {
+            implementation_manifest_digest: serde_json::from_value(
+                advertisement["implementationManifestDigest"].clone(),
+            )
+            .unwrap(),
+            fixture_catalog_digest: serde_json::from_value(
+                advertisement["fixtureCatalogDigest"].clone(),
+            )
+            .unwrap(),
+            cells,
+        }
+    }
+
+    fn scope_for(advertisement: &Value, authority: &CheckedReportAuthority) -> (Value, String) {
+        let selector = ScopeIntensionalDefinition {
+            capability_families: vec!["scope.family".to_owned()],
+            surface_kinds: vec!["native.test".to_owned()],
+        };
+        let (expanded, closure) = derive_scope_expansion(authority, &selector).unwrap();
+        let mut scope = serde_json::json!({
+            "schema": SCOPE_SCHEMA_V1,
+            "profile": CAPSEC_PROFILE,
+            "target": advertisement["target"],
+            "intensionalDefinition": selector,
+            "expandedCells": expanded,
+            "closureEdges": closure,
+            "predecessorScopeDigest": SCOPE_GENESIS,
+            "expansionDiffDigest": digest("expansion-diff"),
+            "cellMappingDigest": digest("cell-mapping"),
+            "scopeDigest": digest("placeholder-scope"),
+        });
+        scope["scopeDigest"] = Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                SCOPE_DOMAIN_V1,
+                &scope,
+                &["scopeDigest".to_owned()],
+            )
+            .unwrap(),
+        );
+        let text = format!("{}\n", capsec_semantics::canonical::to_jcs(&scope).unwrap());
+        (scope, text)
+    }
+
+    fn report_for(
+        advertisement: &Value,
+        target_cells_digest: &str,
+        authority: &CheckedReportAuthority,
+        expanded: &BTreeSet<String>,
+    ) -> String {
+        let evidence_digest =
+            advertisement["mappedEngineExecutionEvidence"][0]["evidenceDigest"].clone();
+        let cells = authority
+            .cells
+            .iter()
+            .map(|(edge, cell)| {
+                let in_scope = expanded.contains(edge);
                 serde_json::json!({
                     "edgeId": edge,
-                    "implementationBranchIds": implementation,
-                    "enforcementBranchIds": enforcement,
-                    "status": "conformant",
-                    "requiredFixtures": fixtures,
-                    "passedFixtures": fixtures,
+                    "implementationBranchIds": cell.implementation_branch_ids,
+                    "enforcementBranchIds": cell.enforcement_branch_ids,
+                    "status": if in_scope { "conformant" } else { "uncertified" },
+                    "requiredFixtures": cell.required_fixtures,
+                    "passedFixtures": if in_scope { cell.required_fixtures.clone() } else { Vec::new() },
                     "missingFixtures": [],
                     "failedFixtures": [],
                 })
             })
             .collect::<Vec<_>>();
         let mut report = serde_json::json!({
-            "conformanceSchema": REPORT_SCHEMA_V2,
+            "conformanceSchema": REPORT_SCHEMA_V3,
             "profile": CAPSEC_PROFILE,
             "status": "conformant",
             "bindings": {
@@ -1677,11 +2235,13 @@ mod tests {
                 "targetCellsRawContentDigest": target_cells_digest,
                 "outputDispositionEvidenceRawContentDigest": advertisement["outputDispositionEvidenceRawContentDigest"],
                 "mappedEngineExecutionEvidence": advertisement["mappedEngineExecutionEvidence"],
+                "scopeDigest": advertisement["scopeDigest"],
             },
             "summary": {
                 "cells": cells.len(),
-                "conformantCells": cells.len(),
+                "conformantCells": expanded.len(),
                 "incompleteCells": 0,
+                "uncertifiedCells": cells.len() - expanded.len(),
                 "requiredFixtures": 2,
                 "passedFixtures": 2,
                 "missingFixtures": 0,
@@ -1712,42 +2272,13 @@ mod tests {
         });
         report["conformanceDigest"] = Value::String(
             capsec_semantics::digest::compute_domain_digest(
-                REPORT_DOMAIN_V2,
+                REPORT_DOMAIN_V3,
                 &report,
                 &["conformanceDigest".to_owned()],
             )
             .unwrap(),
         );
         format!("{}\n", serde_json::to_string_pretty(&report).unwrap())
-    }
-
-    fn test_authority(advertisement: &Value, report_text: &str) -> CheckedReportAuthority {
-        let report: PortableConformanceReport = serde_json::from_str(report_text).unwrap();
-        let cells = report
-            .cells
-            .into_iter()
-            .map(|cell| {
-                (
-                    cell.edge_id,
-                    CheckedTargetCellAuthority {
-                        implementation_branch_ids: cell.implementation_branch_ids,
-                        enforcement_branch_ids: cell.enforcement_branch_ids,
-                        required_fixtures: cell.required_fixtures,
-                    },
-                )
-            })
-            .collect();
-        CheckedReportAuthority {
-            implementation_manifest_digest: serde_json::from_value(
-                advertisement["implementationManifestDigest"].clone(),
-            )
-            .unwrap(),
-            fixture_catalog_digest: serde_json::from_value(
-                advertisement["fixtureCatalogDigest"].clone(),
-            )
-            .unwrap(),
-            cells,
-        }
     }
 
     fn fixture() -> Fixture {
@@ -1784,16 +2315,25 @@ mod tests {
             "publicSurfaceExecutionDigest": digest("public-execution"),
             "publicSurfaceExecutionRawContentDigest": digest("public-execution-raw"),
             "outputDispositionEvidenceRawContentDigest": digest("output-disposition-raw"),
+            "scopeDigest": digest("placeholder-scope"),
         });
         let target_cells_digest = raw_content_digest(&cells);
-        let report = report_for(&advertisement, &target_cells_digest);
-        let authority = test_authority(&advertisement, &report);
+        let authority = test_authority(&advertisement);
+        let (scope_value, scope) = scope_for(&advertisement, &authority);
+        advertisement["scopeDigest"] = scope_value["scopeDigest"].clone();
+        let expanded = scope_value["expandedCells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| edge.as_str().unwrap().to_owned())
+            .collect();
+        let report = report_for(&advertisement, &target_cells_digest, &authority, &expanded);
         let report_value: Value = serde_json::from_str(&report).unwrap();
         advertisement["conformanceDigest"] = report_value["conformanceDigest"].clone();
         advertisement["reportRawContentDigest"] =
             Value::String(raw_content_digest(report.as_bytes()));
         let advertisements = serde_json::json!({
-            "targetAdvertisementSchema": ADVERTISEMENT_SCHEMA_V2,
+            "targetAdvertisementSchema": ADVERTISEMENT_SCHEMA_V3,
             "profile": CAPSEC_PROFILE,
             "targetCellsRawContentDigest": target_cells_digest,
             "advertisements": [advertisement],
@@ -1805,14 +2345,17 @@ mod tests {
             "sourceRevision": SOURCE_A,
             "promotionTopicRevision": TOPIC_P,
             "sourceTreeObjectId": SOURCE_TREE,
-            "targetTriple": target,
+            "target": {"triple": target, "features": features},
             "portableArtifactId": portable.artifact_id,
             "admissionDigest": digest("lineage-admission"),
+            "admittedScopeDigest": scope_value["scopeDigest"],
+            "predecessorScopeDigest": SCOPE_GENESIS,
             "verificationDigest": digest("placeholder"),
         });
         Fixture {
             advertisements,
             report,
+            scope,
             authority,
             admission,
             portable,
@@ -1823,7 +2366,7 @@ mod tests {
     }
 
     fn select(fixture: &Fixture) -> Result<SelectedTargetAdvertisement> {
-        select_v2_advertisement(
+        select_v3_advertisement(
             &serde_json::to_string(&fixture.advertisements).unwrap(),
             &fixture.target,
             &fixture.features,
@@ -1834,10 +2377,14 @@ mod tests {
         fixture: &Fixture,
         advertisement: &SelectedTargetAdvertisement,
         report_text: &str,
-    ) -> Result<BTreeMap<String, TargetCellDisposition>> {
+    ) -> Result<AdmittedScopedTargetCells> {
+        let anchor =
+            require_checked_promotion(advertisement, &checked_marker(fixture.admission.clone()))?;
         authenticated_report_target_cells_with_authority(
             advertisement,
             report_text,
+            &fixture.scope,
+            &anchor,
             &fixture.authority,
         )
     }
@@ -1848,7 +2395,7 @@ mod tests {
     ) -> (SelectedTargetAdvertisement, String) {
         report["conformanceDigest"] = Value::String(
             capsec_semantics::digest::compute_domain_digest(
-                REPORT_DOMAIN_V2,
+                REPORT_DOMAIN_V3,
                 &report,
                 &["conformanceDigest".to_owned()],
             )
@@ -1863,14 +2410,578 @@ mod tests {
         (rebound, report_text)
     }
 
+    fn scoped_host(fixture: &Fixture) -> super::super::Host {
+        let advertisement = select(fixture).unwrap();
+        let admitted =
+            authenticate_fixture_report(fixture, &advertisement, &fixture.report).unwrap();
+        let snapshot = super::super::tests::example_armed_snapshot_with(|_| {});
+        super::super::Host::new_armed_with_target_cells(
+            super::super::HostConfig::default(),
+            std::sync::Arc::new(snapshot),
+            super::super::HostTargetCells::Scoped(admitted),
+            super::super::AuthenticatedPackageSourceState::default(),
+        )
+        .unwrap()
+    }
+
+    fn decision_set() -> capsec_semantics::model::DecisionSet {
+        serde_json::from_value(serde_json::json!({
+            "decisionSetSchema": "ibex/capsec-decision-set/1",
+            "operationId": "scope-ingress-test",
+            "atomicityGroup": "scope.ingress.test",
+            "combination": "conjunction",
+            "context": {
+                "stage": "commit",
+                "actor": {"kind": "root", "identity": "project-root"},
+                "constrainedPrincipals": [
+                    {"kind": "root", "identity": "project-root"}
+                ]
+            },
+            "effects": [{
+                "cap": "env:read",
+                "effectOwner": {"kind": "root", "identity": "project-root"},
+                "resource": {
+                    "kind": "environment-occurrence",
+                    "requested": {
+                        "kind": "environment-name",
+                        "target": "principal-overlay",
+                        "name": "SCOPE_TEST"
+                    },
+                    "valueOrigin": "principal-overlay"
+                }
+            }]
+        }))
+        .unwrap()
+    }
+
+    fn gate(
+        edge: &str,
+        target_cell: TargetCellDisposition,
+    ) -> capsec_semantics::decision::EffectGate {
+        capsec_semantics::decision::EffectGate {
+            coverage_edge_id: capsec_semantics::model::StableId::new(edge).unwrap(),
+            target_cell,
+            definition_and_edge_predicates_satisfied: true,
+        }
+    }
+
     #[test]
-    fn tracked_source_a_legacy_advertisement_stays_closed() {
+    fn admitted_aggregate_is_atomic_exhaustive_and_partitioned() {
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<HostCellDisposition>();
+
         let fixture = fixture();
-        let error = select_v2_advertisement(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/capsec/generated/target-advertisements.json"
-            )),
+        let advertisement = select(&fixture).unwrap();
+        let admitted =
+            authenticate_fixture_report(&fixture, &advertisement, &fixture.report).unwrap();
+        assert!(admitted.is_coherent());
+
+        let mut missing = admitted.dispositions.clone();
+        missing.remove(crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS[0]);
+        assert!(AdmittedScopedTargetCells::new(
+            admitted.scope_digest.clone(),
+            admitted.predecessor_scope_digest.clone(),
+            admitted.expanded_cells.clone(),
+            missing,
+        )
+        .is_err());
+
+        let in_scope = admitted.expanded_cells.iter().next().unwrap();
+        let mut inverted = admitted.dispositions.clone();
+        inverted.insert(in_scope.clone(), HostCellDisposition::Uncertified);
+        assert!(AdmittedScopedTargetCells::new(
+            admitted.scope_digest.clone(),
+            admitted.predecessor_scope_digest.clone(),
+            admitted.expanded_cells.clone(),
+            inverted,
+        )
+        .is_err());
+
+        let mut expanded_with_unknown = admitted.expanded_cells.clone();
+        expanded_with_unknown.insert("surface.native.unknown".to_owned());
+        assert!(AdmittedScopedTargetCells::new(
+            admitted.scope_digest,
+            admitted.predecessor_scope_digest,
+            expanded_with_unknown,
+            admitted.dispositions,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scope_is_canonical_source_rederived_and_single_per_tuple() {
+        let fixture = fixture();
+        let advertisement = select(&fixture).unwrap();
+        let anchor =
+            require_checked_promotion(&advertisement, &checked_marker(fixture.admission.clone()))
+                .unwrap();
+
+        let pretty = format!(
+            "{}\n",
+            serde_json::to_string_pretty(
+                &serde_json::from_str::<Value>(fixture.scope.trim_end()).unwrap()
+            )
+            .unwrap()
+        );
+        let error =
+            admit_scope_artifact(&advertisement, &pretty, &fixture.authority, &anchor).unwrap_err();
+        assert!(error.to_string().contains("RFC 8785 JCS"), "{error}");
+
+        let mut scope: Value = serde_json::from_str(fixture.scope.trim_end()).unwrap();
+        scope["expandedCells"] = Value::Array(Vec::new());
+        scope["scopeDigest"] = Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                SCOPE_DOMAIN_V1,
+                &scope,
+                &["scopeDigest".to_owned()],
+            )
+            .unwrap(),
+        );
+        let scope_text = format!("{}\n", capsec_semantics::canonical::to_jcs(&scope).unwrap());
+        let scope_digest: Digest = serde_json::from_value(scope["scopeDigest"].clone()).unwrap();
+        let mut rebound = advertisement.clone();
+        rebound.advertisement.scope_digest = scope_digest.clone();
+        let rebound_anchor = CheckedPromotionScopeAnchor {
+            admitted_scope_digest: scope_digest,
+            predecessor_scope_digest: SCOPE_GENESIS.to_owned(),
+        };
+        let error =
+            admit_scope_artifact(&rebound, &scope_text, &fixture.authority, &rebound_anchor)
+                .unwrap_err();
+        assert!(
+            error.to_string().contains("source-derived recomputation"),
+            "{error}"
+        );
+
+        let mut duplicate = fixture.advertisements.clone();
+        let row = duplicate["advertisements"][0].clone();
+        duplicate["advertisements"]
+            .as_array_mut()
+            .unwrap()
+            .push(row);
+        assert!(select_v3_advertisement(
+            &serde_json::to_string(&duplicate).unwrap(),
+            &fixture.target,
+            &fixture.features,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn out_of_scope_rows_keep_honest_required_fixtures_without_authoritative_credit() {
+        let fixture = fixture();
+        let report: Value = serde_json::from_str(&fixture.report).unwrap();
+        let out = report["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|cell| cell["requiredFixtures"].as_array().unwrap().len() == 1)
+            .unwrap();
+        assert_eq!(out["status"], "uncertified");
+        assert_eq!(
+            out["requiredFixtures"],
+            serde_json::json!(["fixture.host-admission.out-of-scope"])
+        );
+        assert_eq!(out["passedFixtures"], serde_json::json!([]));
+        assert!(report["executions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| { row["fixtureId"] != "fixture.host-admission.out-of-scope" }));
+
+        let advertisement = select(&fixture).unwrap();
+        authenticate_fixture_report(&fixture, &advertisement, &fixture.report).unwrap();
+    }
+
+    #[test]
+    fn scoped_projection_and_introspection_share_one_aggregate() {
+        let fixture = fixture();
+        let host = scoped_host(&fixture);
+        let introspection = host.capsec_scope_introspection().unwrap();
+        let scope: CapsecScopeArtifact = serde_json::from_str(fixture.scope.trim_end()).unwrap();
+        let advertisement = select(&fixture).unwrap();
+        let admitted =
+            authenticate_fixture_report(&fixture, &advertisement, &fixture.report).unwrap();
+        assert_eq!(introspection.scope_digest, scope.scope_digest);
+        assert_eq!(
+            introspection.uncertified_remainder.count,
+            crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
+                - scope.expanded_cells.len()
+        );
+        let remainder = introspection
+            .uncertified_remainder
+            .edge_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        for edge in crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS {
+            let expected = match admitted.disposition(edge) {
+                Some(HostCellDisposition::Certified(disposition)) => disposition,
+                Some(HostCellDisposition::Uncertified) | None => {
+                    assert!(remainder.contains(edge));
+                    TargetCellDisposition::Incomplete
+                }
+            };
+            assert_eq!(host.target_cell(edge), expected, "{edge}");
+        }
+
+        let complete_snapshot = super::super::tests::example_armed_snapshot_with(|_| {});
+        let complete = unsafe {
+            super::super::Host::new_armed_for_test(
+                super::super::HostConfig::default(),
+                std::sync::Arc::new(complete_snapshot),
+            )
+            .unwrap()
+        };
+        assert!(complete.capsec_scope_introspection().is_none());
+        assert!(super::super::Host::new(super::super::HostConfig::default())
+            .capsec_scope_introspection()
+            .is_none());
+    }
+
+    #[test]
+    fn non_advertisement_constructors_remain_scope_incapable() {
+        fn constructor_body<'a>(source: &'a str, name: &str) -> &'a str {
+            let marker = format!("fn {name}(");
+            let start = source
+                .find(&marker)
+                .unwrap_or_else(|| panic!("missing Host constructor {name}"));
+            let tail = &source[start..];
+            let end = [
+                "\n    }\n\n    ///",
+                "\n    }\n\n    fn ",
+                "\n    }\n\n    #[",
+                "\n    }\n\n    pub ",
+            ]
+            .into_iter()
+            .filter_map(|boundary| tail.find(boundary))
+            .min()
+            .unwrap_or_else(|| panic!("cannot bound Host constructor {name}"));
+            &tail[..end]
+        }
+
+        let source = include_str!("mod.rs");
+        for (name, complete_spelling) in [
+            (
+                "new_armed_unadvertised_dev",
+                "HostTargetCells::Complete(target_cells)",
+            ),
+            (
+                "new_armed_insecure",
+                "HostTargetCells::Complete(target_cells)",
+            ),
+            (
+                "new_armed_for_capsec_simulator_performance_observer",
+                "HostTargetCells::Complete(target_cells)",
+            ),
+            (
+                "new_armed_for_test",
+                "HostTargetCells::Complete(complete_test_target_cells())",
+            ),
+            (
+                "new_armed_for_test_with_package_sources",
+                "HostTargetCells::Complete(complete_test_target_cells())",
+            ),
+            (
+                "new_armed_for_native_module_runner_conformance",
+                "HostTargetCells::Complete(cells)",
+            ),
+        ] {
+            let body = constructor_body(source, name);
+            assert!(body.contains(complete_spelling), "{name}");
+            assert!(!body.contains("HostTargetCells::Scoped"), "{name}");
+            assert!(!body.contains("capsec_scope_introspection"), "{name}");
+        }
+
+        let production = constructor_body(source, "new_armed");
+        assert!(production.contains("HostTargetCells::Scoped(target_cells)"));
+        assert!(!production.contains("HostTargetCells::Complete"));
+    }
+
+    #[test]
+    fn scoped_refusal_funnel_covers_all_three_evaluator_bodies_once() {
+        use capsec_semantics::decision::{DecisionOutcome, DecisionReason};
+
+        let fixture = fixture();
+        let host = scoped_host(&fixture);
+        let set = decision_set();
+        let edge = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS[1];
+
+        let decision = host
+            .evaluate_typed_decision(&set, &[gate(edge, TargetCellDisposition::Complete)])
+            .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::RefuseArming);
+        let result = host
+            .evaluate_typed_decision_with_evidence(
+                &set,
+                &[gate(edge, TargetCellDisposition::Complete)],
+            )
+            .unwrap();
+        assert_eq!(result.decision.outcome, DecisionOutcome::RefuseArming);
+        let projections =
+            capsec_semantics::decision::PrincipalPathProjections::new(vec![BTreeMap::new()]);
+        let result = host
+            .evaluate_typed_path_decision_with_evidence(
+                &set,
+                &[gate(edge, TargetCellDisposition::Incomplete)],
+                &projections,
+            )
+            .unwrap();
+        assert_eq!(result.decision.outcome, DecisionOutcome::RefuseArming);
+
+        let in_scope = serde_json::from_str::<CapsecScopeArtifact>(fixture.scope.trim_end())
+            .unwrap()
+            .expanded_cells[0]
+            .clone();
+        let defect = host
+            .evaluate_typed_decision_inner(
+                &set,
+                &[gate(&in_scope, TargetCellDisposition::Incomplete)],
+                None,
+            )
+            .unwrap();
+        assert_eq!(defect.outcome, DecisionOutcome::RefuseArming);
+
+        let refusals = host.capsec_scoped_refusals();
+        assert_eq!(refusals.len(), 4);
+        assert!(refusals[..3].iter().all(|refusal| {
+            refusal.coverage_edge_id == edge
+                && refusal.decision_reason == DecisionReason::TargetCellIncomplete
+                && refusal.host_disposition
+                    == super::super::CapsecScopedRefusalHostDisposition::Uncertified
+        }));
+        assert_eq!(
+            refusals[3].host_disposition,
+            super::super::CapsecScopedRefusalHostDisposition::IncompleteDefect
+        );
+        assert_eq!(refusals[3].coverage_edge_id, in_scope);
+        assert_eq!(refusals[3].presented_target_cell, None);
+        assert_eq!(
+            refusals[0].presented_target_cell,
+            Some(TargetCellDisposition::Complete)
+        );
+        assert_eq!(
+            refusals[1].presented_target_cell,
+            Some(TargetCellDisposition::Complete)
+        );
+        assert_eq!(refusals[2].presented_target_cell, None);
+        let envelope = serde_json::to_value(&refusals[0]).unwrap();
+        let keys = envelope
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            keys,
+            BTreeSet::from([
+                "coverageEdgeId",
+                "decisionReason",
+                "hostDisposition",
+                "presentedTargetCell",
+                "scopeDigest",
+            ])
+        );
+        assert_ne!(envelope["hostDisposition"], "extension-declared");
+    }
+
+    #[test]
+    fn all_four_public_ingresses_discard_and_recompute_scoped_cells() {
+        use capsec_semantics::decision::{DecisionOutcome, DecisionReason};
+
+        let fixture = fixture();
+        let host = scoped_host(&fixture);
+        let set = decision_set();
+        let out = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS[1];
+        let incoming = gate(out, TargetCellDisposition::Complete);
+        let set_json = serde_json::to_vec(&set).unwrap();
+        let gates_json = serde_json::to_vec(&vec![incoming.clone()]).unwrap();
+
+        let decisions = [
+            host.evaluate_typed_decision(&set, &[incoming.clone()])
+                .unwrap(),
+            host.evaluate_typed_decision_with_evidence(&set, &[incoming.clone()])
+                .unwrap()
+                .decision,
+            host.evaluate_typed_decision_json(&set_json, &gates_json)
+                .unwrap(),
+            host.evaluate_typed_decision_json_with_evidence(&set_json, &gates_json)
+                .unwrap()
+                .decision,
+        ];
+        assert!(decisions.iter().all(|decision| {
+            decision.outcome == DecisionOutcome::RefuseArming
+                && decision.evidence[0].reason == DecisionReason::TargetCellIncomplete
+        }));
+        assert_eq!(host.capsec_scoped_refusals().len(), 4);
+        assert!(host.capsec_scoped_refusals().iter().all(|refusal| {
+            refusal.presented_target_cell == Some(TargetCellDisposition::Complete)
+        }));
+
+        let in_scope = serde_json::from_str::<CapsecScopeArtifact>(fixture.scope.trim_end())
+            .unwrap()
+            .expanded_cells[0]
+            .clone();
+        let recomputed = host
+            .evaluate_typed_decision(&set, &[gate(&in_scope, TargetCellDisposition::Incomplete)])
+            .unwrap();
+        assert_ne!(
+            recomputed.evidence.first().map(|evidence| evidence.reason),
+            Some(DecisionReason::TargetCellIncomplete)
+        );
+
+        let absent = "extension.absent.scope-edge";
+        let refused = host
+            .evaluate_typed_decision(&set, &[gate(absent, TargetCellDisposition::Complete)])
+            .unwrap();
+        assert_eq!(refused.outcome, DecisionOutcome::RefuseArming);
+        assert_eq!(
+            host.capsec_scoped_refusals()
+                .last()
+                .unwrap()
+                .host_disposition,
+            super::super::CapsecScopedRefusalHostDisposition::AbsentEdge
+        );
+
+        let complete_snapshot = super::super::tests::example_armed_snapshot_with(|_| {});
+        let complete = unsafe {
+            super::super::Host::new_armed_for_test(
+                super::super::HostConfig::default(),
+                std::sync::Arc::new(complete_snapshot),
+            )
+            .unwrap()
+        };
+        let unchanged = complete
+            .evaluate_typed_decision(&set, &[gate(absent, TargetCellDisposition::Complete)])
+            .unwrap();
+        assert_ne!(unchanged.outcome, DecisionOutcome::RefuseArming);
+        assert!(complete.capsec_scoped_refusals().is_empty());
+    }
+
+    #[test]
+    fn c_abi_discards_presented_complete_for_an_uncertified_cell() {
+        use std::ffi::CStr;
+
+        let fixture = fixture();
+        let host = scoped_host(&fixture);
+        let set = serde_json::to_vec(&decision_set()).unwrap();
+        let out = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS[1];
+        let gates = serde_json::to_vec(&vec![gate(out, TargetCellDisposition::Complete)]).unwrap();
+        super::super::abi::install_host(host.clone());
+        let result = unsafe {
+            super::super::abi::ex_host_evaluate_typed_decision(
+                set.as_ptr(),
+                set.len(),
+                gates.as_ptr(),
+                gates.len(),
+            )
+        };
+        assert!(!result.is_null());
+        let payload = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
+        let value: Value = serde_json::from_str(payload).unwrap();
+        super::super::abi::ex_host_free_string(result);
+        assert_eq!(value["decision"]["outcome"], "refuse-arming");
+        assert_eq!(
+            value["decision"]["evidence"][0]["reason"],
+            "target-cell-incomplete"
+        );
+        let refusal = host.capsec_scoped_refusals().last().unwrap().clone();
+        assert_eq!(
+            refusal.host_disposition,
+            super::super::CapsecScopedRefusalHostDisposition::Uncertified
+        );
+        assert_eq!(
+            refusal.presented_target_cell,
+            Some(TargetCellDisposition::Complete)
+        );
+    }
+
+    #[test]
+    fn runtime_extension_resolver_separates_collisions_from_extension_declared() {
+        use capsec_semantics::decision::{DecisionOutcome, DecisionReason};
+
+        let fixture = fixture();
+        let advertisement = select(&fixture).unwrap();
+        let admitted =
+            authenticate_fixture_report(&fixture, &advertisement, &fixture.report).unwrap();
+        let complete_runtime = super::super::tests::example_runtime_extension_armed_host();
+        let snapshot = complete_runtime.armed_snapshot().unwrap().clone();
+        let host = super::super::Host::new_armed_with_target_cells(
+            super::super::HostConfig::default(),
+            snapshot,
+            super::super::HostTargetCells::Scoped(admitted),
+            super::super::AuthenticatedPackageSourceState::default(),
+        )
+        .unwrap();
+
+        let out = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS[1];
+        let resolved = host
+            .resolve_runtime_extension_gate(capsec_semantics::model::StableId::new(out).unwrap());
+        assert_eq!(resolved.target_cell, TargetCellDisposition::Incomplete);
+        let refused = host
+            .evaluate_typed_decision_inner(&decision_set(), &[resolved], None)
+            .unwrap();
+        assert_eq!(refused.outcome, DecisionOutcome::RefuseArming);
+        assert_eq!(
+            refused.evidence[0].reason,
+            DecisionReason::TargetCellIncomplete
+        );
+        assert!(host.capsec_scope_diagnostics().is_empty());
+
+        let root = host.typed_principal_for_module("0").unwrap();
+        host.authorize_runtime_extension_operation(
+            11,
+            17,
+            "ibex.conformance",
+            "complete",
+            "fixture.complete",
+            "runtime-extension.invoke.authenticated-v1",
+            "requested",
+            "fixture.operation.decision",
+            &["runtime-extension"],
+            r#"{"input":"hello"}"#,
+            root.clone(),
+            vec![root],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(host.capsec_scoped_refusals().len(), 1);
+        let diagnostics = host.capsec_scope_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].diagnostic_kind,
+            super::super::CapsecScopeDiagnosticKind::ExtensionDeclared
+        );
+        assert_eq!(
+            diagnostics[0].coverage_edge_id,
+            "runtime-extension.invoke.authenticated-v1"
+        );
+    }
+
+    #[test]
+    fn scoped_host_keeps_scope_out_of_the_frozen_armed_snapshot() {
+        let fixture = fixture();
+        let host = scoped_host(&fixture);
+        let document = host.armed_snapshot().unwrap().document();
+        assert_eq!(
+            document.get("snapshotSchema").and_then(Value::as_str),
+            Some("ibex/capsec-armed/1")
+        );
+        assert!(document.get("scopeDigest").is_none());
+        assert!(host.capsec_scope_introspection().is_some());
+    }
+
+    #[test]
+    fn inline_legacy_advertisement_stays_closed() {
+        let fixture = fixture();
+        let legacy = serde_json::json!({
+            "targetAdvertisementSchema": ADVERTISEMENT_SCHEMA_V1,
+            "profile": CAPSEC_PROFILE,
+            "targetCellsRawContentDigest": digest("legacy-target-cells"),
+            "advertisements": [],
+        });
+        let error = select_v3_advertisement(
+            &serde_json::to_string(&legacy).unwrap(),
             &fixture.target,
             &fixture.features,
         )
@@ -1888,6 +2999,8 @@ mod tests {
         admission["promotionTopicRevision"] = Value::Null;
         admission["sourceTreeObjectId"] = Value::Null;
         admission["admissionDigest"] = Value::Null;
+        admission["admittedScopeDigest"] = Value::Null;
+        admission["predecessorScopeDigest"] = Value::Null;
         let error =
             require_checked_promotion(&advertisement, &checked_marker(admission)).unwrap_err();
         assert!(error.to_string().contains("does not authorize"), "{error}");
@@ -1902,7 +3015,7 @@ mod tests {
         let target_cells =
             authenticate_fixture_report(&fixture, &advertisement, &fixture.report).unwrap();
         assert_eq!(
-            target_cells.len(),
+            target_cells.dispositions.len(),
             crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
         );
         authenticate_local_engine(&advertisement, &fixture.portable, &fixture.mapped).unwrap();
@@ -1919,6 +3032,8 @@ mod tests {
         admission["promotionTopicRevision"] = Value::Null;
         admission["sourceTreeObjectId"] = Value::Null;
         admission["admissionDigest"] = Value::Null;
+        admission["admittedScopeDigest"] = Value::Null;
+        admission["predecessorScopeDigest"] = Value::Null;
         assert!(require_checked_promotion(&advertisement, &checked_marker(admission)).is_err());
     }
 
@@ -1953,7 +3068,7 @@ mod tests {
         report["summary"]["conformantCells"] = Value::from(count);
         report["conformanceDigest"] = Value::String(
             capsec_semantics::digest::compute_domain_digest(
-                REPORT_DOMAIN_V2,
+                REPORT_DOMAIN_V3,
                 &report,
                 &["conformanceDigest".to_owned()],
             )
@@ -2142,11 +3257,6 @@ mod tests {
         for (field, replacement, expected) in [
             ("sourceRevision", DESCENDANT_D.to_owned(), "source revision"),
             (
-                "targetTriple",
-                "x86_64-apple-darwin".to_owned(),
-                "target differs",
-            ),
-            (
                 "portableArtifactId",
                 digest("other-artifact"),
                 "artifact differs",
@@ -2158,6 +3268,11 @@ mod tests {
                 require_checked_promotion(&advertisement, &checked_marker(admission)).unwrap_err();
             assert!(error.to_string().contains(expected), "{field}: {error}");
         }
+        let mut admission = fixture.admission.clone();
+        admission["target"]["triple"] = Value::String("x86_64-apple-darwin".to_owned());
+        let error =
+            require_checked_promotion(&advertisement, &checked_marker(admission)).unwrap_err();
+        assert!(error.to_string().contains("target differs"), "{error}");
     }
 
     #[test]
@@ -2198,7 +3313,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_publication_with_mapped_locality_is_refused() {
+    fn v3_publication_with_mapped_locality_is_refused() {
         let mut mapped_field = fixture();
         mapped_field.advertisements["advertisements"][0]["canonicalLocalRuntimePath"] =
             Value::String("/private/tmp/libhermes.dylib".into());
@@ -2216,17 +3331,17 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_v2_json_keys_are_refused_before_selection() {
+    fn duplicate_v3_json_keys_are_refused_before_selection() {
         let fixture = fixture();
         let text = serde_json::to_string(&fixture.advertisements).unwrap();
         let text = text.replacen(
-            &format!("\"targetAdvertisementSchema\":\"{ADVERTISEMENT_SCHEMA_V2}\""),
+            &format!("\"targetAdvertisementSchema\":\"{ADVERTISEMENT_SCHEMA_V3}\""),
             &format!(
-                "\"targetAdvertisementSchema\":\"{ADVERTISEMENT_SCHEMA_V2}\",\"targetAdvertisementSchema\":\"{ADVERTISEMENT_SCHEMA_V2}\""
+                "\"targetAdvertisementSchema\":\"{ADVERTISEMENT_SCHEMA_V3}\",\"targetAdvertisementSchema\":\"{ADVERTISEMENT_SCHEMA_V3}\""
             ),
             1,
         );
-        let error = select_v2_advertisement(&text, &fixture.target, &fixture.features).unwrap_err();
+        let error = select_v3_advertisement(&text, &fixture.target, &fixture.features).unwrap_err();
         assert!(
             error.to_string().contains("duplicate JSON object key"),
             "{error}"

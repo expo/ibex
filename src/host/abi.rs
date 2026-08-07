@@ -2670,6 +2670,11 @@ pub(crate) unsafe extern "C" fn private_vfs_open_read_typed(
         Ok(vfs) => vfs,
         Err(error) => return vfs_error_result(&error, out_errno),
     };
+    // The public JSON ingress discards and recomputes every scoped target-cell
+    // value before evaluation; the C ABI never authorizes the serialized
+    // disposition supplied by its caller.
+    // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — F1c/F3a ABI
+    // ingress authority.
     let result = with_host(
         |host| {
             let constrained_principals =

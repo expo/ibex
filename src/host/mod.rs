@@ -25,15 +25,14 @@ pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};
 use anyhow::Context as _;
-#[cfg(any(test, feature = "capsec-conformance-observer"))]
-use std::collections::VecDeque;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 #[cfg(any(test, feature = "capsec-conformance-observer"))]
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
+const MAX_SCOPE_TELEMETRY_ENTRIES: usize = 1024;
 
 static NEXT_MODULE_RESOLVER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -234,9 +233,27 @@ pub struct Host {
     // outside JavaScript so later wedged code cannot hide the selected status.
     session_lifecycle: crate::session_lifecycle::SessionLifecyclePort,
     /// Exact authenticated disposition for every coverage edge on the armed
-    /// target. Call sites never manufacture `Complete` locally.
-    target_cells: Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
+    /// target. Scoped state retains the opaque admission aggregate itself so
+    /// enforcement and introspection cannot acquire parallel mutable copies.
+    /// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — Option B's
+    /// admitted aggregate is the single runtime authority beside the unchanged
+    /// armed snapshot.
+    target_cells: Arc<HostTargetCells>,
+    scoped_refusals: Arc<RwLock<VecDeque<CapsecScopedRefusal>>>,
+    scope_diagnostics: Arc<RwLock<VecDeque<CapsecScopeDiagnosticRecord>>>,
     unarmed_closed: bool,
+}
+
+#[derive(Debug)]
+enum HostTargetCells {
+    Unarmed,
+    Complete(BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>),
+    Scoped(portable_target_admission::AdmittedScopedTargetCells),
+}
+
+struct PreparedExternalGates {
+    gates: Vec<capsec_semantics::decision::EffectGate>,
+    presented_target_cells: Option<Vec<capsec_semantics::decision::TargetCellDisposition>>,
 }
 
 #[derive(Default)]
@@ -357,6 +374,61 @@ enum ManifestSearchBase {
 pub struct TypedDecisionResult {
     pub decision: capsec_semantics::decision::Decision,
     pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
+}
+
+/// Host-layer refusal telemetry for a scope-governed incomplete gate. The
+/// typed decision model deliberately remains scope-transparent.
+/// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — this exact
+/// refusal-only envelope distinguishes uncertified admission posture from a
+/// runtime defect without adding a new typed `DecisionReason`.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapsecScopedRefusal {
+    pub coverage_edge_id: String,
+    pub scope_digest: capsec_semantics::model::Digest,
+    pub host_disposition: CapsecScopedRefusalHostDisposition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presented_target_cell: Option<capsec_semantics::decision::TargetCellDisposition>,
+    pub decision_reason: capsec_semantics::decision::DecisionReason,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CapsecScopedRefusalHostDisposition {
+    Uncertified,
+    IncompleteDefect,
+    AbsentEdge,
+}
+
+/// Non-authoritative scope diagnostics that are not refusal envelopes.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapsecScopeDiagnosticRecord {
+    pub schema: &'static str,
+    pub coverage_edge_id: String,
+    pub scope_digest: capsec_semantics::model::Digest,
+    pub diagnostic_kind: CapsecScopeDiagnosticKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CapsecScopeDiagnosticKind {
+    ExtensionDeclared,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapsecScopeIntrospection {
+    pub schema: &'static str,
+    pub scope_digest: capsec_semantics::model::Digest,
+    pub uncertified_remainder: CapsecUncertifiedRemainder,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapsecUncertifiedRemainder {
+    pub count: usize,
+    pub edge_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -630,12 +702,18 @@ impl Host {
             private_resolver_paths: Arc::new(RwLock::new(PrivateResolverRegistry::default())),
             private_resolver_sequence: Arc::new(AtomicU64::new(1)),
             session_lifecycle,
-            target_cells: Arc::new(BTreeMap::new()),
+            target_cells: Arc::new(HostTargetCells::Unarmed),
+            scoped_refusals: Arc::new(RwLock::new(VecDeque::with_capacity(
+                MAX_SCOPE_TELEMETRY_ENTRIES,
+            ))),
+            scope_diagnostics: Arc::new(RwLock::new(VecDeque::with_capacity(
+                MAX_SCOPE_TELEMETRY_ENTRIES,
+            ))),
             unarmed_closed: false,
         }
     }
 
-    /// Debug-only development arming that bypasses the checked v2 target
+    /// Debug-only development arming that bypasses the checked v3 target
     /// advertisement. Every other production authenticator still runs — the
     /// loaded-engine identity, protected artifacts, root bindings, and the full
     /// armed capability floor are all enforced exactly as in `new_armed`. Only
@@ -676,9 +754,8 @@ impl Host {
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            target_cells,
+            HostTargetCells::Complete(target_cells),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
     }
 
@@ -712,9 +789,8 @@ impl Host {
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            target_cells,
+            HostTargetCells::Complete(target_cells),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
     }
 
@@ -731,9 +807,8 @@ impl Host {
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            target_cells,
+            HostTargetCells::Scoped(target_cells),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
     }
 
@@ -766,9 +841,8 @@ impl Host {
         let host = Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            target_cells,
+            HostTargetCells::Complete(target_cells),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )?;
         phase.mark("observer_host_construct");
         eprintln!(
@@ -781,9 +855,8 @@ impl Host {
     fn new_armed_with_target_cells(
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
-        target_cells: BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>,
+        target_cells: HostTargetCells,
         authenticated_package_sources: AuthenticatedPackageSourceState,
-        target_arm_state: capsec_semantics::decision::TargetArmState,
     ) -> capsec_semantics::Result<Self> {
         let mut phase = HostStartupPhaseTrace::begin();
         validate_armed_alias_volume_topology(&armed_snapshot)?;
@@ -821,29 +894,33 @@ impl Host {
         // engine+feature target is complete. The test-only constructor supplies
         // the same exhaustive cell map explicitly; every partial map refuses.
         // @ref LLP 0021#default-and-target-claim
-        let target_cells_are_exhaustive = target_cells.len()
-            == crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
-            && crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
-                .iter()
-                .all(|edge| {
-                    matches!(
-                        target_cells.get(*edge),
-                        Some(
-                            capsec_semantics::decision::TargetCellDisposition::Complete
-                                | capsec_semantics::decision::TargetCellDisposition::Closed
-                        )
-                    )
-                });
-        if !target_cells_are_exhaustive
-            || !matches!(
-                target_arm_state,
+        let target_arm_state = match &target_cells {
+            HostTargetCells::Complete(cells)
+                if cells.len()
+                    == crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
+                    && crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+                        .iter()
+                        .all(|edge| {
+                            matches!(
+                                cells.get(*edge),
+                                Some(
+                                    capsec_semantics::decision::TargetCellDisposition::Complete
+                                        | capsec_semantics::decision::TargetCellDisposition::Closed
+                                )
+                            )
+                        }) =>
+            {
                 capsec_semantics::decision::TargetArmState::CompleteAdvertised
-            )
-        {
-            return Err(capsec_semantics::Error::ArmRefused(
-                "armed target cells are incomplete".into(),
-            ));
-        }
+            }
+            HostTargetCells::Scoped(admitted) if admitted.is_coherent() => {
+                capsec_semantics::decision::TargetArmState::ScopedAdvertised
+            }
+            _ => {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "armed target cells are incomplete".into(),
+                ))
+            }
+        };
         let decision_context = Arc::new(RwLock::new(
             armed_snapshot.decision_context_with_package_objects(
                 profile.definitions,
@@ -889,9 +966,8 @@ impl Host {
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            complete_test_target_cells(),
+            HostTargetCells::Complete(complete_test_target_cells()),
             AuthenticatedPackageSourceState::default(),
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
     }
 
@@ -909,9 +985,8 @@ impl Host {
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            complete_test_target_cells(),
+            HostTargetCells::Complete(complete_test_target_cells()),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
     }
 
@@ -947,17 +1022,88 @@ impl Host {
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
-            cells,
+            HostTargetCells::Complete(cells),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
     }
 
     fn target_cell(&self, edge: &str) -> capsec_semantics::decision::TargetCellDisposition {
-        self.target_cells
-            .get(edge)
-            .copied()
-            .unwrap_or(capsec_semantics::decision::TargetCellDisposition::Incomplete)
+        use capsec_semantics::decision::TargetCellDisposition;
+        use portable_target_admission::HostCellDisposition;
+
+        match self.target_cells.as_ref() {
+            HostTargetCells::Complete(cells) => cells
+                .get(edge)
+                .copied()
+                .unwrap_or(TargetCellDisposition::Incomplete),
+            HostTargetCells::Scoped(admitted) => match admitted.disposition(edge) {
+                Some(HostCellDisposition::Certified(disposition)) => disposition,
+                Some(HostCellDisposition::Uncertified) | None => TargetCellDisposition::Incomplete,
+            },
+            HostTargetCells::Unarmed => TargetCellDisposition::Incomplete,
+        }
+    }
+
+    fn prepare_external_gates(
+        &self,
+        gates: &[capsec_semantics::decision::EffectGate],
+    ) -> PreparedExternalGates {
+        let HostTargetCells::Scoped(_) = self.target_cells.as_ref() else {
+            return PreparedExternalGates {
+                gates: gates.to_vec(),
+                presented_target_cells: None,
+            };
+        };
+        let presented_target_cells = gates.iter().map(|gate| gate.target_cell).collect();
+        let gates = gates
+            .iter()
+            .cloned()
+            .map(|mut gate| {
+                // Discard the external value. An absent edge intentionally
+                // recomputes to Incomplete; it never inherits the caller's
+                // disposition.
+                // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 —
+                // the ingress rule removes targetCell from the trust boundary.
+                gate.target_cell = self.target_cell(gate.coverage_edge_id.as_str());
+                gate
+            })
+            .collect();
+        PreparedExternalGates {
+            gates,
+            presented_target_cells: Some(presented_target_cells),
+        }
+    }
+
+    fn resolve_runtime_extension_gate(
+        &self,
+        coverage_edge_id: capsec_semantics::model::StableId,
+    ) -> capsec_semantics::decision::EffectGate {
+        use capsec_semantics::decision::TargetCellDisposition;
+
+        let target_cell = match self.target_cells.as_ref() {
+            HostTargetCells::Scoped(admitted)
+                if admitted.disposition(coverage_edge_id.as_str()).is_some() =>
+            {
+                self.target_cell(coverage_edge_id.as_str())
+            }
+            HostTargetCells::Scoped(admitted) => {
+                self.push_scope_diagnostic(CapsecScopeDiagnosticRecord {
+                    schema: "ibex/capsec-scope-diagnostic-record/1",
+                    coverage_edge_id: coverage_edge_id.as_str().to_owned(),
+                    scope_digest: admitted.scope_digest().clone(),
+                    diagnostic_kind: CapsecScopeDiagnosticKind::ExtensionDeclared,
+                });
+                TargetCellDisposition::Complete
+            }
+            HostTargetCells::Complete(_) | HostTargetCells::Unarmed => {
+                TargetCellDisposition::Complete
+            }
+        };
+        capsec_semantics::decision::EffectGate {
+            coverage_edge_id,
+            target_cell,
+            definition_and_edge_predicates_satisfied: true,
+        }
     }
 
     pub fn armed_snapshot(&self) -> Option<&Arc<capsec_semantics::arming::ArmedSnapshot>> {
@@ -1120,7 +1266,7 @@ impl Host {
         constrained_principals: Vec<capsec_semantics::model::Principal>,
         presented_lease_ids: Vec<u64>,
     ) -> capsec_semantics::Result<RuntimeExtensionLeaseGrant> {
-        use capsec_semantics::decision::{DecisionOutcome, EffectGate, TargetCellDisposition};
+        use capsec_semantics::decision::DecisionOutcome;
         use capsec_semantics::model::{
             ActionId, AuthoritySelector, DecisionContext, DecisionSet, DecisionSetSchema, Effect,
             EffectCombination, NonEmptyString, OccurrenceResource, SelectorResource, StableId,
@@ -1301,14 +1447,14 @@ impl Host {
                 },
             }],
         };
-        let decision = self.evaluate_typed_decision(
-            &decision_set,
-            &[EffectGate {
-                coverage_edge_id,
-                target_cell: TargetCellDisposition::Complete,
-                definition_and_edge_predicates_satisfied: true,
-            }],
-        )?;
+        let gate = self.resolve_runtime_extension_gate(coverage_edge_id);
+        // This gate has already passed the runtime-extension-specific scope
+        // resolver, so it enters through the private evaluator and never
+        // re-enters the public external-gate ingress.
+        // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — a
+        // non-inventory extension remains Complete while an inventory
+        // collision inherits the admitted aggregate's disposition.
+        let decision = self.evaluate_typed_decision_inner(&decision_set, &[gate], None)?;
         if !matches!(
             decision.outcome,
             DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
@@ -3778,7 +3924,15 @@ impl Host {
         set: &capsec_semantics::model::DecisionSet,
         gates: &[capsec_semantics::decision::EffectGate],
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
-        self.evaluate_typed_decision_inner(set, gates, None)
+        let prepared = self.prepare_external_gates(gates);
+        self.evaluate_typed_decision_inner_and_then(
+            set,
+            &prepared.gates,
+            None,
+            prepared.presented_target_cells.as_deref(),
+            |_| (),
+        )
+        .map(|(decision, ())| decision)
     }
 
     fn evaluate_typed_decision_inner(
@@ -3787,7 +3941,7 @@ impl Host {
         gates: &[capsec_semantics::decision::EffectGate],
         projections: Option<&capsec_semantics::decision::PrincipalPathProjections>,
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
-        self.evaluate_typed_decision_inner_and_then(set, gates, projections, |_| ())
+        self.evaluate_typed_decision_inner_and_then(set, gates, projections, None, |_| ())
             .map(|(decision, ())| decision)
     }
 
@@ -3796,6 +3950,7 @@ impl Host {
         set: &capsec_semantics::model::DecisionSet,
         gates: &[capsec_semantics::decision::EffectGate],
         projections: Option<&capsec_semantics::decision::PrincipalPathProjections>,
+        presented_target_cells: Option<&[capsec_semantics::decision::TargetCellDisposition]>,
         after_decision: impl FnOnce(&capsec_semantics::decision::Decision) -> R,
     ) -> capsec_semantics::Result<(capsec_semantics::decision::Decision, R)> {
         let context = self.decision_context.as_deref().ok_or_else(|| {
@@ -3825,6 +3980,7 @@ impl Host {
                 &classify_network_peer,
             )?,
         };
+        self.record_scoped_refusal(&decision, gates, presented_target_cells);
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
         #[cfg(any(test, feature = "capsec-conformance-observer"))]
         {
@@ -3846,6 +4002,20 @@ impl Host {
         set: &capsec_semantics::model::DecisionSet,
         gates: &[capsec_semantics::decision::EffectGate],
     ) -> capsec_semantics::Result<TypedDecisionResult> {
+        let prepared = self.prepare_external_gates(gates);
+        self.evaluate_typed_decision_with_evidence_inner(
+            set,
+            &prepared.gates,
+            prepared.presented_target_cells.as_deref(),
+        )
+    }
+
+    fn evaluate_typed_decision_with_evidence_inner(
+        &self,
+        set: &capsec_semantics::model::DecisionSet,
+        gates: &[capsec_semantics::decision::EffectGate],
+        presented_target_cells: Option<&[capsec_semantics::decision::TargetCellDisposition]>,
+    ) -> capsec_semantics::Result<TypedDecisionResult> {
         let context = self.decision_context.as_deref().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
                 "typed decision requested without an armed context".into(),
@@ -3863,6 +4033,7 @@ impl Host {
         )?;
         let evidence =
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
+        self.record_scoped_refusal(&decision, gates, presented_target_cells);
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
         #[cfg(any(test, feature = "capsec-conformance-observer"))]
         self.record_typed_decision_for_tests(evidence.clone());
@@ -3895,12 +4066,107 @@ impl Host {
         )?;
         let evidence =
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
+        self.record_scoped_refusal(&decision, gates, None);
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
         #[cfg(any(test, feature = "capsec-conformance-observer"))]
         self.record_typed_decision_for_tests(evidence.clone());
         #[cfg(any(test, feature = "capsec-conformance-observer"))]
         self.record_typed_conformance_decision(set, gates, evidence.clone());
         Ok(TypedDecisionResult { decision, evidence })
+    }
+
+    /// Return the bounded refusal stream emitted by this Host. It is empty for
+    /// complete-advertised and unarmed constructors.
+    pub fn capsec_scoped_refusals(&self) -> Vec<CapsecScopedRefusal> {
+        self.scoped_refusals
+            .read()
+            .map(|rows| rows.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Return non-authoritative scope diagnostics separately from refusals.
+    pub fn capsec_scope_diagnostics(&self) -> Vec<CapsecScopeDiagnosticRecord> {
+        self.scope_diagnostics
+            .read()
+            .map(|rows| rows.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Machine-readable identity and remainder accounting from the exact
+    /// aggregate that supplies every scoped gate disposition.
+    pub fn capsec_scope_introspection(&self) -> Option<CapsecScopeIntrospection> {
+        let HostTargetCells::Scoped(admitted) = self.target_cells.as_ref() else {
+            return None;
+        };
+        Some(CapsecScopeIntrospection {
+            schema: "ibex/capsec-scope-introspection/1",
+            scope_digest: admitted.scope_digest().clone(),
+            uncertified_remainder: CapsecUncertifiedRemainder {
+                count: admitted.uncertified_remainder(),
+                edge_ids: admitted.uncertified_edge_ids().map(str::to_owned).collect(),
+            },
+        })
+    }
+
+    fn record_scoped_refusal(
+        &self,
+        decision: &capsec_semantics::decision::Decision,
+        gates: &[capsec_semantics::decision::EffectGate],
+        presented_target_cells: Option<&[capsec_semantics::decision::TargetCellDisposition]>,
+    ) {
+        use capsec_semantics::decision::{DecisionReason, TargetCellDisposition};
+        use portable_target_admission::HostCellDisposition;
+
+        let HostTargetCells::Scoped(admitted) = self.target_cells.as_ref() else {
+            return;
+        };
+        let Some(evidence) = decision
+            .evidence
+            .iter()
+            .find(|evidence| evidence.reason == DecisionReason::TargetCellIncomplete)
+        else {
+            return;
+        };
+        let Some(gate) = gates.get(evidence.effect_index) else {
+            return;
+        };
+        let host_disposition = match admitted.disposition(gate.coverage_edge_id.as_str()) {
+            Some(HostCellDisposition::Uncertified) => {
+                CapsecScopedRefusalHostDisposition::Uncertified
+            }
+            Some(HostCellDisposition::Certified(TargetCellDisposition::Incomplete))
+            | Some(HostCellDisposition::Certified(
+                TargetCellDisposition::Complete | TargetCellDisposition::Closed,
+            )) => CapsecScopedRefusalHostDisposition::IncompleteDefect,
+            None => CapsecScopedRefusalHostDisposition::AbsentEdge,
+        };
+        self.push_scope_refusal(CapsecScopedRefusal {
+            coverage_edge_id: gate.coverage_edge_id.as_str().to_owned(),
+            scope_digest: admitted.scope_digest().clone(),
+            host_disposition,
+            presented_target_cell: presented_target_cells
+                .and_then(|presented| presented.get(evidence.effect_index))
+                .copied(),
+            decision_reason: evidence.reason,
+        });
+    }
+
+    fn push_scope_refusal(&self, refusal: CapsecScopedRefusal) {
+        if let Ok(mut rows) = self.scoped_refusals.write() {
+            if rows.len() == MAX_SCOPE_TELEMETRY_ENTRIES {
+                rows.pop_front();
+            }
+            rows.push_back(refusal);
+        }
+    }
+
+    fn push_scope_diagnostic(&self, diagnostic: CapsecScopeDiagnosticRecord) {
+        if let Ok(mut rows) = self.scope_diagnostics.write() {
+            if rows.len() == MAX_SCOPE_TELEMETRY_ENTRIES {
+                rows.pop_front();
+            }
+            rows.push_back(diagnostic);
+        }
     }
 
     #[cfg(any(test, feature = "capsec-conformance-observer"))]
@@ -3957,7 +4223,15 @@ impl Host {
         let gates: Vec<capsec_semantics::decision::EffectGate> =
             serde_json::from_value(gates_value)
                 .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
-        self.evaluate_typed_decision(&set, &gates)
+        let prepared = self.prepare_external_gates(&gates);
+        self.evaluate_typed_decision_inner_and_then(
+            &set,
+            &prepared.gates,
+            None,
+            prepared.presented_target_cells.as_deref(),
+            |_| (),
+        )
+        .map(|(decision, ())| decision)
     }
 
     pub fn evaluate_typed_decision_json_with_evidence(
@@ -3978,7 +4252,12 @@ impl Host {
         let gates: Vec<capsec_semantics::decision::EffectGate> =
             serde_json::from_value(gates_value)
                 .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
-        self.evaluate_typed_decision_with_evidence(&set, &gates)
+        let prepared = self.prepare_external_gates(&gates);
+        self.evaluate_typed_decision_with_evidence_inner(
+            &set,
+            &prepared.gates,
+            prepared.presented_target_cells.as_deref(),
+        )
     }
 
     #[cfg(any(test, feature = "capsec-conformance-observer"))]
@@ -6718,14 +6997,14 @@ fn fd_descends_from_object(
 /// Authenticate the snapshot's exact target claim against the checked product
 /// registry and return the disposition used by every live effect gate.  The
 /// snapshot/launcher cannot assert completeness with a boolean: the target
-/// must be advertised and its exact promoted v2 report must carry one complete
-/// conformant cell for every generated edge. Source A's deliberately
-/// unsupported target-cell catalog is never promoted or borrowed here.
+/// must be advertised and its exact promoted v3 report must carry one
+/// exhaustive certified/uncertified partition over the generated inventory.
+/// Source A's deliberately unsupported target-cell catalog is never borrowed.
 /// @ref LLP 0021#default-and-target-claim
 /// @ref LLP 0035#reports-and-advertisements
 fn authenticated_target_cells(
     snapshot: &capsec_semantics::arming::ArmedSnapshot,
-) -> capsec_semantics::Result<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>> {
+) -> capsec_semantics::Result<portable_target_admission::AdmittedScopedTargetCells> {
     use capsec_semantics::Error;
 
     let target = snapshot.engine_target()?;
@@ -6735,18 +7014,23 @@ fn authenticated_target_cells(
             "engine feature set is not canonical, sorted, and unique".into(),
         ));
     }
-    let advertised = portable_target_admission::select_v2_advertisement(
+    let advertised = portable_target_admission::select_v3_advertisement(
         crate::capsec_registry_generated::CAPSEC_TARGET_ADVERTISEMENTS_JSON,
         &target,
         &features,
     )?;
-    portable_target_admission::require_checked_promotion(
+    let checked_scope_anchor = portable_target_admission::require_checked_promotion(
         &advertised,
         crate::engine::EMBEDDED_PORTABLE_ENGINE_PROMOTION_ADMISSION,
     )?;
     let target_cells = portable_target_admission::authenticated_report_target_cells(
         &advertised,
         crate::engine::EMBEDDED_PORTABLE_ENGINE_PROMOTION_REPORT,
+        include_str!(concat!(
+            env!("OUT_DIR"),
+            "/portable_engine_promotion_scope.json"
+        )),
+        &checked_scope_anchor,
     )?;
     let loaded_portable = crate::engine::portable_identity::loaded_engine_portable_identity()
         .map_err(capsec_semantics::Error::ArmRefused)?;
@@ -8151,9 +8435,8 @@ mod tests {
         let host = Host::new_armed_with_target_cells(
             HostConfig::default(),
             snapshot,
-            complete_test_target_cells(),
+            HostTargetCells::Complete(complete_test_target_cells()),
             package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
         .unwrap();
         let root = host.typed_principal_for_module("0").unwrap();
@@ -8979,9 +9262,8 @@ mod tests {
         let host = Host::new_armed_with_target_cells(
             HostConfig::default(),
             Arc::new(snapshot),
-            complete_test_target_cells(),
+            HostTargetCells::Complete(complete_test_target_cells()),
             authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
         )
         .unwrap();
         (fixture, host, package_root, integrity)

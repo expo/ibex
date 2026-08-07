@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-scope-introspection-v1.schema.json",
+  "title": "Ibex CapSec active scope introspection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "scopeDigest", "uncertifiedRemainder"],
+  "properties": {
+    "schema": { "const": "ibex/capsec-scope-introspection/1" },
+    "scopeDigest": {
+      "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest"
+    },
+    "uncertifiedRemainder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "edgeIds"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "edgeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    }
+  }
+}
