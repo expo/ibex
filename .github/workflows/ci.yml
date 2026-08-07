@@ -35,6 +35,11 @@ jobs:
       - name: Validate LLP references
         run: ./ref-check
 
+      # @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M33 keeps
+      # the product publisher set enumerated while excluding both ceremonies.
+      - name: Audit checked-admission release-gate callers
+        run: node scripts/assert-releasable-checked-admission.mjs --audit-callers .
+
       - name: Check Rust formatting
         run: cargo fmt --check
 

@@ -12,6 +12,8 @@
 // @ref LLP 0035#content-addressed-installation — checked repository authority
 // is read through an OS-trusted Git under a closed environment and every raw
 // commit, tree, and authority blob is independently object-hashed.
+// @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M19/M27 bind each
+// admitted scope to a content-hashed promotion hop and the full target tuple.
 
 import * as fs from "node:fs";
 import path from "node:path";
@@ -32,16 +34,17 @@ import {
   validatePortablePromotionBundleGraph,
 } from "../packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs";
 
-const CATALOG_SCHEMA = "ibex/portable-engine-promotion-admission-catalog/1";
-const ADMISSION_SCHEMA = "ibex/portable-engine-promotion-admission/1";
+const CATALOG_SCHEMA_V1 = "ibex/portable-engine-promotion-admission-catalog/1";
+const CATALOG_SCHEMA = "ibex/portable-engine-promotion-admission-catalog/2";
+const ADMISSION_SCHEMA = "ibex/portable-engine-promotion-admission/2";
 const VERIFICATION_SCHEMA = "ibex/portable-engine-promotion-lineage-verification/1";
-const CHECKED_ADMISSION_SCHEMA = "ibex/portable-engine-checked-promotion-admission/1";
-const ADMISSION_DOMAIN = "ibex.portable-engine-promotion-admission.v1";
-const CHECKED_ADMISSION_DOMAIN = "ibex.portable-engine-checked-promotion-admission.v1";
+const CHECKED_ADMISSION_SCHEMA = "ibex/portable-engine-checked-promotion-admission/2";
+const ADMISSION_DOMAIN = "ibex.portable-engine-promotion-admission.v2";
+const CHECKED_ADMISSION_DOMAIN = "ibex.portable-engine-checked-promotion-admission.v2";
 const MERGE_TOPOLOGY = "github-pull-request-merge/direct-single-commit-topic/1";
 const CATALOG_PATH = "schemas/portable-engine-promotion-admission-catalog-v1.json";
-const CATALOG_SCHEMA_PATH = "schemas/portable-engine-promotion-admission-catalog-v1.schema.json";
-const CHECKED_ADMISSION_SCHEMA_PATH = "schemas/portable-engine-checked-promotion-admission-v1.schema.json";
+const CATALOG_SCHEMA_PATH = "schemas/portable-engine-promotion-admission-catalog-v2.schema.json";
+const CHECKED_ADMISSION_SCHEMA_PATH = "schemas/portable-engine-checked-promotion-admission-v2.schema.json";
 const TRUST_POLICY_PATH = "schemas/portable-engine-provenance-trust-policy-v1.json";
 const CAPSEC_POLICY_RULES_PATH = "capsec/registry/policy-rules.json";
 const TARGET_ATTESTATION_PATH = "capsec/conformance/target-attestations.json";
@@ -70,6 +73,16 @@ const PORTABLE_EVIDENCE_SCHEMA_PATHS = Object.freeze([
   "schemas/capsec-target-advertisements-v2.schema.json",
   "schemas/capsec-portable-promotion-authority-v1.schema.json",
 ]);
+const SCOPE_ROLE = "scope-artifact";
+const SCOPE_PATH_BASENAME = "capsec-scope.json";
+const SCOPE_GENESIS_MARKER = "genesis";
+const LINEAGE_FLOOR = "afad4af9f4257eb8262cf8348e5fbb0a3c082ecf";
+// Historical recomputation is deliberately version-dispatched. Retaining this
+// table is part of the published lineage contract; removing an old row would
+// make an otherwise valid historical hop unverifiable.
+const SCOPE_DIGEST_FORMATS = Object.freeze({
+  "ibex/capsec-scope/1": Object.freeze({ domain: "ibex:capsec:scope:1" }),
+});
 const SYSTEM_GIT = "/usr/bin/git";
 const MAX_GIT_OBJECT_BYTES = 72 * 1024 * 1024;
 const MAX_CHANGED_ARTIFACT_BYTES = 64 * 1024 * 1024;
@@ -77,7 +90,7 @@ const MAX_TREE_ENTRIES = 250_000;
 const MAX_TREE_DEPTH = 64;
 // One verified bundle admits at most MAX_MEMBERS bundle members, its manifest,
 // and the two byte-identical top-level target publications.
-const MIN_CHANGED_ARTIFACTS = 14;
+const MIN_CHANGED_ARTIFACTS = 15;
 const MAX_CHANGED_ARTIFACTS = 100_003;
 const fatalUtf8 = new TextDecoder("utf-8", { fatal: true });
 const moduleFilePath = fileURLToPath(import.meta.url);
@@ -423,6 +436,9 @@ function createAuthorityPlane(repoRoot) {
   }
 
   const plane = {
+    pinAbsentControl(absolutePath, label) {
+      pinAbsent(absolutePath, label);
+    },
     pinCheckedFile(relativePath, expectedBytes) {
       return pinFile(path.join(repoRoot, relativePath), `running authority ${relativePath}`, { expectedBytes, strictMetadata: true });
     },
@@ -675,7 +691,7 @@ function parseCatalog(bytes, label) {
   const expectedBytes = Buffer.from(`${canonicalJson(catalog)}\n`, "utf8");
   assert(Buffer.from(bytes).equals(expectedBytes), `${label}: bytes are not the canonical encoding plus one LF`);
   assertExactKeys(catalog, ["schema", "enabled", "admissionPath", "admissions"], label);
-  assert(catalog.schema === CATALOG_SCHEMA, `${label}: unsupported schema`);
+  assert([CATALOG_SCHEMA_V1, CATALOG_SCHEMA].includes(catalog.schema), `${label}: unsupported schema`);
   assert(typeof catalog.enabled === "boolean", `${label}: enabled must be boolean`);
   assert(catalog.admissionPath === CATALOG_PATH, `${label}: admissionPath must name the exact checked catalog path`);
   assert(Array.isArray(catalog.admissions), `${label}: admissions must be an array`);
@@ -683,9 +699,36 @@ function parseCatalog(bytes, label) {
     assert(catalog.admissions.length === 0, `${label}: a disabled catalog must be empty`);
     return catalog;
   }
+  assert(catalog.schema === CATALOG_SCHEMA, `${label}: an enabled v1 catalog cannot anchor scoped lineage`);
   assert(catalog.admissions.length === 1, `${label}: an active catalog must carry exactly one admission`);
   validateAdmissionShape(catalog.admissions[0], `${label}.admissions[0]`);
   return catalog;
+}
+
+function validateCanonicalTarget(target, label) {
+  assertExactKeys(target, ["triple", "features"], label);
+  assert(
+    typeof target.triple === "string"
+      && /^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(target.triple)
+      && target.triple.length <= 128,
+    `${label}.triple: invalid target triple`,
+  );
+  assert(Array.isArray(target.features) && target.features.length > 0, `${label}.features: expected a non-empty array`);
+  for (const [index, feature] of target.features.entries()) {
+    assert(
+      typeof feature === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(feature),
+      `${label}.features[${index}]: invalid target feature`,
+    );
+    assert(
+      index === 0 || compareUtf8(target.features[index - 1], feature) < 0,
+      `${label}.features: features must be strictly sorted by UTF-8 bytes`,
+    );
+  }
+  return target;
+}
+
+function sameTarget(left, right) {
+  return canonicalJson(left) === canonicalJson(right);
 }
 
 function validateAdmissionShape(admission, label) {
@@ -696,7 +739,8 @@ function validateAdmissionShape(admission, label) {
       "sourceRevision",
       "sourceTreeObjectId",
       "topology",
-      "targetTriple",
+      "target",
+      "admittedScopeDigest",
       "portableArtifactId",
       "artifacts",
       "admissionDigest",
@@ -707,7 +751,8 @@ function validateAdmissionShape(admission, label) {
   assertSha1ObjectId(admission.sourceRevision, `${label}.sourceRevision`);
   assertSha1ObjectId(admission.sourceTreeObjectId, `${label}.sourceTreeObjectId`);
   assert(admission.topology === MERGE_TOPOLOGY, `${label}: unsupported merge topology`);
-  assert(typeof admission.targetTriple === "string" && /^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(admission.targetTriple) && admission.targetTriple.length <= 128, `${label}.targetTriple: invalid target triple`);
+  validateCanonicalTarget(admission.target, `${label}.target`);
+  assertSemanticDigest(admission.admittedScopeDigest, `${label}.admittedScopeDigest`);
   assertSemanticDigest(admission.portableArtifactId, `${label}.portableArtifactId`);
   assert(Array.isArray(admission.artifacts), `${label}.artifacts: expected an array`);
   assert(
@@ -721,7 +766,7 @@ function validateAdmissionShape(admission, label) {
   for (const [index, artifact] of admission.artifacts.entries()) {
     const artifactLabel = `${label}.artifacts[${index}]`;
     assertExactKeys(artifact, ["role", "path", "mode", "blobObjectId", "size", "digest"], artifactLabel);
-    assert(["conformance-evidence", "target-attestation", "target-advertisement"].includes(artifact.role), `${artifactLabel}.role: unsupported role`);
+    assert(["conformance-evidence", SCOPE_ROLE, "target-attestation", "target-advertisement"].includes(artifact.role), `${artifactLabel}.role: unsupported role`);
     assertRepositoryPath(artifact.path, `${artifactLabel}.path`);
     assert(artifact.mode === "100644", `${artifactLabel}.mode: promotion blobs must be non-executable regular files`);
     assertSha1ObjectId(artifact.blobObjectId, `${artifactLabel}.blobObjectId`);
@@ -734,10 +779,11 @@ function validateAdmissionShape(admission, label) {
     roleCounts.set(artifact.role, (roleCounts.get(artifact.role) ?? 0) + 1);
   }
   assert(roleCounts.get("conformance-evidence") >= 1, `${label}: at least one conformance-evidence blob is required`);
+  assert(roleCounts.get(SCOPE_ROLE) === 1, `${label}: exactly one scope-artifact blob is required`);
   assert(roleCounts.get("target-attestation") === 1, `${label}: exactly one target-attestation blob is required`);
   assert(roleCounts.get("target-advertisement") === 1, `${label}: exactly one target-advertisement blob is required`);
-  const reportPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/conformance-report.json`;
-  const bundleManifestPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/promotion-bundle-manifest.json`;
+  const reportPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.target.triple}/${admission.portableArtifactId}/conformance-report.json`;
+  const bundleManifestPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.target.triple}/${admission.portableArtifactId}/promotion-bundle-manifest.json`;
   assert(
     admission.artifacts.filter(
       (artifact) =>
@@ -759,7 +805,7 @@ function validateAdmissionShape(admission, label) {
 }
 
 function evidencePrefix(admission) {
-  return `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/`;
+  return `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.target.triple}/${admission.portableArtifactId}/`;
 }
 
 function promotionBundleMemberPath(admission, logicalName) {
@@ -791,6 +837,13 @@ function assertArtifactRolePath(admission, artifact, label) {
     return;
   }
   const prefix = evidencePrefix(admission);
+  if (artifact.role === SCOPE_ROLE) {
+    assert(
+      artifact.path === `${prefix}${SCOPE_PATH_BASENAME}`,
+      `${label}: scope-artifact must use the reserved evidence-prefix path`,
+    );
+    return;
+  }
   assert(artifact.path.startsWith(prefix), `${label}: conformance evidence is outside the source/target/artifact-scoped promotion namespace`);
   const suffix = artifact.path.slice(prefix.length);
   assert(suffix.length > 0 && suffix.endsWith(".json"), `${label}: conformance evidence must be a named JSON blob`);
@@ -811,7 +864,7 @@ function assertSourceAuthorityClosed(repoRoot, sourceLeaves, admission) {
   assert(policy && typeof policy === "object" && !Array.isArray(policy), "source portable trust policy must be an object");
   assert(policy.portableArtifactAcceptanceEnabled === false, "artifact-source revision must keep portableArtifactAcceptanceEnabled false");
   assert(Array.isArray(policy.admittedTargets), "source portable trust policy must carry admittedTargets");
-  assert(policy.admittedTargets.some((target) => target && target.triple === admission.targetTriple), `source portable trust policy has no closed target row for ${admission.targetTriple}`);
+  assert(policy.admittedTargets.some((target) => target && target.triple === admission.target.triple), `source portable trust policy has no closed target row for ${admission.target.triple}`);
 
   const attestationRecord = readTrackedBlob(repoRoot, sourceLeaves, TARGET_ATTESTATION_PATH, "source target attestations");
   const attestations = parseJsonStrict(attestationRecord.bytes, "source target attestations");
@@ -833,11 +886,11 @@ function assertSourceAuthorityClosed(repoRoot, sourceLeaves, admission) {
   );
   const rules = parseJsonStrict(rulesRecord.bytes, "source CapSec policy rules");
   const targetMatches = rules?.initialProfile?.candidateTargets?.filter(
-    (target) => target?.triple === admission.targetTriple,
+    (target) => target?.triple === admission.target.triple,
   );
   assert(
     Array.isArray(targetMatches) && targetMatches.length === 1,
-    `source CapSec policy rules must name exactly one candidate target for ${admission.targetTriple}`,
+    `source CapSec policy rules must name exactly one candidate target for ${admission.target.triple}`,
   );
   const target = targetMatches[0];
   assertExactKeys(target, ["triple", "features"], "source CapSec candidate target");
@@ -852,6 +905,7 @@ function assertSourceAuthorityClosed(repoRoot, sourceLeaves, admission) {
       ),
     "source CapSec candidate target features are malformed or noncanonical",
   );
+  assert(sameTarget(target, admission.target), "source CapSec candidate target differs from the tracked admission target");
   return target;
 }
 
@@ -862,6 +916,229 @@ function changedLeaves(sourceLeaves, currentLeaves) {
     const current = currentLeaves.get(pathname);
     return !source || !current || source.mode !== current.mode || source.kind !== current.kind || source.objectId !== current.objectId;
   });
+}
+
+function parseScopeArtifact(bytes, label) {
+  const scope = parseJsonStrict(bytes, label);
+  const expectedBytes = Buffer.from(`${canonicalJson(scope)}\n`, "utf8");
+  assert(Buffer.from(bytes).equals(expectedBytes), `${label}: bytes are not the canonical encoding plus one LF`);
+  assert(scope && typeof scope === "object" && !Array.isArray(scope), `${label}: expected an object`);
+  const format = SCOPE_DIGEST_FORMATS[scope.schema];
+  assert(format, `${label}: unsupported scope schema`);
+  validateCanonicalTarget(scope.target, `${label}.target`);
+  assertSemanticDigest(scope.scopeDigest, `${label}.scopeDigest`);
+  assert(
+    semanticDigest(format.domain, scope, ["scopeDigest"]) === scope.scopeDigest,
+    `${label}: scopeDigest mismatch`,
+  );
+  const predecessor = scope.predecessorScopeDigest;
+  assert(
+    predecessor === SCOPE_GENESIS_MARKER
+      || (typeof predecessor === "string" && /^sha256-[A-Za-z0-9_-]{43}$/u.test(predecessor)),
+    `${label}.predecessorScopeDigest: expected a scope digest or the explicit genesis marker`,
+  );
+  return { scope, predecessor };
+}
+
+function matchingAdvertisementScopeDigest(bytes, admission, label) {
+  const catalog = parseJsonStrict(bytes, label);
+  assert(catalog && typeof catalog === "object" && !Array.isArray(catalog), `${label}: expected an object`);
+  assert(Array.isArray(catalog.advertisements), `${label}.advertisements: expected an array`);
+  const matches = catalog.advertisements.filter(
+    (advertisement) => advertisement?.target && sameTarget(advertisement.target, admission.target),
+  );
+  assert(matches.length === 1, `${label}: expected exactly one advertisement for the tracked admission target`);
+  assertSemanticDigest(matches[0].scopeDigest, `${label}.advertisements[].scopeDigest`);
+  return matches[0].scopeDigest;
+}
+
+function promotionTopology(repoRoot, revision, commit, admission) {
+  if (commit.parents.length !== 2 || commit.parents[0] !== admission.sourceRevision) return null;
+  const sourceCommit = parseCommit(
+    readGitObject(repoRoot, "commit", admission.sourceRevision),
+    `source commit ${admission.sourceRevision}`,
+  );
+  const topicRevision = commit.parents[1];
+  const topicCommit = parseCommit(
+    readGitObject(repoRoot, "commit", topicRevision),
+    `promotion topic commit ${topicRevision}`,
+  );
+  if (
+    topicCommit.parents.length !== 1
+      || topicCommit.parents[0] !== admission.sourceRevision
+      || commit.tree !== topicCommit.tree
+      || sourceCommit.tree !== admission.sourceTreeObjectId
+      || sourceCommit.tree === commit.tree
+  ) return null;
+  return { revision, sourceCommit, topicRevision };
+}
+
+function verifyScopeCriticalPromotionRevision(
+  repoRoot,
+  revision,
+  commit,
+  currentLeaves,
+  admission,
+) {
+  const topology = promotionTopology(repoRoot, revision, commit, admission);
+  if (topology === null) return null;
+  const sourceLeaves = collectTreeLeaves(repoRoot, topology.sourceCommit.tree);
+  const expectedPaths = [CATALOG_PATH, ...admission.artifacts.map((artifact) => artifact.path)]
+    .sort(compareUtf8);
+  const observedPaths = changedLeaves(sourceLeaves, currentLeaves);
+  assert(
+    canonicalJson(observedPaths) === canonicalJson(expectedPaths),
+    `historical promotion ${revision}: changed-path set mismatch`,
+  );
+
+  const promotedBytes = new Map();
+  for (const [index, artifact] of admission.artifacts.entries()) {
+    const label = `historical promotion ${revision} artifact ${index} (${artifact.path})`;
+    assertArtifactRolePath(admission, artifact, label);
+    const current = currentLeaves.get(artifact.path);
+    assert(current?.kind === "blob" && current.mode === "100644", `${label}: expected one checked regular blob`);
+    assert(current.objectId === artifact.blobObjectId, `${label}: checked blob object ID mismatch`);
+    const bytes = readGitObject(repoRoot, "blob", current.objectId);
+    assert(bytes.length === artifact.size, `${label}: checked blob size mismatch`);
+    assert(rawDigest(bytes) === artifact.digest, `${label}: checked blob raw digest mismatch`);
+    promotedBytes.set(artifact.path, bytes);
+    const source = sourceLeaves.get(artifact.path);
+    if (artifact.role === "conformance-evidence" || artifact.role === SCOPE_ROLE) {
+      assert(source === undefined, `${label}: evidence-prefix artifacts must be newly added at promotion`);
+    } else {
+      assert(source?.kind === "blob" && source.mode === "100644", `${label}: target publication path must replace the closed source blob in place`);
+    }
+  }
+
+  const scopePath = `${evidencePrefix(admission)}${SCOPE_PATH_BASENAME}`;
+  const scopeBytes = promotedBytes.get(scopePath);
+  assert(scopeBytes, `historical promotion ${revision}: missing reserved scope artifact`);
+  const { scope, predecessor } = parseScopeArtifact(
+    scopeBytes,
+    `historical promotion ${revision} scope artifact`,
+  );
+  assert(scope.scopeDigest === admission.admittedScopeDigest, `historical promotion ${revision}: admittedScopeDigest is not backed by the scope artifact`);
+  assert(sameTarget(scope.target, admission.target), `historical promotion ${revision}: scope target differs from the tracked admission target`);
+  const advertisementDigest = matchingAdvertisementScopeDigest(
+    promotedBytes.get(TARGET_ADVERTISEMENT_PATH),
+    admission,
+    `historical promotion ${revision} target advertisements`,
+  );
+  assert(advertisementDigest === admission.admittedScopeDigest, `historical promotion ${revision}: advertisement scopeDigest differs from admittedScopeDigest`);
+  return Object.freeze({
+    admittedScopeDigest: admission.admittedScopeDigest,
+    predecessorScopeDigest: predecessor,
+    target: structuredClone(admission.target),
+  });
+}
+
+function checkedGitControlPath(repoRoot, relativePath, label) {
+  const output = runCheckedGit(
+    repoRoot,
+    ["rev-parse", "--path-format=absolute", "--git-path", relativePath],
+    { encoding: "utf8", maxBuffer: 1024 * 1024 },
+  ).trim();
+  assert(path.isAbsolute(output) && !output.includes("\0") && !output.includes("\n"), `${label}: checked Git returned an invalid control path`);
+  return path.resolve(output);
+}
+
+function assertCompleteLineageHistory(repoRoot, authorityPlane = null) {
+  const shallow = runCheckedGit(
+    repoRoot,
+    ["rev-parse", "--is-shallow-repository"],
+    { encoding: "utf8", maxBuffer: 1024 * 1024 },
+  ).trim();
+  assert(shallow === "false", "promotion lineage refuses a shallow repository");
+  for (const [relativePath, label] of [
+    ["shallow", "Git shallow-history control"],
+    ["info/grafts", "Git grafts control"],
+  ]) {
+    const controlPath = checkedGitControlPath(repoRoot, relativePath, label);
+    assert(lstatMaybe(controlPath) === null, `${label}: forbidden control path exists`);
+    authorityPlane?.pinAbsentControl(controlPath, label);
+  }
+  const replacements = runCheckedGit(
+    repoRoot,
+    ["for-each-ref", "--format=%(refname)", "refs/replace"],
+    { encoding: "utf8", maxBuffer: 1024 * 1024 },
+  );
+  assert(replacements.length === 0, "promotion lineage refuses configured replace refs");
+}
+
+// This object-history helper intentionally does not establish checkout or OS
+// authority by itself. The fixed production verifier below supplies those
+// premises; tests use this export to exercise the content-hashed walk on Linux.
+export function resolvePortableEnginePromotionPredecessor(options) {
+  assert(options && typeof options === "object" && !Array.isArray(options), "promotion history resolver expects one options object");
+  assertExactKeys(options, ["repoRoot", "startRevision", "target"], "promotion history resolver options");
+  const repoRoot = resolveRepositoryRoot(options.repoRoot);
+  const startRevision = assertSha1ObjectId(options.startRevision, "promotion history start revision");
+  const target = validateCanonicalTarget(structuredClone(options.target), "promotion history target");
+  assertCompleteLineageHistory(repoRoot);
+
+  let revision = startRevision;
+  for (let depth = 0; depth < 100_000; depth += 1) {
+    const commit = parseCommit(readGitObject(repoRoot, "commit", revision), `lineage commit ${revision}`);
+    const leaves = collectTreeLeaves(repoRoot, commit.tree);
+    if (revision === LINEAGE_FLOOR) {
+      const floorCatalog = parseCatalog(
+        readTrackedBlob(repoRoot, leaves, CATALOG_PATH, "lineage-floor promotion catalog").bytes,
+        "lineage-floor promotion catalog",
+      );
+      assert(floorCatalog.schema === CATALOG_SCHEMA_V1 && floorCatalog.enabled === false && floorCatalog.admissions.length === 0, "lineage floor must carry the disabled empty v1 catalog foundation");
+      assert(commit.parents.length >= 1, "lineage floor has no first parent");
+      const firstParent = parseCommit(
+        readGitObject(repoRoot, "commit", commit.parents[0]),
+        `lineage-floor first parent ${commit.parents[0]}`,
+      );
+      const parentLeaves = collectTreeLeaves(repoRoot, firstParent.tree);
+      assert(!parentLeaves.has(CATALOG_PATH), "lineage-floor first parent must lack the promotion catalog path");
+      return null;
+    }
+
+    assert(leaves.has(CATALOG_PATH), `lineage revision ${revision} above the pinned floor lacks the promotion catalog`);
+    const catalog = parseCatalog(
+      readTrackedBlob(repoRoot, leaves, CATALOG_PATH, `lineage promotion catalog at ${revision}`).bytes,
+      `lineage promotion catalog at ${revision}`,
+    );
+    if (catalog.enabled) {
+      const admission = catalog.admissions[0];
+      const hop = verifyScopeCriticalPromotionRevision(
+        repoRoot,
+        revision,
+        commit,
+        leaves,
+        admission,
+      );
+      if (hop !== null && sameTarget(admission.target, target)) return hop;
+    }
+    assert(commit.parents.length >= 1, `promotion lineage ended before the pinned floor ${LINEAGE_FLOOR}`);
+    revision = commit.parents[0];
+  }
+  fail("promotion lineage exceeds the first-parent walk limit");
+}
+
+export function verifyPortableEngineScopePredecessor(options) {
+  assert(options && typeof options === "object" && !Array.isArray(options), "scope predecessor verifier expects one options object");
+  assertExactKeys(
+    options,
+    ["repoRoot", "startRevision", "target", "predecessorScopeDigest"],
+    "scope predecessor verifier options",
+  );
+  const priorScope = resolvePortableEnginePromotionPredecessor({
+    repoRoot: options.repoRoot,
+    startRevision: options.startRevision,
+    target: options.target,
+  });
+  if (priorScope === null) {
+    assert(options.predecessorScopeDigest === SCOPE_GENESIS_MARKER, "genesis scope must carry the explicit genesis predecessor marker");
+  } else {
+    assert(
+      options.predecessorScopeDigest === priorScope.admittedScopeDigest,
+      "scope predecessor does not equal the latest admitted scope for the canonical target tuple",
+    );
+  }
+  return priorScope;
 }
 
 function verifyPromotionBundleGraph(admission, promotedBytes, expectedTarget) {
@@ -891,9 +1168,10 @@ function verifyPromotionBundleGraph(admission, promotedBytes, expectedTarget) {
     ...members.map((member) =>
       promotionBundleMemberPath(admission, member.logicalName),
     ),
+    `${prefix}${SCOPE_PATH_BASENAME}`,
     TARGET_ATTESTATION_PATH,
     TARGET_ADVERTISEMENT_PATH,
-  ].sort(compareUtf8);
+  ].filter((pathname, index, paths) => paths.indexOf(pathname) === index).sort(compareUtf8);
   const actualArtifactPaths = admission.artifacts
     .map((artifact) => artifact.path)
     .sort(compareUtf8);
@@ -968,8 +1246,8 @@ function verifyChangedArtifacts(
     assert(rawDigest(bytes) === artifact.digest, `${label}: checked blob raw digest mismatch`);
 
     const source = sourceLeaves.get(artifact.path);
-    if (artifact.role === "conformance-evidence") {
-      assert(source === undefined, `${label}: conformance evidence must be newly added at promotion`);
+    if (artifact.role === "conformance-evidence" || artifact.role === SCOPE_ROLE) {
+      assert(source === undefined, `${label}: evidence-prefix artifacts must be newly added at promotion`);
     } else {
       assert(source?.kind === "blob" && source.mode === "100644", `${label}: target publication path must replace the closed source blob in place`);
     }
@@ -1041,6 +1319,7 @@ export function verifyPortableEnginePromotionAdmission(options = {}) {
     const currentRevision = resolveHead(repoRoot);
     authorityPlane.assertResolvedHead(currentRevision);
     assertCleanWorktree(repoRoot);
+    assertCompleteLineageHistory(repoRoot, authorityPlane);
 
     const currentCommit = parseCommit(readGitObject(repoRoot, "commit", currentRevision), `current commit ${currentRevision}`);
     const currentLeaves = collectTreeLeaves(repoRoot, currentCommit.tree);
@@ -1073,6 +1352,20 @@ export function verifyPortableEnginePromotionAdmission(options = {}) {
     assert(sourceCommit.tree !== currentCommit.tree, "promotion merge must change the disabled source tree");
 
     const sourceLeaves = collectTreeLeaves(repoRoot, sourceCommit.tree);
+    const currentScope = verifyScopeCriticalPromotionRevision(
+      repoRoot,
+      currentRevision,
+      currentCommit,
+      currentLeaves,
+      admission,
+    );
+    assert(currentScope !== null, "current active admission is not the exact promotion revision it declares");
+    verifyPortableEngineScopePredecessor({
+      repoRoot,
+      startRevision: admission.sourceRevision,
+      target: admission.target,
+      predecessorScopeDigest: currentScope.predecessorScopeDigest,
+    });
     const expectedTarget = assertSourceAuthorityClosed(
       repoRoot,
       sourceLeaves,
@@ -1097,9 +1390,11 @@ export function verifyPortableEnginePromotionAdmission(options = {}) {
       promotionTopicRevision,
       sourceRevision: admission.sourceRevision,
       sourceTreeObjectId: admission.sourceTreeObjectId,
-      targetTriple: admission.targetTriple,
+      target: structuredClone(admission.target),
       portableArtifactId: admission.portableArtifactId,
       admissionDigest: admission.admissionDigest,
+      admittedScopeDigest: currentScope.admittedScopeDigest,
+      predecessorScopeDigest: currentScope.predecessorScopeDigest,
     });
   } finally {
     authorityPlane.close();
@@ -1149,23 +1444,26 @@ function validateLineageVerificationResult(lineage) {
       "promotionTopicRevision",
       "sourceRevision",
       "sourceTreeObjectId",
-      "targetTriple",
+      "target",
       "portableArtifactId",
       "admissionDigest",
+      "admittedScopeDigest",
+      "predecessorScopeDigest",
     ],
     "active promotion lineage verification result",
   );
   assertSha1ObjectId(lineage.promotionTopicRevision, "promotion lineage topic revision");
   assertSha1ObjectId(lineage.sourceRevision, "promotion lineage source revision");
   assertSha1ObjectId(lineage.sourceTreeObjectId, "promotion lineage source tree object ID");
-  assert(
-    typeof lineage.targetTriple === "string"
-      && /^[a-z0-9_]+(?:-[a-z0-9_]+)+$/u.test(lineage.targetTriple)
-      && lineage.targetTriple.length <= 128,
-    "promotion lineage target triple is invalid",
-  );
+  validateCanonicalTarget(lineage.target, "promotion lineage target");
   assertSemanticDigest(lineage.portableArtifactId, "promotion lineage portable artifact ID");
   assertSemanticDigest(lineage.admissionDigest, "promotion lineage admission digest");
+  assertSemanticDigest(lineage.admittedScopeDigest, "promotion lineage admitted scope digest");
+  assert(
+    lineage.predecessorScopeDigest === SCOPE_GENESIS_MARKER
+      || (typeof lineage.predecessorScopeDigest === "string" && /^sha256-[A-Za-z0-9_-]{43}$/u.test(lineage.predecessorScopeDigest)),
+    "promotion lineage predecessor scope digest is invalid",
+  );
 }
 
 // This formatter does not establish Git authority by itself. Production calls
@@ -1177,7 +1475,7 @@ export function bindVerifiedPortableEnginePromotionAdmission(lineage, selection)
   const selected = exactCheckedSelectionOptions(selection);
   if (lineage.authorized) {
     assert(lineage.sourceRevision === selected.expectedSourceRevision, "promoted artifact source revision differs from the selected manifest/store source revision");
-    assert(lineage.targetTriple === selected.targetTriple, "promoted target triple differs from the selected manifest/store target");
+    assert(lineage.target.triple === selected.targetTriple, "promoted target triple differs from the selected manifest/store target");
     assert(lineage.portableArtifactId === selected.portableArtifactId, "promoted artifact ID differs from the selected manifest/store artifact ID");
   } else {
     assert(lineage.currentRevision === selected.expectedSourceRevision, "a disabled promotion catalog is diagnostic only at its exact artifact-source checkout");
@@ -1189,9 +1487,13 @@ export function bindVerifiedPortableEnginePromotionAdmission(lineage, selection)
     sourceRevision: selected.expectedSourceRevision,
     promotionTopicRevision: lineage.authorized ? lineage.promotionTopicRevision : null,
     sourceTreeObjectId: lineage.authorized ? lineage.sourceTreeObjectId : null,
-    targetTriple: selected.targetTriple,
+    target: lineage.authorized
+      ? structuredClone(lineage.target)
+      : { triple: selected.targetTriple, features: [] },
     portableArtifactId: selected.portableArtifactId,
     admissionDigest: lineage.authorized ? lineage.admissionDigest : null,
+    admittedScopeDigest: lineage.authorized ? lineage.admittedScopeDigest : null,
+    predecessorScopeDigest: lineage.authorized ? lineage.predecessorScopeDigest : null,
   };
   return Object.freeze({
     ...checked,

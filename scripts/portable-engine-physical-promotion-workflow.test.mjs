@@ -391,3 +391,15 @@ test("workflow contains no promotion-lineage or repository mutation mechanism", 
     /schemas\/portable-engine-promotion-admission-catalog-v1\.json[^\n]*(?:>|tee)|capsec\/generated\/target-advertisements\.json[^\n]*(?:>|tee)/u,
   );
 });
+
+// @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M33 excludes
+// artifact-source ceremonies from the product gate so reset can produce the
+// candidate bytes required by the next reviewed promotion.
+test("F6h-b reset ceremony stays explicitly outside the product-release gate", () => {
+  assert.match(workflow, /A successful run may upload candidate bytes/u);
+  assert.match(workflow, /separate reviewed one-commit promotion topic/u);
+  assert.doesNotMatch(
+    workflow,
+    /assert-releasable-checked-admission\.mjs --admission/u,
+  );
+});
