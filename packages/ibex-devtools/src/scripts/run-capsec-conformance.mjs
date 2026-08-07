@@ -21,6 +21,7 @@ import {
 } from "./capsec-public-executors.mjs";
 import { CAPSEC_SECURE_TEST_FEATURES } from "./capsec-secure-test-command.mjs";
 import {
+  assertObservedScopeClosure,
   assertPublicSurfaceExecutionComplete,
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
@@ -691,6 +692,19 @@ const recipeCatalogPath = path.join(
   evidenceDirectory,
   "executable-recipes.json",
 );
+const scopeArtifactDirectory = path.join(evidenceDirectory, "capsec-scope");
+const scopeArtifactPath = path.join(
+  scopeArtifactDirectory,
+  "capsec-scope.json",
+);
+const scopeExpansionDiffPath = path.join(
+  scopeArtifactDirectory,
+  "capsec-scope-expansion-diff.json",
+);
+const scopeCellMappingPath = path.join(
+  scopeArtifactDirectory,
+  "capsec-scope-cell-mapping.json",
+);
 const adapterEvidencePath = path.join(
   evidenceDirectory,
   "typed-adapter-evidence.json",
@@ -732,18 +746,43 @@ await runObservedCommand({
     recipeCatalogPath,
     "--target",
     target.triple,
+    "--scope-output-dir",
+    scopeArtifactDirectory,
   ],
   cwd: repoRoot,
   declaredInputs: [
     { name: "sourceTree", digest: initialSourceTreeDigest },
     { name: "suitePlan", digest: suitePlanBinding.suitePlanDigest },
   ],
-  expectedOutputs: [recipeCatalogPath],
+  expectedOutputs: [
+    recipeCatalogPath,
+    scopeArtifactPath,
+    scopeExpansionDiffPath,
+    scopeCellMappingPath,
+  ],
 });
 const recipeCatalog = readOwnedJson(
   recipeCatalogPath,
   "executable recipe catalog",
 );
+const scopeArtifact = readOwnedJson(
+  scopeArtifactPath,
+  "generated CapSec scope artifact",
+);
+if (
+  scopeArtifact.scopeSchema !== "ibex/capsec-scope/1" ||
+  scopeArtifact.profile !== "ibex/capsec/1" ||
+  canonicalJson(scopeArtifact.target) !== canonicalJson(target) ||
+  !/^sha256-[A-Za-z0-9_-]{43}$/u.test(scopeArtifact.scopeDigest ?? "") ||
+  !Array.isArray(scopeArtifact.expandedCellIds) ||
+  scopeArtifact.expandedCellIds.length === 0 ||
+  recipeCatalog.summary?.scopeDigest !== scopeArtifact.scopeDigest
+) {
+  throw new Error(
+    "generated recipe catalog and scope artifact have stale or mismatched bindings",
+  );
+}
+const expandedScopeCellIds = new Set(scopeArtifact.expandedCellIds);
 commandEvidence.push(
   legacyCommandEvidence(
     await runObservedEngineTest({
@@ -798,7 +837,12 @@ if (
 fs.mkdirSync(publicBatchEvidenceDirectory, { mode: 0o700 });
 const publicRecipeCommands = new Map();
 for (const recipe of recipeCatalog.recipes) {
-  if (recipe.status !== "fully-executable") continue;
+  if (
+    recipe.status !== "fully-executable" ||
+    !recipe.edgeIds.some((edgeId) => expandedScopeCellIds.has(edgeId))
+  ) {
+    continue;
+  }
   const command = recipe.publicSurfaceProbe?.command;
   if (!Array.isArray(command) || command.length === 0) {
     throw new Error(
@@ -874,6 +918,9 @@ const publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
   target,
   engine: engineBinding,
   coverage,
+  scopeDigest: scopeArtifact.scopeDigest,
+  expandedEdgeIds: scopeArtifact.expandedCellIds,
+  closureEdgeIds: scopeArtifact.expandedCellIds,
   executions: publicExecutions,
 });
 commandEvidence.push(...(await runMatrixCommands(CONFORMANCE_PRODUCT_COMMANDS)));
@@ -972,6 +1019,8 @@ if (publicSurfaceEvidenceInputPath) {
     sourceTreeDigest: bindings.sourceTreeDigest,
     engine: bindings.engine,
     coverage,
+    expandedEdgeIds: scopeArtifact.expandedCellIds,
+    closureEdgeIds: scopeArtifact.expandedCellIds,
   });
   if (
     canonicalJson(suppliedEvidence) !== canonicalJson(publicSurfaceEvidence)
@@ -1116,22 +1165,35 @@ validateInternalInvariantEvidenceArtifact(internalInvariantArtifact, {
   target,
   fixtureCatalogDigest,
 });
+const scopedFixtureIds = new Set(
+  recipeCatalog.recipes
+    .filter((recipe) =>
+      recipe.edgeIds.some((edgeId) => expandedScopeCellIds.has(edgeId)),
+    )
+    .map((recipe) => recipe.fixtureId),
+);
 const executions = [
   ...fixtureArtifact.executions,
   ...internalInvariantArtifact.executions,
-].sort((left, right) =>
-  left.fixtureId < right.fixtureId
-    ? -1
-    : left.fixtureId > right.fixtureId
-      ? 1
-      : 0,
-);
+]
+  .filter((execution) => scopedFixtureIds.has(execution.fixtureId))
+  .sort((left, right) =>
+    left.fixtureId < right.fixtureId
+      ? -1
+      : left.fixtureId > right.fixtureId
+        ? 1
+        : 0,
+  );
 if (
   new Set(executions.map((execution) => execution.fixtureId)).size !==
   executions.length
 ) {
   throw new Error("fixture and internal invariant evidence overlap");
 }
+assertObservedScopeClosure(
+  { executions },
+  scopeArtifact.expandedCellIds,
+);
 let portableProcessEvidence = {
   portableProcessEvidenceSchema: "ibex/capsec-portable-process-preparation/1",
   status: "legacy-null-marker",
@@ -1876,7 +1938,10 @@ const checkPromotion = (name, check) => {
   }
 };
 checkPromotion("executable-recipe-catalog", () => {
-  assertRecipeCatalogComplete(recipeCatalog);
+  assertRecipeCatalogComplete(recipeCatalog, {
+    scopeDigest: scopeArtifact.scopeDigest,
+    expandedEdgeIds: scopeArtifact.expandedCellIds,
+  });
 });
 checkPromotion("public-surface-execution", () => {
   assertPublicSurfaceExecutionComplete(publicSurfaceEvidence, recipeCatalog, {
@@ -1884,7 +1949,11 @@ checkPromotion("public-surface-execution", () => {
     sourceRevision: bindings.sourceRevision,
     sourceTreeDigest: bindings.sourceTreeDigest,
     engine: bindings.engine,
-    expectedFixtureIds: catalog.flatMap((cell) => cell.requiredFixtures),
+    expandedEdgeIds: scopeArtifact.expandedCellIds,
+    closureEdgeIds: scopeArtifact.expandedCellIds,
+    expectedFixtureIds: catalog
+      .filter((cell) => expandedScopeCellIds.has(cell.edgeId))
+      .flatMap((cell) => cell.requiredFixtures),
   });
 });
 checkPromotion("output-disposition-evidence", () => {
