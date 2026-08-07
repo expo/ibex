@@ -2212,13 +2212,31 @@ export function mergePublicBatchExecutions({
   );
 }
 
-function executionSummary(recipeCatalog, executions) {
+function scopedRecipes(recipeCatalog, expandedEdgeIds) {
+  if (expandedEdgeIds === null) return recipeCatalog.recipes;
+  const expanded = new Set(expandedEdgeIds);
+  return recipeCatalog.recipes.filter((recipe) =>
+    recipe.edgeIds.some((edgeId) => expanded.has(edgeId)),
+  );
+}
+
+function executionSummary(recipeCatalog, executions, expandedEdgeIds = null) {
+  const requiredRecipes = scopedRecipes(recipeCatalog, expandedEdgeIds);
+  const executableFixtures = requiredRecipes.filter(
+    (recipe) => recipe.status === "fully-executable",
+  ).length;
+  const internallyVerifiedFixtures = requiredRecipes.filter(
+    (recipe) => recipe.status === "internally-verified",
+  ).length;
+  const residualFixtures = requiredRecipes.filter(
+    (recipe) =>
+      !["fully-executable", "internally-verified"].includes(recipe.status),
+  ).length;
   return {
-    requiredFixtures: recipeCatalog.summary.requiredFixtures,
-    executableFixtures: recipeCatalog.summary.fullyExecutableFixtures,
-    internallyVerifiedFixtures:
-      recipeCatalog.summary.internallyVerifiedFixtures,
-    residualFixtures: recipeCatalog.summary.unresolvedFixtures,
+    requiredFixtures: requiredRecipes.length,
+    executableFixtures,
+    internallyVerifiedFixtures,
+    residualFixtures,
     executedFixtures: executions.length,
     passedFixtures: executions.filter(
       (execution) => execution.outcome === "passed",
@@ -2226,7 +2244,7 @@ function executionSummary(recipeCatalog, executions) {
     failedFixtures: executions.filter(
       (execution) => execution.outcome === "failed",
     ).length,
-    missingFixtures: recipeCatalog.summary.requiredFixtures - executions.length,
+    missingFixtures: requiredRecipes.length - executions.length,
   };
 }
 
@@ -2238,8 +2256,28 @@ export function buildPublicSurfaceExecutionArtifact({
   engine,
   coverage = null,
   executions = [],
+  scopeDigest = null,
+  expandedEdgeIds = null,
+  closureEdgeIds = null,
 }) {
-  validateRecipeCatalog(recipeCatalog, { target });
+  if (
+    [scopeDigest, expandedEdgeIds, closureEdgeIds].filter(
+      (value) => value !== null,
+    ).length !== 0 &&
+    [scopeDigest, expandedEdgeIds, closureEdgeIds].some(
+      (value) => value === null,
+    )
+  ) {
+    throw new Error(
+      "public-surface execution scope, expansion, and closure must bind together",
+    );
+  }
+  validateRecipeCatalog(recipeCatalog, {
+    target,
+    ...(expandedEdgeIds === null
+      ? {}
+      : { scopeDigest, expandedEdgeIds }),
+  });
   const sortedExecutions = [...executions].sort((left, right) =>
     compareText(left.fixtureId, right.fixtureId),
   );
@@ -2251,7 +2289,12 @@ export function buildPublicSurfaceExecutionArtifact({
     target: structuredClone(target),
     engine: structuredClone(engine),
     recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
-    summary: executionSummary(recipeCatalog, sortedExecutions),
+    ...(scopeDigest === null ? {} : { scopeDigest }),
+    summary: executionSummary(
+      recipeCatalog,
+      sortedExecutions,
+      expandedEdgeIds,
+    ),
     executions: sortedExecutions,
   };
   artifact.publicSurfaceExecutionDigest =
@@ -2263,6 +2306,8 @@ export function buildPublicSurfaceExecutionArtifact({
     sourceTreeDigest,
     engine,
     coverage,
+    expandedEdgeIds,
+    closureEdgeIds,
   });
 }
 
@@ -9592,11 +9637,14 @@ export function validatePublicSurfaceExecutionArtifact(
     sourceTreeDigest = null,
     engine = null,
     coverage = null,
+    expandedEdgeIds = null,
+    closureEdgeIds = null,
   },
 ) {
   if (artifact?.adapterEvidenceSchema) {
     throw new Error("adapter-only evidence cannot advertise a target");
   }
+  const isScoped = artifact?.scopeDigest !== undefined;
   exactKeys(
     artifact,
     [
@@ -9607,6 +9655,7 @@ export function validatePublicSurfaceExecutionArtifact(
       "target",
       "engine",
       "recipeCatalogDigest",
+      ...(isScoped ? ["scopeDigest"] : []),
       "summary",
       "executions",
       "publicSurfaceExecutionDigest",
@@ -9619,6 +9668,8 @@ export function validatePublicSurfaceExecutionArtifact(
     artifact.profile !== "ibex/capsec/1" ||
     !Array.isArray(artifact.executions) ||
     artifact.recipeCatalogDigest !== recipeCatalog.recipeCatalogDigest ||
+    (isScoped && artifact.scopeDigest !== recipeCatalog.summary.scopeDigest) ||
+    (expandedEdgeIds !== null && !isScoped) ||
     artifact.publicSurfaceExecutionDigest !==
       computePublicSurfaceExecutionDigest(artifact) ||
     (target && canonicalJson(artifact.target) !== canonicalJson(target)) ||
@@ -9630,9 +9681,18 @@ export function validatePublicSurfaceExecutionArtifact(
       "public-surface execution artifact has stale or mismatched bindings",
     );
   }
-  validateRecipeCatalog(recipeCatalog, { target: artifact.target });
+  validateRecipeCatalog(recipeCatalog, {
+    target: artifact.target,
+    ...(expandedEdgeIds === null
+      ? {}
+      : {
+          scopeDigest: artifact.scopeDigest,
+          expandedEdgeIds,
+        }),
+  });
+  const requiredRecipes = scopedRecipes(recipeCatalog, expandedEdgeIds);
   const recipes = new Map(
-    recipeCatalog.recipes.map((recipe) => [recipe.fixtureId, recipe]),
+    requiredRecipes.map((recipe) => [recipe.fixtureId, recipe]),
   );
   const seen = new Set();
   const authenticatedSourceRuntimeNonces = new Set();
@@ -9673,13 +9733,50 @@ export function validatePublicSurfaceExecutionArtifact(
   }
   if (
     canonicalJson(artifact.summary) !==
-    canonicalJson(executionSummary(recipeCatalog, artifact.executions))
+    canonicalJson(
+      executionSummary(recipeCatalog, artifact.executions, expandedEdgeIds),
+    )
   ) {
     throw new Error(
       "public-surface execution summary disagrees with its evidence",
     );
   }
+  if (closureEdgeIds !== null) {
+    assertObservedScopeClosure(artifact, closureEdgeIds);
+  }
   return artifact;
+}
+
+/**
+ * Refuse a ceremony observation that traversed beyond the generated,
+ * conservative scope closure. There is deliberately no warning return.
+ *
+ * @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — A1/F8 makes an
+ * observed closure escape a run failure because it disproves the closure.
+ */
+export function assertObservedScopeClosure(artifact, closureEdgeIds) {
+  if (
+    !Array.isArray(closureEdgeIds) ||
+    closureEdgeIds.length === 0 ||
+    closureEdgeIds.some((edgeId) => typeof edgeId !== "string") ||
+    canonicalJson(closureEdgeIds) !==
+      canonicalJson(canonicalSet(closureEdgeIds))
+  ) {
+    throw new Error("scope closure edge set is malformed");
+  }
+  const closure = new Set(closureEdgeIds);
+  for (const execution of artifact.executions ?? []) {
+    for (const decision of
+      execution.evidence?.runtimeObservation?.typedDecisions ?? []) {
+      for (const gate of decision.gates ?? []) {
+        if (!closure.has(gate.coverageEdgeId)) {
+          throw new Error(
+            `${execution.fixtureId}: observed scope closure escape at ${gate.coverageEdgeId}`,
+          );
+        }
+      }
+    }
+  }
 }
 
 export function authenticatedBuiltinSourceRuntimeNonce(execution) {
@@ -9703,9 +9800,32 @@ export function assertPublicSurfaceExecutionComplete(
   recipeCatalog,
   options = {},
 ) {
+  if (
+    options.expandedEdgeIds === undefined ||
+    options.closureEdgeIds === undefined ||
+    artifact.scopeDigest === undefined
+  ) {
+    throw new Error(
+      "public-surface execution artifact cannot advertise without exact scope and closure bindings",
+    );
+  }
+  const expectedScopedFixtureIds = scopedRecipes(
+    recipeCatalog,
+    options.expandedEdgeIds,
+  ).map((recipe) => recipe.fixtureId);
+  if (
+    options.expectedFixtureIds !== undefined &&
+    canonicalJson(canonicalSet(options.expectedFixtureIds)) !==
+      canonicalJson(expectedScopedFixtureIds)
+  ) {
+    throw new Error(
+      "public-surface execution expected fixture set differs from the scoped expansion",
+    );
+  }
   assertRecipeCatalogComplete(recipeCatalog, {
     target: options.target ?? artifact.target,
-    expectedFixtureIds: options.expectedFixtureIds ?? null,
+    scopeDigest: artifact.scopeDigest,
+    expandedEdgeIds: options.expandedEdgeIds,
   });
   validatePublicSurfaceExecutionArtifact(artifact, {
     ...options,
@@ -9724,6 +9844,121 @@ export function assertPublicSurfaceExecutionComplete(
       "public-surface execution artifact cannot advertise with residual, failed, or missing public obligations",
     );
   }
+}
+
+export function computePublicSurfaceDiagnosticDigest(artifact) {
+  const { diagnosticDigest: _digest, ...payload } = artifact;
+  return taggedDigest(payload);
+}
+
+export function validatePublicSurfaceDiagnosticArtifact(
+  artifact,
+  { scopeDigest = null, expandedEdgeIds = [] } = {},
+) {
+  if (
+    !Array.isArray(expandedEdgeIds) ||
+    expandedEdgeIds.length === 0 ||
+    canonicalJson(expandedEdgeIds) !==
+      canonicalJson(canonicalSet(expandedEdgeIds))
+  ) {
+    throw new Error("public-surface diagnostic scope expansion is malformed");
+  }
+  exactKeys(
+    artifact,
+    [
+      "diagnosticSchema",
+      "purpose",
+      "scopeDigest",
+      "target",
+      "records",
+      "diagnosticDigest",
+    ],
+    "public-surface diagnostic artifact",
+  );
+  const expanded = new Set(expandedEdgeIds);
+  if (
+    artifact.diagnosticSchema !==
+      "ibex/capsec-public-surface-diagnostics/1" ||
+    artifact.purpose !== "diagnostic-only-no-conformance-credit" ||
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(artifact.scopeDigest) ||
+    (scopeDigest !== null && artifact.scopeDigest !== scopeDigest) ||
+    !Array.isArray(artifact.records) ||
+    artifact.diagnosticDigest !==
+      computePublicSurfaceDiagnosticDigest(artifact)
+  ) {
+    throw new Error("public-surface diagnostic artifact is malformed");
+  }
+  const ids = [];
+  for (const record of artifact.records) {
+    exactKeys(
+      record,
+      ["diagnosticId", "kind", "edgeIds", "typedDecisionCount", "outcome"],
+      "public-surface diagnostic record",
+    );
+    if (
+      typeof record.diagnosticId !== "string" ||
+      record.diagnosticId.length === 0 ||
+      ![
+        "zero-decision-uncertified",
+        "adversarial-composition",
+      ].includes(record.kind) ||
+      !Array.isArray(record.edgeIds) ||
+      record.edgeIds.length === 0 ||
+      canonicalJson(record.edgeIds) !==
+        canonicalJson(canonicalSet(record.edgeIds)) ||
+      record.edgeIds.some(
+        (edgeId) => typeof edgeId !== "string" || expanded.has(edgeId),
+      ) ||
+      !Number.isSafeInteger(record.typedDecisionCount) ||
+      record.typedDecisionCount < 0 ||
+      (record.kind === "zero-decision-uncertified" &&
+        record.typedDecisionCount !== 0) ||
+      !["passed", "failed"].includes(record.outcome)
+    ) {
+      throw new Error(
+        `${record?.diagnosticId ?? "unknown"}: malformed or in-scope diagnostic record`,
+      );
+    }
+    ids.push(record.diagnosticId);
+  }
+  if (
+    canonicalJson(ids) !== canonicalJson(canonicalSet(ids))
+  ) {
+    throw new Error(
+      "public-surface diagnostic records are duplicate or noncanonical",
+    );
+  }
+  return artifact;
+}
+
+/**
+ * Construct evidence that is intentionally incapable of entering the
+ * authoritative public-surface execution artifact.
+ *
+ * @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — F4/F10 keep
+ * zero-decision remainder probes and adversarial compositions diagnostic.
+ */
+export function buildPublicSurfaceDiagnosticArtifact({
+  scopeDigest,
+  target,
+  expandedEdgeIds,
+  records,
+}) {
+  const artifact = {
+    diagnosticSchema: "ibex/capsec-public-surface-diagnostics/1",
+    purpose: "diagnostic-only-no-conformance-credit",
+    scopeDigest,
+    target: structuredClone(target),
+    records: structuredClone(records).sort((left, right) =>
+      compareText(left.diagnosticId, right.diagnosticId),
+    ),
+  };
+  artifact.diagnosticDigest =
+    computePublicSurfaceDiagnosticDigest(artifact);
+  return validatePublicSurfaceDiagnosticArtifact(artifact, {
+    scopeDigest,
+    expandedEdgeIds,
+  });
 }
 
 export function buildPublicFixtureEvidence({

@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, test } from "bun:test";
 import {
   assertRecipeCatalogComplete,
+  bindRecipeCatalogScope,
   buildConformanceRecipeCatalog,
+  computeRecipeCatalogDigest,
   deriveAdapterActionTemplate,
   fixtureScenario,
   nativeExpectedStageContractViolation,
@@ -628,9 +630,117 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(absenceFixtures - authoredAbsenceFixtures);
     expect(publicFixtures + absenceFixtures).toBe(expectedFixtureIds.length);
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
-      /executable recipe catalog is incomplete/,
+      /exact scope binding/,
     );
   });
+
+  test("binds completeness to whole scoped cells and retains the honest remainder", () => {
+    const rowsByEdge = new Map();
+    for (const recipe of recipes.recipes) {
+      for (const edgeId of recipe.edgeIds) {
+        const rows = rowsByEdge.get(edgeId) ?? [];
+        rows.push(recipe);
+        rowsByEdge.set(edgeId, rows);
+      }
+    }
+    const completeEdge = [...rowsByEdge].find(
+      ([, rows]) =>
+        rows.some((row) => row.status === "fully-executable") &&
+        rows.every((row) =>
+          ["fully-executable", "internally-verified"].includes(row.status),
+        ),
+    )?.[0];
+    const incompleteEdge = [...rowsByEdge].find(([, rows]) =>
+      rows.some((row) => row.status === "unresolved"),
+    )?.[0];
+    expect(completeEdge).toBeString();
+    expect(incompleteEdge).toBeString();
+    const scopeDigest =
+      "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const selectedRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.edgeIds.includes(completeEdge) ||
+        recipe.edgeIds.includes(incompleteEdge),
+    );
+    const summary = {
+      requiredFixtures: selectedRows.length,
+      fullyExecutableFixtures: selectedRows.filter(
+        (row) => row.status === "fully-executable",
+      ).length,
+      internallyVerifiedFixtures: selectedRows.filter(
+        (row) => row.status === "internally-verified",
+      ).length,
+      adapterExecutableFixtures: selectedRows.filter(
+        (row) => row.adapterProbe !== null,
+      ).length,
+      unresolvedFixtures: selectedRows.filter(
+        (row) =>
+          !["fully-executable", "internally-verified"].includes(row.status),
+      ).length,
+      byScenario: Object.fromEntries(
+        Object.entries(
+          Object.groupBy(selectedRows, (row) => row.scenario),
+        )
+          .map(([scenario, rows]) => [scenario, rows.length])
+          .sort(),
+      ),
+      residualReasons: Object.fromEntries(
+        Object.entries(
+          Object.groupBy(
+            selectedRows.flatMap((row) => row.residualReasons),
+            (reason) => reason,
+          ),
+        )
+          .map(([reason, rows]) => [reason, rows.length])
+          .sort(),
+      ),
+    };
+    const base = {
+      recipeCatalogSchema: recipes.recipeCatalogSchema,
+      profile: recipes.profile,
+      target: recipes.target,
+      recipes: selectedRows,
+      summary,
+    };
+    base.recipeCatalogDigest = computeRecipeCatalogDigest(base);
+    const originalRows = canonicalJson(base.recipes);
+    const scoped = bindRecipeCatalogScope(base, {
+      scopeDigest,
+      expandedEdgeIds: [completeEdge],
+    });
+    const expectedInScope = base.recipes.filter((recipe) =>
+      recipe.edgeIds.includes(completeEdge),
+    );
+    expect(canonicalJson(scoped.recipes)).toBe(originalRows);
+    expect(scoped.summary).toMatchObject({
+      scopeDigest,
+      requiredFixturesInScope: expectedInScope.length,
+      unresolvedFixturesInScope: 0,
+      requiredFixturesOutOfScope:
+        base.summary.requiredFixtures - expectedInScope.length,
+      unresolvedFixturesOutOfScope: base.summary.unresolvedFixtures,
+    });
+    expect(() =>
+      assertRecipeCatalogComplete(scoped, {
+        scopeDigest,
+        expandedEdgeIds: [completeEdge],
+      }),
+    ).not.toThrow();
+
+    const incomplete = bindRecipeCatalogScope(base, {
+      scopeDigest,
+      expandedEdgeIds: [incompleteEdge],
+    });
+    expect(() =>
+      assertRecipeCatalogComplete(incomplete, {
+        scopeDigest,
+        expandedEdgeIds: [incompleteEdge],
+      }),
+    ).toThrow(/incomplete in scope/u);
+    expect(() => assertRecipeCatalogComplete(base)).toThrow(
+      /exact scope binding/u,
+    );
+  }, 10_000);
 
   test("accounts for the Windows candidate without borrowing Apple probes", () => {
     expect(windowsRecipes.target.triple).toBe("x86_64-pc-windows-msvc");

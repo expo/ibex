@@ -167,3 +167,31 @@ test("suite entry points spawn evidence commands only through the envelope", () 
     expect(source).not.toMatch(/\bspawn\(/u);
   }
 });
+
+test("the scoped ceremony preserves gate order and validates physical closure", () => {
+  const repoRoot = path.resolve(import.meta.dir, "../../../..");
+  const source = fs.readFileSync(
+    path.join(
+      repoRoot,
+      "packages/ibex-devtools/src/scripts/run-capsec-conformance.mjs",
+    ),
+    "utf8",
+  );
+  expect(
+    [...source.matchAll(/checkPromotion\("([^"]+)"/gu)].map(
+      (match) => match[1],
+    ),
+  ).toEqual([
+    "executable-recipe-catalog",
+    "public-surface-execution",
+    "output-disposition-evidence",
+    "conformance-report",
+  ]);
+  expect(source).toContain('"--scope-output-dir"');
+  expect(source).toContain(
+    "closureEdgeIds: scopeArtifact.expandedCellIds",
+  );
+  expect(source).toMatch(
+    /trackedAdvertisementCandidate:[\s\S]*?"target-advertisements\.json"/u,
+  );
+});

@@ -4779,6 +4779,129 @@ function summarize(recipes) {
   };
 }
 
+function validateScopePartitionInputs(scopeDigest, expandedEdgeIds) {
+  if (
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(scopeDigest ?? "") ||
+    !Array.isArray(expandedEdgeIds) ||
+    expandedEdgeIds.length === 0 ||
+    expandedEdgeIds.some(
+      (edgeId) => typeof edgeId !== "string" || edgeId.length === 0,
+    ) ||
+    canonicalJson(expandedEdgeIds) !==
+      canonicalJson(canonicalSet(expandedEdgeIds))
+  ) {
+    throw new Error("recipe catalog scope binding is malformed");
+  }
+}
+
+function partitionRecipesByScope(recipes, expandedEdgeIds) {
+  const expanded = new Set(expandedEdgeIds);
+  const knownEdges = new Set(recipes.flatMap((recipe) => recipe.edgeIds ?? []));
+  const unknownEdge = expandedEdgeIds.find((edgeId) => !knownEdges.has(edgeId));
+  if (unknownEdge !== undefined) {
+    throw new Error(
+      `recipe catalog scope names unknown expanded cell ${unknownEdge}`,
+    );
+  }
+  const inScope = [];
+  const outOfScope = [];
+  for (const recipe of recipes) {
+    if (
+      !Array.isArray(recipe.edgeIds) ||
+      recipe.edgeIds.length === 0 ||
+      recipe.edgeIds.some((edgeId) => typeof edgeId !== "string")
+    ) {
+      throw new Error(`${recipe.fixtureId}: recipe has malformed cell bindings`);
+    }
+    // A fixture shared by several cells is authoritative when any complete
+    // cell requiring it is in scope. The fixture is still counted once.
+    (recipe.edgeIds.some((edgeId) => expanded.has(edgeId))
+      ? inScope
+      : outOfScope
+    ).push(recipe);
+  }
+  return { inScope, outOfScope };
+}
+
+function scopedSummary(recipes, { scopeDigest, expandedEdgeIds }) {
+  validateScopePartitionInputs(scopeDigest, expandedEdgeIds);
+  const { inScope, outOfScope } = partitionRecipesByScope(
+    recipes,
+    expandedEdgeIds,
+  );
+  const inScopeSummary = summarize(inScope);
+  const outOfScopeSummary = summarize(outOfScope);
+  return {
+    ...summarize(recipes),
+    scopeDigest,
+    requiredFixturesInScope: inScopeSummary.requiredFixtures,
+    fullyExecutableFixturesInScope:
+      inScopeSummary.fullyExecutableFixtures,
+    internallyVerifiedFixturesInScope:
+      inScopeSummary.internallyVerifiedFixtures,
+    unresolvedFixturesInScope: inScopeSummary.unresolvedFixtures,
+    requiredFixturesOutOfScope: outOfScopeSummary.requiredFixtures,
+    fullyExecutableFixturesOutOfScope:
+      outOfScopeSummary.fullyExecutableFixtures,
+    internallyVerifiedFixturesOutOfScope:
+      outOfScopeSummary.internallyVerifiedFixtures,
+    unresolvedFixturesOutOfScope: outOfScopeSummary.unresolvedFixtures,
+  };
+}
+
+/**
+ * Bind the full, source-derived recipe catalog to a generated scope without
+ * deleting or rewriting any recipe row.
+ *
+ * @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — A2 keeps the
+ * uncertified remainder enumerable and changes only promotion completeness.
+ */
+export function bindRecipeCatalogScope(
+  recipeCatalog,
+  { scopeDigest, expandedEdgeIds },
+) {
+  validateRecipeCatalog(recipeCatalog);
+  const bound = structuredClone(recipeCatalog);
+  bound.summary = scopedSummary(bound.recipes, {
+    scopeDigest,
+    expandedEdgeIds,
+  });
+  bound.recipeCatalogDigest = computeRecipeCatalogDigest(bound);
+  return bound;
+}
+
+/**
+ * Re-derive a generated scope before binding it to the recipe catalog. The
+ * dynamic import lets S2 remain independently testable until the prerequisite
+ * S1 commit is combined by the merge lane.
+ */
+export async function bindRecipeCatalogScopeArtifact(
+  recipeCatalog,
+  { scopeArtifact, scopeInventory },
+) {
+  const { computeScopeDigest, expandScope } = await import(
+    "./capsec-scope-artifact.mjs"
+  );
+  const recomputedDigest = computeScopeDigest(scopeArtifact);
+  const expandedEdgeIds = expandScope(
+    scopeArtifact.intensionalDefinition,
+    scopeInventory,
+  );
+  if (
+    recomputedDigest !== scopeArtifact.scopeDigest ||
+    canonicalJson(expandedEdgeIds) !==
+      canonicalJson(scopeArtifact.expandedCellIds)
+  ) {
+    throw new Error(
+      "recipe catalog scope artifact differs from its re-derived identity or expansion",
+    );
+  }
+  return bindRecipeCatalogScope(recipeCatalog, {
+    scopeDigest: recomputedDigest,
+    expandedEdgeIds,
+  });
+}
+
 function unsupportedWindowsTypedPublicEffectReason({
   plan,
   publicSurfaceProbe,
@@ -4852,6 +4975,7 @@ export function buildConformanceRecipeCatalog({
   selectorExamples,
   capabilityDefinitions,
   target,
+  scope = null,
 }) {
   const rowsByBranch = new Map(
     implementation.surfaces.map((row) => [row.branchId, row]),
@@ -5121,6 +5245,9 @@ export function buildConformanceRecipeCatalog({
     recipes,
     summary: summarize(recipes),
   };
+  if (scope !== null) {
+    result.summary = scopedSummary(recipes, scope);
+  }
   result.recipeCatalogDigest = taggedDigest(result);
   return result;
 }
@@ -5157,7 +5284,12 @@ function validatePublicSurfaceProbe(recipe) {
 
 export function validateRecipeCatalog(
   recipeCatalog,
-  { expectedFixtureIds = null, target = null } = {},
+  {
+    expectedFixtureIds = null,
+    target = null,
+    scopeDigest = null,
+    expandedEdgeIds = null,
+  } = {},
 ) {
   if (
     recipeCatalog?.recipeCatalogSchema !== "ibex/capsec-executable-recipes/1" ||
@@ -5192,11 +5324,65 @@ export function validateRecipeCatalog(
       "recipe catalog does not cover the exact required fixture set",
     );
   }
+  const hasScopeBinding = recipeCatalog.summary.scopeDigest !== undefined;
+  const expectedSummary = hasScopeBinding
+    ? expandedEdgeIds === null
+      ? null
+      : scopedSummary(recipeCatalog.recipes, {
+          scopeDigest: scopeDigest ?? recipeCatalog.summary.scopeDigest,
+          expandedEdgeIds,
+        })
+    : summarize(recipeCatalog.recipes);
   if (
-    canonicalJson(recipeCatalog.summary) !==
-    canonicalJson(summarize(recipeCatalog.recipes))
+    (scopeDigest !== null &&
+      recipeCatalog.summary.scopeDigest !== scopeDigest) ||
+    (expandedEdgeIds !== null && !hasScopeBinding) ||
+    (hasScopeBinding &&
+      !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
+        recipeCatalog.summary.scopeDigest,
+      )) ||
+    (expectedSummary !== null &&
+      canonicalJson(recipeCatalog.summary) !== canonicalJson(expectedSummary))
   ) {
     throw new Error("recipe catalog summary disagrees with its recipe rows");
+  }
+  if (hasScopeBinding && expectedSummary === null) {
+    const summary = recipeCatalog.summary;
+    const global = summarize(recipeCatalog.recipes);
+    if (
+      canonicalJson(Object.keys(summary).sort(compareText)) !==
+        canonicalJson(
+          [
+            ...Object.keys(global),
+            "scopeDigest",
+            "requiredFixturesInScope",
+            "fullyExecutableFixturesInScope",
+            "internallyVerifiedFixturesInScope",
+            "unresolvedFixturesInScope",
+            "requiredFixturesOutOfScope",
+            "fullyExecutableFixturesOutOfScope",
+            "internallyVerifiedFixturesOutOfScope",
+            "unresolvedFixturesOutOfScope",
+          ].sort(compareText),
+        ) ||
+      Object.entries(global).some(
+        ([name, value]) => canonicalJson(summary[name]) !== canonicalJson(value),
+      ) ||
+      summary.requiredFixturesInScope +
+          summary.requiredFixturesOutOfScope !==
+        global.requiredFixtures ||
+      summary.fullyExecutableFixturesInScope +
+          summary.fullyExecutableFixturesOutOfScope !==
+        global.fullyExecutableFixtures ||
+      summary.internallyVerifiedFixturesInScope +
+          summary.internallyVerifiedFixturesOutOfScope !==
+        global.internallyVerifiedFixtures ||
+      summary.unresolvedFixturesInScope +
+          summary.unresolvedFixturesOutOfScope !==
+        global.unresolvedFixtures
+    ) {
+      throw new Error("recipe catalog scoped summary is arithmetically invalid");
+    }
   }
   return recipeCatalog;
 }
@@ -5216,6 +5402,7 @@ export function validateCurrentSourceRecipeCatalog(
     selectorExamples,
     capabilityDefinitions,
     target,
+    scope = null,
   },
 ) {
   const catalog = fixtureCatalogForTarget({
@@ -5236,6 +5423,7 @@ export function validateCurrentSourceRecipeCatalog(
     selectorExamples,
     capabilityDefinitions,
     target,
+    scope,
   });
   if (canonicalJson(recipeCatalog) !== canonicalJson(derivedRecipeCatalog)) {
     throw new Error(
@@ -5248,19 +5436,36 @@ export function validateCurrentSourceRecipeCatalog(
 export function assertRecipeCatalogComplete(recipeCatalog, options = {}) {
   validateRecipeCatalog(recipeCatalog, options);
   if (
-    recipeCatalog.summary.fullyExecutableFixtures +
-      recipeCatalog.summary.internallyVerifiedFixtures !==
-      recipeCatalog.summary.requiredFixtures ||
-    recipeCatalog.summary.unresolvedFixtures !== 0
+    options.expandedEdgeIds === undefined ||
+    recipeCatalog.summary.scopeDigest === undefined
   ) {
-    const residual = Object.entries(recipeCatalog.summary.residualReasons)
+    throw new Error(
+      "CapSec executable recipe catalog cannot advertise without an exact scope binding",
+    );
+  }
+  if (
+    recipeCatalog.summary.requiredFixturesInScope === 0 ||
+    recipeCatalog.summary.fullyExecutableFixturesInScope +
+      recipeCatalog.summary.internallyVerifiedFixturesInScope !==
+      recipeCatalog.summary.requiredFixturesInScope ||
+    recipeCatalog.summary.unresolvedFixturesInScope !== 0
+  ) {
+    const { inScope } = partitionRecipesByScope(
+      recipeCatalog.recipes,
+      options.expandedEdgeIds,
+    );
+    const residual = Object.entries(summarize(inScope).residualReasons)
       .map(([reason, count]) => `${reason}=${count}`)
       .join(", ");
     throw new Error(
-      `CapSec executable recipe catalog is incomplete: ${recipeCatalog.summary.unresolvedFixtures}/${recipeCatalog.summary.requiredFixtures} unresolved (${residual})`,
+      `CapSec executable recipe catalog is incomplete in scope: ${recipeCatalog.summary.unresolvedFixturesInScope}/${recipeCatalog.summary.requiredFixturesInScope} unresolved (${residual})`,
     );
   }
-  for (const recipe of recipeCatalog.recipes) {
+  const { inScope } = partitionRecipesByScope(
+    recipeCatalog.recipes,
+    options.expandedEdgeIds,
+  );
+  for (const recipe of inScope) {
     // Internal-invariant scenarios are attested by internal Rust proofs, not a
     // public-surface probe, so they legitimately carry a residual reason
     // documenting the public-surface gap and have no public probe to validate.

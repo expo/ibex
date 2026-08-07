@@ -3,8 +3,10 @@ import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   authenticatedBuiltinSourceRuntimeNonce,
+  assertObservedScopeClosure,
   assertPublicSurfaceExecutionComplete,
   buildPublicFixtureEvidence,
+  buildPublicSurfaceDiagnosticArtifact,
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
   nativeAsyncWorkerTerminal,
@@ -14,6 +16,7 @@ import {
   validateStartupEnvironmentRecipeDescriptor,
 } from "./capsec-public-surface-evidence.mjs";
 import {
+  bindRecipeCatalogScope,
   computeRecipeCatalogDigest,
   assertRecipeCatalogComplete,
 } from "./capsec-conformance-recipes.mjs";
@@ -29,6 +32,8 @@ const taggedDigest = (value) =>
     .createHash("sha256")
     .update(canonicalJson(value), "utf8")
     .digest("base64url")}`;
+const SCOPE_DIGEST =
+  "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const registryBundle = readJsonStrict(
   path.join(capsecRoot, "examples/registry-digest-bundle.canonical.json"),
 );
@@ -440,7 +445,10 @@ function completeCatalog() {
     },
   };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
-  return catalog;
+  return bindRecipeCatalogScope(catalog, {
+    scopeDigest: SCOPE_DIGEST,
+    expandedEdgeIds: ["edge.public"],
+  });
 }
 
 function runtimeObservation(recipe) {
@@ -1388,6 +1396,9 @@ function completeArtifact(catalog = completeCatalog()) {
     target,
     engine,
     coverage,
+    scopeDigest: SCOPE_DIGEST,
+    expandedEdgeIds: ["edge.public"],
+    closureEdgeIds: ["edge.terminal"],
     executions: [
       buildPublicFixtureEvidence({
         recipe: catalog.recipes[0],
@@ -4452,9 +4463,75 @@ describe("CapSec public-surface promotion evidence", () => {
         sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
         engine,
         coverage,
+        expandedEdgeIds: ["edge.public"],
+        closureEdgeIds: ["edge.terminal"],
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
+  });
+
+  test("keeps zero-decision remainder and compositions diagnostic-only", () => {
+    const catalog = completeCatalog();
+    const authoritative = completeArtifact(catalog);
+    const authoritativeBytes = canonicalJson(authoritative);
+    const diagnostic = buildPublicSurfaceDiagnosticArtifact({
+      scopeDigest: SCOPE_DIGEST,
+      target,
+      expandedEdgeIds: ["edge.public"],
+      records: [
+        {
+          diagnosticId: "diagnostic.composition",
+          kind: "adversarial-composition",
+          edgeIds: ["edge.out-of-scope"],
+          typedDecisionCount: 1,
+          outcome: "passed",
+        },
+        {
+          diagnosticId: "diagnostic.zero-decision",
+          kind: "zero-decision-uncertified",
+          edgeIds: ["edge.out-of-scope"],
+          typedDecisionCount: 0,
+          outcome: "passed",
+        },
+      ],
+    });
+    expect(diagnostic.purpose).toBe(
+      "diagnostic-only-no-conformance-credit",
+    );
+    expect(canonicalJson(authoritative)).toBe(authoritativeBytes);
+    expect(() =>
+      validatePublicSurfaceExecutionArtifact(diagnostic, {
+        recipeCatalog: catalog,
+      }),
+    ).toThrow(/unknown or missing fields|stale or mismatched/u);
+    expect(() =>
+      buildPublicSurfaceDiagnosticArtifact({
+        scopeDigest: SCOPE_DIGEST,
+        target,
+        expandedEdgeIds: ["edge.public"],
+        records: [
+          {
+            diagnosticId: "diagnostic.claim-upgrade",
+            kind: "zero-decision-uncertified",
+            edgeIds: ["edge.public"],
+            typedDecisionCount: 0,
+            outcome: "passed",
+          },
+        ],
+      }),
+    ).toThrow(/in-scope diagnostic/u);
+  });
+
+  test("fails every observed closure escape without a warning path", () => {
+    const artifact = completeArtifact();
+    expect(
+      assertObservedScopeClosure(artifact, ["edge.terminal"]),
+    ).toBeUndefined();
+    expect(() =>
+      assertObservedScopeClosure(artifact, ["edge.outside"]),
+    ).toThrow(
+      /observed scope closure escape at edge\.terminal/u,
+    );
   });
 
   test("accepts only exact authority-free global callable source completions", () => {
@@ -9203,7 +9280,11 @@ describe("CapSec public-surface promotion evidence", () => {
   });
 
   test("accepts exact source-bound target absence and rejects invented entry proof", () => {
-    const catalog = targetAbsenceCatalog();
+    const targetAbsence = targetAbsenceCatalog();
+    const catalog = bindRecipeCatalogScope(targetAbsence, {
+      scopeDigest: SCOPE_DIGEST,
+      expandedEdgeIds: targetAbsence.recipes[0].edgeIds,
+    });
     const recipe = catalog.recipes[0];
     const observation = targetAbsenceObservation(recipe);
     const execution = buildPublicFixtureEvidence({
@@ -9219,6 +9300,9 @@ describe("CapSec public-surface promotion evidence", () => {
       target,
       engine,
       coverage,
+      scopeDigest: SCOPE_DIGEST,
+      expandedEdgeIds: recipe.edgeIds,
+      closureEdgeIds: recipe.edgeIds,
       executions: [execution],
     });
     expect(() =>
@@ -9228,6 +9312,8 @@ describe("CapSec public-surface promotion evidence", () => {
         sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
         engine,
         coverage,
+        expandedEdgeIds: recipe.edgeIds,
+        closureEdgeIds: recipe.edgeIds,
         expectedFixtureIds: [recipe.fixtureId],
       }),
     ).not.toThrow();
@@ -10721,7 +10807,12 @@ describe("CapSec public-surface promotion evidence", () => {
     const catalog = completeCatalog();
     delete catalog.recipes[0].publicSurfaceProbe;
     catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
-    expect(() => assertRecipeCatalogComplete(catalog)).toThrow(
+    expect(() =>
+      assertRecipeCatalogComplete(catalog, {
+        scopeDigest: catalog.summary.scopeDigest,
+        expandedEdgeIds: ["edge.public"],
+      }),
+    ).toThrow(
       /lacks an exact authored public-surface probe/,
     );
   });
@@ -10735,6 +10826,8 @@ describe("CapSec public-surface promotion evidence", () => {
     delete catalog.recipes[0].publicSurfaceProbe;
     catalog.summary.fullyExecutableFixtures = 0;
     catalog.summary.unresolvedFixtures = 1;
+    catalog.summary.fullyExecutableFixturesInScope = 0;
+    catalog.summary.unresolvedFixturesInScope = 1;
     catalog.summary.residualReasons = {
       "public-surface-invocation-not-authored": 1,
     };
@@ -10746,10 +10839,16 @@ describe("CapSec public-surface promotion evidence", () => {
       target,
       engine,
       coverage,
+      scopeDigest: SCOPE_DIGEST,
+      expandedEdgeIds: ["edge.public"],
+      closureEdgeIds: ["edge.public"],
       executions: [],
     });
     expect(() =>
-      assertPublicSurfaceExecutionComplete(artifact, catalog),
+      assertPublicSurfaceExecutionComplete(artifact, catalog, {
+        expandedEdgeIds: ["edge.public"],
+        closureEdgeIds: ["edge.public"],
+      }),
     ).toThrow(/catalog is incomplete/);
   });
 
