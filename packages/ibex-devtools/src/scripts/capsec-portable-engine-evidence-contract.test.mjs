@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assertPortableExecutionBindingScopeReachable,
   commandAttemptDigest,
   mappedEngineExecutionEvidenceDigest,
   portableConformanceDigest,
@@ -211,7 +212,7 @@ function buildFixture({
       recipeCatalogDigest: digest("A"),
     },
     "recipeCatalogDigest",
-    portableRecipeCatalogDigest,
+    (value) => portableRecipeCatalogDigest(value, scopeDigest),
   );
   const recipeCatalogBytes = exactBytes(recipeCatalog);
   const recipeCatalogRawContentDigest = rawContentDigest(recipeCatalogBytes);
@@ -595,6 +596,7 @@ function buildFixture({
     publicSurfaceExecution,
     recipeCatalog,
     report,
+    scopeArtifact: scoped.scope,
     target,
   };
 }
@@ -828,31 +830,31 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       "sha256-hed_PLbn_ROILuuFP2oDyQ4CVtH_5mte75q3ut56IGU",
     );
     expect(fixture.recipeCatalog.recipeCatalogDigest).toBe(
-      "sha256-6Zyl6DiweF8Xm7M7BgmfYij_6Le0ON5mpwlRBq-jOgo",
+      "sha256-6vrg0Wg1gbxiveOSpAwyzc5miNPbFKn1j7gNXTLU5Hk",
     );
     expect(fixture.publicSurfaceExecution.executions[0].evidenceDigest).toBe(
       "sha256-MxU1J_ukMETJyQtjbNH9Ke4t4V29VNSZ81SYHkvwB88",
     );
     expect(fixture.publicSurfaceExecution.publicSurfaceExecutionDigest).toBe(
-      "sha256-Z0CDjpEj-ytxf2h6-gH4lf_4wWr6A10sUf2GGGxaQ8Y",
+      "sha256-Cu4AqX8elam_K_Ts8kpgCBQ1l3_g4EaSvOlLgP69wCE",
     );
     expect(
       fixture.outputDispositionEvidence.observations[0].observationDigest,
     ).toBe("sha256-BnNTBOX_xO0eTu79WUDCocXEKeZOHJYpsGkxcGaIhH4");
     expect(fixture.bindingDigest).toBe(
-      "sha256-0XRZh3edrwbBpwZ-1PPnR0fcR6sXl8LPqyV3EdFhMGU",
+      "sha256-pHjAw5rQB6l6vQCWbWf858o1nzDT-gyFHPEk1onsUII",
     );
     expect(fixture.fixtureArtifact.artifactDigest).toBe(
-      "sha256-M55CwnuMtNes4hb4mQ9uWxi2OTAtrdOuHsN3KooJFsc",
+      "sha256-JhiAnC6WGZtGbn2Z2hiqsadrJyGGfFT_raQ9VZz6LjQ",
     );
     expect(fixture.evidence.evidenceDigest).toBe(
-      "sha256-csbYzB2YJiMNnW2Fat8tyhZLN9XNwJRx7hke8SZTx4I",
+      "sha256-pVTgKdX5KaSFWYS_sIFN-qGzU4XfEFSdPmFQYBo0nSQ",
     );
     expect(fixture.attempt.attemptDigest).toBe(
-      "sha256-Ulmt6SFwTo35PjdTwgRS6V7NKniCdACxSoGuwC90eFA",
+      "sha256-Pt4YFCrriWoi6N5StbXKFMZSv9izmcq4lmyyzMwjzsU",
     );
     expect(fixture.report.conformanceDigest).toBe(
-      "sha256-mzQXBUch2WVfODnDijomyVNYCf2GxCOi8F2h7kN4xkk",
+      "sha256-HESgyJtZs6vOb84KJClVZc3yq2SNI8XOPdWOd4509vI",
     );
     expect(fixture.evidence.outputDigests).toEqual([
       fixture.report.executions[0].rawContentDigest,
@@ -932,6 +934,40 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     const downstreamOnly = clone(fixture.report.bindings);
     downstreamOnly.mappedEngineExecutionEvidence[0].attemptDigest = digest("I");
     expect(portableExecutionBindingDigest(downstreamOnly)).toBe(baseline);
+
+    const transitivelyCarriedScope = clone(fixture.report.bindings);
+    transitivelyCarriedScope.scopeDigest = digest("I");
+    expect(portableExecutionBindingDigest(transitivelyCarriedScope)).toBe(
+      baseline,
+    );
+  });
+
+  test("M28 machine-checks transitive scope reachability through the recipe catalog", () => {
+    const fixture = buildFixture();
+    expect(() =>
+      assertPortableExecutionBindingScopeReachable({
+        bindingDigest: fixture.bindingDigest,
+        bindings: fixture.report.bindings,
+        recipeCatalog: fixture.recipeCatalog,
+        scopeArtifact: fixture.scopeArtifact,
+      }),
+    ).not.toThrow();
+
+    const crossedScope = clone(fixture.scopeArtifact);
+    crossedScope.intensionalDefinition.capabilityFamilies = ["process"];
+    crossedScope.scopeDigest = computeDomainDigest(
+      "ibex:capsec:scope:1",
+      crossedScope,
+      ["scopeDigest"],
+    );
+    expect(() =>
+      assertPortableExecutionBindingScopeReachable({
+        bindingDigest: fixture.bindingDigest,
+        bindings: fixture.report.bindings,
+        recipeCatalog: fixture.recipeCatalog,
+        scopeArtifact: crossedScope,
+      }),
+    ).toThrow(/not digest-reachable/u);
   });
 
   test("requires detached mapped evidence and binds the finalized supervisor attempt", () => {
@@ -1218,7 +1254,13 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       invalidPlanDigest.recipeCatalogBytes,
       (catalog) => {
         catalog.recipes[0].planDigest = digest("I");
-        catalog.recipeCatalogDigest = portableRecipeCatalogDigest(catalog);
+        const scopeDigest = parseBytes(
+          invalidPlanDigest.scopeArtifactBytes,
+        ).scopeDigest;
+        catalog.recipeCatalogDigest = portableRecipeCatalogDigest(
+          catalog,
+          scopeDigest,
+        );
       },
     );
     expectRefused(invalidPlanDigest, /reviewed executor/u);
