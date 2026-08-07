@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ibex.dev/capsec/schema/conformance-report.schema.json",
-  "title": "Ibex capsec exact-target conformance report",
+  "title": "Ibex capsec scoped conformance report v3",
   "type": "object",
   "required": [
     "conformanceSchema",
@@ -14,7 +14,7 @@
     "conformanceDigest"
   ],
   "properties": {
-    "conformanceSchema": { "const": "ibex/capsec-conformance/1" },
+    "conformanceSchema": { "const": "ibex/capsec-conformance/3" },
     "profile": { "const": "ibex/capsec/1" },
     "status": { "enum": ["conformant", "incomplete"] },
     "bindings": {
@@ -29,6 +29,7 @@
         "implementationManifestDigest",
         "fixtureCatalogDigest",
         "recipeCatalogDigest",
+        "scopeDigest",
         "publicSurfaceExecutionDigest"
       ],
       "properties": {
@@ -79,6 +80,9 @@
         "recipeCatalogDigest": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
         },
+        "scopeDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
         "publicSurfaceExecutionDigest": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
         },
@@ -93,6 +97,7 @@
       "required": [
         "cells",
         "conformantCells",
+        "uncertifiedCells",
         "incompleteCells",
         "requiredFixtures",
         "passedFixtures",
@@ -102,6 +107,7 @@
       "properties": {
         "cells": { "type": "integer", "minimum": 1 },
         "conformantCells": { "type": "integer", "minimum": 0 },
+        "uncertifiedCells": { "type": "integer", "minimum": 0 },
         "incompleteCells": { "type": "integer", "minimum": 0 },
         "requiredFixtures": { "type": "integer", "minimum": 1 },
         "passedFixtures": { "type": "integer", "minimum": 0 },
@@ -232,7 +238,7 @@
           },
           "implementationBranchIds": { "$ref": "#/$defs/idSet" },
           "enforcementBranchIds": { "$ref": "#/$defs/idSet" },
-          "status": { "enum": ["conformant", "incomplete"] },
+          "status": { "enum": ["conformant", "uncertified", "incomplete"] },
           "requiredFixtures": { "$ref": "#/$defs/idSet" },
           "passedFixtures": { "$ref": "#/$defs/idSet" },
           "missingFixtures": { "$ref": "#/$defs/idSet" },

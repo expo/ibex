@@ -94,6 +94,8 @@ const valueOptions = new Set([
   "--portable-engine-conformance-runner-selection",
   "--output",
   "--report",
+  "--scope-families",
+  "--scope-input-dir",
   "--target",
 ]);
 const booleanOptions = new Set(["--expect-incomplete"]);
@@ -144,6 +146,13 @@ const outputDispositionEvidenceInputPath = option(
   "--output-disposition-evidence",
 );
 const publicSurfaceEvidenceInputPath = option("--public-surface-evidence");
+const scopeFamiliesInput = option("--scope-families");
+const scopeInputDirectory = option("--scope-input-dir");
+if (scopeFamiliesInput !== undefined && scopeInputDirectory !== undefined) {
+  throw new Error(
+    "--scope-families cannot be combined with --scope-input-dir",
+  );
+}
 const portablePromotionOutputInput = option("--portable-promotion-output");
 const portablePromotionTargetCellsInput = option(
   "--portable-promotion-target-cells",
@@ -705,6 +714,34 @@ const scopeCellMappingPath = path.join(
   scopeArtifactDirectory,
   "capsec-scope-cell-mapping.json",
 );
+const recipeGeneratorArgs = [
+  path.join(
+    repoRoot,
+    "packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs",
+  ),
+  "--output",
+  recipeCatalogPath,
+  "--target",
+  target.triple,
+  "--scope-output-dir",
+  scopeArtifactDirectory,
+];
+if (scopeFamiliesInput !== undefined) {
+  recipeGeneratorArgs.push("--scope-families", scopeFamiliesInput);
+}
+const suppliedScopePaths = [];
+if (scopeInputDirectory !== undefined) {
+  const resolvedScopeInputDirectory = path.resolve(
+    repoRoot,
+    scopeInputDirectory,
+  );
+  recipeGeneratorArgs.push("--scope-input-dir", resolvedScopeInputDirectory);
+  suppliedScopePaths.push(
+    path.join(resolvedScopeInputDirectory, "capsec-scope.json"),
+    path.join(resolvedScopeInputDirectory, "capsec-scope-expansion-diff.json"),
+    path.join(resolvedScopeInputDirectory, "capsec-scope-cell-mapping.json"),
+  );
+}
 const adapterEvidencePath = path.join(
   evidenceDirectory,
   "typed-adapter-evidence.json",
@@ -737,22 +774,15 @@ await runObservedCommand({
   supervisor,
   id: "generate-executable-recipes",
   command: process.execPath,
-  args: [
-    path.join(
-      repoRoot,
-      "packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs",
-    ),
-    "--output",
-    recipeCatalogPath,
-    "--target",
-    target.triple,
-    "--scope-output-dir",
-    scopeArtifactDirectory,
-  ],
+  args: recipeGeneratorArgs,
   cwd: repoRoot,
   declaredInputs: [
     { name: "sourceTree", digest: initialSourceTreeDigest },
     { name: "suitePlan", digest: suitePlanBinding.suitePlanDigest },
+    ...suppliedScopePaths.map((scopePath, index) => ({
+      name: `suppliedScopeMember${index}`,
+      digest: taggedDigest(fs.readFileSync(scopePath)),
+    })),
   ],
   expectedOutputs: [
     recipeCatalogPath,
@@ -1270,6 +1300,9 @@ if (portableEngineIdentity !== null) {
         outputDispositionRowsBytes: fs.readFileSync(
           path.join(capsecRoot, "generated/output-dispositions.json"),
         ),
+        scopeArtifactBytes: fs.readFileSync(scopeArtifactPath),
+        scopeExpansionDiffBytes: fs.readFileSync(scopeExpansionDiffPath),
+        scopeCellMappingBytes: fs.readFileSync(scopeCellMappingPath),
       });
       const portableBindings = {
         sourceRevision: portablePromotionPreparation.source.sourceRevision,
