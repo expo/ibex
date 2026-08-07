@@ -51,3 +51,14 @@ IN-DELTA, i.e. introduced by the loop's own revisions.
 The loop terminated on round-budget exhaustion and escalated to the author. A
 later **unreviewed** revision exists, addressing every round-3 finding; its
 hash is recorded in the close-out.
+
+## 2026-08-03 external-script correction cluster
+
+The independent-gate amendment at git-blob
+`7af5eccc60142b40ef785d9c2bf2ca25df022d5b` was reviewed in the LLP 0048
+cluster. The complete Codex-family bodies and provenance are recorded once in
+`0048-external-script-admission-and-broker.codex.md`, Rounds 1–4. The final
+full-cluster and delta verdicts were **READY** with no remaining MATERIAL or
+MINOR findings. This later review supersedes the “unreviewed revision” note
+above for the 2026-08-03 amendment only; it confirms that general standalone
+completion does not claim the external worker implemented or evidenced.

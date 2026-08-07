@@ -79,6 +79,29 @@
     return true;
   }
 
+  // The four deprecated root fs constants emit DEP0176 when read. They cannot
+  // be claimed as zero-effect public reads in an armed runtime, whose warning
+  // channel is deliberately disabled. Reject stale or invented recipes before
+  // requiring node:fs or evaluating the accessor.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  function isReviewedEffectFreeReadInvocation(invocation) {
+    var descriptor = invocation && invocation.sourceDescriptor;
+    if (
+      !descriptor ||
+      descriptor.sourceKey !== "node_fs" ||
+      invocation.kind !== "builtin-export-read" ||
+      descriptor.valueShape !== "accessor"
+    ) {
+      return true;
+    }
+    return !(
+      invocation.exportName === "F_OK" ||
+      invocation.exportName === "R_OK" ||
+      invocation.exportName === "W_OK" ||
+      invocation.exportName === "X_OK"
+    );
+  }
+
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // Independently close the HTTP recipe family at execution time. Generic
   // constructed receivers or root-call arguments must not turn a newly
@@ -889,16 +912,18 @@
   // Stream end is credited only after exact output, one finish event, terminal
   // writable state, native cleanup, and event-loop quiescence.
   function isReviewedZlibEndInvocation(invocation) {
+    var usesZlibEndSetup =
+      invocation &&
+      invocation.setup &&
+      invocation.setup.kind === "zlib-end-owner";
     if (
       !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib" ||
       typeof invocation.exportName !== "string" ||
       !invocation.exportName.endsWith(".end")
     ) {
-      return !(
-        invocation &&
-        invocation.setup &&
-        invocation.setup.kind === "zlib-end-owner"
-      );
+      return !usesZlibEndSetup;
     }
     var contract = zlibEndContract(invocation);
     if (contract === null) return false;
@@ -1864,6 +1889,12 @@
     var readlineCsi =
       sourceKey === "node_readline" && exportName === "CSI";
     if (!cryptoKeyWrapper && !readlineCsi) {
+      if (
+        invocation.kind === "builtin-export-read" &&
+        descriptor.valueShape !== "callable"
+      ) {
+        return true;
+      }
       return (
         sourceKey !== "node_readline" ||
         exportName === "Interface.close" ||
@@ -2734,6 +2765,7 @@
     var timerLifecycleVerified = false;
     var readlineLifecycleState = null;
     if (
+      !isReviewedEffectFreeReadInvocation(config) ||
       !isReviewedBoundedHttpInvocation(config) ||
       !isReviewedIdleNetTerminalInvocation(config) ||
       !isReviewedIdleTlsSocketInvocation(config) ||

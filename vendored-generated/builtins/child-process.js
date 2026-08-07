@@ -591,9 +591,14 @@ function _addCodeToString(err) {
 		var _origName = err.name || "Error";
 		var _origCode = err.code;
 		var _origMsg = err.message || "";
-		err.toString = function() {
-			return _origName + " [" + _origCode + "]: " + _origMsg;
-		};
+		Object.defineProperty(err, "toString", {
+			value: function() {
+				return _origName + " [" + _origCode + "]: " + _origMsg;
+			},
+			writable: true,
+			configurable: true,
+			enumerable: true
+		});
 	}
 	return err;
 }

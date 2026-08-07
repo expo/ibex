@@ -216,10 +216,10 @@ var _hasTcp = typeof __exactTcpConnect === 'function';
 // when these host functions are unavailable (older/embedded frameworks).
 var _hasAsyncTcpConnect = typeof __exactTcpConnectStart === 'function' &&
   typeof __exactTcpConnectPoll === 'function';
-// Capture the native owner boundary before application code can replace the
-// writable global binding. The host returns an opaque runtime/principal stamp;
-// `assert` optionally checks an adopted native handle under the same owner.
-var _netOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;
+// Capture the immutable native owner boundary. The host returns an opaque
+// runtime/principal stamp; `assert` optionally checks an adopted native handle
+// under the same owner.
+const _netOwnerHost = globalThis.__exactNetOwner;
 // How often (ms) the event loop re-checks a pending non-blocking connect.
 var _CONNECT_POLL_INTERVAL_MS = 1;
 // Check for native Unix socket support

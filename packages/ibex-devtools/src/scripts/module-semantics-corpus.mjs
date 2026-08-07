@@ -117,8 +117,8 @@ export { trace };
     oracle: [`${marker}["dep:start","dep:end","entry"]`],
     currentIbex: {
       outcome: 'error',
-      stderrIncludes: "';' expected",
-      note: 'The current file-at-a-time fallback rejects this dependency TLA before producing an entry observation.',
+      stderrIncludes: "Cannot read property 'concat' of undefined",
+      note: 'The current file-at-a-time fallback parses dependency TLA but evaluates the importer before the dependency export settles.',
     },
   },
   {
@@ -387,7 +387,7 @@ print(${JSON.stringify(marker)} + JSON.stringify(value));
     oracle: [`${marker}42`],
     native: {
       outcome: 'error',
-      stderrIncludes: 'native CommonJS record evaluation refused',
+      stderrIncludes: "Property 'sloppyValue' doesn't exist",
       note: 'The native CapSec global refuses sloppy implicit-global creation that Node CommonJS permits; this is the pinned shim-to-runner behavior delta.',
     },
   },

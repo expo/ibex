@@ -2456,9 +2456,15 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
 function makeError(Constructor, code, message) {
   var err = new Constructor(message);
   err.code = code;
-  err.toString = function() {
-    return this.name + ' [' + this.code + ']: ' + this.message;
-  };
+  // @ref LLP 0013#mechanism-1-lockdown — do not assign through frozen Error.prototype.
+  Object.defineProperty(err, 'toString', {
+    value: function() {
+      return this.name + ' [' + this.code + ']: ' + this.message;
+    },
+    writable: true,
+    configurable: true,
+    enumerable: true
+  });
   return err;
 }
 

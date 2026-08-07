@@ -5,7 +5,10 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-22 (the CLI's default production arming consumes the
+**Revised:** 2026-08-03 (historical attribution correction: computed-import
+candidate materialization was activated for the Ibex 0.2 module runner, not by
+a Snapback 0.2 requirement; Snapback LLP 0062 phase 1 has no Ibex dependency
+and LLP 0048's later external-script profile is import-free); 2026-07-22 (the CLI's default production arming consumes the
 canonical `ibex/capsec-policy/2` artifact again: the 2026-07-20 merge
 d8f5bf94 had silently restored the v1-only consumer in `runtime.rs`, which
 fail-closed every default `ibex run`/`repl` — the no-artifact default now
@@ -13,7 +16,7 @@ synthesizes a v2-shaped identity over the authenticated entry, and the armed
 snapshot's root authority ceiling is the policy's authored `rootCeiling`
 rather than the canonical example's unbounded template value); 2026-07-18 (the aggregate generated-drift gate validates every
 checked policy lockfile so registry digest rotations cannot strand stale review
-artifacts); 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
+artifacts); 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (computed imports are activated for the Ibex 0.2 module runner: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars; the former Snapback attribution is superseded by the 2026-08-03 correction); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests); LLP 0026 (module-runner initialization authority)
 
 > **Current implementation (2026-07-17):** authoring produces the versioned,
@@ -106,9 +109,10 @@ Rules, all normative:
 
 - **Statically evaluable, fail closed.** Attribute values are string
   literals by grammar; a grant list that fails to parse is a generation
-  *error*, not a skipped entry. Dynamic `import()` with a computed
-  specifier contributes nothing (the runtime already quarantines it —
-  LLP 0013 Resolved questions §2).
+  *error*, not a skipped entry. Dynamic `import()` with a computed specifier
+  contributes no static import-site grant. LLP 0028's authenticated candidate
+  table separately governs execution: an admitted row may resolve, while a
+  missing or out-of-row candidate fails closed.
 - **Declarative build input, not a runtime act.** Grants are resolved at
   generation time, before any code runs; import order can never change
   effective policy. (The imperative counterpart is the dynamic layer,

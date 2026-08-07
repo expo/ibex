@@ -22,6 +22,9 @@ use std::time::Duration;
 /// compilation attempts for the rest of the process lifetime.
 static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 
+const RELEASE_POLICY_TOOLCHAIN_DIGEST: Option<&str> =
+    option_env!("IBEX_RELEASE_POLICY_TOOLCHAIN_DIGEST");
+
 #[cfg(feature = "module-runner")]
 const LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR: &str = "0.1";
 
@@ -453,6 +456,125 @@ pub(crate) fn module_producer_binary_digest() -> Result<capsec_semantics::model:
         &MODULE_PRODUCER_BINARY_DIGEST,
         capture_module_producer_binary_digest,
     )
+}
+
+#[cfg(feature = "module-runner")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeRunnerTestProfile {
+    Source,
+    Prepared,
+}
+
+#[cfg(feature = "module-runner")]
+impl NativeRunnerTestProfile {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Prepared => "prepared",
+        }
+    }
+}
+
+/// Select the real-binary source/prepared conformance profile. This test seam
+/// is deliberately absent from release execution even if an environment value
+/// is supplied.
+/// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer
+#[cfg(feature = "module-runner")]
+pub(crate) fn native_runner_test_profile() -> Result<Option<NativeRunnerTestProfile>> {
+    let Some(value) = std::env::var_os("IBEX_TEST_NATIVE_RUNNER_PROFILE") else {
+        return Ok(None);
+    };
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = value;
+        anyhow::bail!("IBEX_TEST_NATIVE_RUNNER_PROFILE is unavailable in release builds");
+    }
+    #[cfg(debug_assertions)]
+    match value.to_str() {
+        Some("source") => Ok(Some(NativeRunnerTestProfile::Source)),
+        Some("prepared") => Ok(Some(NativeRunnerTestProfile::Prepared)),
+        _ => anyhow::bail!("IBEX_TEST_NATIVE_RUNNER_PROFILE must be source or prepared"),
+    }
+}
+
+#[cfg(feature = "module-runner")]
+fn native_runner_test_deployment_digest(
+    graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+) -> Result<capsec_semantics::model::Digest> {
+    let records = graph
+        .records()
+        .map(|(source_id, _, verified)| {
+            let artifact = verified.artifact();
+            Ok(serde_json::json!({
+                "sourceId": source_id.encode()?,
+                "semanticDigest": artifact.semantic_digest,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let value = serde_json::json!({
+        "schema": "ibex/native-runner-test-deployment/1",
+        "entrySourceId": graph.entry().encode()?,
+        "records": records,
+    });
+    let digest = capsec_semantics::digest::compute_domain_digest(
+        "ibex:native-runner-test-deployment:1",
+        &value,
+        &[],
+    )?;
+    capsec_semantics::model::Digest::new(digest).map_err(anyhow::Error::msg)
+}
+
+/// Emit a receipt only after the engine has successfully executed the exact
+/// graph. The engine calls this while it still owns any records added by
+/// invocation-time activation, so the carrier inventory reflects what ran.
+/// @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+#[cfg(feature = "module-runner")]
+pub(crate) fn emit_native_runner_execution_receipt(
+    graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+    profile: NativeRunnerTestProfile,
+) -> Result<()> {
+    use ibex_runtime::module_loader::artifact::{ModulePayloadV1, ProducerIdentityV1};
+
+    let records = graph
+        .records()
+        .map(|(source_id, _, verified)| {
+            let artifact = verified.artifact();
+            let producer_binary_digest = match &artifact.producer {
+                ProducerIdentityV1::InProcess {
+                    producer_binary_digest,
+                    ..
+                }
+                | ProducerIdentityV1::Prepared {
+                    producer_binary_digest,
+                    ..
+                } => producer_binary_digest,
+            };
+            Ok(serde_json::json!({
+                "sourceId": source_id.encode()?,
+                "semanticDigest": artifact.semantic_digest,
+                "transformFingerprintDigest": artifact.semantics.transform_fingerprint.digest()?,
+                "carrierKind": match &artifact.payload {
+                    ModulePayloadV1::Inline { .. } => "inline-source",
+                    ModulePayloadV1::Carrier { .. } => "prepared-carrier",
+                },
+                "producerBinaryDigest": producer_binary_digest,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let hermes = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
+    let receipt = serde_json::json!({
+        "schema": "ibex/native-module-execution-receipt/1",
+        "profile": profile.as_str(),
+        "entrySourceId": graph.entry().encode()?,
+        "loadedHermesDigest": hermes.binary_digest,
+        "records": records,
+    });
+    let bytes = capsec_semantics::canonical::to_jcs_bytes(&receipt)?;
+    eprintln!(
+        "IBEX_NATIVE_MODULE_EXECUTION_RECEIPT {}",
+        std::str::from_utf8(&bytes).expect("canonical JSON is UTF-8")
+    );
+    Ok(())
 }
 
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
@@ -2395,6 +2517,58 @@ impl ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheLocato
     }
 }
 
+/// Debug-only native-runner conformance uses the production publisher and
+/// consumer at the exact post-acquisition activation boundary. This makes a
+/// `prepared` receipt prove prepared carriers for modules reached after entry.
+/// @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+#[cfg(all(
+    feature = "module-runner",
+    debug_assertions,
+    feature = "capsec-conformance-observer"
+))]
+struct NativeRunnerPreparedActivationCacheLocator {
+    artifact_dir: PathBuf,
+    deployment_graph_digest: capsec_semantics::model::Digest,
+}
+
+#[cfg(all(
+    feature = "module-runner",
+    debug_assertions,
+    feature = "capsec-conformance-observer"
+))]
+impl ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheLocatorV1
+    for NativeRunnerPreparedActivationCacheLocator
+{
+    fn publish_authenticated_records(
+        &self,
+        graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+        record_ids: &std::collections::BTreeSet<ibex_runtime::module_loader::identity::SourceId>,
+    ) -> Result<()> {
+        ibex_runtime::module_loader::runner_pipeline::publish_prepared_activation_records_v1(
+            graph,
+            record_ids,
+            &self.artifact_dir,
+            self.deployment_graph_digest.clone(),
+        )?;
+        Ok(())
+    }
+
+    fn locate(
+        &self,
+        _target: &ibex_runtime::module_loader::identity::SourceId,
+    ) -> Result<Vec<ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheCandidateV1>>
+    {
+        use ibex_runtime::module_loader::runner_pipeline::{
+            prepared_graph_cache_dir, PreparedActivationCacheCandidateV1,
+        };
+
+        Ok(vec![PreparedActivationCacheCandidateV1 {
+            cache_dir: prepared_graph_cache_dir(&self.artifact_dir, &self.deployment_graph_digest),
+            deployment_graph_digest: self.deployment_graph_digest.clone(),
+        }])
+    }
+}
+
 struct PreparedAuthenticatedGeneratedEntry {
     entry: crate::engine::AuthenticatedGeneratedEntry,
 }
@@ -2758,7 +2932,6 @@ fn classify_authenticated_preparation_failure(
                     | SourceRefusal::LoadTypesOnlyRefused
                     | SourceRefusal::LoadUnsupportedPath
                     | SourceRefusal::FileEntryAlreadySubmitted
-                    | SourceRefusal::FileCommonJsUnsupported
                     | SourceRefusal::FileBytecodeUnsupported
                     | SourceRefusal::FileUnsupportedPath
             )
@@ -3080,13 +3253,18 @@ impl AuthenticatedFileIngress {
         let mut phase = StartupPhaseTrace::begin();
         let (_, source_entry) = self.authenticated_source_entry(request)?;
         phase.mark("graph_source_entry");
+        let test_profile = native_runner_test_profile()?;
 
         // A production commitment changes admission mode before graph work:
         // attempt the parse-free publication first. Any refusal goes directly
         // to a cold authenticated source build; this startup must not rejoin
         // and accept the cache generation the independent authority refused.
         // @ref LLP 0042#migration-and-coexistence
-        let commitment = self.prepared_commitment_for_entry(&source_entry)?;
+        let commitment = if test_profile.is_none() {
+            self.prepared_commitment_for_entry(&source_entry)?
+        } else {
+            None
+        };
         let committed_attempted = commitment.is_some();
         if let Some(commitment) = commitment {
             match self.load_committed_prepared_module_graph(&source_entry, request, &commitment) {
@@ -3123,6 +3301,20 @@ impl AuthenticatedFileIngress {
         )? {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                if test_profile.is_some() {
+                    let telemetry = requirement.telemetry_event(env!("CARGO_PKG_VERSION"))?;
+                    eprintln!(
+                        "{}{}",
+                        ibex_runtime::module_loader::compatibility::LEGACY_REQUIRED_TELEMETRY_PREFIX,
+                        serde_json::to_string(&telemetry)?
+                    );
+                    let diagnostic = format!(
+                        "native module-runner conformance quarantine: {}",
+                        requirement
+                    );
+                    eprintln!("{diagnostic}");
+                    anyhow::bail!(diagnostic);
+                }
                 if !legacy_module_loader_window_is_open() {
                     anyhow::bail!(
                         "native module runner does not support this graph and the bounded legacy loader window is closed: {}",
@@ -3155,6 +3347,44 @@ impl AuthenticatedFileIngress {
             "authenticated native source graph identity changed after the structured request was admitted"
         );
         phase.mark("graph_validate");
+
+        match test_profile {
+            Some(NativeRunnerTestProfile::Source) => {
+                return Ok(AuthenticatedModuleGraphPreparation::Native(graph));
+            }
+            Some(NativeRunnerTestProfile::Prepared) => {
+                use ibex_runtime::module_loader::runner_pipeline::{
+                    load_prepared_source_graph_v1, publish_prepared_source_graph_v1,
+                };
+
+                let deployment_digest = native_runner_test_deployment_digest(&graph)?;
+                let artifact_dir = self.runtime_cache_root.join("native-runner-test");
+                #[cfg(all(debug_assertions, feature = "capsec-conformance-observer"))]
+                graph.set_prepared_activation_cache_locator(Arc::new(
+                    NativeRunnerPreparedActivationCacheLocator {
+                        artifact_dir: artifact_dir.clone(),
+                        deployment_graph_digest: deployment_digest.clone(),
+                    },
+                ));
+                #[cfg(not(all(debug_assertions, feature = "capsec-conformance-observer")))]
+                anyhow::bail!(
+                    "prepared native-runner conformance requires a debug build with the capsec-conformance-observer feature"
+                );
+                let cache_dir = publish_prepared_source_graph_v1(
+                    &graph,
+                    &artifact_dir,
+                    deployment_digest.clone(),
+                )?;
+                let prepared = load_prepared_source_graph_v1(
+                    &cache_dir,
+                    &graph,
+                    &entry_join,
+                    &deployment_digest,
+                )?;
+                return Ok(AuthenticatedModuleGraphPreparation::Native(prepared));
+            }
+            None => {}
+        }
 
         if !committed_attempted {
             if let Some(prepared) =
@@ -4783,12 +5013,19 @@ fn build_host_with_route(
     use std::sync::Arc;
 
     validate_production_inputs(cli)?;
+    #[cfg(feature = "module-runner")]
+    let native_runner_conformance = native_runner_test_profile()?.is_some();
     match (&cli.capsec_armed_snapshot, &cli.capsec_arming_identity) {
         (None, None) => build_default_armed_host(cli, authenticate_launch_entry(cli, route)?),
         (Some(_), None) | (None, Some(_)) => anyhow::bail!(
             "--capsec-armed-snapshot and --capsec-arming-identity must be provided together"
         ),
         (Some(snapshot_path), Some(identity_path)) => {
+            #[cfg(feature = "module-runner")]
+            anyhow::ensure!(
+                !native_runner_conformance,
+                "native module-runner conformance fixtures cannot supply an armed snapshot"
+            );
             if cli.inspect
                 || cli.inspect_wait
                 || cli.inspect_open
@@ -5014,6 +5251,10 @@ fn build_default_armed_host(
 
     let mut phase = StartupPhaseTrace::begin();
     validate_production_inputs(cli)?;
+    #[cfg(feature = "module-runner")]
+    let native_runner_conformance = native_runner_test_profile()?.is_some();
+    #[cfg(not(feature = "module-runner"))]
+    let native_runner_conformance = false;
     for line in check_capsec_readiness(
         crate::host::SecurityMode::Enforce,
         CapsecStage::Run,
@@ -5180,6 +5421,61 @@ fn build_default_armed_host(
     } else if cli.policy.is_some() {
         anyhow::bail!("canonical policy {} not found", policy_path.display());
     }
+    if native_runner_conformance {
+        if policy_loaded {
+            anyhow::bail!(
+                "native module-runner conformance fixtures cannot supply a project policy"
+            );
+        }
+        // The real-binary source/prepared harness gets only its disposable
+        // project tree and the stdout broker needed by the result oracle.
+        // @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer
+        policy["rootCeiling"] = serde_json::json!([
+            {
+                "authority": {
+                    "cap": "fs:list",
+                    "resource": {
+                        "kind": "path-tree",
+                        "path": {"root": "project", "components": []}
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            },
+            {
+                "authority": {
+                    "cap": "fs:read",
+                    "resource": {
+                        "kind": "path-tree",
+                        "path": {"root": "project", "components": []}
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            },
+            {
+                "authority": {
+                    "cap": "stdio:write",
+                    "resource": {
+                        "kind": "stdio",
+                        "stream": "stdout",
+                        "source": {
+                            "kind": "broker",
+                            "identity": "ibex:console:stdout"
+                        }
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            }
+        ]);
+    }
     for (field, expected) in [
         ("policySchema", "ibex/capsec-policy/2"),
         ("capsVocab", "ibex/capsec/1"),
@@ -5206,7 +5502,7 @@ fn build_default_armed_host(
     // why the ceiling and not a floor: the floor strata are never reached,
     // because the root-ceiling gate denies first.
     #[cfg(feature = "unadvertised-dev-arming")]
-    if !policy_loaded {
+    if !policy_loaded && !native_runner_conformance {
         // Canonically sorted by capability; arming refuses an unsorted ceiling.
         // `path:cwd-*` is required for *relative* paths: resolving `foo.txt`
         // observes the session cwd before any fs effect, so without it every
@@ -5287,9 +5583,19 @@ fn build_default_armed_host(
         .map(|name| format!("node:{name}"))
         .collect::<Vec<_>>();
     root_builtins.sort();
+    let native_runner_root_floor = if native_runner_conformance {
+        policy["rootCeiling"]
+            .as_array()
+            .context("native runner root ceiling must be an array")?
+            .iter()
+            .map(|row| row["authority"].clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let mut snapshot_principals = vec![serde_json::json!({
         "principal": {"kind": "root", "identity": "project-root"},
-        "floor": [],
+        "floor": native_runner_root_floor,
         "denials": [],
         "escalationCeiling": [],
         "imports": {
@@ -5584,18 +5890,47 @@ fn build_default_armed_host(
         mode: crate::host::SecurityMode::Enforce,
         ..Default::default()
     };
-    #[cfg(feature = "insecure")]
-    let host = Host::new_armed_insecure(host_config, snapshot)?;
-    #[cfg(all(not(feature = "insecure"), feature = "unadvertised-dev-arming"))]
-    let host = if unadvertised_dev_arming_active() {
-        Host::new_armed_unadvertised_dev(host_config, snapshot)?
-    } else {
-        Host::new_armed(host_config, snapshot)?
-    };
-    #[cfg(not(feature = "unadvertised-dev-arming"))]
-    let host = Host::new_armed(host_config, snapshot)?;
+    let host = construct_default_armed_host(host_config, snapshot)?;
     phase.mark("arm_host_new");
     Ok((host, Some(digest), project_root, cache_root))
+}
+
+fn construct_default_armed_host(
+    config: HostConfig,
+    snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+) -> Result<Host> {
+    #[cfg(feature = "module-runner")]
+    if native_runner_test_profile()?.is_some() {
+        #[cfg(all(
+            debug_assertions,
+            feature = "capsec-conformance-observer",
+            not(feature = "insecure")
+        ))]
+        {
+            return Host::new_armed_for_native_module_runner_conformance(config, snapshot)
+                .context("failed to construct native module-runner conformance host");
+        }
+        #[cfg(not(all(
+            debug_assertions,
+            feature = "capsec-conformance-observer",
+            not(feature = "insecure")
+        )))]
+        anyhow::bail!(
+            "IBEX_TEST_NATIVE_RUNNER_PROFILE requires a secure debug build with the capsec-conformance-observer feature"
+        );
+    }
+
+    #[cfg(feature = "insecure")]
+    {
+        return Host::new_armed_insecure(config, snapshot)
+            .context("failed to construct insecure armed capability host");
+    }
+    #[cfg(all(not(feature = "insecure"), feature = "unadvertised-dev-arming"))]
+    if unadvertised_dev_arming_active() {
+        return Host::new_armed_unadvertised_dev(config, snapshot)
+            .context("failed to construct unadvertised development host");
+    }
+    Host::new_armed(config, snapshot).context("failed to construct armed capability host")
 }
 
 /// Whether the opt-in `unadvertised-dev-arming` feature is compiled in. When it
@@ -7470,17 +7805,6 @@ pub async fn prepare_entry_with_format(
     prepare_entry_with_format_and_bytecode(entry, bundle_format, true).await
 }
 
-/// Prepare source for the build command. The build command is itself producing
-/// the requested HBC, so feeding it an entry-cache HBC would ask hermesc to
-/// compile bytecode as JavaScript and would also lose the bundle directory
-/// containing per-package chunks.
-pub async fn prepare_entry_for_bytecode_build(
-    entry: &str,
-    bundle_format: BundleFormat,
-) -> Result<PathBuf> {
-    prepare_entry_with_format_and_bytecode(entry, bundle_format, false).await
-}
-
 async fn prepare_entry_with_format_and_bytecode(
     entry: &str,
     bundle_format: BundleFormat,
@@ -7494,6 +7818,18 @@ async fn prepare_entry_with_format_and_bytecode(
         &cache_dir,
     )
     .await
+}
+
+/// Prepare source for `ibex build` inside the already authenticated cache.
+/// Feeding the build an entry-cache HBC would ask hermesc to compile bytecode
+/// as JavaScript and lose the directory containing per-package chunks.
+pub(crate) async fn prepare_entry_for_bytecode_build_in_cache(
+    entry: &str,
+    bundle_format: BundleFormat,
+    runtime_cache_root: &Path,
+) -> Result<PathBuf> {
+    prepare_entry_with_format_and_bytecode_in_cache(entry, bundle_format, false, runtime_cache_root)
+        .await
 }
 
 async fn prepare_entry_with_format_and_bytecode_in_cache(
@@ -10520,6 +10856,7 @@ async fn run_bundler_with_source_provenance(
         bundle_format,
         source_provenance_authority,
         BundlePublicationMode::ReusableCache,
+        None,
     )
     .await
 }
@@ -10539,6 +10876,35 @@ async fn run_fresh_bundler_with_source_provenance(
         bundle_format,
         Some(source_provenance_authority),
         BundlePublicationMode::FreshPrivate,
+        None,
+    )
+    .await
+}
+
+struct BundleCaptureBarrier {
+    entry: PathBuf,
+    directory: PathBuf,
+}
+
+#[cfg(test)]
+async fn run_bundler_with_test_capture_barrier(
+    entry: &Path,
+    artifact_root: &Path,
+    bundle_format: BundleFormat,
+    barrier_entry: &Path,
+    barrier_directory: &Path,
+) -> Result<PathBuf> {
+    let barrier = BundleCaptureBarrier {
+        entry: barrier_entry.to_path_buf(),
+        directory: barrier_directory.to_path_buf(),
+    };
+    run_bundler_with_source_provenance_mode(
+        entry,
+        artifact_root,
+        bundle_format,
+        None,
+        BundlePublicationMode::ReusableCache,
+        Some(&barrier),
     )
     .await
 }
@@ -10584,6 +10950,7 @@ async fn run_bundler_with_source_provenance_mode(
     bundle_format: BundleFormat,
     source_provenance_authority: Option<&BundleSourceProvenanceAuthority>,
     publication_mode: BundlePublicationMode,
+    test_capture_barrier: Option<&BundleCaptureBarrier>,
 ) -> Result<PathBuf> {
     if entry.to_str().is_none() || artifact_root.to_str().is_none() {
         anyhow::bail!(
@@ -10674,19 +11041,14 @@ async fn run_bundler_with_source_provenance_mode(
         .arg("--cache-manifest")
         .current_dir(&working_dir);
     configure_js_tool_environment(&mut command, &private_runner_environment);
-    #[cfg(test)]
-    if publication_mode == BundlePublicationMode::ReusableCache {
-        // These two barriers exercise cache publication races only. They are
-        // never part of a production compiler environment and FreshPrivate
-        // deliberately withholds them.
-        for name in [
-            "IBEX_TEST_BUNDLE_BARRIER_ENTRY",
-            "IBEX_TEST_BUNDLE_BARRIER_DIR",
-        ] {
-            if let Some(value) = std::env::var_os(name) {
-                command.env(name, value);
-            }
-        }
+    if let Some(barrier) = test_capture_barrier {
+        // This explicitly scoped hook exercises cache-publication races. It
+        // is never sourced from the process environment, so a parallel
+        // bundler cannot inherit another test's temporary paths.
+        debug_assert!(publication_mode == BundlePublicationMode::ReusableCache);
+        command
+            .env("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &barrier.entry)
+            .env("IBEX_TEST_BUNDLE_BARRIER_DIR", &barrier.directory);
     }
     if let Some((authority_path, authority_digest)) = source_provenance_input.as_ref() {
         command
@@ -10891,13 +11253,49 @@ fn bundler_script_path() -> Result<PathBuf> {
 pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<()> {
     use crate::cli::PolicyCommands;
 
-    let root = repo_root()?;
-    let script = authenticated_repo_file(
-        &root,
-        Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
-    )?;
-    let (runner, runner_name) = find_js_runner()?;
+    let toolchain = policy_authoring_toolchain()?;
+    let script = &toolchain.script;
+    let runner = &toolchain.runner;
+    let runner_name = toolchain.runner_name;
     let private_environment = FreshGeneratedArtifactRoot::create(&std::env::temp_dir())?;
+
+    let compiled_entry = match command {
+        PolicyCommands::Generate {
+            entry,
+            target_triple: Some(_),
+            ..
+        }
+        | PolicyCommands::Check {
+            entry,
+            target_triple: Some(_),
+            ..
+        } => Some(entry),
+        _ => None,
+    };
+    let authenticated_graph_snapshot = if let Some(entry) = compiled_entry {
+        let path = private_environment
+            .path()
+            .join("authenticated-graph-snapshot.canonical.json");
+        let bytes = crate::sfe::capture_compiled_policy_snapshot(entry)
+            .context("failed to capture the compiled policy graph")?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut file| {
+                use std::io::Write as _;
+                file.write_all(&bytes)
+            })
+            .with_context(|| {
+                format!(
+                    "failed to publish private policy graph snapshot {}",
+                    path.display()
+                )
+            })?;
+        Some(path)
+    } else {
+        None
+    };
 
     let mut cmd = tokio::process::Command::new(&runner);
     configure_js_tool_environment(&mut cmd, private_environment.path());
@@ -10926,6 +11324,9 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
         ));
     }
     cmd.arg(&script);
+    if let Some(snapshot) = authenticated_graph_snapshot.as_ref() {
+        cmd.arg("--authenticated-graph-snapshot").arg(snapshot);
+    }
     match command {
         PolicyCommands::Generate {
             entry,
@@ -10986,10 +11387,90 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
         .status()
         .await
         .context("failed to spawn the policy generator")?;
+    toolchain.verify_after_execution()?;
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
     }
     Ok(())
+}
+
+struct PolicyAuthoringToolchain {
+    runner: PathBuf,
+    runner_name: &'static str,
+    script: PathBuf,
+    packaged_root: Option<PathBuf>,
+}
+
+impl PolicyAuthoringToolchain {
+    fn verify_after_execution(&self) -> Result<()> {
+        let Some(root) = self.packaged_root.as_ref() else {
+            return Ok(());
+        };
+        let digest = RELEASE_POLICY_TOOLCHAIN_DIGEST
+            .context("release policy-toolchain verification lost its compiled trust root")?;
+        ibex_sfe_catalog::policy_toolchain::admit_policy_toolchain_directory(
+            root,
+            digest,
+            current_policy_toolchain_target()?,
+        )
+        .context("SFP004 packaged policy toolchain changed during policy authoring")?;
+        Ok(())
+    }
+}
+
+fn policy_authoring_toolchain() -> Result<PolicyAuthoringToolchain> {
+    if let Some(digest) = RELEASE_POLICY_TOOLCHAIN_DIGEST {
+        let executable =
+            std::env::current_exe().context("SFP001 cannot locate the release Ibex executable")?;
+        let install_root = executable
+            .parent()
+            .context("SFP001 release Ibex executable has no installation directory")?;
+        let directory_name =
+            ibex_sfe_catalog::policy_toolchain::policy_toolchain_directory_name(digest)
+                .context("SFP001 compiled policy-toolchain trust root is invalid")?;
+        let root = install_root.join(directory_name);
+        let admitted =
+            ibex_sfe_catalog::policy_toolchain::admit_policy_toolchain_directory(
+                &root,
+                digest,
+                current_policy_toolchain_target()?,
+            )
+            .with_context(|| {
+                format!(
+                    "SFP002 packaged policy author unavailable: install the policy-toolchain directory next to {}",
+                    executable.display()
+                )
+            })?;
+        return Ok(PolicyAuthoringToolchain {
+            runner: admitted.runner,
+            runner_name: "bun",
+            script: admitted.script,
+            packaged_root: Some(root),
+        });
+    }
+
+    let root = repo_root()?;
+    let script = authenticated_repo_file(
+        &root,
+        Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
+    )?;
+    let (runner, runner_name) = find_js_runner()?;
+    Ok(PolicyAuthoringToolchain {
+        runner,
+        runner_name,
+        script,
+        packaged_root: None,
+    })
+}
+
+fn current_policy_toolchain_target() -> Result<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
+        ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
+        (os, arch) => {
+            anyhow::bail!("SFP003 no standalone policy-toolchain target exists for {os}-{arch}")
+        }
+    }
 }
 
 fn bundler_working_dir() -> Result<PathBuf> {
@@ -11124,8 +11605,17 @@ fn authenticated_repo_file(root: &Path, relative: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-/// Determine runtime cache directory.
-pub fn runtime_cache_dir() -> Result<PathBuf> {
+static RUNTIME_CACHE_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+fn resolved_runtime_cache_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = override_dir {
+        anyhow::ensure!(
+            path.is_absolute(),
+            "--runtime-cache-dir must be an absolute trusted path"
+        );
+        return Ok(path.to_path_buf());
+    }
+
     #[cfg(target_os = "macos")]
     {
         if let Some(home) = dirs::home_dir() {
@@ -11153,6 +11643,70 @@ pub fn runtime_cache_dir() -> Result<PathBuf> {
     anyhow::bail!("Failed to determine cache directory")
 }
 
+/// Capture the operator-selected runtime cache before any execution path can
+/// materialize code or security artifacts. The selected directory is later
+/// canonicalized and authenticated against every JavaScript-mounted root.
+// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings — the cache is operator-selectable but never a JavaScript mount
+pub fn configure_runtime_cache_dir(override_dir: Option<&Path>) -> Result<()> {
+    let mut selected = resolved_runtime_cache_dir(override_dir)?;
+    if override_dir.is_some() {
+        std::fs::create_dir_all(&selected).with_context(|| {
+            format!(
+                "failed to create operator-selected runtime cache {}",
+                selected.display()
+            )
+        })?;
+        let metadata = std::fs::symlink_metadata(&selected)?;
+        anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "--runtime-cache-dir must name a real directory, not a symlink or file"
+        );
+        selected = std::fs::canonicalize(&selected).with_context(|| {
+            format!(
+                "failed to authenticate operator-selected runtime cache {}",
+                selected.display()
+            )
+        })?;
+    }
+    if let Some(existing) = RUNTIME_CACHE_DIR_OVERRIDE.get() {
+        anyhow::ensure!(
+            existing == &selected,
+            "runtime cache directory changed after process initialization"
+        );
+        return Ok(());
+    }
+    RUNTIME_CACHE_DIR_OVERRIDE
+        .set(selected)
+        .map_err(|_| anyhow::anyhow!("runtime cache directory changed during initialization"))
+}
+
+/// Return the process-lifetime runtime cache selection.
+pub fn runtime_cache_dir() -> Result<PathBuf> {
+    if let Some(path) = RUNTIME_CACHE_DIR_OVERRIDE.get() {
+        return Ok(path.clone());
+    }
+    resolved_runtime_cache_dir(None)
+}
+
+pub(crate) fn authenticate_build_runtime_cache(cli: &Cli, entry: &str) -> Result<PathBuf> {
+    let entry = std::fs::canonicalize(entry)
+        .with_context(|| format!("failed to authenticate build entry path {entry}"))?;
+    let project = authenticated_project_root_discovery_for_entry(cli, Some(&entry))?;
+    emit_project_root_discovery_diagnostic(&project);
+    let cache = runtime_cache_dir()?;
+    std::fs::create_dir_all(&cache).with_context(|| {
+        format!(
+            "failed to create binary runtime cache root {}",
+            cache.display()
+        )
+    })?;
+    ibex_runtime::cache_topology::authenticate_internal_cache_root(
+        &cache,
+        std::slice::from_ref(&project.selected_root),
+    )
+    .context("build cache overlaps the authenticated project tree")
+}
+
 /// Compute default output path for `ibex build`.
 pub fn compute_build_output(file: &str, outdir: Option<&Path>) -> Result<PathBuf> {
     let entry_path = Path::new(file);
@@ -11178,6 +11732,23 @@ pub(crate) mod tests {
     use crate::cli::Cli;
     use clap::Parser;
     use tempfile::tempdir;
+
+    #[test]
+    fn runtime_cache_override_requires_an_absolute_operator_path() {
+        let error = resolved_runtime_cache_dir(Some(Path::new("relative/cache")))
+            .expect_err("relative cache selection must fail closed")
+            .to_string();
+        assert!(
+            error.contains("must be an absolute trusted path"),
+            "{error}"
+        );
+
+        let absolute = std::env::temp_dir().join("ibex-runtime-cache-contract");
+        assert_eq!(
+            resolved_runtime_cache_dir(Some(&absolute)).unwrap(),
+            absolute
+        );
+    }
 
     #[test]
     fn package_graph_projects_only_explicit_root_imports_as_root_edges() {
@@ -17956,9 +18527,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_rejects_source_mutation_after_rolldown_capture() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let source_dir = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -17966,18 +18534,19 @@ pub(crate) mod tests {
         let entry = source_dir.path().join("entry.js");
         let artifact_root = cache_dir.path().join("cache-key");
         std::fs::write(&entry, "module.exports = 'before';\n").unwrap();
-        // The shared test lock owns these process-global hook variables until
-        // the child has exited and they have been removed.
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &entry);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -17988,13 +18557,9 @@ pub(crate) mod tests {
             std::fs::write(&entry, "module.exports = 'after!';\n").unwrap();
         }
         // Always unblock and join the child before asserting so a timeout
-        // cannot strand a subprocess or leak the process-global test hook.
+        // cannot strand a subprocess.
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never reached source capture barrier: {result:?}"
@@ -18011,9 +18576,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_rejects_resolution_candidate_added_after_resolver_decision() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let source_dir = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18024,16 +18586,20 @@ pub(crate) mod tests {
         let artifact_root = cache_dir.path().join("cache-key");
         std::fs::write(&entry, "module.exports = require('./dep').value;\n").unwrap();
         std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18045,10 +18611,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved/captured dep.ts: {result:?}"
@@ -18065,9 +18627,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_witnesses_hoisted_packages_above_nested_project_boundaries() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let workspace = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18086,17 +18645,21 @@ pub(crate) mod tests {
         )
         .unwrap();
         std::fs::write(&selected, "exports.value = 'workspace';\n").unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
 
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18123,10 +18686,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved hoisted package: {result:?}"
@@ -18143,9 +18702,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_witnesses_bare_package_subpath_extension_precedence() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let project = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18164,17 +18720,21 @@ pub(crate) mod tests {
         .unwrap();
         std::fs::write(&entry, "module.exports = require('pkg/lib/value').value;\n").unwrap();
         std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
 
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18186,10 +18746,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved package subpath: {result:?}"
@@ -18206,9 +18762,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_witnesses_package_main_target_extension_precedence() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let project = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18227,17 +18780,21 @@ pub(crate) mod tests {
         .unwrap();
         std::fs::write(&entry, "module.exports = require('pkg').value;\n").unwrap();
         std::fs::write(&selected, r#"{"value":"json"}"#).unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
 
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18249,10 +18806,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved package main target: {result:?}"

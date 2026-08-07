@@ -1,0 +1,795 @@
+{
+ "schema": "ibex/llp-evidence/scope-measurement/1",
+ "measurement": "capsec-scope-measurement",
+ "gate": "LLP 0049 §3 rule 5",
+ "tool": "scripts/capsec-scope-measurement.mjs",
+ "catalog": {
+  "path": "/private/tmp/claude-501/-Users-ccheever-projects-ibex/e13d03fb-d1f3-4103-bac0-bb7797c4b574/scratchpad/catalog-postfix.json",
+  "digest": "sha256-sMzObEF9jpCF5fpgJ4FIigkj05e2-FjFsrNqj9t3mhQ",
+  "target": {
+   "triple": "aarch64-apple-darwin",
+   "features": [
+    "hermes-frame-attribution",
+    "native-compartments",
+    "native-lockdown"
+   ]
+  },
+  "requiredFixtures": 22505
+ },
+ "families": [
+  "env",
+  "fs",
+  "process"
+ ],
+ "definitions": {
+  "source": "LLP 0044 §9 (day-one scope measurement), replicated exactly",
+  "cell": "one edgeId",
+  "rowInScope": "actionId families (prefix before ':') non-empty and all within the selected family set",
+  "cellInScope": "at least one row of any status is in scope",
+  "poisonedCell": "any unresolved row of the cell carries a Lane B/C/D residual reason",
+  "laneReasons": {
+   "B": "no-static-enforcement-terminal",
+   "C": "native-public-source-invocation-unavailable",
+   "D": "builtin-export-resolves-to-bootstrap-internal"
+  },
+  "authorableRows": "unresolved in-scope rows on clean cells, counted by fixtureId",
+  "surfaces": "clean cells carrying at least one authorable row",
+  "templateClass": "(surface-kind × exact row action set) over authorable rows"
+ },
+ "cells": 610,
+ "cleanCells": 537,
+ "poisonedCells": 73,
+ "authorableRows": 3927,
+ "surfaces": 491,
+ "templateClasses": 80,
+ "poisonedCellsByLane": {
+  "B": 51,
+  "C": 22,
+  "D": 0
+ },
+ "perFamily": {
+  "env": {
+   "cells": 198,
+   "cleanCells": 176,
+   "poisonedCells": 22,
+   "authorableRows": 1108,
+   "surfaces": 156,
+   "templateClasses": 21
+  },
+  "fs": {
+   "cells": 536,
+   "cleanCells": 468,
+   "poisonedCells": 68,
+   "authorableRows": 3427,
+   "surfaces": 442,
+   "templateClasses": 71
+  },
+  "process": {
+   "cells": 28,
+   "cleanCells": 16,
+   "poisonedCells": 12,
+   "authorableRows": 197,
+   "surfaces": 16,
+   "templateClasses": 9
+  }
+ },
+ "templateClassBreakdown": [
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 77,
+   "rows": 454
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read"
+   ],
+   "surfaces": 47,
+   "rows": 263
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 40,
+   "rows": 228
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:read"
+   ],
+   "surfaces": 38,
+   "rows": 215
+  },
+  {
+   "surfaceKind": "surface.loader.function",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 35,
+   "rows": 209
+  },
+  {
+   "surfaceKind": "surface.loader.function",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 27,
+   "rows": 154
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 26,
+   "rows": 152
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:write"
+   ],
+   "surfaces": 24,
+   "rows": 122
+  },
+  {
+   "surfaceKind": "surface.loader.operation",
+   "actionIds": [
+    "fs:list",
+    "fs:write"
+   ],
+   "surfaces": 24,
+   "rows": 120
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 20,
+   "rows": 120
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read",
+    "env:write"
+   ],
+   "surfaces": 9,
+   "rows": 108
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 21,
+   "rows": 105
+  },
+  {
+   "surfaceKind": "surface.loader.function",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 17,
+   "rows": 102
+  },
+  {
+   "surfaceKind": "surface.loader.operation",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 17,
+   "rows": 85
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 16,
+   "rows": 80
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "fs:list",
+    "fs:write"
+   ],
+   "surfaces": 12,
+   "rows": 68
+  },
+  {
+   "surfaceKind": "surface.loader.entry",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 11,
+   "rows": 66
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 10,
+   "rows": 60
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:read"
+   ],
+   "surfaces": 14,
+   "rows": 57
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:list",
+    "fs:write"
+   ],
+   "surfaces": 11,
+   "rows": 56
+  },
+  {
+   "surfaceKind": "surface.loader.entry",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 9,
+   "rows": 54
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:read"
+   ],
+   "surfaces": 9,
+   "rows": 51
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:write"
+   ],
+   "surfaces": 8,
+   "rows": 48
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 9,
+   "rows": 45
+  },
+  {
+   "surfaceKind": "surface.loader.operation",
+   "actionIds": [
+    "fs:read"
+   ],
+   "surfaces": 9,
+   "rows": 45
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 8,
+   "rows": 43
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:write"
+   ],
+   "surfaces": 10,
+   "rows": 36
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "env:read",
+    "env:write",
+    "fs:list",
+    "process:spawn"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:list",
+    "process:spawn"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "process:spawn"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "env:read"
+   ],
+   "surfaces": 6,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.loader.operation",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.loader.operation",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "process:spawn"
+   ],
+   "surfaces": 5,
+   "rows": 30
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 5,
+   "rows": 29
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 5,
+   "rows": 28
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "fs:read"
+   ],
+   "surfaces": 5,
+   "rows": 25
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:write"
+   ],
+   "surfaces": 5,
+   "rows": 25
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read",
+    "env:write",
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 2,
+   "rows": 24
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "process:spawn"
+   ],
+   "surfaces": 4,
+   "rows": 23
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 4,
+   "rows": 22
+  },
+  {
+   "surfaceKind": "surface.loader.route",
+   "actionIds": [
+    "fs:write"
+   ],
+   "surfaces": 4,
+   "rows": 20
+  },
+  {
+   "surfaceKind": "surface.startup.supervisor",
+   "actionIds": [
+    "fs:list",
+    "fs:write"
+   ],
+   "surfaces": 4,
+   "rows": 20
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 4,
+   "rows": 19
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "actionIds": [
+    "fs:list",
+    "fs:write"
+   ],
+   "surfaces": 4,
+   "rows": 19
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 3,
+   "rows": 18
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "env:read",
+    "env:write",
+    "fs:list",
+    "process:spawn"
+   ],
+   "surfaces": 3,
+   "rows": 18
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:list",
+    "process:spawn"
+   ],
+   "surfaces": 3,
+   "rows": 18
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "fs:write"
+   ],
+   "surfaces": 3,
+   "rows": 15
+  },
+  {
+   "surfaceKind": "surface.loader.entry",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 2,
+   "rows": 12
+  },
+  {
+   "surfaceKind": "surface.loader.function",
+   "actionIds": [
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 2,
+   "rows": 12
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 2,
+   "rows": 12
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read",
+    "env:write",
+    "fs:list",
+    "process:spawn"
+   ],
+   "surfaces": 1,
+   "rows": 12
+  },
+  {
+   "surfaceKind": "surface.loader.function",
+   "actionIds": [
+    "fs:read"
+   ],
+   "surfaces": 2,
+   "rows": 10
+  },
+  {
+   "surfaceKind": "surface.startup.supervisor",
+   "actionIds": [
+    "env:read"
+   ],
+   "surfaces": 2,
+   "rows": 10
+  },
+  {
+   "surfaceKind": "surface.startup.supervisor",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 2,
+   "rows": 10
+  },
+  {
+   "surfaceKind": "surface.startup.supervisor",
+   "actionIds": [
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 2,
+   "rows": 10
+  },
+  {
+   "surfaceKind": "surface.loader.commonjs",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.commonjs",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.dynamic",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.dynamic",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.esm",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.esm",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.json",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.json",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.native",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.native",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.oxc",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.oxc",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.private",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.private",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.require",
+   "actionIds": [
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.loader.require",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "env:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:list",
+    "fs:read"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "fs:list",
+    "fs:read",
+    "fs:write"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "actionIds": [
+    "env:read",
+    "fs:list",
+    "fs:read",
+    "process:spawn"
+   ],
+   "surfaces": 1,
+   "rows": 6
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "actionIds": [
+    "env:write"
+   ],
+   "surfaces": 1,
+   "rows": 5
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "actionIds": [
+    "env:read",
+    "fs:list"
+   ],
+   "surfaces": 1,
+   "rows": 5
+  }
+ ],
+ "assertions": [],
+ "result": "PASS"
+}

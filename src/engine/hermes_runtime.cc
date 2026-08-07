@@ -158,6 +158,9 @@ extern "C" {
 #endif // !EXACT_NO_OPENSSL
 #elif !defined(_WIN32)
 #include <sys/sysinfo.h>
+#if !defined(EXACT_NO_OPENSSL)
+// @ref LLP 0008#crypto — the default Linux profile deliberately omits the
+// OpenSSL dependency while `openssl-crypto` supplies the full native surface.
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/pem.h>
@@ -167,6 +170,7 @@ extern "C" {
 #include <openssl/bn.h>
 #include <openssl/param_build.h>
 #include <openssl/core_names.h>
+#endif // !EXACT_NO_OPENSSL
 #include <zlib.h>
 #include <brotli/encode.h>
 #include <brotli/decode.h>
@@ -198,6 +202,23 @@ extern "C" char **environ;
 // transitively. Spell it out so the realpath() path-resolution helpers build
 // on Linux. @ref LLP 0008#filesystem
 #include <limits.h>
+
+#if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
+// Keep the MutableBuffer key function and its data accessors in one object
+// file. When every virtual was inline, the standalone stub's dead-stripped
+// static-Hermes link could retain a weak vtable whose size/data slots resolved
+// to null, crashing as soon as native networking returned a Uint8Array.
+// @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+VectorBuffer::~VectorBuffer() = default;
+
+size_t VectorBuffer::size() const {
+  return data_.size();
+}
+
+uint8_t* VectorBuffer::data() {
+  return data_.data();
+}
+#endif
 
 thread_local uint64_t g_active_module_id = 0;
 thread_local uint64_t g_native_callback_principal_id = kNoNativePrincipalOverride;
@@ -302,6 +323,49 @@ std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
 // ran a JSI destructor off the Hermes thread.
 std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOnOwnerThread{0};
 std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOffOwnerThread{0};
+std::mutex g_runtimeFinalizerTestMutex;
+RuntimeCallbackTarget g_runtimeFinalizerTestTarget{};
+std::thread::id g_runtimeFinalizerTestOwnerThread{};
+std::thread::id g_runtimeFinalizerTestProducerThread{};
+std::thread::id g_runtimeFinalizerTestRunThread{};
+std::thread::id g_runtimeFinalizerTestRefusalDestructionThread{};
+std::atomic<uint64_t> g_runtimeFinalizerTestRunCount{0};
+std::atomic<uint64_t> g_runtimeFinalizerTestGoodRunCount{0};
+std::atomic<uint64_t> g_runtimeFinalizerTestDestroyedWithoutRunCount{0};
+std::atomic<uint64_t> g_runtimeFinalizerTestLoggedFailureCount{0};
+
+struct RuntimeFinalizerTestCapture {
+  explicit RuntimeFinalizerTestCapture(bool shouldThrow)
+      : shouldThrow(shouldThrow) {}
+
+  ~RuntimeFinalizerTestCapture() {
+    if (ran.load(std::memory_order_acquire)) return;
+    g_runtimeFinalizerTestDestroyedWithoutRunCount.fetch_add(
+        1, std::memory_order_seq_cst);
+    std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+    g_runtimeFinalizerTestRefusalDestructionThread =
+        std::this_thread::get_id();
+  }
+
+  void invoke() {
+    ran.store(true, std::memory_order_release);
+    g_runtimeFinalizerTestRunCount.fetch_add(1, std::memory_order_seq_cst);
+    if (!shouldThrow) {
+      g_runtimeFinalizerTestGoodRunCount.fetch_add(
+          1, std::memory_order_seq_cst);
+    }
+    {
+      std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+      g_runtimeFinalizerTestRunThread = std::this_thread::get_id();
+    }
+    if (shouldThrow) {
+      throw std::runtime_error("injected runtime finalizer failure");
+    }
+  }
+
+  const bool shouldThrow;
+  std::atomic<bool> ran{false};
+};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
@@ -3194,6 +3258,10 @@ static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
     } catch (...) {
       // Native finalizers must be noexcept. Continue draining so one broken
       // resource cannot strand another JSI owner past Hermes deletion.
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+      g_runtimeFinalizerTestLoggedFailureCount.fetch_add(
+          1, std::memory_order_seq_cst);
+#endif
       ex_host_console_log(1, "Runtime-owned native finalizer failed");
     }
   }
@@ -3363,7 +3431,9 @@ extern "C" void native_ws_release_context(void* context) {
     // The final release can land on an NSURLSession/dispatch thread. The
     // context's producer pin keeps its exact runtime generation in Closing
     // until this JSI-owning object has been marshalled to the owner thread.
-    // @ref LLP 0003#the-event-loop
+    // Refusal-impossible producer: the context's native-worker pin is the
+    // lifetime proof that keeps this generation admitted through handoff.
+    // @ref LLP 0050#4-decision-d3--native-tier-contract-and-the-staleness-story
     auto target = ctx->target;
     bool onRuntimeThread = false;
     {
@@ -3381,7 +3451,9 @@ extern "C" void native_ws_release_context(void* context) {
       exactUnpinRuntimeNativeWorker(target);
       return;
     }
-    if (!pushRuntimeFinalizer(target, [ctx]() { delete ctx; })) {
+    std::function<void()> finalizer = [ctx]() { delete ctx; };
+    if (pushRuntimeFinalizer(target, finalizer) !=
+        PushRuntimeFinalizerResult::Accepted) {
       std::terminate();
     }
     // Ownership of ctx is now in finalizerQueue. Publishing the last unpin lets
@@ -3560,11 +3632,17 @@ extern "C" int32_t ibex_test_runtime_extension_with_native_worker_lock_v1(
 }
 #endif
 
-bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
-                          std::function<void()> fn) {
+PushRuntimeFinalizerResult pushRuntimeFinalizer(
+    RuntimeCallbackTarget target,
+    std::function<void()>& fn) {
+  if (!target.runtime || target.nonce == 0 || !fn) {
+    return PushRuntimeFinalizerResult::Invalid;
+  }
   {
     std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-    if (!runtimeTargetMatchesLocked(target, true)) return false;
+    if (!runtimeTargetMatchesLocked(target, true)) {
+      return PushRuntimeFinalizerResult::Stale;
+    }
     auto* runtime = target.runtime;
     {
       std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
@@ -3576,7 +3654,121 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
   // runtime. Wake its owner just like a JS callback so the queued JSI owner is
   // not retained until unrelated work happens or the runtime is destroyed.
   ex_hermes_notify_callback();
-  return true;
+  return PushRuntimeFinalizerResult::Accepted;
+}
+
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" void ibex_test_reset_runtime_finalizer_observer() {
+  std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+  g_runtimeFinalizerTestTarget = {};
+  g_runtimeFinalizerTestOwnerThread = {};
+  g_runtimeFinalizerTestProducerThread = {};
+  g_runtimeFinalizerTestRunThread = {};
+  g_runtimeFinalizerTestRefusalDestructionThread = {};
+  g_runtimeFinalizerTestRunCount.store(0, std::memory_order_seq_cst);
+  g_runtimeFinalizerTestGoodRunCount.store(0, std::memory_order_seq_cst);
+  g_runtimeFinalizerTestDestroyedWithoutRunCount.store(
+      0, std::memory_order_seq_cst);
+  g_runtimeFinalizerTestLoggedFailureCount.store(
+      0, std::memory_order_seq_cst);
+}
+
+extern "C" int32_t ibex_test_capture_runtime_finalizer_target(
+    ExactHermesRuntime* runtime) {
+  if (!runtime) return 0;
+  std::lock_guard<std::mutex> registryLock(g_runtimeRegistryMutex);
+  auto found = g_activeRuntimes.find(runtime);
+  if (found == g_activeRuntimes.end() ||
+      found->second.state != RuntimeLifecycleState::Running) {
+    return 0;
+  }
+  std::lock_guard<std::mutex> testLock(g_runtimeFinalizerTestMutex);
+  g_runtimeFinalizerTestTarget = RuntimeCallbackTarget{runtime, found->second.nonce};
+  g_runtimeFinalizerTestOwnerThread = found->second.owner;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_push_captured_runtime_finalizer(uint32_t mode) {
+  RuntimeCallbackTarget target;
+  {
+    std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+    target = g_runtimeFinalizerTestTarget;
+    g_runtimeFinalizerTestProducerThread = std::this_thread::get_id();
+  }
+
+  PushRuntimeFinalizerResult result;
+  if (mode == 2) {
+    std::function<void()> empty;
+    result = pushRuntimeFinalizer(target, empty);
+  } else {
+    auto capture =
+        std::make_shared<RuntimeFinalizerTestCapture>(mode == 1);
+    std::function<void()> finalizer = [capture]() { capture->invoke(); };
+    result = pushRuntimeFinalizer(target, finalizer);
+  }
+  return static_cast<int32_t>(result);
+}
+
+extern "C" uint64_t ibex_test_runtime_finalizer_run_count() {
+  return g_runtimeFinalizerTestRunCount.load(std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t ibex_test_runtime_finalizer_good_run_count() {
+  return g_runtimeFinalizerTestGoodRunCount.load(std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t
+ibex_test_runtime_finalizer_destroyed_without_run_count() {
+  return g_runtimeFinalizerTestDestroyedWithoutRunCount.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t ibex_test_runtime_finalizer_logged_failure_count() {
+  return g_runtimeFinalizerTestLoggedFailureCount.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" int32_t ibex_test_runtime_finalizer_ran_on_owner_thread() {
+  std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+  return g_runtimeFinalizerTestRunThread == g_runtimeFinalizerTestOwnerThread;
+}
+
+extern "C" int32_t
+ibex_test_runtime_finalizer_refusal_destroyed_on_producer_thread() {
+  std::lock_guard<std::mutex> lock(g_runtimeFinalizerTestMutex);
+  return g_runtimeFinalizerTestRefusalDestructionThread ==
+      g_runtimeFinalizerTestProducerThread;
+}
+#endif
+
+void sealGlobalHostFunction(
+    facebook::jsi::Runtime& rt,
+    const char* name) {
+  auto objectConstructor =
+      rt.global().getPropertyAsObject(rt, "Object");
+  auto getOwnPropertyDescriptor =
+      objectConstructor.getPropertyAsFunction(rt, "getOwnPropertyDescriptor");
+  auto defineProperty =
+      objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+  auto propertyName = facebook::jsi::String::createFromAscii(rt, name);
+  auto descriptorValue = getOwnPropertyDescriptor.call(
+      rt, rt.global(), propertyName);
+  if (!descriptorValue.isObject()) {
+    throw std::runtime_error(
+        std::string("native global descriptor is unavailable: ") + name);
+  }
+  auto descriptor = descriptorValue.asObject(rt);
+  auto value = descriptor.getProperty(rt, "value");
+  auto writable = descriptor.getProperty(rt, "writable");
+  auto configurable = descriptor.getProperty(rt, "configurable");
+  if (!value.isObject() || !value.getObject(rt).isFunction(rt) ||
+      !writable.isBool() || !configurable.isBool()) {
+    throw std::runtime_error(
+        std::string("native global is not a data host function: ") + name);
+  }
+  descriptor.setProperty(rt, "writable", false);
+  descriptor.setProperty(rt, "configurable", false);
+  defineProperty.call(rt, rt.global(), propertyName, descriptor);
 }
 
 namespace {
@@ -6621,7 +6813,12 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       }
     } catch (e) { throw e; }
   }
-
+)JS";
+    // MSVC refuses individual string-literal tokens larger than 16,380 bytes.
+    // Preserve the lockdown script byte-for-byte while keeping each semantic
+    // chunk comfortably below that compiler limit.
+    // @ref LLP 0005#windows-source-literal-portability
+    lockdownJS += R"JS(
   // `process:umask` is deny-only in the armed profile. The shared runtime
   // installs a compatibility implementation before lockdown, so seal the
   // actual public invocation here rather than relying on a catalog label. A
@@ -6809,7 +7006,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       pinClosedProcessProperty('report', 'ProcessReport');
     } catch (e) { throw e; }
   }
-
+)JS";
+    lockdownJS += R"JS(
   // --- Property override enablement for the error intrinsics ---
   // Freezing Error.prototype makes its data properties non-writable, and a
   // non-writable property on the prototype chain rejects plain assignment on
@@ -6915,6 +7113,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   ];
   if (typeof BigInt === 'function') roots.push(BigInt);
   if (typeof Proxy === 'function') roots.push(Proxy);
+  if (typeof WeakRef === 'function') roots.push(WeakRef);
+  if (typeof FinalizationRegistry === 'function') roots.push(FinalizationRegistry);
   var typedArrays = ['Int8Array','Uint8Array','Uint8ClampedArray','Int16Array',
     'Uint16Array','Int32Array','Uint32Array','Float32Array','Float64Array',
     'BigInt64Array','BigUint64Array'];
@@ -7961,6 +8161,9 @@ extern "C" uint64_t ex_host_claim_armed_context_with_runtime_extensions(
     const char* digest,
     const char* authority_digest);
 extern "C" uint64_t ex_host_claim_diagnostic_context();
+#ifdef IBEX_SFE_COMPILED_RUNTIME
+extern "C" uint64_t ibex_private_host_claim_compiled_ambient_context_v1();
+#endif
 extern "C" void ex_host_release_context(uint64_t context_id);
 
 static ExactHermesRuntime* ex_hermes_create_impl(
@@ -7969,7 +8172,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     bool authenticate_extension_registry,
     const char* extension_report_mode,
     const IbexRuntimeExtensionRegistryV1* extension_registry,
-    bool disable_dynamic_code);
+    bool disable_dynamic_code,
+    bool publish_consumer_async_failures);
 
 static std::string rootGlobalSymbolKey(
     facebook::jsi::Runtime& rt,
@@ -9680,7 +9884,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create_armed(
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, true, true, "production-armed", nullptr, false);
+          context, true, true, "production-armed", nullptr, false, false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9697,7 +9901,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create_no_eval() {
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, false, false, "restricted-no-eval", nullptr, true);
+          context, false, false, "restricted-no-eval", nullptr, true, true);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9707,10 +9911,26 @@ extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, false, false, "diagnostic", nullptr, false);
+          context, false, false, "diagnostic", nullptr, false, false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
+
+#ifdef IBEX_SFE_COMPILED_RUNTIME
+extern "C" ExactHermesRuntime*
+ibex_private_hermes_create_compiled_ambient_v1() {
+  // This constructor is selected only after the standalone image's shared
+  // bulk admission and immutable pre-init dispatch have completed.
+  // @ref LLP 0047#ambient-path
+  uint64_t context = ibex_private_host_claim_compiled_ambient_context_v1();
+  if (context == 0) return nullptr;
+  auto* runtime =
+      ex_hermes_create_impl(
+          context, false, false, "compiled-ambient", nullptr, false, true);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+#endif
 
 extern "C" ExactHermesRuntime* ibex_runtime_create_armed_v2(
     const IbexArmedRuntimeOptionsV2* options) {
@@ -9735,6 +9955,7 @@ extern "C" ExactHermesRuntime* ibex_runtime_create_armed_v2(
           true,
           "production-armed",
           options->extension_registry,
+          false,
           false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
@@ -9756,6 +9977,7 @@ extern "C" ExactHermesRuntime* ibex_runtime_create_diagnostic_v2(
           false,
           "diagnostic",
           options->extension_registry,
+          false,
           false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
@@ -9804,6 +10026,7 @@ ibex_runtime_extension_conformance_create_authenticated_fixture_v1(
           true,
           "authenticated-conformance-fixture",
           options->extension_registry,
+          false,
           false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
@@ -9888,7 +10111,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     bool authenticate_extension_registry,
     const char* extension_report_mode,
     const IbexRuntimeExtensionRegistryV1* extension_registry,
-    bool disable_dynamic_code) {
+    bool disable_dynamic_code,
+    bool publish_consumer_async_failures) {
   std::string runtimeExtensionError;
   auto runtimeExtensions =
       ibex::runtime_extension::internal::prepare(
@@ -9934,7 +10158,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
-  handle->restricted_consumer_async_failures = disable_dynamic_code;
+  handle->restricted_consumer_async_failures =
+      publish_consumer_async_failures;
   handle->authenticated_native_storage_closed =
       armed || authenticate_extension_registry;
   handle->trusted_bootstrap_in_progress = true;
@@ -15271,6 +15496,67 @@ extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
     *stack = {nullptr, 0};
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
+}
+
+// The standalone owner has no supervisor-side value renderer. Consume and
+// release one worker-local background-failure root inside the native ABI so
+// the compiled Rust boundary receives only a closed fatality disposition.
+// @ref LLP 0024#9-asynchronous-failures
+extern "C" int32_t ibex_private_hermes_take_compiled_async_failure_v1(
+    ExactHermesRuntime* runtime,
+    uint64_t* dropped_count,
+    uint8_t** message,
+    size_t* message_length) {
+  if (dropped_count == nullptr || message == nullptr ||
+      message_length == nullptr) return -1;
+  *dropped_count = 0;
+  *message = nullptr;
+  *message_length = 0;
+  ExHermesAsyncFailureEvent event{
+      EX_HERMES_ASYNC_FAILURE_EVENT_ABI_VERSION,
+      sizeof(ExHermesAsyncFailureEvent),
+      0,
+      0,
+      {0, 0},
+      0,
+      0,
+      0,
+      0,
+      0};
+  const uint32_t status =
+      ex_hermes_take_async_failure_event(runtime, &event);
+  if (status == EX_HERMES_ASYNC_FAILURE_EVENT_EMPTY) return 0;
+  if (status == EX_HERMES_ASYNC_FAILURE_EVENT_AVAILABLE) {
+    uint32_t metadata_fields = 0;
+    uint32_t error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    ExHermesOwnedBytes safe_message{nullptr, 0};
+    ExHermesOwnedBytes safe_stack{nullptr, 0};
+    const uint32_t metadata_status = ex_hermes_value_safe_throw_metadata(
+        runtime,
+        event.value,
+        &metadata_fields,
+        &error_class,
+        &safe_message,
+        &safe_stack);
+    (void)metadata_fields;
+    (void)error_class;
+    free(safe_stack.data);
+    if (metadata_status == EX_HERMES_EVAL_FAULT_NONE) {
+      *message = safe_message.data;
+      *message_length = safe_message.length;
+    } else {
+      free(safe_message.data);
+    }
+    return ex_hermes_value_release(runtime, event.value) ==
+            EX_HERMES_EVAL_FAULT_NONE
+        ? 1
+        : -1;
+  }
+  if (status == EX_HERMES_ASYNC_FAILURE_EVENT_DROPPED) {
+    *dropped_count = event.dropped_count;
+    return 2;
+  }
+  return -1;
 }
 
 extern "C" uint32_t ex_hermes_session_display_ack(

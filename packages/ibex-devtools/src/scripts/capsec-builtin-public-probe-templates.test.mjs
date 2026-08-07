@@ -942,6 +942,79 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
+  test("leaves deprecated warning-producing node:fs constants residual", async () => {
+    const inputFor = (exportName) => ({
+      sourceKey: "node_fs",
+      exportName,
+      exportIdioms: ["define-property"],
+      moduleSpecifiers: ["bun:fs", "fs", "node:fs"],
+      sourceRefs: [`src/builtins/fs.js#exports:${exportName}`],
+      valueShape: "accessor",
+    });
+    for (const exportName of ["F_OK", "R_OK", "W_OK", "X_OK"]) {
+      expect(probeFor(inputFor(exportName))).toBeNull();
+    }
+
+    const observedKey = "builtin:export:node_fs:F_OK";
+    const route = {
+      surfaceObservedKeys: [observedKey],
+      alternatives: [
+        { terminalObservedKey: observedKey, proofPaths: [observedKey] },
+      ],
+      ambiguousCallees: [],
+    };
+    const input = inputFor("F_OK");
+    expect(
+      nonCapabilityBuiltinProbeResidualReason({
+        route,
+        target: "aarch64-apple-darwin",
+        liveByObservedKey: new Map([
+          [
+            observedKey,
+            {
+              observedKey,
+              sourceRefs: input.sourceRefs,
+              metadata: {
+                sourceKey: input.sourceKey,
+                exportName: input.exportName,
+                exportIdioms: input.exportIdioms,
+                importReachability: "public",
+                moduleSpecifiers: input.moduleSpecifiers,
+                publicModuleSpecifiers: input.moduleSpecifiers,
+                surfaceType: "export",
+                valueShape: input.valueShape,
+              },
+            },
+          ],
+        ]),
+      }),
+    ).toBe("builtin-export-requires-deprecation-warning");
+
+    const staleInvocation = {
+      invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+      kind: "builtin-export-read",
+      moduleSpecifier: "node:fs",
+      exportName: "F_OK",
+      sourceDescriptor: {
+        kind: "builtin-export",
+        sourceKey: "node_fs",
+        exportName: "F_OK",
+        exportIdioms: ["define-property"],
+        moduleSpecifiers: ["bun:fs", "fs", "node:fs"],
+        sourceRef: "src/builtins/fs.js#exports:F_OK",
+        valueShape: "accessor",
+        access: { kind: "export-property", path: ["F_OK"] },
+      },
+      arguments: [],
+      setup: { kind: "none" },
+    };
+    expect(await builtinInvocationHarness(staleInvocation)).toMatchObject({
+      kind: "contract-mismatch",
+      moduleSpecifier: "node:fs",
+      exportName: "F_OK",
+    });
+  });
+
   test("exports expectation-free output invocations from the same authored recipes", () => {
     const invocation = authoredNonCapabilityBuiltinOutputInvocation({
       target: "aarch64-apple-darwin",
@@ -2240,6 +2313,41 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("keeps non-zlib end methods out of the zlib end validator", async () => {
+    const probe = probeFor({
+      sourceKey: "exact_crypto",
+      exportName: "Sign.end",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+      valueShape: "callable",
+    });
+    expect(probe).toMatchObject({
+      invocation: {
+        arguments: [{ kind: "json", value: "ibex" }],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "Sign",
+          constructorArguments: [{ kind: "json", value: "sha256" }],
+        },
+      },
+    });
+    expect((await builtinInvocationHarness(probe.invocation)).kind).not.toBe(
+      "contract-mismatch",
+    );
+
+    const crossFamilySetup = structuredClone(probe.invocation);
+    crossFamilySetup.setup = {
+      kind: "zlib-end-owner",
+      ownerExportName: "Sign",
+      outputContract: "nonempty-byte-view",
+    };
+    expect(await builtinInvocationHarness(crossFamilySetup)).toMatchObject({
+      kind: "contract-mismatch",
+      moduleSpecifier: "node:crypto",
+      exportName: "Sign.end",
+    });
+  });
+
   test("binds shared Windows crypto probes but leaves native KDFs residual", () => {
     expect(
       probeFor({
@@ -3029,5 +3137,50 @@ describe("source-bound builtin public probes", () => {
         target: "aarch64-linux-android",
       })?.invocation.sourceDescriptor.platformAvailability,
     ).toEqual(["android", "linux"]);
+  });
+
+  test("keeps node:readline data reads out of the call-only validator", async () => {
+    const probe = probeFor({
+      sourceKey: "node_readline",
+      exportName: "promises",
+      exportIdioms: ["module-exports-object"],
+      moduleSpecifiers: [
+        "node:readline",
+        "node:readline/promises",
+        "readline",
+        "readline/promises",
+      ],
+      sourceRefs: ["src/builtins/readline.js#exports:promises"],
+      valueShape: "data",
+    });
+    expect(probe).toMatchObject({
+      invocation: {
+        kind: "builtin-export-read",
+        moduleSpecifier: "node:readline",
+        exportName: "promises",
+        sourceDescriptor: {
+          sourceKey: "node_readline",
+          valueShape: "data",
+        },
+      },
+    });
+    expect(await builtinInvocationHarness(probe.invocation)).toMatchObject({
+      kind: "return",
+      moduleSpecifier: "node:readline",
+      exportName: "promises",
+    });
+
+    const staleCallableRead = structuredClone(probe.invocation);
+    staleCallableRead.exportName = "CSI";
+    staleCallableRead.sourceDescriptor.exportName = "CSI";
+    staleCallableRead.sourceDescriptor.sourceRef =
+      "src/builtins/readline.js#exports:CSI";
+    staleCallableRead.sourceDescriptor.valueShape = "callable";
+    staleCallableRead.sourceDescriptor.access.path = ["CSI"];
+    expect(await builtinInvocationHarness(staleCallableRead)).toMatchObject({
+      kind: "contract-mismatch",
+      moduleSpecifier: "node:readline",
+      exportName: "CSI",
+    });
   });
 });

@@ -1,0 +1,40 @@
+{
+ "measurement": "llp-0049-phase2-calibration-class-2",
+ "templateClass": "surface.native.op × [fs:list] (direct-list cells)",
+ "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+ "note": "Declared BEFORE candidate generation. Closes the two direct-list cells of the class — surface.native.op.exactaccess.1a12cmn and surface.native.op.exactopendir.0eh7ha4, 5 rows each (allow, deny, malformed, missing-attribution, wrong-principal) — by authoring nativeProjectAccessTemplate and nativeProjectOpendirTemplate in NATIVE_PUBLIC_PROBE_TEMPLATES. The class's other three cells (exactfsfstatsync, exactfspathasync, exactfsstatasync) are retained-descriptor / async-branch shapes and are NOT in this tranche; the class is partially, not fully, closed.",
+ "entries": [
+  {
+   "edgeId": "surface.native.op.exactaccess.1a12cmn",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "native-public-arguments-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2291",
+   "proof": "Authored: __exactAccess gains a direct-list probe template (nativeProjectAccessTemplate, built on nativeDirectListTemplate) registered in NATIVE_PUBLIC_PROBE_TEMPLATES, so the template lookup in nativePublicProbeForPlan no longer emits native-public-arguments-not-authored. Enforcement site: src/engine/hermes_runtime_fs.cc:5546-5593 — the armed branch resolves the VFS path, authorizes through openArmedListTarget(kFsSurfaceAccess) and runs fsAccessArmedWork; mode 0 (F_OK) deliberately asks for neither read nor write permission (ENG-22717) so the listing decision is not conflated with a read/write authority disclosure."
+  },
+  {
+   "edgeId": "surface.native.op.exactaccess.1a12cmn",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "public-surface-invocation-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2291",
+   "proof": "Same authored probe: the five fixtures now carry a public-surface invocation (ibex/capsec-native-global-invocation/1, globalName __exactAccess, arity 2, arguments [\"Cargo.toml\", 0], floor fs:list on the exact /project/Cargo.toml path), so residualReasons()'s !publicSurfaceProbe branch no longer fires."
+  },
+  {
+   "edgeId": "surface.native.op.exactopendir.0eh7ha4",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "native-public-arguments-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2293",
+   "proof": "Authored: __exactOpendir gains a direct-list probe template (nativeProjectOpendirTemplate) registered in NATIVE_PUBLIC_PROBE_TEMPLATES. Enforcement site: src/engine/hermes_runtime_fs.cc:6196-6249 — the armed branch resolves the VFS path, authorizes through openArmedListTarget(kFsSurfaceOpendir, O_RDONLY|O_DIRECTORY) and runs fsReaddirArmedWork. Directory enumeration IS the declared operation here, so the requested/repeat decisions resolve on the authored static floor (LLP 0037 D1's narrow predicate keeps ambient-mount crediting to the traversal half of an open) — matching the already-reviewed opendirSync carrier."
+  },
+  {
+   "edgeId": "surface.native.op.exactopendir.0eh7ha4",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "public-surface-invocation-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2293",
+   "proof": "Same authored probe: the five fixtures now carry a public-surface invocation (ibex/capsec-native-global-invocation/1, globalName __exactOpendir, arity 1, argument \"llp/evidence\", floor fs:list on the exact /project/llp/evidence path), so residualReasons()'s !publicSurfaceProbe branch no longer fires."
+  }
+ ]
+}

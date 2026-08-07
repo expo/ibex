@@ -2,7 +2,9 @@
 //
 // Extracted from hermes_runtime.cc: iOS rendering pipeline callbacks.
 // Provides dispatch, module dispatch, sync call, kernel integration,
-// and module event emission.
+// and module event emission. The kernel-only build of this source is selected
+// by hermes_runtime_kernel_bridge.cc so its host ABI stays in a separate
+// static-archive member.
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -30,6 +32,7 @@
 
 #include "hermes_runtime_internal.h"
 
+#if defined(IBEX_KERNEL_BRIDGE_OBJECT)
 // Kernel FFI functions (implemented in Rust kernel crate)
 extern "C" int32_t exact_get_state_mirror_buffer(
     void* handle, uint8_t** out_ptr, size_t* out_size);
@@ -51,6 +54,7 @@ extern "C" uint32_t exact_get_layout_generation(void* handle);
 extern "C" int32_t exact_hit_test(void* handle, float x, float y);
 extern "C" int32_t exact_node_exists(void* handle, uint32_t view_id);
 extern "C" int32_t exact_get_root_view_id(void* handle, uint32_t root_id);
+#else
 
 namespace {
 
@@ -511,7 +515,9 @@ extern "C" void ex_hermes_set_module_sync_callback(
   exactObj.setProperty(rt, "callModuleSync", std::move(fn));
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
+#endif
 
+#if defined(IBEX_KERNEL_BRIDGE_OBJECT)
 extern "C" void ex_hermes_set_kernel_handle(
     ExactHermesRuntime* runtime,
     void* kernel_handle) {
@@ -818,6 +824,7 @@ extern "C" void ex_hermes_set_kernel_handle(
   exactObj.setProperty(rt, "hasKernelInspector", runtime->kernel_handle != nullptr);
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
+#else
 
 static int emit_module_event_impl(
     ExactHermesRuntime* runtime,
@@ -925,6 +932,17 @@ extern "C" int ex_hermes_dispatch_event(
     ExactHermesRuntime* runtime,
     uint32_t handler_id,
     const char* payload_json) {
+  if (!runtime) return -1;
+  // Standard public-entry hygiene: every other embedder ingress validates the
+  // generation/owner and enters the runtime security context before touching
+  // JSI. Input dispatch previously skipped this, entering JS as an undeclared
+  // native boundary that inherited whatever residual principal/carrier state
+  // the thread last held. This API delivers FRESH host events only;
+  // continuations and completions must use the carrier-bearing queues, and a
+  // REENTRANT drive is a refusal (the host requeues as a new outer drive).
+  // @ref LLP 0051#a-runtime-entry-hygiene-at-ex_hermes_dispatch_event-landed-shape — fresh-host-event ingress takes the drive guard
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->restricted) return -1;
   if (!exactRuntimeEnterUserExecution(runtime)) return -1;
 
   ScopedRuntimeExtensionHostTask hostTask(runtime);
@@ -957,3 +975,4 @@ extern "C" int ex_hermes_dispatch_event(
 }
 
 // =============================================================================
+#endif

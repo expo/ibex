@@ -19,7 +19,7 @@ use std::path::PathBuf;
 #[command(propagate_version = true)]
 #[command(disable_version_flag = true)]
 #[command(
-    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex compile app.ts -o app   Build a single-file executable\n  ibex inspect-executable app  Inspect an SFE without executing it\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
+    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex compile app.ts -o app   Build a single-file executable\n  ibex compile-app app.ts --binding binding.json -o app\n                               Build an app-bound executable\n  ibex inspect-executable app  Inspect an SFE without executing it\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
 )]
 pub struct Cli {
     /// Print version information
@@ -106,6 +106,12 @@ pub struct Cli {
     // @ref LLP 0023#11-project-root-discovery — operator help must describe the authority boundary
     #[arg(long, value_name = "DIR")]
     pub project_root: Option<PathBuf>,
+
+    /// Trusted runtime-cache override. The directory remains runtime-private
+    /// and must be disjoint from the authenticated project and package roots.
+    // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings — operator-selected caches remain unmounted and topology-authenticated
+    #[arg(long, value_name = "DIR")]
+    pub runtime_cache_dir: Option<PathBuf>,
 
     /// Immutable capability snapshot selected by the trusted launcher.
     /// Must be paired with --capsec-arming-identity. Hidden trusted-launcher
@@ -252,7 +258,8 @@ pub enum Commands {
         outdir: Option<PathBuf>,
     },
 
-    /// Build a release-pinned single-file executable
+    /// Build a self-contained executable from an authored policy (ambient by
+    /// default; use --ibex-capsec for CapSec or --ibex-info for artifact facts)
     Compile {
         /// Application entry point
         #[arg(required = true)]
@@ -265,6 +272,30 @@ pub enum Commands {
         /// Prepared module carrier encoding
         #[arg(long, value_enum, default_value = "hbc")]
         carrier: CompileCarrier,
+
+        /// Canonical production policy (conflicts with root --policy)
+        #[arg(long = "policy", value_name = "FILE")]
+        compile_policy: Option<PathBuf>,
+
+        /// Refuse graphs containing guarded invocation-time unsupported sites
+        #[arg(long)]
+        deny_unsupported: bool,
+    },
+
+    /// Build a one-file executable with a fixed application binding and the
+    /// release-admitted restricted external-script worker
+    CompileApp {
+        /// Trusted parent application entry point
+        #[arg(required = true)]
+        entry: PathBuf,
+
+        /// Canonical ibex/app-bound-parent/1 binding document
+        #[arg(long, required = true)]
+        binding: PathBuf,
+
+        /// Executable output path
+        #[arg(short = 'o', long = "output", required = true)]
+        output: PathBuf,
 
         /// Canonical production policy (conflicts with root --policy)
         #[arg(long = "policy", value_name = "FILE")]
@@ -590,6 +621,22 @@ pub(crate) mod tests {
             "{help}"
         );
         assert!(!help.contains("nearest ancestor containing package.json"));
+    }
+
+    #[test]
+    fn runtime_cache_help_preserves_the_private_topology_boundary() {
+        let command = Cli::command();
+        let argument = command
+            .get_arguments()
+            .find(|argument| argument.get_id() == "runtime_cache_dir")
+            .expect("--runtime-cache-dir remains an authored option");
+        let help = argument
+            .get_long_help()
+            .or_else(|| argument.get_help())
+            .expect("--runtime-cache-dir has help")
+            .to_string();
+        assert!(help.contains("runtime-private"), "{help}");
+        assert!(help.contains("disjoint"), "{help}");
     }
 
     // @ref LLP 0010#runtime-command-surface — the recursive manifest records
@@ -2153,6 +2200,27 @@ pub(crate) mod tests {
             Some(Commands::Compat { all: true, .. })
         ));
         assert!(Cli::try_parse_from(["ibex", "compat", "--log", "--json"]).is_err());
+    }
+
+    #[test]
+    fn compile_app_requires_the_explicit_binding_and_output() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "compile-app",
+            "parent.mjs",
+            "--binding",
+            "binding.json",
+            "-o",
+            "app",
+        ]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::CompileApp { entry, binding, output, .. })
+                if entry == PathBuf::from("parent.mjs")
+                    && binding == PathBuf::from("binding.json")
+                    && output == PathBuf::from("app")
+        ));
+        assert!(Cli::try_parse_from(["ibex", "compile-app", "parent.mjs", "-o", "app"]).is_err());
     }
 
     /// The runtime surface manifest (`runtime-surface.json` at the repo root,

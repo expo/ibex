@@ -45,7 +45,7 @@ use super::identity::{ResolutionKind, SourceId};
 use super::producer_spike::{
     produce_builtin_artifact_v1, produce_commonjs_artifact_with_sites_v1, produce_json_artifact_v1,
     produce_module_artifact_with_sites_v1, unsupported_module_runner_reason,
-    verify_current_transform_fingerprint_v1,
+    verify_current_transform_fingerprint_v1, GuardedUnsupportedShapeV1,
 };
 #[cfg(test)]
 use super::producer_spike::{produce_commonjs_artifact_v1, produce_module_artifact_v1};
@@ -203,6 +203,20 @@ pub struct CapturedEmbeddedSourceGraphV1 {
     pub prepared: PreparedEmbeddedSourceGraphV1,
     pub entry_components: Vec<PathComponent>,
     pub entry_source_integrity: Digest,
+    pub guarded_unsupported_sites: Vec<CapturedGuardedUnsupportedSiteV1>,
+}
+
+/// A deterministic compile-time diagnostic row for a guard that remains in
+/// the emitted factory. This is capture metadata, not part of graph identity:
+/// the authenticated factory bytes carry the invocation-time behavior.
+/// @ref LLP 0029#1-command-surface-and-producer-pipeline — default compilation
+/// preserves invocation timing while `--deny-unsupported` audits this inventory
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CapturedGuardedUnsupportedSiteV1 {
+    pub source_id: String,
+    pub start: u32,
+    pub end: u32,
+    pub shape: GuardedUnsupportedShapeV1,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -326,6 +340,18 @@ pub struct PreparedActivationCacheCandidateV1 {
 /// authorized and its source closure has produced retained acquisition
 /// receipts.
 pub trait PreparedActivationCacheLocatorV1: Send + Sync {
+    /// Optionally populate cache candidates for the exact records whose source
+    /// acquisition was just authorized. Consumers still authenticate every
+    /// returned byte against those records, so publication remains an
+    /// acceleration rather than authority.
+    fn publish_authenticated_records(
+        &self,
+        _graph: &SourceModuleGraphV1,
+        _record_ids: &BTreeSet<SourceId>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn locate(&self, target: &SourceId) -> Result<Vec<PreparedActivationCacheCandidateV1>>;
 }
 
@@ -784,6 +810,7 @@ impl SourceModuleGraphV1 {
                 .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
                     artifact,
                     dynamic_import_sites: Vec::new(),
+                    guarded_unsupported_sites: Vec::new(),
                 }),
                 ModuleKind::Builtin => produce_builtin_artifact_v1(
                     source_id.clone(),
@@ -794,6 +821,7 @@ impl SourceModuleGraphV1 {
                 .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
                     artifact,
                     dynamic_import_sites: Vec::new(),
+                    guarded_unsupported_sites: Vec::new(),
                 }),
             }
             .map_err(|error| anyhow!("cannot prepare activated module {source_name:?}: {error}"))?;
@@ -1015,6 +1043,7 @@ impl SourceModuleGraphV1 {
         self.matched_candidate_declarations = pending_matched;
         self._activation_receipts.extend(pending_receipts);
         if let Some(locator) = self.prepared_activation_cache_locator.clone() {
+            let _ = locator.publish_authenticated_records(self, &activated_record_ids);
             if let Ok(candidates) = locator.locate(&target_id) {
                 for candidate in candidates {
                     if load_prepared_activation_records_v1(
@@ -1308,6 +1337,7 @@ pub fn capture_embedded_source_graph_v1(
 
     let mut queue = VecDeque::from([entry_module]);
     let mut records = BTreeMap::new();
+    let mut guarded_unsupported_sites = Vec::new();
     while let Some(module) = queue.pop_front() {
         let source_id = module
             .artifact_source_id
@@ -1343,6 +1373,7 @@ pub fn capture_embedded_source_graph_v1(
                     .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
                         artifact,
                         dynamic_import_sites: Vec::new(),
+                        guarded_unsupported_sites: Vec::new(),
                     })
             }
             ModuleKind::Builtin => produce_builtin_artifact_v1(
@@ -1354,13 +1385,38 @@ pub fn capture_embedded_source_graph_v1(
             .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
                 artifact,
                 dynamic_import_sites: Vec::new(),
+                guarded_unsupported_sites: Vec::new(),
             }),
         }
         .map_err(|error| anyhow!("cannot prepare compiled module {portable_name:?}: {error}"))?;
-        let artifact = produced.artifact;
+        let super::producer_spike::ProducedModuleArtifactV1 {
+            artifact,
+            dynamic_import_sites,
+            guarded_unsupported_sites: module_guarded_sites,
+        } = produced;
+        let source_identity = source_id.encode()?;
+        guarded_unsupported_sites.extend(module_guarded_sites.into_iter().map(|site| {
+            CapturedGuardedUnsupportedSiteV1 {
+                source_id: source_identity.clone(),
+                start: site.original_source_span.start,
+                end: site.original_source_span.end,
+                shape: site.shape,
+            }
+        }));
+        let bootstrap_internal_commonjs_requires =
+            bootstrap_internal_commonjs_require_specifiers(&artifact);
 
         let mut bindings = BTreeMap::new();
         for key in artifact_edge_requests(&artifact) {
+            // Builtins reach these sealed objects through the native bootstrap
+            // resolver. They are deliberately not application graph records,
+            // package resolutions, or independently supplied carrier bytes.
+            // @ref LLP 0004#one-source-many-specifiers
+            if key.resolution_kind == ResolutionKind::CommonJsRequire
+                && bootstrap_internal_commonjs_requires.contains(&key.specifier)
+            {
+                continue;
+            }
             let attributes = artifact_edge_attributes(&artifact, &key)?;
             let target = loader.resolve_meta_typed(
                 &key.specifier,
@@ -1390,15 +1446,29 @@ pub fn capture_embedded_source_graph_v1(
         let requester = root_requester_path(&source_id);
         let mut candidate_tables = Vec::new();
         if let Some(requester) = requester {
-            for site in produced.dynamic_import_sites {
+            for site in dynamic_import_sites {
                 if !site.runtime_options_supported {
                     continue;
                 }
                 let Some(label) = site.label else {
+                    guarded_unsupported_sites.push(CapturedGuardedUnsupportedSiteV1 {
+                        source_id: source_identity.clone(),
+                        start: site.original_source_span.start,
+                        end: site.original_source_span.end,
+                        shape:
+                            GuardedUnsupportedShapeV1::ComputedDynamicImportWithoutCandidateTable,
+                    });
                     continue;
                 };
                 let declaration_key = (requester.clone(), label.as_str().to_owned());
                 let Some(specifiers) = candidate_declarations.get(&declaration_key) else {
+                    guarded_unsupported_sites.push(CapturedGuardedUnsupportedSiteV1 {
+                        source_id: source_identity.clone(),
+                        start: site.original_source_span.start,
+                        end: site.original_source_span.end,
+                        shape:
+                            GuardedUnsupportedShapeV1::ComputedDynamicImportWithoutCandidateTable,
+                    });
                     continue;
                 };
                 matched_candidate_declarations.insert(declaration_key);
@@ -1460,10 +1530,20 @@ pub fn capture_embedded_source_graph_v1(
                 table.validate_requester(&artifact)?;
                 candidate_tables.push(table);
             }
+        } else {
+            for site in dynamic_import_sites {
+                if site.runtime_options_supported {
+                    guarded_unsupported_sites.push(CapturedGuardedUnsupportedSiteV1 {
+                        source_id: source_identity.clone(),
+                        start: site.original_source_span.start,
+                        end: site.original_source_span.end,
+                        shape:
+                            GuardedUnsupportedShapeV1::ComputedDynamicImportWithoutCandidateTable,
+                    });
+                }
+            }
         }
         let record_path = module.path.unwrap_or(portable_path);
-        let bootstrap_internal_commonjs_requires =
-            bootstrap_internal_commonjs_require_specifiers(&artifact);
         records.insert(
             source_id,
             SourceGraphRecordV1 {
@@ -1500,11 +1580,13 @@ pub fn capture_embedded_source_graph_v1(
         .semantics
         .source_integrity
         .clone();
+    guarded_unsupported_sites.sort();
     let prepared = prepare_embedded_records_v1(&entry_id, &records, &producer_binary_digest)?;
     Ok(CapturedEmbeddedSourceGraphV1 {
         prepared,
         entry_components,
         entry_source_integrity,
+        guarded_unsupported_sites,
     })
 }
 
@@ -1586,12 +1668,27 @@ fn discover_compiled_project_root(entry: &Path) -> Result<PathBuf> {
         .parent()
         .ok_or_else(|| anyhow!("compiled entry has no parent directory"))?;
     let mut cursor = entry_parent;
+    let mut nearest_package = None;
+    let mut outermost_workspace = None;
     loop {
-        if cursor.join("package.json").is_file() {
-            return Ok(cursor.to_path_buf());
+        let package_path = cursor.join("package.json");
+        if package_path.is_file() {
+            nearest_package.get_or_insert_with(|| cursor.to_path_buf());
+            let package_bytes = std::fs::read(&package_path).with_context(|| {
+                format!("cannot read project marker {}", package_path.display())
+            })?;
+            let package: serde_json::Value =
+                serde_json::from_slice(&package_bytes).with_context(|| {
+                    format!("project marker is not JSON: {}", package_path.display())
+                })?;
+            if package.get("workspaces").is_some() {
+                outermost_workspace = Some(cursor.to_path_buf());
+            }
         }
         let Some(parent) = cursor.parent() else {
-            return Ok(entry_parent.to_path_buf());
+            return Ok(outermost_workspace
+                .or(nearest_package)
+                .unwrap_or_else(|| entry_parent.to_path_buf()));
         };
         cursor = parent;
     }
@@ -2073,6 +2170,7 @@ fn build_authenticated_source_graph_v1_with_host(
                     .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
                         artifact,
                         dynamic_import_sites: Vec::new(),
+                        guarded_unsupported_sites: Vec::new(),
                     })
             }
             ModuleKind::Builtin => produce_builtin_artifact_v1(
@@ -2084,6 +2182,7 @@ fn build_authenticated_source_graph_v1_with_host(
             .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
                 artifact,
                 dynamic_import_sites: Vec::new(),
+                guarded_unsupported_sites: Vec::new(),
             }),
         };
         let produced = match produced {
@@ -5482,6 +5581,92 @@ mod tests {
             assert_eq!(left.manifest, right.manifest);
             assert_eq!(left.payload, right.payload);
         }
+    }
+
+    #[test]
+    fn compiled_project_root_prefers_the_outer_workspace_over_a_member_package() {
+        let temporary = tempfile::tempdir().unwrap();
+        let member = temporary.path().join("packages/app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            temporary.path().join("package.json"),
+            r#"{"name":"workspace","workspaces":["packages/*"]}"#,
+        )
+        .unwrap();
+        std::fs::write(member.join("package.json"), r#"{"name":"app"}"#).unwrap();
+        let entry = member.join("entry.mjs");
+        std::fs::write(&entry, "export default 1;").unwrap();
+
+        assert_eq!(
+            discover_compiled_project_root(&entry).unwrap(),
+            temporary.path()
+        );
+    }
+
+    #[test]
+    fn production_capture_keeps_builtin_bootstrap_objects_out_of_the_app_graph() {
+        let root = tempfile::tempdir().unwrap();
+        let entry = root.path().join("entry.mjs");
+        std::fs::write(
+            &entry,
+            "import http from 'node:http'; export const kind = typeof http.createServer;",
+        )
+        .unwrap();
+        let producer =
+            super::super::artifact::source_integrity(b"builtin-bootstrap-producer").unwrap();
+
+        let captured = capture_embedded_source_graph_v1(&entry, producer).unwrap();
+
+        assert!(captured
+            .prepared
+            .graph
+            .records
+            .iter()
+            .any(|record| matches!(
+                &record.source_id.0,
+                SourceId::Builtin { source_key, .. } if source_key.as_str() == "node_http"
+            )));
+        assert!(!captured
+            .prepared
+            .graph
+            .records
+            .iter()
+            .any(|record| matches!(
+                &record.source_id.0,
+                SourceId::Builtin { source_key, .. } if source_key.as_str() == "internal/options"
+            )));
+    }
+
+    #[test]
+    fn production_capture_preserves_explicit_mts_top_level_await() {
+        let root = tempfile::tempdir().unwrap();
+        let entry = root.path().join("entry.mts");
+        std::fs::write(
+            &entry,
+            "const value: string = await Promise.resolve('ok'); export { value };",
+        )
+        .unwrap();
+        let producer = super::super::artifact::source_integrity(b"mts-tla-producer").unwrap();
+
+        let captured = capture_embedded_source_graph_v1(&entry, producer).unwrap();
+        let semantics = captured
+            .prepared
+            .carriers
+            .iter()
+            .flat_map(|carrier| carrier.manifest.entries.iter())
+            .find(|entry| entry.semantics.source_id.0 == captured.prepared.graph.entry.0)
+            .map(|entry| &entry.semantics)
+            .unwrap();
+
+        assert_eq!(
+            semantics.source_goal,
+            super::super::artifact::SourceGoalV1::Module
+        );
+        assert_eq!(
+            semantics.dialect,
+            Some(super::super::artifact::SourceDialectV1::Ts)
+        );
+        assert!(semantics.has_top_level_await);
     }
 
     #[test]

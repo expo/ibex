@@ -1,0 +1,75 @@
+{
+ "measurement": "llp-0049-phase2-calibration-class-1-batch",
+ "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9",
+ "templateClass": "surface.native.op × [env:read]",
+ "sourceRevision": "6416114d607f3c673ae6024258ade6328ac4508d (uncommitted working tree)",
+ "date": "2026-08-06",
+ "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, primary checkout, aarch64-apple-darwin)",
+ "baselineCatalogDigest": "sha256-C4T2GOmlKtNepQb5tBc5gulZ9MVwVsGJf5mwqyYzmhw",
+ "candidateCatalogDigest": "sha256-5EaSZqHyeHyZJ-kTorqcdNdYgBW-3wBtmZBbsIu4aV8",
+ "declaredAllowListDigest": "sha256-SMucSwY4cZfG3nDT7cd_PbZuXur2V_UwyjN37JiY0o8",
+ "allowList": "llp/evidence/0049-allow-list-class-native-op-env-read.json",
+ "commands": [
+  "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-env-read.json --output <candidate>",
+  "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-env-read.json",
+  "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+  "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+  "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+ ],
+ "gates": {
+  "routeEvidenceDiff": "PASS (exit 0); residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -6, native-public-arguments-not-authored -6, conditional-branch-selection-probe-not-authored -1; lane cell counts unchanged (B 528 / C 1327 / D 32)",
+  "terminalEvidenceDiff": "PASS (exit 0); changedCellCount 0 — no terminal added or removed anywhere in the catalog",
+  "batchPrimary": "PASS (exit 0), 286 fixtures, 35.93 s",
+  "batchSecondary": "PASS (exit 0), 319 fixtures, 39.51 s"
+ },
+ "rowsClosed": 6,
+ "cell": "surface.native.op.exactgetallenv.1xzi2u1 (nonempty logical branch: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)",
+ "catalogDelta": {
+  "fullyExecutableFixtures": "3926 → 3932",
+  "unresolvedFixtures": "15455 → 15449"
+ },
+ "observedTypedSequence": {
+  "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). Enumeration authorizes the one seeded principal-overlay name at requested then commit; denial refuses at requested and the surface returns an empty object rather than throwing (the existsSync denial-return shape; see LLP 0037, the existsSync denial-return evidence section).",
+  "allow": ["requested", "commit"],
+  "branch-selection": ["requested", "commit"],
+  "deny": ["requested"],
+  "malformed": ["requested", "commit"],
+  "missing-attribution": ["requested", "commit"],
+  "wrong-principal": ["requested", "commit"],
+  "denyOutcomes": ["deny"],
+  "surplusFsList": "none — this class observes only env:read, so LLP 0037 D2's traversal-allowance confirmation is vacuous here"
+ },
+ "physicalPostconditions": {
+  "allow": "exactly one enumerated name (IBEX_CAPSEC_NATIVE_ENV_ENUM) with exactly the seeded value ibex-capsec-enum-value",
+  "deny": "zero enumerated names — the denied name is skipped and nothing is disclosed"
+ },
+ "correctionLoop": [
+  {
+   "iteration": 1,
+   "failure": "compile error E0063: two Rust test struct literals missing the new required_setup_floor field",
+   "resolution": "added the field to both literals (capsec_conformance_batch.rs:533, :571)"
+  },
+  {
+   "iteration": 2,
+   "failure": "batch FAILED loudly at capsec_conformance_batch.rs (assertion left \"deny\" right \"allow\") on enforcement.src.engine.hermes.runtime.cc.exactgetallenv.0iy6cxe.logical.nonempty.deny — the native executor derived the expected typed OUTCOME from the public result, so a denial-return surface (returns normally while its typed decision is refused) could not be expressed",
+   "resolution": "added optional per-decision expectedTypedOutcomes to the native invocation schema and executor, mirroring the reviewed startup-environment probe precedent; the authority stratum now follows the per-decision outcome (principal-denial) rather than the public result. This is the LLP 0037 existsSync denial-return pattern, already ruled — an executor gap, not a new attribution pattern."
+  },
+  {
+   "iteration": 3,
+   "failure": "compile error E0063 again: the same two test literals missing expected_typed_outcomes",
+   "resolution": "added the field to both literals"
+  }
+ ],
+ "executorChanges": [
+  "src/bin/ibex/engine/capsec_conformance_batch.rs: requiredSetupFloor — harness setup-infrastructure authority granted in every scenario and never added to the deny set, so a deny scenario refuses exactly the operation's declared capability while the authored __exactSetEnv seeding still succeeds",
+  "src/bin/ibex/engine/capsec_conformance_batch.rs: expectedTypedOutcomes — per-decision pinned outcomes for denial-return surfaces, the reviewed existsSync shape recorded in LLP 0037",
+  "src/bin/ibex/engine/capsec_conformance_batch.rs: the enumeration result (property count, names, values) is now captured inside the observed invocation script; the previous second __exactGetAllEnv eval would have added its own typed decisions to the observation buffer and corrupted the nonempty branch's pinned sequence"
+ ],
+ "timings": {
+  "authoringWallClockMinutes": 41,
+  "correctionLoopIterations": 3,
+  "batchPrimarySeconds": 35.93,
+  "batchSecondarySeconds": 39.51,
+  "catalogRegenSeconds": 11
+ }
+}

@@ -6,12 +6,21 @@ function legacyStringValue(getter) {
   var fn = function() {
     return getter();
   };
-  fn.toString = function() {
-    var value = getter();
-    if (value === undefined || value === null) return "";
-    return String(value);
-  };
-  fn.valueOf = fn.toString;
+  // @ref LLP 0013#mechanism-1-lockdown — define own primordial-named methods without assigning through frozen prototypes.
+  Object.defineProperty(fn, "toString", {
+    value: function() {
+      var value = getter();
+      if (value === undefined || value === null) return "";
+      return String(value);
+    },
+    writable: true,
+    configurable: true
+  });
+  Object.defineProperty(fn, "valueOf", {
+    value: fn.toString,
+    writable: true,
+    configurable: true
+  });
   return fn;
 }
 
@@ -19,12 +28,21 @@ function legacyNumberValue(getter) {
   var fn = function() {
     return getter();
   };
-  fn.toString = function() {
-    return String(getter());
-  };
-  fn.valueOf = function() {
-    return Number(getter());
-  };
+  // @ref LLP 0013#mechanism-1-lockdown — lazy module evaluation must tolerate frozen Function.prototype.
+  Object.defineProperty(fn, "toString", {
+    value: function() {
+      return String(getter());
+    },
+    writable: true,
+    configurable: true
+  });
+  Object.defineProperty(fn, "valueOf", {
+    value: function() {
+      return Number(getter());
+    },
+    writable: true,
+    configurable: true
+  });
   return fn;
 }
 

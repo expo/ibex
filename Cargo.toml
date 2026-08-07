@@ -24,6 +24,11 @@ name = "ibex-sfe-dev-pack"
 path = "src/bin/ibex_sfe_dev_pack.rs"
 required-features = ["sfe-dev-spike"]
 
+[[bin]]
+name = "ibex-sfe-contract"
+path = "src/bin/ibex_sfe_contract.rs"
+required-features = ["sfe-catalog-build"]
+
 [[example]]
 name = "module_runner_spike"
 required-features = ["module-runner-spike"]
@@ -206,6 +211,12 @@ module-runner = []
 # Phase-0 LLP 0029 development stub. This exposes an explicitly diagnostic
 # Hermes constructor and must never be used as the release compiled profile.
 sfe-dev-spike = ["module-runner"]
+# Deliberate dual-mode standalone runtime. This is not the ordinary CLI's
+# development-only `insecure` posture; only the compiled application stub
+# selects its authenticated ambient/CapSec dispatch.
+# @ref LLP 0047#ambient-path
+sfe-compiled-runtime = ["module-runner"]
+sfe-catalog-build = []
 sfe-static-network = ["dep:curl-sys"]
 # LLP 0042 development-posture committed admission for UNARMED embedders
 # (Exact LLP 0413 Phase 2): compiles the dev-unarmed committed prepared
@@ -294,6 +305,14 @@ serde = "1.0"
 serde_json = "1.0"
 sha1 = "0.10"
 sha2 = "0.10"
+
+[patch.crates-io]
+# ring 0.17.14 emits its recursive rerun-if-changed set in filesystem order.
+# Cargo fingerprints directive order, so equivalent clean builders otherwise
+# produce distinct Rust metadata and final SFE bytes. The vendored upstream
+# code is exact apart from sorting that traversal.
+# @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+ring = { path = "vendor/ring" }
 
 [dev-dependencies]
 libc = "0.2"

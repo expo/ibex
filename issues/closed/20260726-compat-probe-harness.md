@@ -1,5 +1,7 @@
 # `ibex compat --probe`: executable three-point fault localization for engine-attributed bugs
 
+**Status:** Resolved
+
 **Filed:** 2026-07-26 (from Exact LLP 0404 N-1; both of that plan's review
 families independently asked for this to be executable rather than
 procedural)

@@ -5,6 +5,148 @@
 **Systems:** Build, Distribution, Runtime, Module Loader, CapSec, Product
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-01
+**Revised:** 2026-08-05 (maintenance reconciliation: the macOS two-builder
+comparison and all §12 decisions are complete; ambient-v1 release work is now
+publication, notarization, accepted performance budgets/measurements, and
+durable CI receipts. LLP 0048's app-bound formats and restricted-worker path
+have substantial implementation, while their complete acceptance and
+target-evidence gate remain open.)
+**Revised:** 2026-08-03 (the separate LLP 0048 gate now names catalog V2 and
+the catalog/stub/plan/report-bound per-target enforcement evidence; no current
+M0–M5 row supplies it)
+**Revised:** 2026-08-03 (LLP 0048 separates Snapback's missing external-script
+worker from this plan's general embedded-entry finish line. A green standalone
+compiler does not close the app-bound `run analysis.ts` contract; the matrix
+now records its independent admission, broker, policy, host-parity, and
+target-evidence gate.)
+**Revised:** 2026-08-03 (Developer ID and physical-builder checkpoint: a fresh
+arm64 application is hardened-runtime signed with the configured Developer ID,
+receives Apple's secure timestamp, passes strict signature inspection and Ibex
+admission, and runs Fetch after relocation. Gatekeeper's remaining refusal is
+specifically the absent notarization ticket. The matching Xcode 26.6 MacBook
+Air is reachable; independent default-profile Hermes builds have identical
+object members for both architectures, but their universal static archives
+retained builder-specific member timestamps and numeric owners. The Apple
+builder now reconstructs every cached static slice with `libtool -D` and
+canonical architecture order. Synthetic/idempotence coverage and normalization
+of the two physical archive sets converge byte-for-byte. The first fresh full
+receipt pair on the rotated cache key then exposed a second checkout leak:
+`hermesc` recorded absolute bootstrap and generated-runtime source paths in HBC,
+changing the stub core despite identical inputs and toolchains. Release builds
+now invoke `hermesc` from each source directory with only a stable basename;
+fresh full receipts after that correction remain to be recorded. The same
+physical rerun found that the installed-user verifier still assumed the
+non-default `rg` utility; it now uses platform `grep` throughout. The resulting
+valid receipt pair exposed a third checkout leak: vendored OpenSSL records its
+Cargo install prefix in `libcrypto`. Release stubs now build in a stable
+target- and contract-addressed `/tmp` namespace; another physical pair remains
+to be recorded. That pair removed every checkout path and reduced the raw stub
+difference to 48 bytes: the independently synthesized 16-byte Mach-O `LC_UUID`
+plus its dependent ad-hoc signature bytes. Omitting the command made the two
+catalogs identical, but both relocated runtime matrices caught dyld's mandatory
+`LC_UUID` check. The release builder instead replaces the UUID after signature
+removal with a digest-derived RFC 4122 value before catalog hashing; another
+physical pair remains to be recorded. The final pair at commit `2a611b4f`
+passes both complete installed-user matrices and the strict comparator across
+all six identities, including stub core
+`sha256-l50-bX04ZMTR6mTTvyFHYmAuHgnzH45xHQdHD5uzs_I` and unsigned file
+`sha256-o2i8DnpfuZoxrol10OVCwQR-lFsEaMBe1tvaI_kn884`.)
+**Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
+explicit policy authoring, ratifies ambient compatibility as the standalone
+default against the completed two-tuple artifacts, and reserves authenticated
+first-position `--ibex-info`. The new required boot fields rotate the unshipped
+stub contract to `StubContractV3` / `ibex/stub-contract/3`; envelope V2 remains
+unchanged. The info path completes ordinary admission, prints canonical
+posture/backend/CapSec facts, and exits before Host or Hermes construction.)
+**Revised:** 2026-08-02 (clean-builder receipt hardening: each release-kit
+evidence bundle now records a distinct logical builder id, clean Git
+commit/tree, host tuple, and exact native toolchain; reproducibility report v2
+requires two different matching-toolchain receipts before comparing unsigned
+application identities.)
+**Revised:** 2026-08-02 (inspection-completeness checkpoint: release
+provenance authenticates an inverse-projection descriptor, so inspection now
+reconstructs and rehashes the actual ELF/Mach-O catalog stub instead of merely
+displaying its claimed digest. Independent outer-stub tamper refuses, while
+real Mach-O signature removal and replacement preserve the exact stub, graph,
+and CompilePlan identities. The final source-stable macOS kit passes with
+catalog `sha256-LGJFbrY46eA_9MbMPx1QZijWdpQcsQTeGoL0mQIrCcw` and policy
+toolchain `sha256-TFpMdNyyREUzRTT_L0heu9oac4en2dvws7hGMO8ne5I`.)
+**Revised:** 2026-08-02 (credential-free Mach-O acceptance checkpoint:
+malformed signature/layout refusal vectors and a real system-codesign
+remove/replace/strict-verify/relocated-Fetch matrix now pass while preserving
+the exact authenticated graph and CompilePlan identities; the replacement
+also carries Apple's hardened-runtime flag. Developer ID secure timestamping,
+notarization, and a matching Xcode 26.6 second-
+builder receipt remain external release evidence; the fleet's matching Mac was
+unreachable and its reachable Mac is on Xcode 26.4.1.)
+**Revised:** 2026-08-02 (final local implementation audit: the stub now
+independently rejects producer-newer schema/ABI/generated-authority contracts;
+macOS construction and final-image validation cross-check `LC_BUILD_VERSION`
+against the authenticated catalog baseline; and a fresh current-source macOS
+kit passes the complete installed-user matrix. Its final source-stable
+successor is identified in the newer inspection-completeness checkpoint above.
+Remaining v1
+criteria require publication/signing/reproducibility evidence or the §12 author
+decisions rather than further local producer implementation.)
+**Revised:** 2026-08-02 (producer correctness checkpoint: default compilation
+now lists every guarded unsupported site while preserving invocation-time
+semantics, and `--deny-unsupported` refuses the same deterministic inventory;
+CompilePlan is fixed before HBC production, final assembly self-admits its inner
+contracts, policy/native graph divergence fixtures are explicit, and inspection
+derives its engine expectation from authenticated StubContractV3 rather than
+the carrier under inspection. The installed-user macOS matrix is green with
+these gates.)
+**Revised:** 2026-08-02 (Linux release-baseline and reproducibility checkpoint:
+an Ubuntu 22.04/GLIBC 2.35 builder produced the final static-network ELF, and a
+fresh recipient root with only that executable passed real Fetch without
+Ibex, Hermes, source, catalog, or cache. Two physical Jammy builders produced
+identical catalog, contract, policy-toolchain, native-stub, compile-plan, and
+unsigned-application identities; the full release-kit matrix passed on both.
+Random contract paths, filesystem-order Cargo directives, upstream `ring`
+watch order, native timestamps, and Hermes-embedded absolute carrier paths are
+now normalized, and CI has duplicate clean jobs plus a strict comparator.
+Publication, a matching macOS two-builder receipt, precommitted budgets, and
+the open author decisions remain.)
+**Revised:** 2026-08-02 (M4 application-process checkpoint: the authenticated
+V2 contract and inspection report now carry an exact target backend inventory;
+the macOS and Linux release-kit gates prove Fetch and a loopback `node:http`
+server through compiled target backends, authenticate the WebSocket
+implementation, and prove stable HTTP/2, inspector, WASI, and worker
+limitations, foreground and detached
+failure status, unhandled rejection status, `process.exit`/`exitCode`, and
+SIGINT/SIGTERM/SIGHUP status with bounded output flush. A raw invalid UTF-8 argv
+field now refuses before entry and names its zero-based index on both tuples.
+Async graph records remain alive through referenced callback quiescence. M4 is
+complete for the ambient v1 product on both target tuples; a future
+successfully advertised CapSec lifecycle path remains outside that release
+claim.)
+**Revised:** 2026-08-01 (M5 producer-packaging checkpoint: each release kit
+now carries a target-bound, content-addressed closed inventory containing the
+exact Bun runner, policy-authoring JavaScript, CapSec inputs, and package
+closure. Release `ibex` admits only its compiled-in adjacent digest and never
+falls back to a checkout or ambient runner. Checkout-poisoned macOS and Linux
+gates pass; missing-toolchain refusal is proved. A candidate Linux kit also
+produced a two-module TypeScript Fetch executable from an isolated installation
+that was removed before the executable ran on a second Ubuntu host with no
+Ibex/Hermes installation. Official publication/GLIBC 2.35 receipts,
+two-builder evidence, and budgets stay open.)
+**Revised:** 2026-08-01 (M3 module execution and final-image refusal matrix:
+relocated macOS and Linux executables now cover ESM, CommonJS, builtins,
+literal and computed dynamic import, and TLA; corrupting every load-bearing
+section independently refuses before the sentinel observes any carrier
+evaluation.)
+**Revised:** 2026-08-01 (the installed-user release-kit gate now passes on
+both v1 host tuples after catalog installation and source/catalog withdrawal;
+the Linux final envelope completes real HTTP Fetch through its statically
+linked backend, explicit `.mts` retains Module source goal, and authenticated
+top-level-await HBC executes through the asynchronous compiled graph; the
+official GLIBC 2.35, remaining M3/M4 matrix, and M5 evidence stay open)
+**Revised:** 2026-08-01 (implementation checkpoint: the M0 gate, canonical
+catalog assembler, derived release contract, V2 contract/envelope rotation,
+catalog-pinned public producer, dual-mode pre-init dispatch, authenticated
+inspection, and real relocated/offline macOS arm64 and Linux x86-64 HBC
+executables now land; the official Linux GLIBC 2.35 builder and the remaining
+M3–M5 matrix evidence stay open)
 **Revised:** 2026-08-01 (Linux ambient-network register item 2 resolved by
 the flagship Snapback CLI use case: v1 requires Fetch networking, reuses the
 existing Linux libcurl Fetch/WebSocket bridge, and closes libcurl plus TLS
@@ -39,10 +181,11 @@ architecture); LLP 0031 (v1 platform matrix; SFE release coupling amended by
 §Summary/M0); LLP 0034
 (Hermes ES6 block-scoping mode); LLP 0035
 (portable engine provenance); LLP 0038 (enforcement-off mechanics); LLP 0039
-(secure/insecure product modes); issues/20260717-sfe-compile-cli.md;
-issues/20260717-sfe-hbc-production-wiring.md;
+(secure/insecure product modes); LLP 0048 (restricted external-script
+admission and broker ABI); issues/20260717-sfe-compile-cli.md;
+issues/closed/20260717-sfe-hbc-production-wiring.md;
 issues/20260717-sfe-static-hermes-macos.md;
-issues/20260731-hermesc-recipe-missing-es6-block-scoping.md
+issues/closed/20260731-hermesc-recipe-missing-es6-block-scoping.md
 
 ## Summary
 
@@ -78,7 +221,7 @@ than the two it originally named:
 
 - **LLP 0029** — release sequencing (§7 register item 4), the compiled-mode
   authority section, and — as of §5 — the **stub-contract and envelope wire
-  identities**, which rotate to `StubContractV2` and
+  identities**, now `StubContractV3` and
   `ibex/single-file-executable/2`. LLP 0029 remains the normative owner of both
   formats, so its §2a/§2b/§3 text is scoped rather than left describing the
   superseded V1 layout.
@@ -105,6 +248,22 @@ they land the corpus contains a Decision and a Spec that contradict this plan.
 This plan does not change the default posture of the general
 `ibex run`/`eval`/REPL binary.
 
+### Relationship to app-bound external scripts
+
+This plan finishes the general **one embedded entry** executable. It does not,
+by itself, implement Snapback LLP 0062's `run analysis.ts`. LLP 0048 owns that
+separate post-admission extension: the trusted embedded parent reads one
+bounded local `.ts`/`.js` file or stdin stream as data, hashes and attributes
+it, applies LLP 0028's import-free erasable-only profile, and starts a fresh
+mandatory-enforced broker-only worker.
+
+The distinction is load-bearing. The embedded parent may retain ambient
+authority under this plan; the external worker may not. A successful M0–M5
+standalone matrix therefore proves only the outer parent. It cannot be cited as
+evidence for restricted source ingress, broker non-transmission, worker policy,
+Node/Ibex host parity, or worker lifecycle/resource limits. Those claims begin
+only when LLP 0048's acceptance suite passes on the exact artifact and tuple.
+
 ## 1. Product decision
 
 ### One artifact, two modes
@@ -118,14 +277,20 @@ The v1 invocation contract is:
 ```text
 ./app [application arguments...]                 # ambient compatibility
 ./app --ibex-capsec [application arguments...]  # CapSec, fail closed
+./app --ibex-info                               # authenticated information, no entry evaluation
 ./app -- --ibex-capsec [...]                    # literal application argument
+./app -- --ibex-info [...]                      # literal application argument
 ```
 
-The stub recognizes `--ibex-capsec` only as the first argument. A leading
-`--` ends stub option parsing and is removed before constructing application
-`process.argv`. Every other argument, including later occurrences of
-`--ibex-capsec`, belongs to the application. This is the sole v1 exception to
-LLP 0029's earlier “all argv belongs to the application” rule.
+The stub recognizes `--ibex-capsec` and `--ibex-info` only as the first
+argument. A leading `--` ends stub option parsing and is removed before
+constructing application `process.argv`. Every other argument, including
+later occurrences of either spelling, belongs to the application. These two
+words are the complete exception for the general StubContractV3/envelope-V2
+profile to LLP 0029's earlier “all argv belongs to the application” rule. LLP
+0048 adds no stub-reserved selector: `run <source>` remains ordinary
+application argv interpreted by the one trusted embedded parent, and its v1
+worker is an in-process dedicated runtime rather than a re-exec mode.
 
 The selector is intentionally one-way. There is no `--no-capsec` switch and
 no environment variable that silently changes the posture. The stub captures
@@ -200,23 +365,134 @@ catalog, policy, or advertisement.
 
 ## 2. Current state
 
-The repository already has most structural pieces:
+The repository now has the structural and two-host end-to-end pieces:
 
 - public `compile` and `inspect-executable` command grammar;
-- `ibex/single-file-executable/1` envelope and footer/segment layouts;
+- `ibex/single-file-executable/2` envelope and footer/segment layouts, with an
+  authenticated canonical `StubContractV3` section;
 - path-independent embedded graph, candidate-table, entry, carrier, policy,
   and provenance sections (the compile plan is a field of the provenance
   section, not a section kind of its own);
-- pinned SFE catalog and stub/compiler/contract admission types;
+- a canonical content-addressed catalog assembler, derived contract builder,
+  and compile-time-only release catalog pin;
 - whole-graph catalog compilation to per-module HBC carriers;
-- a compiled-stub crate with graph/carrier admission and event-loop driving;
+- a compiled-stub crate with shared graph/carrier/policy admission, immutable
+  pre-init ambient/CapSec dispatch, and event-loop driving;
 - non-evaluating internal inspection of authority and provenance;
 - macOS arm64 and Linux x86-64 target contracts.
 
-The product is nevertheless unreachable: no repository build sets
-`IBEX_RELEASE_SFE_CATALOG_DIGEST`, release compiled boot deliberately refuses,
-the compiled-stub crate has drifted from the current carrier admission API,
-and no real release envelope has executed HBC end to end on both v1 tuples.
+The product path is reachable on macOS arm64 and Linux x86-64: a release `ibex`
+pinned to an addressed catalog compiles real TypeScript/HBC executables; copied
+files run with source and catalog unavailable; ambient argv/environment/timer/
+exit semantics, explicit `.mts` top-level await, and real HTTP Fetch work; and
+`--ibex-capsec` refuses before entry evaluation because the contract
+deliberately carries no advertisement. The Linux final ELF has now passed the
+closed dependency/ISA audit at the release baseline's truthful
+`linux-glibc-2.35-x86-64-v1` floor, with the static libcurl/TLS implementation
+retained. A fresh Ubuntu 22.04 recipient root containing only the executable
+completed a real loopback Fetch and had no Ibex, Hermes, source, catalog, or
+cache. Two physical Jammy builders also produced exact catalog, contract,
+policy-toolchain, native-stub, compile-plan, and unsigned-application
+identities, and both artifacts passed the complete release-kit matrix. The M3
+language/module and final-envelope tamper matrix and the M4 process/backend
+matrix are green on both target tuples. The two-clean-builder macOS comparison
+also passes, and all §12 decisions are resolved. Remaining ambient-v1 work is
+publication and reinstall from the published artifacts, the macOS notarization
+ticket, precommitted performance budgets and measurements, and durable clean
+CI receipts for the published revision.
+
+The repository now contains the app-bound catalog/contract formats,
+source-admission and parent bridge, restricted-worker runtime and broker
+lifecycle, policy/evidence fixtures, reporting, and public compile surface
+specified by LLP 0048. Complete host-portable acceptance and exact-tuple
+advertisement evidence remain independent open work; no “complete” M0–M5 row
+below implies that gate. The
+app-bound profile deliberately rotates the strict formats to StubContractV4,
+envelope V3, catalog V2 plus its target-specific restricted-worker
+advertisement/evidence artifact, CompilePlanV2, PackageProvenanceV2,
+executable inspection V4, and standalone-info V2. Stub V4 selects info V2 and
+the catalog/stub/plan/report chain cross-binds the advertisement digest. Those
+are not retroactive changes to this plan's general StubContractV3/envelope-V2/
+catalog-V1/inspection-V3/info-V1 finish line.
+
+### Implementation checkpoint — 2026-08-02
+
+- **M0:** complete. `scripts/check-sfe-foundation.sh` is a named CI gate; the
+  format, catalog, producer, compiled-stub, and catalog-compiler suites are
+  green, including real Hermes closure/loop HBC execution with
+  `-Xes6-block-scoping`.
+- **M1:** implemented on macOS arm64 and Linux x86-64 with final V2 identities
+  rather than a throwaway V1 cut. Catalog
+  construction self-admits every artifact and stages it content-addressably;
+  the release binary accepts no runtime catalog-trust override. A release-kit
+  builder now emits the catalog-pinned `ibex`, an equally pinned
+  `ibex-sfe-catalog` installer, and the exact target catalog archive. The
+  installer fully admits and atomically publishes only its compiled-in pin,
+  and missing-catalog diagnostics name the exact archive and install command.
+  The Ubuntu 22.04/GLIBC 2.35 builder/recipient proof and a two-physical-builder
+  exact-identity proof are green. Publishing both official kits, obtaining the
+  macOS two-clean-builder receipt, and exercising the configured clean-job
+  comparator on a pushed commit remain.
+- **M2:** the shipped V2 contract authenticates the ambient default, exact
+  first-position selector, escape rule, and empty advertisement identity.
+  Pre-init is the sole mode authority. Both modes share bulk admission;
+  ambient constructs the deliberate compiled enforcement-off host, while a
+  CapSec request never falls back. A fixture-only successful advertisement
+  and denied-effect proof remains.
+- **M3:** genuine macOS and Linux HBC executes after relocating the file and
+  making both source and catalog unavailable. Explicit `.mts` is preserved as
+  Module input, its authenticated TLA fact selects the asynchronous compiled
+  graph, and a relocated TLA executable settles successfully on both tuples.
+  A second relocated graph covers ESM, CommonJS, builtin imports, literal
+  dynamic import, and authenticated computed dynamic import. The release gate
+  corrupts every singleton, candidate table, carrier manifest, and carrier
+  payload in the final image independently; inspection and launch both refuse,
+  and an ambient sentinel proves no module evaluated, including when only the
+  unselected candidate carrier was corrupted. The M3 matrix is complete.
+- **M4:** complete for ambient v1 on both release tuples. Basic argv,
+  environment, timers, stdout, numeric exit status, and standalone relocation
+  are demonstrated on both tuples. A raw invalid UTF-8 OS argument refuses
+  before entry evaluation and names its zero-based index on both. The
+  authenticated V2 contract records the exact backend implementation and
+  status for every supported surface, and
+  `inspect-executable` reports it without evaluating application code. Both
+  final artifacts prove Fetch through the advertised macOS NSURLSession and
+  Linux static-libcurl implementations plus a loopback `node:http` server over
+  POSIX sockets. They authenticate the target WebSocket implementation and
+  prove the stable limitations for unavailable HTTP/2, inspector, WASI, and
+  worker surfaces. Foreground exceptions,
+  detached timer exceptions, and unhandled rejections exit 1; `process.exit`
+  and numeric `process.exitCode` preserve their selected status and flushed
+  output. A dedicated POSIX signal coordinator handles SIGINT, SIGTERM, and
+  SIGHUP with statuses 130, 143, and 129 after a bounded output flush even if
+  the engine thread is busy. Async graph records remain retained until
+  referenced work reaches quiescence so imports used after Fetch/TLA remain
+  valid. The process-semantics ticket is closed; the future successful
+  advertised-CapSec lifecycle path remains v1.1 work and does not change the
+  ambient v1 M4 result.
+- **M5:** authenticated inspection, first-compile disclosure, and Mach-O
+  signing order are implemented. The Linux final image passes a truthful
+  GLIBC 2.35 dependency/ISA receipt with static libcurl on an Ubuntu 22.04
+  release-baseline builder. A relocated source/catalog-free final envelope also
+  completed a real HTTP Fetch through that static backend.
+  The release kit now packages its exact Bun runner, policy-authoring code,
+  CapSec inputs, and package closure as a target-bound, content-addressed
+  closed inventory. Release `ibex policy generate` admits only the adjacent
+  digest compiled into that binary; it does not consult `IBEX_REPO_ROOT`,
+  `PATH`, or an ambient JavaScript installation and does not fall back when
+  the packaged tree is absent. Both host gates exercise that path with an
+  empty environment and poisoned checkout pointer. A candidate Linux kit was
+  first proved on an isolated Ubuntu 24 producer/recipient pair. The official
+  baseline was then repeated from an Ubuntu 22.04 builder into a fresh Ubuntu
+  22.04 recipient root: only the final executable crossed the boundary, and it
+  fetched through its static backend and exited successfully with no producer,
+  source, catalog, or cache present. Two physical Jammy builders produced the
+  same native stub and, after the fixed carrier recipe was rebuilt, the same
+  unsigned application identity; both full matrices passed. CI now expresses
+  that comparison as two clean jobs per tuple and a strict identity gate.
+  Publication of the exact installation artifacts, the macOS two-builder CI
+  receipt, precommitted size/startup evidence, and the open §12 author
+  decisions remain release work.
 
 ## 3. Milestone 0 — restore a green foundation
 
@@ -251,7 +527,7 @@ gate or the categorical compiled-environment exception.
 Make the existing catalog-backed producer reachable without a developer-only
 escape hatch:
 
-1. Build exact stub, `StubContractV1`, and `hermesc` artifacts for
+1. Build exact stub, `StubContractV3`, and `hermesc` artifacts for
    `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`.
 2. Produce a canonical catalog, pin its digest into the release `ibex` binary
    at build time, and publish/install its addressed artifact directory.
@@ -265,10 +541,12 @@ escape hatch:
 6. Sequence the catalog against milestone 2. Catalog entries bind the exact
    stub-core digest and the release `ibex` embeds the catalog digest, so
    milestone 2's change to compiled boot behavior — and milestone 2's
-   `StubContractV2` and new envelope section — necessarily rotate the stub, the
+   stub-contract rotation and new envelope section — necessarily rotate the stub, the
    contract, the catalog, and the producer's compiled-in pin. **Milestone 1's
-   catalog is therefore explicitly provisional and is re-cut at the end of
-   milestone 2.** The alternative, deferring the first catalog until dispatch
+   catalog is therefore explicitly provisional if it is cut before dispatch,
+   and is re-cut at the end of milestone 2.** The implementation instead cut
+   the first exercised catalog directly after V2 dispatch landed. The
+   alternative, deferring the first catalog until dispatch
    exists, is circular: milestone 2's own exit needs a built executable, and
    packaging can only produce one from catalog artifacts — which would mean
    reaching for the developer-only escape hatch milestone 1 exists to remove.
@@ -291,11 +569,10 @@ release `ibex`, compile a short program, copy it, run it" were both written as
 though this step did not exist. It does, and it is the largest usability
 obstacle between here and a credible standalone product.
 
-The two candidate resolutions are product decisions, not engineering ones, so
-§12 register item 1 carries them. What this plan requires is that the friction
-be measured rather than assumed: milestone 1's exit records the verbatim
-command sequence a new user must run. A sequence nobody will put in a README
-is evidence for resolving item 1 before v1 rather than after.
+Register item 1 resolves this to explicit policy authoring. The friction is
+owned rather than hidden: milestone 1's exit and the standalone guide record
+the verbatim policy-generation and compile sequence. The producer continues to
+refuse a missing policy and never generates one silently.
 
 **Exit:** a clean release `ibex` can compile a multi-module TypeScript fixture
 using only the pinned catalog and produces byte-identical unsigned output on
@@ -326,7 +603,7 @@ represented distinctly from absent).
 Two mechanical constraints follow, and an earlier draft of this section got
 both wrong:
 
-- **It is `StubContractV2`, not an extension of V1.** The implemented contract
+- **Milestone 2 introduced `StubContractV2`, not an extension of V1.** The V1 contract
   is strict `deny_unknown_fields` with a fixed `ibex/stub-contract/1` schema
   string and `ibex:stub-contract:1` digest domain. Adding required fields is a
   versioned schema change by LLP 0029's own rule, not an in-place edit. Since
@@ -335,6 +612,13 @@ both wrong:
   in lockstep before the first **non-provisional** catalog is cut. It does not
   forbid milestone 1's explicitly provisional V1 catalog (§4 item 6), which
   exists precisely so the producer path can be exercised before V2 lands.
+  Register item 4 subsequently adds a second required selector and an
+  authenticated information-report schema. That is another strict wire
+  change, so the current identity is **`StubContractV3`** with schema
+  `ibex/stub-contract/3` and digest domain `ibex:stub-contract:3`; unshipped V2
+  is replaced rather than parsed alongside it. Envelope V2 does not rotate:
+  it already carries an opaque digest-pinned stub-contract section and gains no
+  section kind, layout field, or closed-enum value from this change.
 - **A digest authenticates bytes; it does not reveal them.** Compiling the
   contract digest into the stub and pinning it in the envelope lets boot
   compare two constants, which is sufficient for *boot*. It is not sufficient
@@ -346,7 +630,7 @@ both wrong:
   preflight against the pinned digest like every other section (the pin already
   exists in the envelope directory). **This is envelope V2 —
   `ibex/single-file-executable/2` — on the same reasoning that forces
-  `StubContractV2`, applied consistently.** The section-kind vocabulary is a
+  the then-current `StubContractV2`, applied consistently.** The section-kind vocabulary is a
   closed enum inside a fixed `/1` schema, so a parser built for V1 rejects the
   new kind; that is a wire-identity change however cheap it is today. As with
   the contract, nothing has shipped, so V1 is replaced rather than migrated.
@@ -416,7 +700,7 @@ artifact.
 fixture before entry evaluation under `--ibex-capsec` while no advertisement
 exists. Once a test advertisement is supplied in a fixture-only build, the
 same CapSec path arms and enforces a denied effect. The provisional milestone-1
-catalog is re-cut against `StubContractV2` and the revised envelope, and the
+catalog is re-cut against the current `StubContractV3` and envelope V2, and the
 producer's compiled-in pin is rotated to match.
 
 ## 6. Milestone 3 — real HBC envelope execution
@@ -444,7 +728,7 @@ tuples, including relocation and source-deletion tests.
 
 The first useful release needs a bounded but honest process surface:
 
-- application argv and the single reserved selector rule above;
+- application argv and the two reserved first-position selector rules above;
 - inherited environment/cwd in ambient mode and LLP 0029's brokered contract
   in CapSec mode;
 - timers and referenced async work driven to quiescence;
@@ -520,7 +804,7 @@ and matches what the shipped image actually contains.
    - envelope/graph/HBC integrity state;
    - backend inventory;
    - platform signature and external attestation independently.
-4. Close the recipient's disclosure gap, or record that v1 accepts it.
+4. Close the recipient's disclosure gap.
    Every disclosure surface above belongs to the *distributor*: `ibex compile`
    help, the first-compile notice, `inspect-executable`, and release metadata
    all require either the Ibex CLI or the distributor's own materials. The
@@ -534,12 +818,13 @@ and matches what the shipped image actually contains.
    condition cannot be discharged by Ibex, and LLP 0039 is revised to state it
    over surfaces Ibex controls.
 
-   The mechanism that would close it is a second reserved first-position word —
-   an `--ibex-info` printing posture, backend inventory, and CapSec
-   availability, then exiting without evaluating the program. That widens the
-   argv reservation §1 calls the sole v1 exception, so it is register item 4
-   (§12). If item 4 declines it, v1 ships with the recipient-side gap recorded
-   in §11 as accepted, not left implicit.
+   Register item 4 selects the second reserved first-position word:
+   `--ibex-info` prints canonical authenticated posture, backend inventory,
+   CapSec availability, target, provenance kind, and admission identities,
+   then exits successfully without constructing a Host or Hermes runtime and
+   without evaluating the program. The same leading-`--` escape passes the
+   spelling literally to the application. `StubContractV3` authenticates the
+   exact selector rule and `ibex/standalone-executable-info/1` report schema.
 5. Produce a signed macOS artifact in the required segment/signing order and
    an audited Linux artifact with no Ibex/Hermes sidecars.
 6. Record size and cold-start budgets before final measurement, then publish
@@ -549,6 +834,122 @@ and matches what the shipped image actually contains.
 **Exit:** a user can install one release `ibex`, compile a short program, copy
 the resulting executable to a clean compatible machine, and run it without an
 Ibex/Hermes installation or source files.
+
+### Implementation checkpoint — 2026-08-02
+
+Items 1–4 are implemented: the compile command and guide disclose ambient
+authority, an interactive first compile emits the one-time notice,
+non-evaluating inspection authenticates the boot posture, target, integrity,
+backend inventory, signature, and provenance views, and the copied artifact
+itself exposes the authenticated `--ibex-info` report. A current-source V3
+macOS kit passed the complete installed-user matrix with catalog
+`sha256-cA5f-buba8t2ubttYvTnlkNI3Eishv9V4wBsA9DoMRQ` and policy toolchain
+`sha256-f7rwugejvISlnuSze3nvzIuxnEv3T2SDaN-uYTQ15ZQ`; after relocation and
+source/catalog withdrawal, only the copied executable produced a report that
+matched external inspection and proved application evaluation stayed false.
+
+Candidate macOS and Linux kits satisfy item 5 functionally. The Linux
+milestone exit is proved at the official Ubuntu 22.04/GLIBC 2.35 baseline: a
+fresh recipient root ran only the copied final executable, including
+static-network Fetch, with every producer input absent. Two physical builders
+produced exact Linux identities, and the clean-job form of that comparison is
+now encoded in CI. The V3 contract rotation still requires a fresh Linux kit
+and matrix receipt before release.
+
+This is not the M5 release receipt. The exact installation artifacts are not
+published; the macOS two-clean-builder CI receipt has not passed; the new clean
+CI jobs have not run on a pushed commit; and item 6's size/cold-start budgets
+and final measurements remain open.
+
+The credential-free part of the macOS signing receipt is now stronger than an
+inject-then-sign smoke: malformed signature and layout mutations refuse, and a
+completed application survives system-signature removal and replacement with
+its authenticated graph and CompilePlan identities unchanged, then runs Fetch
+under an ad-hoc hardened-runtime signature after relocation and producer-input
+withdrawal. Actual Developer ID signing, secure timestamping/notarization, and the matching-toolchain
+second-builder receipt remain distribution evidence rather than local code
+gaps.
+
+Inspection also now discharges LLP 0029's outstanding stub-instance check. It
+reports `stubCoreConsistency` from a reconstruction and hash of the actual
+outer file, and the release matrix mutates that projection independently from
+all inner sections. Platform signing remains a separate axis, as shown by the
+same identity surviving removal and replacement of the ad-hoc signature.
+
+### Implementation checkpoint — 2026-08-03
+
+The credentialed Developer ID leg now passes through secure timestamping. A
+fresh completed standalone carries the hardened-runtime flag, the expected
+Developer ID authority and team, and an Apple timestamp; `codesign --verify
+--strict`, `ibex inspect-executable`, relocation, and real Fetch all pass.
+`spctl` rejects it only as an unnotarized Developer ID application. No local
+`notarytool` keychain profile or API-key material is configured, so notarization
+remains a publisher-credential action rather than a code change.
+
+The matching Xcode 26.6 physical MacBook Air is reachable. Its independently
+built debugger-enabled Hermes archives have the same architecture sets, member
+names, member sizes, and every extracted object digest as the primary builder,
+but raw archive digests differ. The only observed differences are archive
+member timestamps and numeric owner/group fields. Rebuilding each thin slice
+with Apple's deterministic `libtool -D`, then recreating the fat archive in
+canonical architecture order, makes the real `hermesvm`, JSI, and
+Boost.Context inputs byte-identical across the machines. `build-hermes.sh` now
+applies that transform before cache publication, its own digest rotates the
+source-cache authority, and the SFE foundation gate exercises two synthetic
+builders plus idempotence and symbol preservation.
+
+The first full pair of clean release-kit receipts from the newly keyed source
+builds passed the complete installed-user matrix independently and agreed on
+the contract and packaged policy-toolchain digests. The strict comparator still
+refused because the catalog, CompilePlan, stub core, and unsigned file differed.
+A byte-level Mach-O comparison found checkout-absolute bootstrap and
+generated-runtime JavaScript paths embedded in Hermes bytecode. Those paths
+entered because `build.rs` passed absolute source paths to `hermesc`; the two
+otherwise matching stubs had the same size but differed in about 2.6 million
+bytes and carried different linker UUIDs. The build now changes to the source
+directory and passes only its basename, and the foundation gate unit-tests that
+compiler argument contract. A direct two-directory Hermes vector produces
+identical HBC under the corrected invocation. The next physical invocation also
+found an undeclared `rg` dependency in the installed-user verifier on the clean
+second Mac; the verifier now uses platform `grep` throughout. Both corrected
+kits then passed the installed-user matrix, but their strict comparison exposed
+vendored OpenSSL's checkout-absolute Cargo install prefix in `libcrypto` engine
+and module directory strings. The release stub now builds in a stable target-
+and contract-addressed `/tmp` namespace so equivalent builders give OpenSSL the
+same prefix. Fresh full physical receipts are still required before recording
+the macOS comparator as passed. The first stable-prefix pair removed every
+checkout path and reduced the raw stub difference to 48 bytes: the
+independently synthesized 16-byte Mach-O `LC_UUID` plus its dependent ad-hoc
+signature bytes. Because the catalog authenticates the stub core directly and
+does not use UUID as an authority, the first correction omitted the command and
+made the two catalogs identical. Both relocated runtime matrices then refused:
+dyld requires `LC_UUID` even though it does not use the value as Ibex release
+authority. The release builder now preserves the command but, after removing
+the linker's signature, replaces its UUID with an RFC 4122 value derived from
+the otherwise complete stub bytes. The normalizer refuses signed, malformed,
+fat, missing-UUID, and duplicate-UUID inputs and is covered for convergence and
+idempotence.
+
+That final pair used two distinct clean physical arm64 Macs at commit
+`2a611b4f4455b1a39013d88e229c0e23f13100cf`, both with Xcode 26.6 build
+17F113, SDK 26.5 build 25F70, and Rust/Cargo 1.97.0. Each complete
+installed-user matrix passed. The strict receipt comparator passed with no
+mismatches across the catalog, contract, packaged policy toolchain,
+CompilePlan, stub core, and unsigned file. The shared catalog is
+`sha256-TCdWrod4l9HVkiDEDCCY6pIZWhj-3WjWfXOig5C_x8o`; the shared stub core is
+`sha256-l50-bX04ZMTR6mTTvyFHYmAuHgnzH45xHQdHD5uzs_I`; and the shared unsigned
+file is `sha256-o2i8DnpfuZoxrol10OVCwQR-lFsEaMBe1tvaI_kn884`. The macOS
+physical-builder reproducibility criterion is complete.
+
+The first required native-matrix run also exposed two clean-checkout-only
+packaging faults. The Ubuntu foundation probe assumed `rg` was installed even
+though its runner contract does not provide it, and the repository-wide
+`*.o` ignore rule excluded the published `ring` crate's pregenerated Windows
+COFF inputs. The probe now uses baseline `grep`, and the exact 17 object files
+from the checksummed `ring` 0.17.14 crate are explicitly tracked under
+`vendor/ring/pregenerated/`. The standalone drift gate now checks the generated
+root-global disposition manifest directly as well, closing the stale-artifact
+gap revealed when the authenticated Hermes builder identity rotated.
 
 ## 9. Release criteria
 
@@ -564,7 +965,7 @@ The standalone v1 is done when all of the following are true:
 - envelope, graph, carrier, and policy admission run identically across modes —
   the same code path, including the policy section's semantic validation, not
   two implementations asserted to agree;
-- the default boot mode and selector contract are authenticated contract
+- the default boot mode and both selector contracts are authenticated contract
   fields, so inspection reports them rather than inferring them;
 - source deletion and relocation do not affect execution;
 - argv, environment, lifecycle, signals, output flushing, and backend
@@ -584,6 +985,36 @@ CapSec advertisement completion is explicitly **not** a v1 release criterion.
 It is the criterion for claiming that the optional CapSec mode works on a
 specific shipped tuple.
 
+LLP 0048 external-worker completion is likewise not a criterion for the
+general one-entry standalone v1 release. It **is** a criterion for claiming the
+Snapback phase-2 app-bound executable: standalone compilation green alone does
+not satisfy that downstream contract.
+
+### Requirement-by-requirement audit — reconciled 2026-08-05
+
+| §9 criterion | State | Evidence or remaining action |
+| --- | --- | --- |
+| Published catalog-pinned `ibex compile` | **Open — release action** | Checkout-free candidate kits pass; exact installation artifacts have not been published or reinstalled from that publication. |
+| Mandatory compiled-stub/SFE CI | **Wired, run pending** | The required foundation gate and duplicate clean release jobs are in `module-loader-baselines.yml`; they have not run for this unpublished worktree. |
+| Real HBC on both v1 tuples | **Complete** | Full macOS arm64 and Ubuntu 22.04 x86-64 installed-user matrices pass. |
+| Honest ambient behavior/no CapSec claim | **Complete locally** | Help, one-time compile notice, guide, authenticated boot fields, and ambient behavior fixtures agree. Final release notes remain part of publication. |
+| Monotonic `--ibex-capsec` refusal | **Complete** | The same artifacts refuse before entry with no ambient fallback; successful advertisement is v1.1. |
+| Identical cross-mode admission | **Complete** | Selection occurs after the single envelope/contract/graph/policy/carrier/provenance admission path. |
+| Authenticated default/selector fields | **Complete** | `StubContractV3` carries the default, both exact first-position selectors, their shared escape, and the info report schema. |
+| Source deletion and relocation | **Complete** | Both tuple matrices run copied executables after source/catalog withdrawal. |
+| Bounded process/backend contract | **Complete for ambient v1** | Argv/UTF-8, environment, lifecycle, failures, signals, flush, Fetch, HTTP server, and limitations pass on both tuples. |
+| Linux ambient networking | **Complete** | Static libcurl/TLS final-image audit and clean-recipient Fetch pass at GLIBC 2.35. |
+| Mandatory-policy disposition | **Resolved — explicit authoring** | The author approved the implemented contract: every compile requires a committed generated policy; no silent minimal-policy path is added. |
+| Ambient-default ratification | **Resolved — ratified** | The author ratified ambient compatibility as the v1 default against the working macOS and Linux end-to-end artifacts. |
+| Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
+| LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
+| LLP 0048 external-script worker | **Substantially implemented; acceptance/evidence open** | App-bound formats, source admission, parent bridge, restricted-worker construction, broker lifecycle, policy/evidence fixtures, reporting, and compile surface exist. The complete host-portable, planted-secret, lifecycle/ceiling, and exact-tuple evidence gate remains open and is not implied by any M0–M5 completion row. |
+| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, Linux audit, and the strict two-physical-Mac comparator pass. Gatekeeper still requires notarization credentials/ticket. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
+
+Milestone 5's recipient-side disclosure choice is resolved by the authenticated
+`--ibex-info` path. Release artifacts must keep its first-position, escape,
+no-evaluation, and copied-file-without-catalog fixtures green.
+
 ## 10. Deferred work
 
 - successful production CapSec admission and advertised target coverage;
@@ -592,6 +1023,8 @@ specific shipped tuple.
 - embedded filesystem assets;
 - native addons/FFI payloads;
 - multi-entry executables;
+- LLP 0048 restricted external-script worker implementation and promotion on
+  exact target tuples (specified separately; not a general second entry);
 - self-update/installers;
 - making CapSec the default for standalone applications.
 
@@ -609,7 +1042,7 @@ weakening a user who explicitly requested CapSec.
   default is a compatibility choice, not evidence that dependencies are safe.
 - **Mode drift:** both paths share envelope and module admission; CI must run
   both from the same artifact so the CapSec path does not rot unseen.
-- **Selector collision:** reserving one first-position argument is a real
+- **Selector collision:** reserving two first-position arguments is a real
   compatibility cost. The leading `--` escape is mandatory and tested.
 - **Backend skew:** a minimal static stub can accidentally look like a CapSec
   refusal when a backend was simply omitted. Inspection and stable error
@@ -619,11 +1052,10 @@ weakening a user who explicitly requested CapSec.
   it must not be inferred merely because one target becomes advertised. §5's
   boot-mode contract field is what makes such a reversal a visible, versioned
   identity change rather than a silent behavioral one.
-- **Recipient-side disclosure:** every posture disclosure surface belongs to
-  the distributor, not the person who receives a copied binary (§8 item 4). If
-  register item 4 declines the second reserved selector, this is an accepted
-  v1 limitation rather than a solved problem, and saying so is the condition
-  under which LLP 0039's amended trip-wire 3 is satisfied.
+- **Recipient-side disclosure:** the copied binary now owns one disclosure
+  surface itself: authenticated first-position `--ibex-info`. Distributor help,
+  inspection, guide, and release metadata remain required as complementary
+  surfaces; the recipient gap described by the earlier draft is closed.
 - **Defense-depth reduction:** shipping enforcement-off machinery inside every
   standalone artifact removes the compile-time-absence property the rest of
   Ibex relies on (§1). Accepted deliberately, with fixture-proven monotonic
@@ -633,42 +1065,41 @@ weakening a user who explicitly requested CapSec.
 
 ## 12. Author-decision register
 
-None of these block starting milestone 0. **Items 1 and 3 still block the §9
-release criteria**; item 2 is decided and its corresponding criterion now
-requires implementation/audit evidence; item 4 blocks claiming the
-recipient-side disclosure posture is adequate.
+None of these blocked starting milestone 0. All four product decisions are now
+resolved. Their implementation and audit evidence remain subject to the §9
+release gates.
 
 Item 3's status is stated precisely, because an earlier draft left it
 ambiguous. Ambient-by-default is **decided** — §1 makes it, LLP 0029 §7 item 4
 records it re-resolved, and LLP 0031 and LLP 0039 are amended on its strength.
-Item 3 is therefore not an open question about whether to proceed but a
-**pre-release ratification**: the decision was made before the ambient path
-could be exercised end to end, so it is revisited once with real artifacts
-before v1 ships.
+Item 3 was therefore a **pre-release ratification**, not an open question about
+whether to proceed. The 2026-08-02 author approval records that required second
+look against real artifacts and closes it.
 
-1. **Mandatory production policy for ambient compiles** (§4). Options: (a) own
-   the friction — v1 requires policy authoring for every compile, documented
-   plainly; (b) amend the producer contract so compiling an **ambient-default**
-   artifact may consume a generated minimal policy. Option (b) collides with
-   LLP 0029's "compiling never generates policy silently" and would need that
-   rule scoped rather than broken; it must also say what the generated policy
-   *means* when that same artifact is later launched with `--ibex-capsec`,
-   since every artifact keeps a reachable CapSec selector — a generated policy
-   that silently became the enforced authority would be the worst outcome
-   available. Evidence to gather first: the verbatim new-user command sequence
-   from milestone 1's exit.
+1. **Mandatory production policy for ambient compiles** (§4) — **decided
+   2026-08-02: option (a)**. Own the friction: v1 requires explicit policy
+   authoring for every compile, documented plainly. The producer never creates
+   a minimal policy silently, because that same policy would become enforced
+   authority when the artifact is launched with `--ibex-capsec`. The standalone
+   guide records the complete new-user sequence.
 2. **Linux ambient network** (§7) — **decided 2026-08-01: option (a)**. The
-   flagship first use case is producing Snapback CLIs, which require Fetch on
-   Linux. Reuse the existing libcurl Fetch/WebSocket bridge, build its pinned
+   flagship outer-parent use case is producing Snapback CLIs, which require
+   Fetch on Linux. This establishes parent transport only, not LLP 0048's
+   external worker. Reuse the existing libcurl Fetch/WebSocket bridge, build its pinned
    libcurl/TLS closure statically into the Linux stub, and pass the final-image
-   ELF audit. Shipping Linux ambient v1 without network is rejected.
-3. **Ratify ambient-by-default before release** (§1). Confirm, against a
-   working end-to-end artifact rather than a design, that ambient is the right
-   v1 default before the CapSec path works on any tuple — or narrow it so v1
-   ships ambient only for artifacts the distributor keeps inside a trust
-   boundary they control. A reversal here is a product decision with an
-   unusually cheap mechanism: §5's boot-mode contract field makes the default
-   a versioned, inspectable identity rather than latent behavior.
-4. **Second reserved selector `--ibex-info`** (§8). Whether making the artifact
-   self-describing to its recipient justifies widening the argv reservation
-   beyond the single word §1 calls the sole v1 exception.
+   ELF audit. Shipping Linux ambient v1 without network is rejected. Evidence
+   completed 2026-08-02: the final ELF has no dynamic libcurl dependency,
+   inspection authenticates the static-libcurl Fetch/WebSocket
+   implementations, and a relocated source-free Fetch fixture passes.
+3. **Ratify ambient-by-default before release** (§1) — **ratified
+   2026-08-02**. Confirmed against the working macOS arm64 and Linux x86-64
+   end-to-end artifacts. Ambient compatibility remains the v1 default before a
+   shipped tuple can successfully arm CapSec. The authenticated boot field
+   keeps a future reversal versioned and inspectable. A reversal remains a new
+   product decision; §5's boot-mode contract field makes it a visible identity
+   change rather than latent behavior.
+4. **Second reserved selector `--ibex-info`** (§8) — **decided 2026-08-02:
+   reserve it**. Making the copied artifact self-describing justifies the
+   second exact first-position reservation. It prints the authenticated
+   `ibex/standalone-executable-info/1` report after complete admission and exits
+   before application evaluation; leading `--` escapes it literally.

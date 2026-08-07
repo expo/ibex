@@ -1,10 +1,12 @@
 # LLP 0031: Ibex 0.2 Native Platform Matrix
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Build, Engine, Runtime, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-18
+**Revised:** 2026-08-05 (author acceptance recorded after implementation and
+the LLP 0047 standalone-release scope reconciliation)
 **Revised:** 2026-08-01 (LLP 0047 scopes the SFE release coupling below: the
 standalone executable's ambient path ships without a verified CapSec
 advertisement, while 0.2 source execution keeps the coupling unchanged)

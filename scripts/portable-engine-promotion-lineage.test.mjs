@@ -240,6 +240,7 @@ function validPortableBundleGraph({
       summary: {
         requiredFixtures: 1,
         fullyExecutableFixtures: 1,
+        internallyVerifiedFixtures: 0,
         unresolvedFixtures: 0,
       },
       recipeCatalogDigest: digest("A"),
@@ -271,6 +272,7 @@ function validPortableBundleGraph({
       summary: {
         requiredFixtures: 1,
         executableFixtures: 1,
+        internallyVerifiedFixtures: 0,
         residualFixtures: 0,
         executedFixtures: 1,
         passedFixtures: 1,

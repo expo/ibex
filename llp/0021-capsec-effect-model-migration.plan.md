@@ -5,6 +5,40 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-08-06 (adds the DRAFT "Amendment: scoped advertisement"
+section and its scope-digest join-matrix appendix, authored as the LLP 0049
+Phase 1 review package per LLP 0044 §2/§7; round-1 revision applied the same
+day — both round-1 flip sets landed, matrix grown M1–M31, round 2 pending;
+the amendment is UNDER LLP 0049
+PHASE 1 REVIEW and no gate code may land until that review completes —
+LLP 0044 register item 5 stays BLOCKED and every pre-amendment section of
+this document continues to describe the enforced all-or-nothing gate)
+**Revised:** 2026-08-03 (restores `node:diagnostics_channel` and `node:domain`
+to the independent public-evidence validator's terminal-builtin vocabulary
+after the exact Apple matrix proved that production, authoring, and the Rust
+loaded-engine executor recognized all seven reviewed families while the final
+JavaScript evidence check repeated only five; a regression now exercises the
+root-module closure contract for all seven families)
+**Revised:** 2026-08-03 (synchronizes the independent loaded-engine target-
+absence budget with the already-reviewed source-derived Apple catalog: 114
+executable absence fixtures partition exactly into 92 target-absence
+invocations and 22 native-global absence reads; the executor retains both the
+total and split assertions so future catalog growth remains fail-closed)
+**Revised:** 2026-08-03 (scopes the reviewed pure-compatibility call validator
+to callable `node_readline` recipes after a physical Windows-catalog replay
+proved that its default branch also rejected the inert
+`node:readline.promises` data read; non-callable export reads now bypass that
+call-only vocabulary, while the exact CSI and Interface call contracts,
+unreviewed readline calls, and callable-as-read near misses remain fail-closed)
+**Revised:** 2026-08-03 (retires executable credit for the deprecated root
+`node:fs` `F_OK`, `R_OK`, `W_OK`, and `X_OK` accessors after physical Apple
+and Windows batches proved that each getter intentionally enters the DEP0176
+warning path; armed runtimes keep `process.emitWarning` disabled, so authoring
+now records the four exact rows as `builtin-export-requires-deprecation-warning`
+residuals and the loaded-engine validator rejects stale recipes before
+evaluating a getter, while the inert `fs.constants` object remains separately
+covered; Apple accounting becomes 3,926 fully executable / 3,050 internally
+verified / 16,671 unresolved and Windows becomes 3,560 / 3,036 / 16,710)
 **Revised:** 2026-07-28 (accepts the security-critical CapSec rev2 implementation under an explicit convergence boundary: the final armed `exact_crypto` mixed-module controls are sealed only for the JCS-canonical authenticated builtin SourceId, shared by the `crypto`, `exact:crypto`, and `node:crypto` cache aliases, and pin `fips`, `secureHeapUsed`, `setEngine`, and `setFips` to immutable `ERR_ACCESS_DENIED` / `CryptoControl` refusal while leaving unarmed diagnostic behavior unchanged; the planned pre-fix negative control proved mutable descriptors and successful access, while the fixed EPYC authenticated batch passes 845/845 receipts against loaded engine `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`, independently reconstructs all four new records, and has raw evidence SHA-256 `08a1585232e19e13d7b9b64f4f6a7b758214a685f564e6a96835be56c4f4577c`; final Apple catalog `sha256-GHlqGTU7b020Cp107EbGh4TShEtB_kOoRz5R1pDtYEo` reports 23,598 required / 3,928 executable / 3,042 internally verified / 16,628 unresolved and Windows `sha256-FAud-eHXcShfXTx3wsnucQFaQ96H2khcNzhxUqxbwzU` reports 23,257 / 3,564 / 3,028 / 16,665; advertisements remain empty, so no exact target is falsely claimed, and target promotion plus catalog/evidence completeness move to prioritized filesystem tickets rather than extending this security-implementation tranche)
 **Revised:** 2026-07-28 (retires the stale armed-runtime crash exclusion for the four source-inventoried global WebCrypto CSPRNG routes: `Crypto.getRandomValues`, `crypto.getRandomValues`, `Crypto.randomUUID`, and `crypto.randomUUID`; both `getRandomValues` spellings receive a harness-owned four-byte `Uint8Array`, both UUID spellings require a normal string return, and every route binds its exact global/prototype source descriptor, reaches quiescence, performs owned cleanup, and emits zero legacy or typed decisions; an EPYC authenticated armed batch passes all 579 Apple global-callable rows against loaded engine `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`, including independent JavaScript reconstruction of the four new records; Apple catalog `sha256-h-aEuY5hwrzFjpPHiwFduM-g8AZggxy2rg7QLAiwrtM` reports 23,595 required / 3,924 executable / 3,040 internally verified / 16,631 unresolved and Windows `sha256-FQOQTr_HtWdl9UXnHquLaEp--6knN2qhgflw1PnH6GY` reports 23,254 / 3,560 / 3,026 / 16,668; advertisements remain empty and criterion 7 remains open)
 **Revised:** 2026-07-28 (seals the armed `__exactAndroidDispatchPlatformEvent` rendezvous after trusted bootstrap while preserving native Android framework-event delivery through an owner-thread JSI function retained by the runtime; the initial trusted shared-runtime drain and unarmed compatibility runtimes may resolve the public global before finalization, but armed delivery after project admission never falls back to a mutable project-visible spelling; the first EPYC batch proved the gap when root disposition refused the still-reachable dispatcher, while the hardened batch emits 841 passing records and the new absence receipt independently reconstructs exactly; an Android-defined C++ syntax build and a source contract verify the retained-handler dispatch path; the descriptor sweep advances to 369 sealed/private and 2,441 permitted reachable rows across 2,810 install branches; Apple catalog `sha256-O-gOrYFifBB1UOiBdeaaRgvh9lcT4TII-bOGrHKK3bE` reports 23,595 required / 3,920 executable / 3,040 internally verified / 16,635 unresolved and Windows `sha256-OC3SQg1at67QVQt-uxJKuGIuvB-fTgQ8GfxLRZa5maM` reports 23,254 / 3,556 / 3,026 / 16,672; advertisements remain empty and criterion 7 remains open)
@@ -209,6 +243,10 @@ unless the authenticated snapshot opts in.)
 public spelling in a fresh engine and binds its first-load `NODE_DEBUG` read to
 the independently observed native environment gate; platform and lazy DNS
 aliases remain residual.)
+**Revised:** 2026-08-03 (aggregate public-evidence validation now applies the
+pairwise-distinct runtime-nonce rule only to authenticated builtin first-load
+receipts; loader source-point receipts are emitted by a separate harness
+process whose monotonic runtime counter occupies an independent namespace.)
 **Revised:** 2026-07-19 (ENG-24933 reconciles the current lazy DNS sources with
 the coverage model: the four exact `dns`/`node:dns` and promises import
 spellings, plus both default namespace rows, are module-reachability-only;
@@ -2462,6 +2500,14 @@ initialization: the exemption does not suppress capability terminal checks,
 survive after initialization, or re-enter through an exported `require`
 closure while another record is active.
 
+Generic root-accessor reads are eligible only when the accessor itself is
+zero-effect. The deprecated `node:fs` `F_OK`, `R_OK`, `W_OK`, and `X_OK`
+getters intentionally emit DEP0176 and therefore remain explicit residuals in
+an armed runtime; their inert numeric values are available through the
+separately inventoried `fs.constants` object. A warning-producing getter must
+not gain zero-decision credit by disabling, pre-emitting, or swallowing the
+warning in the harness.
+
 Bounded non-capability callable recipes are grouped by exact source template,
 not inferred from `typeof value === "function"`. The first authored families
 cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
@@ -2469,8 +2515,13 @@ cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
 recipe fixes its setup, receiver, arguments, dispatch mode, and expected return
 type. Direct member-to-member aliases inherit a callable shape only from the
 already observed source member, and reuse that member family's bounded
-arguments rather than weakening the template allowlist. Prototype
-recipes construct the declared owner (with dedicated bounded Buffer,
+arguments rather than weakening the template allowlist.
+Loaded-engine validators for these call families apply only to callables; an
+inert data read from the same source family does not inherit or fail a
+call-only name vocabulary. Conversely, changing a reviewed callable recipe
+into an export read is a contract mismatch rather than a way around its setup
+and argument checks.
+Prototype recipes construct the declared owner (with dedicated bounded Buffer,
 CallTracker, zlib-transform, string-decoder, and configured
 readable/writable/duplex stream fixtures), then dispatch the exact
 source-inventoried prototype function. Zlib decoder probes derive a valid
@@ -3421,3 +3472,1261 @@ be represented as verified conformance.
 5. WP9 may flip after one exact target is complete, but every incomplete build
    target refuses before project code. No target silently inherits another
    target's conformance or falls back to the legacy plane.
+
+## Amendment: scoped advertisement (2026-08-06)
+
+> **Status: DRAFT, UNDER LLP 0049 PHASE 1 REVIEW; no gate code may land
+> until this amendment's review completes (LLP 0044 §7 item 5).
+> Round-1 revision applied 2026-08-06 (both round-1 flip sets,
+> `llp/reviews/0021-scoped-advertisement-amendment.codex.md` and
+> `…fable.md`, applied in full); round 2 pending.**
+>
+> This amendment is the LLP 0049 Phase 1 review package required by
+> LLP 0044 §2's scope-digest lifecycle paragraph. It changes the
+> promotion/advertisement claim boundary: an advertisement stops meaning
+> "whole-tuple conformant" and starts meaning "certified for a declared,
+> generated, dependency-closed scope, with everything else explicitly
+> uncertified." The decided posture it implements is the LLP 0044 §7
+> resolution record of 2026-08-06: item 1 scoped certification ACCEPTED,
+> item 2 UNCERTIFIED remainder, item 4 fs+env+process. Register item 5
+> (the runtime scope join, §A6 below) remains an open author decision that
+> this amendment designs but does not decide. Until the review completes
+> and the author decides item 5, every pre-amendment section of this
+> document — in particular WP10's completeness rule and the
+> "Default and target claim" — remains the enforced state of the system.
+>
+> All file:line citations in this amendment are pinned at `main` =
+> `6416114d` (2026-08-06). `scopeDigest` has zero occurrences in code at
+> this revision (verified by repository-wide search over `src/`,
+> `crates/`, `packages/ibex-devtools/src`, `scripts/`, `build_support/`,
+> and `tools/`): this amendment designs the scope identity from a blank
+> page, and the join matrix in §A9 says so row by row. Re-pin lines
+> before implementing.
+
+### A1. The scope object
+
+The scope is a canonical, generated artifact with its own digest domain —
+never a hand-authored list and never a property scattered across other
+artifacts.
+
+- **Schema (proposed):** `ibex/capsec-scope/1`; digest domain
+  `ibex:capsec:scope:1` under the canonical-form rule of LLP 0032
+  (JCS serialization, domain-separated tag, self-digest field excluded
+  from the digest input).
+- **Contents (closed field set):** profile (`ibex/capsec/1`); the target
+  tuple (triple + canonical sorted feature list, exactly the fields
+  `select_v2_advertisement` matches on,
+  `src/host/portable_target_admission.rs:571-580`); the **intensional
+  definition** in a closed selector grammar — enumerated
+  capability-family identifiers and surface-kind identifiers with set
+  semantics only, no free-form predicates, so the lineage superset check
+  is set inclusion, not interpretation; the **expanded cell set** — the
+  exact `edgeId` list the generator expands from the live inventory, each
+  cell complete and indivisible (scenario class is descriptive, never a
+  selection axis; no scenario obligation of an in-scope cell can be
+  subtracted); the **closure edges** — the conservative pre-execution
+  dependency closure computed from source-derived routes and
+  argument-selected branch alternatives, never from observed sequences;
+  the predecessor scope digest or an explicit genesis marker (§A5); and
+  `scopeDigest` itself.
+- **Companion artifacts, each in its own digest domain** (LLP 0044 §2):
+  the expansion diff (`ibex/capsec-scope-expansion-diff/1`, domain
+  `ibex:capsec:scope-expansion-diff:1`) recording per-cell
+  additions/retirements against the predecessor expansion, with each
+  retirement validated against the live inventory (a "retired" cell still
+  present in the inventory is narrowing and fails); and the
+  rename/split/merge mapping (`ibex/capsec-scope-cell-mapping/1`, domain
+  `ibex:capsec:scope-cell-mapping:1`) generated from inventory history
+  and validated the same way. Both are bound into the scope artifact by
+  digest. Split and merge entries must be total on both sides: every
+  predecessor cell named by a mapping entry must be consumed exactly
+  once, and every successor cell produced exactly once (§A8 F9).
+- **Generator:** a new devtools script beside
+  `generate-capsec-conformance-recipes.mjs`, consuming the same reviewed
+  coverage/implementation inputs the fixture catalog consumes
+  (`fixtureCatalogForTarget`,
+  `packages/ibex-devtools/src/scripts/capsec-conformance.mjs:304`). The
+  generator is the sole **creator** of `scopeDigest`; every other
+  consumer either independently re-derives it (admission, §A3), binds it,
+  compares it, or carries it (§A9).
+- A dependency that cannot be conservatively resolved keeps its dependent
+  cell out of scope or fails promotion — never a warning. Every physical
+  observation during the ceremony is validated against the closure: an
+  observed traversal into a cell the closure excluded **fails the run**
+  (it proves the closure wrong; §A8 F8).
+
+### A2. Scoped completeness rule
+
+`assertRecipeCatalogComplete`
+(`packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:5048`)
+currently requires, over the whole catalog:
+`fullyExecutableFixtures + internallyVerifiedFixtures === requiredFixtures`
+and `unresolvedFixtures === 0` (:5050-5055), then per-recipe status
+validation. The amendment binds it to the scoped required set:
+
+- The catalog summary partitions by scope membership of each row's cell
+  (`edgeId` ∈ expanded cell set). New summary fields carry
+  `scopeDigest`, `requiredFixturesInScope`, `unresolvedFixturesInScope`,
+  and the out-of-scope remainder counts.
+- The completeness assertion becomes exactly
+  **`unresolved-in-scope === 0`** with
+  `fullyExecutableInScope + internallyVerifiedInScope ===
+  requiredFixturesInScope`, and per-recipe validation runs for every
+  in-scope row exactly as today (internally-verified proof-plan equality
+  included, :5062-5081).
+- Out-of-scope rows are never deleted, never reclassified, and never
+  counted toward completeness: they remain in the catalog as the
+  enumerable uncertified remainder. A row whose cell is out of scope but
+  whose status is anything other than its honest current status fails
+  validation — scoping must not perturb the remainder's accounting.
+- The four `checkPromotion` names
+  (`packages/ibex-devtools/src/scripts/run-capsec-conformance.mjs:1868-1899`)
+  keep their names and order; `executable-recipe-catalog` and
+  `public-surface-execution` bind to the scoped expansion (§A9 M2, M3),
+  and `assertReportMayAdvertise`
+  (`packages/ibex-devtools/src/scripts/capsec-conformance.mjs:612`)
+  requires the report's scope bindings (§A9 M4).
+
+Partial-cell credit stays closed under any name: membership is per
+complete cell, so every generated scenario row of an in-scope cell counts
+toward `unresolved-in-scope`.
+
+### A3. Scoped arm-state admission (`ScopedAdvertised`)
+
+Today `Host::new_armed_with_target_cells` (`src/host/mod.rs:781`) refuses
+any cell map that is not exhaustive over
+`CAPSEC_COVERAGE_EDGE_IDS` with every cell `Complete` or `Closed`, and
+any arm state other than `TargetArmState::CompleteAdvertised`
+(:824-845, refusal "armed target cells are incomplete" :844). The
+amendment adds a **distinct scoped arm state**, constructed only from an
+admitted scoped report:
+
+- `TargetArmState` (`crates/capsec-semantics/src/decision.rs:52-56`)
+  gains `ScopedAdvertised` carrying the admitted scope identity (the
+  digest, plus the admitted remainder accounting for introspection).
+- **The opaque admitted aggregate — `AdmittedScopedTargetCells`.** The
+  admission result is one opaque object, named exactly
+  `AdmittedScopedTargetCells`, constructible **only** by portable report
+  admission (§A9 M7 — private constructor in
+  `src/host/portable_target_admission.rs`, no public field access, no
+  `Default`, no test constructor). It contains, inseparably: (a) the
+  **re-derived scope identity** (the recomputed `scopeDigest` plus the
+  lineage-resolved predecessor it was compared against and the
+  remainder accounting); (b) the **expanded in-scope set** (the exact
+  `edgeId` list); and (c) the **exhaustive host-level cell
+  dispositions** for every generated edge. `Host` consumes the
+  aggregate **atomically**: the constructors (§A9 M12/M13) take the
+  aggregate, not a bare map, re-check the in-scope/out-of-scope
+  partition against the carried expansion at construction, and retain
+  the aggregate itself. Both runtime introspection (§A9 M16) and the
+  per-gate `TargetCellDisposition` projection derive from the **same
+  retained aggregate** — there is no second copy of the scope, the
+  expansion, or the map anywhere in the armed Host, so
+  introspected-scope/enforced-map divergence is unrepresentable
+  (§A8 F11's positive invariant). An independently mutable parallel
+  Host record is explicitly rejected as not security-equivalent.
+- The cell map remains **exhaustive**: every generated edge must appear.
+  The map's value type is a **new host-side disposition type**,
+  `HostCellDisposition` (it may live beside the aggregate in
+  `portable_target_admission.rs`): `Certified(TargetCellDisposition)`
+  for in-scope cells — carrying `Complete`/`Closed` exactly as derived
+  today (`src/host/portable_target_admission.rs:1489-1505`) — and
+  `Uncertified` for out-of-scope cells. The typed vocabulary
+  (`TargetCellDisposition`, `crates/capsec-semantics/src/decision.rs:395-400`)
+  is untouched: `Uncertified` projects to
+  `TargetCellDisposition::Incomplete` exactly at `EffectGate`
+  construction (`src/host/mod.rs:2844-2846`, the
+  `target_cell: self.target_cell(coverage_edge_id)` site), keeping
+  decision.rs untouched. Arming with a cell absent from the map remains
+  a refusal — the exhaustiveness check is not relaxed (§A8 F2). (Type
+  placement settled by this design revision; recorded in §A10.)
+- **Uncertified is distinguishable from incomplete-by-defect — the host
+  telemetry envelope.** The distinction lives at the host cell-map layer
+  and in refusal telemetry, not in the typed decision algorithm: the
+  reached-gate refusal semantics are `Incomplete`'s
+  (`crates/capsec-semantics/src/decision.rs:609-621` refuses before any
+  lifecycle result, and the hard decision already carries
+  `Some(gate.coverage_edge_id)` at :618). The host emits a **named
+  machine-readable envelope**, schema `ibex/capsec-scoped-refusal/1`,
+  at the central host refusal path — the single code path that receives
+  a hard `TargetCellIncomplete` decision from a gate it constructed at
+  `src/host/mod.rs:2844-2846` — keyed by `coverage_edge_id`, with the
+  closed field set: `coverageEdgeId`; `scopeDigest` (from the retained
+  aggregate); `hostDisposition` (`uncertified` | `incomplete-defect` |
+  `absent-edge`, resolved by aggregate lookup — under
+  `ScopedAdvertised`, admission has already refused any in-scope
+  defect, so a runtime `TargetCellIncomplete` can only be an
+  out-of-scope cell or an absent-edge default, `src/host/mod.rs:956-961`);
+  and the echoed `DecisionReason`. This keeps the typed decision path
+  scope-transparent (§A9 M14). Whether host-emitted telemetry alone
+  satisfies LLP 0044's "distinguishable in refusal telemetry" — or the
+  annotation must ride the typed decision as a new `DecisionReason`,
+  a decision.rs change that flips M14 to scope-validating — remains the
+  named review question (§A10 #1); the envelope above is the fully
+  specified host-layer design that question chooses between.
+- A `ScopedAdvertised` state is constructible **only** through the
+  admission path (§A9 M7/M12) — concretely, only from an
+  `AdmittedScopedTargetCells` aggregate. The dev/insecure/observer/test
+  constructors (§A9 M15) keep synthesizing
+  `CompleteAdvertised`-with-synthetic-cells and must remain incapable of
+  minting a `ScopedAdvertised` state, an `AdmittedScopedTargetCells`
+  value, or a scope digest (§A8 F11).
+
+### A4. Single active scope
+
+Exactly one active scope per tuple. Admission **rejects** a second
+concurrent scope for the same target/features rather than selecting among
+scopes. The existing uniqueness refusal in `select_v2_advertisement`
+("no unique verified advertisement",
+`src/host/portable_target_admission.rs:568-580`) already refuses two
+advertisements for one tuple; the amendment extends the invariant to the
+scope: one advertisement carries exactly one `scopeDigest`, and a catalog
+carrying two rows for the tuple — even with distinct scope digests —
+remains refused (§A8 F5).
+
+### A5. Monotone lineage
+
+Rollback-resistant, per LLP 0044 §2, anchored in the checked-in promotion
+lineage that `scripts/portable-engine-promotion-lineage.mjs` already
+validates:
+
+- The scope artifact embeds its predecessor's `scopeDigest`, forming a
+  hash chain. Admission does not take the artifact's word for which
+  predecessor is current: it resolves the tuple's currently admitted
+  scope from the checked-in promotion lineage and requires the new
+  artifact's predecessor digest to equal it. Pointing at an older,
+  smaller predecessor fails admission (§A8 F6).
+- A **genesis** scope is explicitly marked and admissible only when the
+  lineage records no prior scope for the tuple (LLP 0049 Phase 3 step 1).
+- Narrowing is expressible only as inventory retirements (validated
+  against the live inventory via the expansion diff) or authenticated
+  rename/split/merge mappings; any other narrowing fails promotion. The
+  intensional superset check is set inclusion over the closed selector
+  grammar.
+- **Semantic preservation across the mapping (normative).** Totality of
+  the mapping (§A1) accounts for identifiers; these rules preserve the
+  obligations behind them. Mapping validation fails promotion unless
+  every rule holds:
+  - a **rename** of an in-scope predecessor cell places its successor
+    in scope;
+  - a **split** of an in-scope predecessor cell places **every**
+    successor in scope — no successor of an in-scope cell may land in
+    the uncertified remainder;
+  - a **merge** with **any** in-scope predecessor places the successor
+    in scope;
+  - a predecessor cell named by any mapping entry **cannot
+    simultaneously count as retired** — the retirement set and the
+    mapped-predecessor set must be disjoint;
+  - the **predecessor and current inventory digests** are bound into
+    the mapping artifact and **independently regenerated** by the
+    validator from the two inventory revisions — live-inventory absence
+    alone never proves a retirement, so inventory drift cannot be
+    laundered as retirement;
+  - **genesis admission searches retained history** for the canonical
+    tuple: a genesis-marked scope is admissible only when no retained
+    lineage records any scope for that exact tuple (§A9 M27's
+    discovery walk, run to exhaustion).
+- **Tuple migration is a named open decision (§A10 #7).** Any
+  feature-list change creates a fresh tuple and therefore a legitimate
+  fresh genesis with no predecessor — the one narrowing-shaped move the
+  per-tuple chain permits. Whether genesis admission must additionally
+  refuse while a *prefix tuple* (same triple, different feature list)
+  has a live scope is the author's decision, referencing deferred
+  register item 7.
+- **Genuine inventory retirement bottoms out in reviewed inventory code
+  changes.** A cell that truly leaves the generated inventory narrows
+  the certified surface, and the chain permits it by design; the guard
+  on that one lane is code review of the inventory change (the LLP 0044
+  §2 / LLP 0040 accepted posture), not this chain. Stated here so no
+  reader mistakes the expansion-diff validation for a guard it is not.
+- Scope expansion is strictly monotone via the chain; each expansion is a
+  new promotion, never an edit.
+
+### A6. Register item 5 design: the runtime scope join (decision required)
+
+LLP 0044 §2 deliberately left the runtime join undesigned: the
+armed-snapshot producer, the `ibex/capsec-armed/1` parser, and
+`ExpectedArmingIdentity` carry no scope identity today, and the Host
+obtains authenticated target cells separately through
+advertisement/report admission. The three sub-questions, designed against
+the real code:
+
+**(i) Does the armed snapshot carry `scopeDigest`, or does an
+independently authenticated scope identity join beside it?**
+
+*The real producer/parser.* The production snapshot is composed by the
+launcher itself: `build_default_armed_host`
+(`src/bin/ibex/runtime.rs:5242`) instantiates the checked-in identity
+template `capsec/examples/armed-snapshot.canonical.json` (:5290-5293),
+fills in launcher-observed facts (engine identity, entry, project-root
+discovery, path canonicalizers, protected artifacts), stamps `runNonce`
+and `armedSnapshotDigest` in `finalize_production_snapshot` (:4804-4816,
+called at :5814), builds `ExpectedArmingIdentity` from the same document
+(:5827-5881), and authenticates via `ArmedSnapshot::load`
+(`crates/capsec-semantics/src/arming.rs:345`, schema pin
+`ibex/capsec-armed/1` :351, frozen digest projection
+`crates/capsec-semantics/src/digest.rs:159-163`). The launcher **never
+reads the promoted report**: target cells reach the Host on a separate
+path — `Host::new_armed` (`src/host/mod.rs:723`) calls
+`authenticated_target_cells` (:6726), which admits the compile-time
+embedded advertisement, admission marker, and promoted report
+(:6738-6752) and joins them to the snapshot only through the tuple
+(`snapshot.engine_target()` + `engine_features()`) and the loaded engine
+identity (`authenticate_local_engine`,
+`src/host/portable_target_admission.rs:1534`).
+
+*Option A — snapshot carries `scopeDigest`.* The launcher has no
+independent source for the value: it would copy it from the same embedded
+advertisement chain the Host already admits, so the snapshot copy is
+derivative — it adds a second copy that must be kept consistent and
+authenticates nothing the admission path has not already authenticated
+(a compromised embedded chain compromises both copies identically).
+Mechanically it requires: a new field in the snapshot document and in
+`ExpectedArmingIdentity` (`crates/capsec-semantics/src/arming.rs:70-109`);
+either a schema revision to `ibex/capsec-armed/2` or a change to the
+frozen v1 digest projection (`digest.rs:159-163`) — both restamp the
+reviewed digest-contract surface (`capsec/contract-files.json`,
+`capsec-contract.mjs:496`, the digest vectors, and the checked-in
+template); and it ripples into every schema-pinned consumer outside this
+plan's blast radius, including the single-file-executable chain
+(`crates/sfe-format/src/lib.rs:787`,
+`crates/sfe-format/src/app_bound.rs:387`,
+`crates/sfe-catalog/src/lib.rs:708`), the host ABI ingestion route
+(`src/host/abi.rs:1381-1392`), and the embedder template path
+(`src/host/embedder_artifacts.rs:702`). §A9 M11 enumerates these.
+
+*Option B — an independently authenticated scope identity joins beside
+the snapshot.* The scope digest is delivered exclusively by the admission
+result: `authenticated_target_cells`/`authenticated_report_target_cells`
+(§A9 M7) returns the opaque `AdmittedScopedTargetCells` aggregate (§A3)
+— the exhaustive scoped cell map **and** the admitted scope identity,
+inseparably — both re-derived/validated against the checked
+source-derived authority (`checked_report_authority`,
+`src/host/portable_target_admission.rs:1151`), with the lineage
+predecessor compared against the build-embedded checked promotion
+admission (§A9 M27); `Host::new_armed_with_target_cells` consumes the
+aggregate atomically into the `ScopedAdvertised` arm state. `ibex/capsec-armed/1` and
+`ExpectedArmingIdentity` are byte-for-byte unchanged; the snapshot's role
+stays exactly what it is today — authenticating launcher-observed
+execution identity, tuple, and engine — and the tuple+engine join is the
+only bridge between snapshot and scope, exactly as it is today between
+snapshot and report.
+
+**Recommendation: Option B.** The security argument: the only component
+that can *independently* re-derive the scope (expansion + closure
+recomputed against the bound inventory) is report admission; every copy
+of `scopeDigest` placed anywhere else is either derivative (adds
+consistency obligations without adding authentication) or a new
+substitution surface (a launcher-asserted value a lookalike snapshot
+could vary). Option B keeps the trusted base minimal, adds zero schema
+revisions and zero digest-contract restamps outside the promotion chain
+itself, and leaves the snapshot's reviewed threat model untouched.
+
+**(ii) How is snapshot/report scope substitution prevented?**
+
+Under Option B there is no snapshot-side scope to substitute; the
+substitution channels and their closures are:
+
+1. *A report/advertisement pair from scope S1 presented as S2.* The scope
+   digest never travels alone: admission re-derives the expansion and
+   closure from the intensional definition against the bound inventory
+   and compares the result with the digest bound into the advertisement,
+   report bindings, and bundle (§A9 M7); a mismatch refuses (§A8 F1).
+2. *A snapshot steering cell-map selection.* The snapshot selects nothing
+   but the tuple, and the tuple's advertisement is unique (§A4); the
+   tuple and engine identity are launcher-authenticated against the
+   loaded engine (`authenticate_local_engine`), so there is no
+   snapshot-controllable degree of freedom left that chooses among
+   scopes.
+3. *Two builds embedding different scoped reports for one tuple.* The
+   predecessor-chain check against the checked-in promotion lineage
+   (§A5) names the currently admitted scope, carried into the binary by
+   the checked promotion admission (§A9 M27); an embedded report whose
+   scope is not the lineage-resolved current one refuses at admission
+   (§A8 F6). The build-time selector (§A9 M20) independently verifies
+   the report↔advertisement join before embedding. Whole-checkout
+   rollback — a binary honestly rebuilt from old sources — is outside
+   this chain: build provenance's layer (§A9 M26/M27).
+
+Under Option A the answer would additionally require proving the
+snapshot's copy equal to the admission result at arm time — a comparison
+whose failure mode (which side wins?) is exactly the ambiguity Option B
+avoids.
+
+**(iii) Which authority supplies the digest to runtime introspection?**
+
+The retained `AdmittedScopedTargetCells` aggregate held by the armed
+Host — the same object that supplies every per-gate disposition (the
+`ScopedAdvertised` state, §A3) — is the sole introspection authority.
+Never the snapshot, never release notes, never a re-read of repository
+files at runtime. The introspection surface (§A9 M16, schema id
+reserved `ibex/capsec-scope-introspection/1`) exposes the active scope
+digest and the uncertified remainder machine-readably, and it is new
+code: no such surface exists today; §A8 F11's positive half asserts its
+coherence with the enforced map.
+
+> **AUTHOR DECISION REQUIRED (LLP 0044 register item 5).** This section
+> recommends Option B with the `ScopedAdvertised` arm state of §A3 and
+> the introspection authority of (iii). The author decides after this
+> amendment's review completes; rejection is an LLP 0049 §9 diversion
+> (the plan halts and returns for re-scoping), not a gate pass.
+
+### A7. The published claim (normative wording)
+
+Per LLP 0049 §3 rule 8, the exact sentences published with a scoped
+advertisement, under the decided uncertified posture (LLP 0044 §7
+item 2). This wording is normative; any published paraphrase that
+characterizes the remainder without naming its layer fails review.
+
+> This target's enforcement is certified for the declared scope
+> (scope digest `<sha256-…>`, scope `<families/surface kinds>`). The
+> certification is per-invocation: each in-scope cell's enforcement is
+> certified under the source-derived preconditions its recipes
+> establish. Every surface outside the scope carries no conformance
+> claim: it is uncertified, the certification does not constrain its
+> availability and no universal physical-refusal claim is made, and it
+> is enumerated by family as a release constraint generated from the
+> same validated expansion diff the promotion gate checks. No statement
+> is made that out-of-scope surfaces are refused, absent, or safe.
+>
+> Where a fail-closed property is asserted for the uncertified
+> remainder, it names its exact layer: (1) **startup admission** — a
+> scope/map-integrity property (metadata admission): an armed runtime
+> refuses to start with a cell map that omits any generated inventory
+> cell, which protects the integrity of the admitted scope and map and
+> is never an execution-refusal property of any surface;
+> (2) **typed-gate refusal** — a typed effect gate that is actually
+> reached on an uncertified cell refuses. Zero-decision surfaces —
+> uncertified surfaces that reach no typed gate — have no typed-gate
+> refusal and no physical-entrypoint refusal, and their execution is
+> not constrained by this certification. Negative-control probes
+> executed against uncertified families on the exact advertised build
+> are diagnostic evidence, not proof, and never upgrade this claim.
+>
+> The certification is not compositional: a composition in which an
+> uncertified surface manipulates state, authority, handles,
+> configuration, or lifecycle that a later in-scope invocation depends
+> on is itself uncertified. Adversarial-composition fixtures in the
+> ceremony are diagnostic only.
+
+(The physical-entrypoint-refusal layer is deliberately absent from the
+claim: register item 2 selected the uncertified posture, so no physical
+refusal of the remainder exists to name.)
+
+### A8. Adversarial fixture set
+
+Each fixture class pins the join-matrix rows named; all are refusal/
+diagnostic fixtures and none upgrades any claim. Classes F1–F7 are
+LLP 0044 §2's seven; F8–F10 are the LLP 0049 round-1 additions; F11–F12
+arise from this amendment's code survey. The round-1 review revision
+(2026-08-06) added the F1a–F1c subcases, F4's zero-contribution
+assertion, F6's documented rollback boundary, and F11's positive
+coherence half.
+
+- **F1 — scoped-state substitution.** A digest-valid report/advertisement
+  pair generated under scope S1 presented under scope S2's identity (and
+  the converse: S2's scope artifact beside S1's report) must refuse at
+  admission with the re-derivation mismatch. Explicit subcases, each its
+  own fixture:
+  - **F1a — stale advertisement + fresh report.** An older
+    advertisement generation crossed with a newer report (and the
+    converse) refuses at the existing byte-binding equality
+    (`src/host/portable_target_admission.rs:1341-1387`) extended with
+    the scope binding.
+  - **F1b — cross-tuple crossing.** Artifacts from tuple T1 presented
+    under tuple T2 — including a snapshot from a different tuple's run —
+    refuse at `bindings.target` equality, tuple-unique selection
+    (:568-580), and `authenticate_local_engine`; the scope's embedded
+    canonical tuple (§A1) makes the crossing a scope mismatch as well.
+  - **F1c — direct scope-identity/map crossing at the Host
+    constructor.** An attempt to hand `Host` a scope identity from one
+    admission and a cell map from another is unrepresentable by
+    construction (`AdmittedScopedTargetCells`, §A3): the fixture proves
+    no constructor path accepts the pieces separately.
+  Pins M1, M6, M7, M12.
+- **F2 — omitted map entries.** A scoped cell map missing any generated
+  edge — in-scope or out-of-scope — must refuse arming (the
+  exhaustiveness check, `src/host/mod.rs:824-845`). Pins M13.
+- **F3 — typed out-of-scope refusal.** A reached typed gate on an
+  uncertified cell refuses exactly as `Incomplete` does today
+  (`decision.rs:609-621`), and the emitted refusal telemetry
+  distinguishes `uncertified` from incomplete-by-defect. Pins M13, M14.
+- **F4 — executable zero-decision remainder.** A zero-decision
+  uncertified surface executes under `ScopedAdvertised`; the fixture
+  records the execution in the distinct diagnostic schema and proves the
+  promotion evidence set is unchanged by it — asserting the
+  **zero-authoritative-contribution rule** (§A9 M7) directly:
+  out-of-scope executions present in the diagnostic artifact imply a
+  byte-identical authoritative evidence set, with zero out-of-scope
+  fixtures in the required, passed, or execution unions.
+  Evidence-not-proof; diagnostic only. Pins M3, M7, M14, and the §A7
+  wording.
+- **F5 — duplicate scopes.** Two advertisements for one tuple (same or
+  different scope digests) refuse selection; a bundle carrying two scope
+  artifacts refuses validation. Pins M6, M7 (via §A4), M17.
+- **F6 — stale/rolled-back predecessor.** A scope artifact whose
+  predecessor digest names an older, lineage-superseded scope refuses
+  admission; a genesis-marked scope refuses when the lineage already
+  records a scope for the tuple. **Lineage-root rollback boundary
+  (documented, not fixtured):** rollback of the entire authenticated
+  checkout — rebuilding a binary from old sources whose embedded chain
+  is internally consistent — is **out of this chain's scope by
+  design**; runtime freshness against a rebuilt-from-old-sources binary
+  is build provenance's layer (§A9 M26/M27), and F6 asserts staleness
+  only relative to an intact authenticated lineage. Pins M7, M19, M27.
+- **F7 — renamed/retired cells.** A "retired" cell still present in the
+  live inventory fails the expansion-diff validation; a rename not
+  covered by the authenticated mapping fails as narrowing. Pins M1, M22.
+- **F8 — observed-closure-escape.** A ceremony run whose physical
+  traversal enters a cell the closure excluded fails the run — the
+  observation proves the closure wrong, and no warning path exists.
+  Pins M1, M3, M25.
+- **F9 — split/merge mapping.** A split whose successor cells do not
+  exactly partition the predecessor (a cell consumed twice, or dropped)
+  fails mapping validation; same for merges. Pins M1, M22.
+- **F10 — adversarial compositions.** Uncertified-surface-then-in-scope-
+  invocation compositions (state, authority, handle, configuration,
+  lifecycle interference) executed as **diagnostic, never
+  claim-upgrading** evidence in a distinct diagnostic schema. Pins M3
+  and the §A7 wording.
+- **F11 — scoped-state coherence (negative and positive).** Negative
+  half: the dev-arming, insecure, simulator-observer, and test
+  constructors cannot construct a `ScopedAdvertised` state, an
+  `AdmittedScopedTargetCells` value, or emit a scope digest through
+  introspection; each continues to arm only its existing
+  synthetic-complete posture. **Positive half (the coherence
+  invariant):** under `ScopedAdvertised`, the introspected scope digest,
+  the introspected remainder, and **every** per-gate disposition the
+  Host projects derive from the same retained
+  `AdmittedScopedTargetCells` aggregate — the fixture arms, introspects,
+  and sweeps every generated edge's projected disposition, asserting
+  equality with the aggregate's partition. Pins M12, M13, M15, M16.
+- **F12 — v1 chain non-carriage.** The checked-in v1 advertisement file
+  remains empty-v1 on the artifact-source side
+  (`scripts/portable-engine-promotion-lineage.mjs:825-826`), and the
+  runtime continues to refuse v1 advertisements
+  (`src/host/portable_target_admission.rs:540-544`); a scoped
+  advertisement forced into the v1 schema must refuse everywhere it is
+  presented. Pins M18.
+
+### A9. Appendix — the scope-digest join matrix
+
+The authoritative gate-code worklist (LLP 0049 §5.1): every row marked
+**scope-validating** is a §5.3 work item; every row marked
+**scope-transparent** carries the argument for why it needs no change and
+the fixture that would catch it becoming load-bearing. Lifecycle verbs
+per LLP 0044 §2: the digest is *created* by the generator (M1),
+*independently re-derived* at admission (M7), *bound* into the six
+lifecycle artifacts (M2–M6, plus the admission result in M7, plus the
+execution-binding surface M28), *compared* against the lineage-resolved
+predecessor (M19, via M7, anchored at runtime by the build-embedded
+checked promotion admission — M27), and *delivered* into runtime state
+via the admitted aggregate (M12/M13). All line numbers at `6416114d`;
+rows M27–M31, added by the round-1 revision, were re-verified at
+`90aafc67` (docs-only over the pin).
+
+Summary table (rows detailed below):
+
+| row | consumer / artifact | class | pinned by |
+| --- | --- | --- | --- |
+| M1 | scope artifact generator + companions (new) | scope-validating (creates) | F1, F7, F8, F9 |
+| M2 | recipe catalog + `assertRecipeCatalogComplete` | scope-validating (binds) | F1 |
+| M3 | public execution evidence + completeness | scope-validating (binds) | F4, F8, F10 |
+| M4 | conformance report (rich v1 + portable v2) | scope-validating (binds) | F1 |
+| M5 | target attestation | scope-validating (binds) | F1 |
+| M6 | portable promotion bundle + cell invariant | scope-validating (binds; **must-amend**) | F1, F5 |
+| M7 | portable report admission | scope-validating (re-derives + compares; **must-amend**) | F1, F5, F6 |
+| M8 | armed-snapshot producer | scope-transparent under Option B | F1 |
+| M9 | `ibex/capsec-armed/1` parser + digest contract | scope-transparent under Option B | F1 |
+| M10 | `ExpectedArmingIdentity` | scope-transparent under Option B | F1 |
+| M11 | other armed-snapshot schema pins (SFE, ABI, embedder, vectors) | scope-transparent under Option B | F1 |
+| M12 | `Host::new_armed` (delivery join) | scope-validating (delivers) | F1, F2 |
+| M13 | `Host::new_armed_with_target_cells` + `ScopedAdvertised` | scope-validating (delivers) | F2, F3 |
+| M14 | typed decision path | scope-transparent (algorithm) | F3, F4 |
+| M15 | dev/insecure/observer/test constructors | scope-transparent (must stay incapable) | F11 |
+| M16 | runtime scope introspection (new) | scope-validating (carries) | F11 |
+| M17 | v2 advertisement schema + reader (→ v3) | scope-validating (carries) | F1, F5 |
+| M18 | closed v1 advertisement chain (row group) | scope-transparent, proven; ownership settled (§A10 #2) | F12 |
+| M19 | promotion-lineage verifier | scope-validating (lineage anchor) | F6 |
+| M20 | `build.rs` report selector | scope-validating (carries) | F1, F6 |
+| M21 | target-cell bytes | scope-validating (binds) | F1, F2 |
+| M22 | fixture catalog / checked report authority | scope-validating (re-derivation input) | F7, F9 |
+| M23 | promotion authority artifact | scope-validating (binds) | F1 |
+| M24 | bundle graph verifier | scope-validating (member set) | F5 |
+| M25 | ceremony gate (`checkPromotion` ×4) + candidate pointer | scope-validating (binds) | F8 |
+| M26 | Go attestation verifier | scope-transparent | — |
+| M27 | checked promotion-admission chain (schema/producer/carrier/parser) | scope-validating (lineage anchor carrier; **must-amend**) | F1, F6 |
+| M28 | portable execution-binding digest + strict plan parsers | scope-validating (binds; carriage rule §A10 #5) | F1 |
+| M29 | physical-promotion workflow | scope-transparent (orchestration) | F8 |
+| M30 | report-schema evolution surface (JSON Schemas + v1 digest-contract chain) | scope-validating (restamp surface; rev-vs-evolve §A10 #6) | F1 |
+| M31 | installer lineage consumption | scope-transparent | F6 |
+
+**M1 — scope artifact generator (new; creates `scopeDigest`).**
+No file exists; `scopeDigest` has zero code occurrences at `6416114d`.
+Required: the §A1 generator and both companion artifacts, consuming the
+same reviewed coverage/implementation inputs as `fixtureCatalogForTarget`
+(`packages/ibex-devtools/src/scripts/capsec-conformance.mjs:304`).
+Fixtures F1, F7, F8, F9.
+
+**M2 — recipe catalog binding + scoped completeness
+(scope-validating).**
+Current: `assertRecipeCatalogComplete`
+(`packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:5048`)
+is global — `fullyExecutable + internallyVerified === required` and
+`unresolvedFixtures === 0` (:5050-5055); it also gates the portable
+recipe-catalog derivation (`capsec-portable-promotion-bundle.mjs:342`)
+and the ceremony (`run-capsec-conformance.mjs:1878-1880`). Amendment:
+§A2 — the summary carries `scopeDigest`, the assertion binds to
+`unresolved-in-scope === 0`, out-of-scope rows are retained and
+enumerated. Fixture F1.
+
+**M3 — public execution evidence (scope-validating).**
+Current: `assertPublicSurfaceExecutionComplete`
+(`packages/ibex-devtools/src/scripts/capsec-public-surface-evidence.mjs:9701`)
+is checked with `expectedFixtureIds` flat-mapped from the **full** fixture
+catalog (`run-capsec-conformance.mjs:1881-1889`). Amendment: the expected
+set becomes the scoped expansion's required fixtures; the artifact binds
+`scopeDigest`; out-of-scope negative-control and composition runs land in
+a distinct diagnostic schema that can never enter this artifact. The
+downstream binding digest and the strict Rust plan parsers that consume
+this artifact's digests are M28 — a change here that adds a binding
+field is not complete until M28's closed field lists admit it.
+Fixtures F4, F8, F10.
+
+**M4 — conformance report (scope-validating).**
+Current: the rich report is built with schema `ibex/capsec-conformance/1`
+(`packages/ibex-devtools/src/scripts/capsec-conformance.mjs:393`, schema
+at :571) and `assertReportMayAdvertise` (:612-643) requires
+`status === "conformant"`, `incompleteCells === 0`,
+`missingFixtures === 0`, `failedFixtures === 0`, and
+`passedFixtures === requiredFixtures` — all-or-nothing over the whole
+inventory. The portable v2 report is derived in the bundle
+(`capsec-portable-promotion-bundle.mjs:870`, `reportCells`). Amendment:
+both report schemas carry `scopeDigest` in `bindings` (LLP 0032
+amendment delta); `assertReportMayAdvertise` requires the scope binding
+and interprets the summary counts against the scoped required set, with
+the uncertified remainder carried as explicit accounting, not as
+`incompleteCells`. The JSON Schema files and the v1 digest-contract
+chain this binding change restamps are enumerated in M30 — this row is
+not implementable without M30's worklist. Fixture F1.
+
+**M5 — target attestation (scope-validating).**
+Current: `capsec/conformance/target-attestations.json` is the closed v1
+schema with an empty list; the v2 attestation is validated against the
+report and independent authority field-by-field in
+`validatePublicationJoins`
+(`packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs:1037-1108`).
+Amendment: the attestation (v2 → v3 alongside M17) carries `scopeDigest`
+and the join check compares it with the report binding and the authority
+entry. Fixture F1.
+
+**M6 — portable promotion bundle + cell invariant (scope-validating;
+LLP 0044 must-amend #2).**
+Current: `exactTargetCells`
+(`packages/ibex-devtools/src/scripts/capsec-portable-promotion-bundle.mjs:149-179`)
+rejects promotion if **any** exact-target cell has
+`disposition === "unsupported"` or is malformed (:164-171), and
+`validateSourceClosure` (:262-325) requires the target rows to cover the
+exact reviewed edge inventory with dispositions equal to the
+independently derived closure. The bundle emits the v2 advertisement
+catalog itself (:1113-1148 inside `buildPortablePromotionBundleV2`,
+:1037). Amendment: the bundle carries the scope artifact (and its
+companions) as members; the cell invariant accepts out-of-scope
+**uncertified** cells **only** when listed in the bound scope artifact,
+and only those — an uncertified cell not named by the scope artifact, or
+an in-scope cell carrying the uncertified disposition, refuses; the
+emitted advertisement carries `scopeDigest`. Fixtures F1, F5.
+
+**M7 — portable report admission (scope-validating; re-derives +
+compares; LLP 0044 must-amend #1).**
+Current: `src/host/portable_target_admission.rs` —
+`select_v2_advertisement` (:529; v1 refusal :540-544; tuple uniqueness
+:568-580), `require_checked_promotion` (:639),
+`checked_report_authority` (:1151) re-deriving per-edge branch/fixture
+authority from the embedded implementation manifest (:37-40), and
+`authenticated_report_target_cells` (:1310/:1318) requiring: exact
+ordered coverage inventory membership (:1443-1452), per-cell equality
+with the checked source-derived authority (:1481-1487), disposition
+derivation Complete/Closed only (:1489-1505), and the full fixture union
+`required == passed == executions` with `incomplete_cells == 0`
+(:1508-1527). Amendment: admission re-derives the scoped expansion and
+closure from the intensional definition against the bound inventory —
+**never trusting the report's row list** — validates the scoped required
+set (in-scope cells against unchanged per-cell authority; out-of-scope
+cells against the uncertified disposition and the scope artifact's
+enumeration), recomputes `scopeDigest` and compares it with the
+advertisement/report/bundle bindings, resolves the predecessor from the
+checked-in lineage (§A5), and returns the `AdmittedScopedTargetCells`
+aggregate (§A3): the exhaustive scoped cell map plus the admitted scope
+identity (Option B, §A6).
+**The scoped forms of the :1508-1527 equalities (normative).** Writing
+S for the expanded in-scope cell set, the admission invariant becomes:
+`required_fixtures(S)` non-empty;
+`required_fixtures(S) == passed_fixtures(S) == execution_fixtures` (the
+report's authoritative execution set, as sets of fixture IDs);
+`summary.cells == |full inventory|` (the report stays exhaustive);
+`summary.conformant_cells == |S|`;
+`summary.incomplete_cells == 0`; the uncertified remainder carried as
+its own explicit summary count equal to `|inventory| − |S|`;
+`summary.required_fixtures == |required_fixtures(S)|`;
+`summary.passed_fixtures == |passed_fixtures(S)|`;
+`summary.missing_fixtures == 0`; `summary.failed_fixtures == 0`. And
+the **zero-authoritative-contribution rule**: out-of-scope cells
+contribute **zero** required fixtures, **zero** passed fixtures, and
+**zero** executions to the authoritative evidence set — an
+authoritative execution or fixture row attributed to an out-of-scope
+cell refuses admission outright (diagnostic artifacts are the only
+place such runs may exist, M3). F4 asserts this rule directly.
+**The runtime lineage anchor.** This code runs inside the armed binary
+with no repository access: the predecessor comparison at runtime is
+against the **build-embedded checked promotion admission**
+(`require_checked_promotion` :639 over
+`EMBEDDED_PORTABLE_ENGINE_PROMOTION_ADMISSION`,
+`src/host/mod.rs:6743-6746`), which — per M27 — carries the admitted
+scope digest and predecessor scope digest stamped by the script-time
+lineage verifier (M19), the authority that resolved them from
+authenticated Git history. Admission trusts the anchor's bytes only
+after the existing domain-digest verification and requires the scope
+artifact delivered by M20 to match it. LLP 0049 §7.3 depends on this
+row existing. Fixtures F1, F5, F6.
+
+**M8 — armed-snapshot producer (scope-transparent under Option B).**
+Current: `build_default_armed_host` (`src/bin/ibex/runtime.rs:5242`),
+template `capsec/examples/armed-snapshot.canonical.json` (:5290-5293),
+`finalize_production_snapshot` (:4804-4816, called :5814),
+`ArmedSnapshot::load` call (:5882-5885); the session-worker re-load path
+(:3869-3892) re-authenticates the same document. No scope identity in
+the document. Transparency argument: the producer authenticates
+launcher-observed execution identity only and never reads the promoted
+report; under Option B the scope reaches the Host exclusively through
+M7/M12, so the snapshot neither carries nor selects scope. Under
+Option A this row flips to scope-validating with the §A6 cascade.
+Fixture F1 (substitution attempts must be closed without any snapshot
+participation).
+
+**M9 — `ibex/capsec-armed/1` parser and digest contract
+(scope-transparent under Option B).**
+Current: `ArmedSnapshot::load`
+(`crates/capsec-semantics/src/arming.rs:345`; schema pin :351;
+`ARMED_SNAPSHOT_SCHEMA` :37); frozen digest projection
+(`crates/capsec-semantics/src/digest.rs:159-163`, omitting only
+`armedSnapshotDigest`). Transparency argument: same as M8 — the parser
+authenticates the launcher's facts; adding scope would change the frozen
+projection and restamp the reviewed contract surface for no added
+authentication. Under Option A: schema rev to `ibex/capsec-armed/2` or
+projection change, plus M11's cascade. Fixture F1.
+
+**M10 — `ExpectedArmingIdentity` (scope-transparent under Option B).**
+Current: `crates/capsec-semantics/src/arming.rs:70-109` — profile,
+digests, target, engine, features, entry, discovery, canonicalizers,
+protected artifacts; **no scope field**. Transparency argument /
+Option A delta: as §A6(i). Fixture F1.
+
+**M11 — other `ibex/capsec-armed/1` schema pins (scope-transparent under
+Option B; consumers LLP 0044's table missed).**
+Sweep-verified enumeration (round-1 revision). Sweep command, re-run
+2026-08-06 at `90aafc67`:
+`grep -rn '"ibex/capsec-armed/1"' --include='*' . | grep -v node_modules | grep -v llp/ | grep -v target/`
+— **20 literal pins in 16 files**, classified:
+- **Direct schema pins (validate or freeze the schema string):**
+  `crates/capsec-semantics/src/arming.rs:37` (`ARMED_SNAPSHOT_SCHEMA`,
+  enforced by `ArmedSnapshot::load`);
+  `crates/sfe-format/src/lib.rs:787` and
+  `crates/sfe-format/src/app_bound.rs:387` (SFE validators);
+  `crates/capsec-semantics/src/canonical.rs:267` (contract-fixture
+  projection table); `crates/capsec-semantics/src/digest.rs:161`
+  (frozen digest projection); `capsec/schema/armed-snapshot.schema.json:37`
+  (JSON Schema const); `schemas/stub-contract-v1.schema.json:122`,
+  `schemas/stub-contract-v3.schema.json:124`,
+  `schemas/app-bound-common-v1.schema.json:232`,
+  `schemas/capsec-runtime-projection-v1.schema.json:27` (JSON Schema
+  consts); `capsec/registry/policy-rules.json:248` (`inputSchema`);
+  `packages/ibex-devtools/src/scripts/capsec-contract.mjs:496` (digest
+  contract).
+- **Generated mirrors / emission sites / vectors:**
+  `crates/sfe-catalog/src/lib.rs:708` and
+  `crates/sfe-format/src/lib.rs:1596,:1745` (emission constructors);
+  `packages/ibex-devtools/src/scripts/generate-capsec-runtime-projection.mjs:134`
+  (generator of the runtime-projection artifact);
+  `capsec/examples/armed-snapshot.canonical.json:2` (checked-in
+  template, listed in `capsec/contract-files.json:44`);
+  `capsec/examples/digest-bundle.canonical.json:269005,:269812` (digest
+  vectors); `crates/capsec-semantics/src/arming.rs:3679` (test
+  fixture).
+- **Transitive callers (no literal pin; ingest via
+  `ArmedSnapshot::load`):** the host ABI ingestion route
+  (`src/host/abi.rs:1381-1392`), the embedder template loader
+  (`src/host/embedder_artifacts.rs:702`), and the environment-template
+  schema-file invariants
+  (`packages/ibex-devtools/src/scripts/capsec-environment-output-templates.mjs:305-313`).
+Under Option B: all untouched. Under Option A: every direct pin revs or
+restamps and every generated mirror regenerates — this row is the
+measured blast radius that §A6's recommendation prices, and the round-1
+sweep found it **larger** than the original enumeration (which had
+listed six pins and misfiled the two transitive routes as pins),
+strengthening the recommendation. Fixture F1.
+
+**M12 — `Host::new_armed` (scope-validating; the delivery join).**
+Current: `src/host/mod.rs:723-739` — validates loaded engine and
+protected artifacts, calls `authenticated_target_cells` (:729, fn at
+:6726-6762), then constructs with
+`TargetArmState::CompleteAdvertised`. Amendment: receives the
+`AdmittedScopedTargetCells` aggregate from M7 **atomically** — never a
+bare map beside a bare digest — and constructs the `ScopedAdvertised`
+state from it; a scoped admission result can never construct
+`CompleteAdvertised`, and vice versa. Fixtures F1 (incl. F1c), F2.
+
+**M13 — `Host::new_armed_with_target_cells` + `ScopedAdvertised`
+(scope-validating).**
+Current: `src/host/mod.rs:781`; exhaustiveness gate :824-845 (every
+generated edge present and `Complete|Closed`, arm state must be
+`CompleteAdvertised`, refusal "armed target cells are incomplete" :844);
+absent-from-map lookups default to `Incomplete` (`target_cell`,
+:956-961). Amendment: §A3 — the constructor's scoped form consumes the
+`AdmittedScopedTargetCells` aggregate, whose map values are the new
+host-side `HostCellDisposition` type; it re-checks at construction that
+`Uncertified` appears for exactly the out-of-scope cells of the carried
+expansion (an in-scope `Uncertified` or out-of-scope `Certified` entry
+refuses), keeps the exhaustiveness refusal, retains the aggregate as
+the single source for introspection (M16) and per-gate projection, and
+keeps absent-from-map as refusal-by-construction. Fixtures F2, F3, F11.
+
+**M14 — typed decision path (scope-transparent in algorithm).**
+Current: `crates/capsec-semantics/src/decision.rs` —
+`TargetCellDisposition` (:395-400), `Incomplete` refuses at a reached
+gate before any lifecycle result (:609-621,
+`DecisionReason::TargetCellIncomplete`), `Closed` denies (:672-683),
+`Complete` passes. Transparency argument: this is exactly why the claim
+is "uncertified," not "refused" — the reached-gate refusal is unchanged
+and uncertified cells project to `Incomplete` at `EffectGate`
+construction via the host-side `HostCellDisposition` type (§A3 —
+type placement settled by this design revision: the new type lives on
+the host side and decision.rs is untouched). Named tension for review
+(§A10 #1): LLP 0044 requires uncertified distinguishable from
+incomplete-by-defect in refusal telemetry; §A3 places the distinction
+in the host-emitted `ibex/capsec-scoped-refusal/1` envelope keyed by
+`coverage_edge_id`. If review instead requires a distinct
+`DecisionReason`, this row flips to scope-validating. Fixtures F3, F4.
+
+**M15 — non-advertisement constructors (scope-transparent; must remain
+incapable).**
+Current: `new_armed_unadvertised_dev` (`src/host/mod.rs:655`),
+`new_armed_insecure` (:695), simulator performance observer (:745),
+`new_armed_for_test` (:885), native module-runner conformance (:931) —
+each synthesizes a complete cell map and `CompleteAdvertised`.
+Transparency argument: none reads an advertisement, so none can mint a
+scope; the amendment adds the F11 fixtures proving they cannot construct
+`ScopedAdvertised` or surface a scope digest. Fixture F11.
+
+**M16 — runtime scope introspection (scope-validating; new).**
+No surface exists today. Amendment: machine-readable exposure of the
+active scope digest and uncertified remainder, schema id reserved as
+`ibex/capsec-scope-introspection/1`, read exclusively from the armed
+Host's retained `AdmittedScopedTargetCells` aggregate (§A3, §A6 iii) —
+the same object every per-gate disposition derives from; absent under
+every M15 constructor and in unarmed/diagnostic modes. Fixture F11
+(both halves).
+
+**M17 — v2 advertisement schema and reader (scope-validating; v2 → v3).**
+Current: `ibex/capsec-target-advertisements/2`
+(`packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs:51`),
+its JSON Schema (`schemas/capsec-target-advertisements-v2.schema.json`),
+the field-by-field publication join (:1037-1108), and the sole
+authority-bearing validator `validatePortablePromotionV2` (:1116).
+"Advertised" semantically means whole-tuple conformant. Amendment:
+schema revision v3 carrying `scopeDigest` and the distinct product term
+"scoped certification"; the reader validates the scope join (or, for
+provenance-only consumers, transparently carries it); `matchingCatalogEntry`
+(:1027) keys stay tuple-based with §A4's uniqueness. Fixtures F1, F5.
+
+**M18 — closed v1 advertisement chain (row group; scope-transparent,
+proven — ownership settled, §A10 #2).**
+Current facts: `generate-capsec-registry.mjs` emits
+`ibex/capsec-target-advertisements/1` from checked attestations
+(`buildTargetAdvertisements`,
+`packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs:1056-1090`,
+schema at :1058; promotions loaded and re-validated at :799-1024;
+publication paths allow-listed at :764-770; doc summary at :529). The
+checked-in file is empty-v1 today. The promotion-lineage verifier pins
+the **artifact-source** copy to exactly empty-v1
+(`scripts/portable-engine-promotion-lineage.mjs:819-826`) and requires
+exactly one target-advertisement blob in an admission (:738) at the
+exact checked path (:789-790). The runtime **refuses** v1 outright
+(`src/host/portable_target_admission.rs:540-544`). Transparency proof
+obligation: the v1 chain carries no scope because it may never carry a
+scoped advertisement at all — F12 pins that a scoped advertisement
+forced into v1 refuses at the registry generator (schema validation),
+the lineage verifier, and the runtime.
+**The complete pin inventory for `capsec/generated/target-advertisements.json`**
+(round-1 revision; the original three-pin list was incomplete), each
+with its disposition under the settled owner (§A10 #2 — the v2/v3
+publication owns the path's bytes at promotion time):
+1. Registry generator v1 emission
+   (`generate-capsec-registry.mjs:1056-1090`, path allow-listed :766) —
+   **retired from this path**: the v1 emission moves to a diagnostic
+   artifact path or is taught to emit the v2/v3 publication bytes
+   verbatim; it never writes v1 bytes to the owned path again.
+2. Lineage-verifier artifact-source pin
+   (`portable-engine-promotion-lineage.mjs:819-826`) — **unchanged**:
+   it constrains the *source revision's* copy (empty-v1 foundation),
+   which stays consistent with v2/v3 bytes at the *current* revision.
+3. Build-time selector
+   (`build_support/portable_engine_promotion_report.rs:23`, schema pin
+   :29) — **unchanged in role**: already requires tracked v2 bytes;
+   revs alongside M17's v2→v3.
+4. Admission unit test
+   `tracked_source_a_legacy_advertisement_stays_closed`
+   (`src/host/portable_target_admission.rs:1866-1880`), which
+   `include_str!`s the tracked file and asserts it refuses as legacy
+   v1 — **becomes a source-revision check or retires**: it fails the
+   moment v2 bytes land at the path, so it must either pin the
+   *artifact-source revision's* copy (lineage-verifier style) or be
+   replaced by the F12 fixtures; framed per the round-1 Fable open
+   question 5, the author picks the form, not the outcome.
+5. Workflow-security test assertion
+   (`scripts/hermes-artifacts-workflow-security.test.mjs:375-384`,
+   `assert.deepEqual(advertisements.advertisements, [])` against the
+   tracked HEAD copy) — **same disposition as pin 4**: source-revision
+   check or retirement; it currently encodes "no target is ever
+   advertised" as a permanent HEAD invariant, which the settled owner
+   invalidates.
+6. Packaging test assertion
+   (`scripts/package-portable-hermes-macos.test.mjs:778-782`) — same
+   disposition as pin 5.
+7. Generated Rust carrier
+   (`src/capsec_registry_generated.rs:12`,
+   `CAPSEC_TARGET_ADVERTISEMENTS_JSON = include_str!(...)`, consumed by
+   `authenticated_target_cells`, `src/host/mod.rs:6738-6742`) —
+   **scope-transparent carrier, stays**: it delivers whatever bytes own
+   the path without interpretation; the registry generator emits this
+   .rs file, so retiring its v1 .json emission (pin 1) must keep the
+   `include_str!` emission intact.
+8. v1 JSON Schema const
+   (`capsec/schema/target-advertisements.schema.json:13`) —
+   **unchanged**: it continues to describe the closed v1 schema for
+   the artifact-source foundation copy and any diagnostic v1 output.
+Fixture F12.
+
+**M19 — promotion-lineage verifier (scope-validating; the lineage
+anchor).**
+Current: `scripts/portable-engine-promotion-lineage.mjs` validates the
+admission catalog, blob roles/counts (:738), artifact-source state
+(:819-826), and that published attestations/advertisements equal the
+verified portable bundle graph (:915-926). The current topology is
+one-shot: exactly one active admission (:686), an empty disabled source
+foundation (:804-826), and one exact two-parent promotion merge
+(:1064-1087). Amendment: the scope artifact and companions join the
+closed member/role set; the verifier resolves the tuple's currently
+admitted scope by the **evolvable discovery walk specified in M27** and
+stamps the result into the checked promotion admission (M27's revised
+schema) so M7's predecessor check has a build-embedded anchor; a bundle
+whose scope predecessor does not equal the lineage-resolved current
+scope fails verification. Fixture F6.
+
+**M20 — `build.rs` report selector (scope-validating; carries).**
+Current: `build.rs:864-877` embeds the selected promoted report;
+`build_support/portable_engine_promotion_report.rs` —
+`select_embedded_report` (:453), `select_report_artifact` (:286),
+`matching_advertisement` (:314-360, keyed on
+sourceRevision/triple/artifactId), `verify_report_advertisement_join`
+(:362). Amendment: the selector carries the scope artifact bytes into
+the build alongside the report (so admission can re-derive without
+repository access), and the advertisement join includes `scopeDigest`
+equality; the selector performs no scope re-derivation itself (that
+authority stays in M7). **Anchor naming (round-1 revision):** the
+runtime lineage anchor is the build-embedded checked promotion
+admission (M27), stamped by the script-time lineage verifier (M19) —
+this row's scope-artifact carriage and M27's anchor are the two
+build-embedded scope inputs M7 joins, and neither is authoritative
+without M7's re-derivation. Fixtures F1, F6.
+
+**M21 — target-cell bytes (scope-validating; binds).**
+Current: `capsec/registry/target-cells.json` (generator
+`generate-capsec-portable-promotion-target-cells.mjs:126`;
+all-unsupported today per LLP 0036) is bound by raw content digest into
+the ceremony bindings (`run-capsec-conformance.mjs:1581-1597`), the
+bundle (`capsec-portable-promotion-bundle.mjs:540-568`,
+`validateTargetCells` in the evidence contract :795), and admission
+binding equality (M7). The candidate derivation refuses
+`conditional-unrefined` edges and non-promotable classifications
+(`derivePortablePromotionTargetCells`,
+`capsec-portable-promotion-bundle.mjs:188-261`). Amendment: the scoped
+candidate cell bytes carry the uncertified disposition for exactly the
+scope artifact's out-of-scope cells; the raw-content digest binding
+chain is unchanged in mechanism and now transitively binds the scope.
+Fixtures F1, F2.
+
+**M22 — fixture catalog / checked report authority (scope-validating as
+re-derivation input).**
+Current: `fixtureCatalogForTarget`
+(`packages/ibex-devtools/src/scripts/capsec-conformance.mjs:304`) is the
+shared source-derived expansion; `checked_report_authority`
+(`src/host/portable_target_admission.rs:1151`) re-derives per-edge
+authority from the embedded implementation manifest. Amendment: the
+full-inventory derivation is **unchanged** (the complete-cell rule needs
+the full per-cell authority intact); scoping is a partition applied
+after derivation, in M2/M7 — this row exists to pin that no scoped
+variant of the catalog derivation itself is ever authored (a scoped
+derivation would silently change per-cell authority and reopen
+partial-cell credit). Fixtures F7, F9.
+
+**M23 — promotion authority artifact (scope-validating; binds).**
+Current: `ibex/capsec-portable-promotion-authority/1`
+(`capsec-portable-engine-evidence-contract.mjs:400`
+`validateAuthority`; joined to the report by `authorityForReport`
+:437). Amendment: the authority entry carries `scopeDigest` so the
+independent authority join (M5/M17 comparisons at :1037-1108) covers the
+scope. Fixture F1.
+
+**M24 — bundle graph verifier (scope-validating; member set).**
+Current: `verify-capsec-portable-promotion-bundle.mjs` —
+`validatePortablePromotionBundleGraph` (:269),
+`verifyPortablePromotionBundleDirectory` (:372) — validates the closed
+bundle member set and manifest joins. Amendment: the scope artifact and
+companion files join the closed member set (an extra or missing scope
+member fails the graph); the verifier does not interpret the scope
+beyond membership and digest joins. Fixture F5.
+
+**M25 — ceremony gate and candidate pointer (scope-validating).**
+Current: the four `checkPromotion` names
+(`run-capsec-conformance.mjs:1878-1899`) and the
+`trackedAdvertisementCandidate` pointer (:1572-1578) into the bundle
+directory's `target-advertisements.json`. Amendment: the four names bind
+to the scoped rules of M2–M4; the ceremony additionally runs the F8
+closure validation over every physical observation. The pointer itself
+is a path and stays mechanical. Fixture F8.
+
+**M26 — Go attestation verifier (scope-transparent).**
+Current: `tools/portable-engine-attestation-verifier/verifier.go`
+(constants :30-56) verifies Sigstore/SLSA provenance of the portable
+engine artifact against pinned trust roots; it consumes no CapSec
+advertisement, report, or cell schema (LLP 0035 keeps build consumption,
+Host target cells, and advertisement loading as separate gates).
+Transparency argument: its signed subject is the engine artifact, not
+the conformance claim; no change unless its signed subject contract
+changes. The earlier claim that it "must surface the scope" was wrong
+and stays withdrawn (LLP 0044 §2).
+
+**M27 — checked promotion-admission chain (scope-validating; the
+lineage-anchor carrier; must-amend). Added by the round-1 revision.**
+This is the artifact that actually crosses the build/runtime boundary
+for lineage facts, and it was missing from the matrix. Current: the
+schema is a closed field set with no scope fields
+(`schemas/portable-engine-checked-promotion-admission-v1.schema.json:7-18`:
+`schema`, `authorized`, `currentRevision`, `sourceRevision`,
+`promotionTopicRevision`, `sourceTreeObjectId`, `targetTriple`,
+`portableArtifactId`, `admissionDigest`, `verificationDigest`, under
+`additionalProperties: false`); the producer is the lineage verifier's
+checked-admission constructor
+(`scripts/portable-engine-promotion-lineage.mjs:1185-1199`, freezing
+exactly those fields plus a domain-separated `verificationDigest`); the
+build carrier writes the bytes into `OUT_DIR` as
+`portable_engine_promotion_admission.json`
+(`build_support/portable_engine_build_consumption.rs:130-139`); the
+Rust parser enforces the same closed key list
+(`src/host/portable_target_admission.rs:613-628`,
+`exact_object_keys`) and `require_checked_promotion` (:639) verifies
+the domain digest before trusting any field.
+**Revised schema (v1 → `ibex/portable-engine-checked-promotion-admission/2`,
+new domain tag for `verificationDigest`; the closed sets in schema,
+producer, and parser all rev together):** two fields join the closed
+set — `admittedScopeDigest` (the tuple's currently admitted
+`scopeDigest`; null exactly when `authorized` is false) and
+`predecessorScopeDigest` (the admitted scope's own predecessor digest,
+the explicit genesis marker for a genesis scope, or null exactly when
+`authorized` is false).
+**The evolvable lineage algorithm (normative; replaces the unstated
+assumption that today's one-shot topology suffices).** Today's topology
+is one-shot — a single active admission, an empty disabled source
+foundation, one exact two-parent promotion merge (M19). Under repeated
+promotions the verifier discovers and authenticates the prior admitted
+scope as follows:
+1. **Per-hop validation is unchanged in kind:** at any revision R
+   examined, the checked catalog must be byte-exact canonical JSON, the
+   single-active-admission rule holds per tuple, and the admission's
+   merge shape is re-verified at R with the same object-hash checks
+   used today (`readGitObject` commit/tree parsing, first parent equals
+   the admitted source revision, topic-tree equality,
+   `sourceTreeObjectId` equality against the independently hashed
+   tree).
+2. **Discovery walk:** starting from the current checkout, the verifier
+   walks the first-parent chain of authenticated Git history and finds
+   the most recent revision R_prev strictly before the current
+   promotion whose tracked catalog carries an admission for the
+   canonical tuple. Each hop is authenticated by the per-hop validation
+   of step 1 re-run at R_prev — the trust root is the authenticated
+   checkout's object store, exactly as today.
+3. **Predecessor resolution:** the lineage-resolved predecessor scope
+   is R_prev's `admittedScopeDigest`; the new scope artifact's
+   predecessor digest must equal it (§A5, F6). If the walk exhausts
+   retained history without finding an admission for the tuple, and
+   only then, a genesis-marked scope is admissible (§A5's genesis
+   search — this walk is that search).
+4. **Stamping:** the verifier writes both digests into the checked
+   admission (the v2 fields above); the build carrier embeds them; M7
+   compares against them at runtime. The script-time verifier is the
+   **authority**; the build-embedded admission is the **anchor**.
+**Whole-checkout-rollback boundary (explicit):** this chain
+authenticates lineage *within* the retained history of the checkout
+that built the binary. Runtime freshness against a binary rebuilt from
+old sources — where the entire checkout, catalog, and embedded chain
+are internally consistent but stale — is **out of this chain's scope**:
+that is build provenance's layer (M26, Sigstore/SLSA subject
+verification), and no field added here claims otherwise. F6 documents
+the same boundary from the fixture side. Fixtures F1, F6.
+
+**M28 — portable execution-binding digest + strict evidence-plan
+parsers (scope-validating; binds). Added by the round-1 revision.**
+Current: `portableExecutionBindingDigest`
+(`packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs:216-235`)
+computes the domain digest over a **closed, hand-enumerated** binding
+field list (sourceRevision … outputDispositionEvidenceRawContentDigest)
+— an added `scopeDigest` binding is silently **ignored** unless this
+list is amended; and two strict Rust plan parsers enforce closed
+binding key sets that would **reject** a plan carrying an unexpected
+scope binding: the portable public-batch parser
+(`src/bin/ibex/engine/capsec_portable_public_batch.rs:183-204`,
+`assert_exact_keys`) and the exact-fixture portable plan parser
+(`src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs:489-508`).
+The two failure modes are opposite (silent non-binding vs. hard
+rejection) and both are wrong. Amendment: the three closed lists rev in
+lockstep with whichever carriage rule §A10 #5 selects — either
+`scopeDigest` joins all three lists as a direct binding, or the rule is
+formally transitive (the scope reaches the binding digest through
+`recipeCatalogDigest`, whose catalog binds `scopeDigest` per M2) and
+all three lists stay untouched **with that transitivity stated and
+machine-checked** (a conformance check asserting the scope artifact is
+digest-reachable from the binding). The rule must be uniform across
+all execution-plan bindings. Fixture F1.
+
+**M29 — physical-promotion workflow (scope-transparent; orchestration).
+Added by the round-1 revision.**
+Current: `.github/workflows/portable-engine-physical-promotion.yml`
+derives promotion target cells, produces output-disposition evidence,
+runs the complete v2 conformance + bundle generation, re-verifies and
+freezes the bundle bytes, and uploads the immutable candidate
+(:372-443). Transparency argument: the workflow is pure orchestration —
+every scope-bearing judgment it triggers is made by the tools it
+invokes (M1 generator, M2/M3 gates via `verify:capsec-conformance`,
+M24's `verify-capsec-portable-promotion-bundle.mjs`), and it neither
+reads nor writes scope fields itself; its inputs/outputs are paths and
+digests. It becomes load-bearing only if a scope input were passed as a
+workflow parameter — the F8 ceremony-closure validation and M24's
+member-set check would catch a bundle whose scope artifact did not come
+from the generator. Fixture F8.
+
+**M30 — report-schema evolution surface (scope-validating; the restamp
+worklist M4 prices). Added by the round-1 revision.**
+Current: both report JSON Schemas close their `bindings` objects with
+`additionalProperties: false`
+(`capsec/schema/conformance-report.schema.json`,
+`schemas/capsec-conformance-report-v2.schema.json`), so M4's
+`scopeDigest` binding cannot land without schema-file changes; and the
+rich v1 report schema id is pinned across the digest-contract chain:
+`packages/ibex-devtools/src/scripts/capsec-contract.mjs:503`
+(`inputSchema`), `capsec/registry/policy-rules.json:255`,
+`crates/capsec-semantics/src/canonical.rs:278` (contract-fixture
+projection table), `crates/capsec-semantics/src/digest.rs:166` (frozen
+projection schema list), plus the checked contract example fixtures.
+Amendment: this is the enumerated restamp surface for M4's binding
+change. The framed decision (§A10 #6): does the rich report **rev its
+schema id** (`ibex/capsec-conformance/1` → a new id, restamping the
+four contract pins once, cleanly) or **evolve in place** (same id, new
+optional-then-required binding, restamping the same pins plus every
+checked example)? Either way the v2 portable report schema revs with
+the bundle (M4/M6), and no report bytes may carry a scope binding the
+schema files do not admit. Fixture F1.
+
+**M31 — installer lineage consumption (scope-transparent). Added by the
+round-1 revision.**
+Current: `scripts/portable-engine-installer-core.mjs` imports the
+lineage verifier (:34) and consumes its checked result reading only
+`authorized`, revisions, `targetTriple` (:470-476) — no advertisement,
+report, cell, or scope field. Transparency argument: the installer
+gates artifact installation on lineage authorization, not on
+conformance claims; the scope fields M27 adds to the checked admission
+pass through it untouched (it never enumerates admission fields). The
+fixture that would catch it becoming load-bearing: F6's
+lineage-verification failures must fail installation identically before
+and after the scope fields exist. Fixture F6.
+
+### A10. Open questions for the review round
+
+**Settled by the round-1 design revision** (recorded here so round 2
+reviews the settlement, not the open question):
+- **Uncertified-disposition type placement** (round-1 Fable MATERIAL 6):
+  settled in §A3 — a new host-side `HostCellDisposition` type inside
+  the `AdmittedScopedTargetCells` aggregate, with `Uncertified`
+  projecting to `TargetCellDisposition::Incomplete` at `EffectGate`
+  construction (`src/host/mod.rs:2844-2846`); decision.rs untouched.
+- **Zero-authoritative-contribution rule** (round-1 Fable open
+  question 1): settled in M7 (normative scoped equalities) and asserted
+  directly by F4.
+- **The host telemetry envelope's existence and shape**
+  (`ibex/capsec-scoped-refusal/1`, §A3): specified; only its
+  sufficiency question remains open as item 1.
+
+1. **Telemetry placement (M14):** host-layer uncertified annotation via
+   the fully specified `ibex/capsec-scoped-refusal/1` envelope keyed by
+   `coverage_edge_id` (§A3; recommended, keeps decision.rs
+   scope-transparent) vs. a new `DecisionReason` variant (flips M14 to
+   scope-validating and touches the wire decision schema). The residual
+   question is exactly whether LLP 0044's "distinguishable in refusal
+   telemetry" is satisfied by host-emitted telemetry when raw
+   typed-decision-stream consumers see identical refusals.
+2. **v1-path ownership (M18) — SETTLED normatively by this revision
+   (both round-1 reviews concurred it was not a genuine equal
+   alternative):** the **v2/v3 publication owns
+   `capsec/generated/target-advertisements.json`** at promotion time.
+   The complete eight-pin inventory with per-pin dispositions is in
+   M18. The only remaining discretion: (a) where the registry
+   generator's retired diagnostic-v1 emission lands, and (b) the form —
+   source-revision check vs. retirement — of the three test-assertion
+   pins (M18 pins 4–6, framed per round-1 Fable open question 5); the
+   outcome (they stop asserting HEAD-copy emptiness) is not
+   discretionary.
+3. **Scope artifact placement in the bundle vs. repository:** M20
+   assumes the scope artifact rides the bundle and is embedded at build
+   time; the alternative (checked-in beside `target-attestations.json`)
+   changes M19's mechanics. The anchor question this item previously
+   left implicit is now settled by M27 (the checked promotion admission
+   carries the lineage-resolved digests; the script-time verifier
+   stamps them), so this item narrows to confirming the recommended
+   placement: bundle-carried, with the lineage recording its digest.
+4. **`TargetArmState` payload:** `ScopedAdvertised` carrying the scope
+   identity makes the enum non-`Copy`
+   (`crates/capsec-semantics/src/decision.rs:52-56` derives `Copy`
+   today); the alternative is the Host retaining the
+   `AdmittedScopedTargetCells` aggregate with the enum carrying only
+   the marker. Either representation is reviewable, but **only an
+   opaque admission aggregate with atomic construction is acceptable**
+   — an independently mutable parallel Host record is not
+   security-equivalent (§A3); state and identity must be inseparable at
+   construction.
+5. **Execution-binding carriage rule (M28; new, from round 1):** does
+   `scopeDigest` join `portableExecutionBindingDigest` and both strict
+   Rust plan parsers' closed key lists as a **direct** binding, or is
+   carriage **formally transitive** through `recipeCatalogDigest`
+   (whose catalog binds the scope per M2), stated and machine-checked?
+   Whichever rule is chosen must be uniform across every
+   execution-plan binding.
+6. **Report-schema evolution (M30; new, from round 1):** does the rich
+   v1 report **rev its schema id**, restamping the four
+   digest-contract pins once, or **evolve in place** under
+   `ibex/capsec-conformance/1` with the same pins plus the checked
+   examples restamped? M4 is not implementable until this is decided.
+7. **Tuple migration (new, from round 1; references deferred register
+   item 7):** any feature-list change creates a fresh tuple and hence a
+   legitimate fresh genesis — the one narrowing-shaped move the
+   per-tuple chain permits (§A5). Does genesis admission additionally
+   refuse while a *prefix tuple* (same triple, different feature list)
+   has a live scope, or is the fresh-genesis lane accepted as-is with
+   the claim's honesty resting on the tuple being part of the
+   authenticated identity?
+8. **Total-scope end state (new, from round 1):** when a scope
+   eventually expands to the full inventory, does the tuple stay
+   `ScopedAdvertised` with a total scope, or re-enter
+   `CompleteAdvertised`? M12 makes the two mutually non-constructible
+   per admission result; stating the end-state intent now prevents a
+   future "graduation" shortcut from being improvised at
+   implementation time.

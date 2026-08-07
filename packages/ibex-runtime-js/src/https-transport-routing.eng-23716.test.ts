@@ -13,6 +13,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const httpMod = require('node:http');
 const https = require('../../../src/builtins/https.js');
+const nodeHttp = require('node:http');
 
 const realPlatform = process.platform;
 const realHttpRequest = httpMod.request;
@@ -23,6 +24,32 @@ function setPlatform(platform: string) {
 }
 
 describe('https transport routing (ENG-23716)', () => {
+  test('does not forward adapter-materialized primordial properties under lockdown', () => {
+    const modulePath = require.resolve('../../../src/builtins/https.js');
+    const prototypeDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'toString')!;
+    const httpDescriptor = Object.getOwnPropertyDescriptor(nodeHttp, 'toString');
+    try {
+      Object.defineProperty(nodeHttp, 'toString', {
+        value: Object.prototype.toString,
+        writable: false,
+        enumerable: false,
+        configurable: true,
+      });
+      Object.defineProperty(Object.prototype, 'toString', {
+        ...prototypeDescriptor,
+        writable: false,
+      });
+      delete (require as any).cache[modulePath];
+      const lockedDownHttps = require(modulePath);
+      expect(Object.hasOwn(lockedDownHttps, 'toString')).toBe(false);
+    } finally {
+      Object.defineProperty(Object.prototype, 'toString', prototypeDescriptor);
+      if (httpDescriptor === undefined) delete nodeHttp.toString;
+      else Object.defineProperty(nodeHttp, 'toString', httpDescriptor);
+      delete (require as any).cache[modulePath];
+    }
+  });
+
   let httpRequestCalls: any[];
 
   beforeEach(() => {

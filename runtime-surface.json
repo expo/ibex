@@ -8,6 +8,7 @@
     "repl",
     "build",
     "compile",
+    "compile-app",
     "inspect-executable",
     "completions",
     "version",
@@ -128,6 +129,11 @@
         },
         {
           "commandPath": "ibex",
+          "argumentId": "runtime_cache_dir",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex",
           "argumentId": "stack_size",
           "parserKind": "utf8-string"
         },
@@ -193,6 +199,26 @@
         },
         {
           "commandPath": "ibex compile",
+          "argumentId": "output",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "binding",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "compile_policy",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "entry",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
           "argumentId": "output",
           "parserKind": "os-path"
         },
@@ -992,6 +1018,27 @@
             }
           },
           {
+            "id": "runtime_cache_dir",
+            "names": [
+              "--runtime-cache-dir"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "DIR"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
             "id": "stack_size",
             "names": [
               "--stack-size"
@@ -1649,6 +1696,122 @@
               "defaultValues": [
                 "hbc"
               ],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "compile_policy",
+            "names": [
+              "--policy"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "FILE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "deny_unsupported",
+            "names": [
+              "--deny-unsupported"
+            ],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": [
+                "DENY_UNSUPPORTED"
+              ],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "output",
+            "names": [
+              "--output",
+              "-o"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": [
+                "OUTPUT"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ],
+        "positionals": [
+          {
+            "id": "entry",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": [
+                "ENTRY"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex compile-app",
+        "options": [
+          {
+            "id": "binding",
+            "names": [
+              "--binding"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": [
+                "BINDING"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
               "defaultMissingValues": [],
               "allowHyphenValues": false
             }

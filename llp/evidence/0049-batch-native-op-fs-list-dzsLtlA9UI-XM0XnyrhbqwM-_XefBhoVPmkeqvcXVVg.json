@@ -1,0 +1,68 @@
+{
+ "measurement": "llp-0049-phase2-calibration-class-2-batch",
+ "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9",
+ "templateClass": "surface.native.op × [fs:list] — the two direct-list cells (partial class: 10 of the class's 29 rows)",
+ "sourceRevision": "6416114d607f3c673ae6024258ade6328ac4508d (uncommitted working tree)",
+ "date": "2026-08-06",
+ "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, primary checkout, aarch64-apple-darwin)",
+ "baselineCatalogDigest": "sha256-5EaSZqHyeHyZJ-kTorqcdNdYgBW-3wBtmZBbsIu4aV8 (the class-1 candidate — tranches chain)",
+ "candidateCatalogDigest": "sha256-dzsLtlA9UI-XM0XnyrhbqwM-_XefBhoVPmkeqvcXVVg",
+ "declaredAllowListDigest": "sha256-RRmRhNWIHep-NPrJxfoqBMZtyr6iT2QeOsY_avktz64",
+ "allowList": "llp/evidence/0049-allow-list-class-native-op-fs-list.json",
+ "commands": [
+  "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fs-list.json --output <candidate>",
+  "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fs-list.json",
+  "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+  "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+  "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+ ],
+ "gates": {
+  "routeEvidenceDiff": "PASS (exit 0); residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -10, native-public-arguments-not-authored -10; lane cell counts unchanged (B 528 / C 1327 / D 32)",
+  "terminalEvidenceDiff": "PASS (exit 0); changedCellCount 0",
+  "batchPrimary": "PASS (exit 0), 291 fixtures, 73.18 s",
+  "batchSecondary": "PASS (exit 0), 83.50 s"
+ },
+ "rowsClosed": 10,
+ "cells": [
+  "surface.native.op.exactaccess.1a12cmn (5 rows: allow, deny, malformed, missing-attribution, wrong-principal)",
+  "surface.native.op.exactopendir.0eh7ha4 (5 rows: allow, deny, malformed, missing-attribution, wrong-principal)"
+ ],
+ "classRemainder": "The class's other three cells — surface.native.op.exactfsfstatsync.1md7g19, surface.native.op.exactfspathasync.10cb78b, surface.native.op.exactfsstatasync.0b0hr8s — are retained-descriptor and async-branch shapes and are NOT closed by this tranche. exactfsfstatsync's single remaining row is a deny scenario whose denial would also refuse its own __exactFsOpen setup (same resource, same capability), so it is not expressible under the current setup-floor mechanism; that is a real obstacle, not an omission.",
+ "catalogDelta": {
+  "fullyExecutableFixtures": "3932 → 3942",
+  "unresolvedFixtures": "15449 → 15439"
+ },
+ "observedTypedSequence": {
+  "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). The opendir guess of seven decisions (the single-component opendirSync shape) was WRONG; the batch named the mismatch and the observed nine were pinned.",
+  "__exactAccess": {
+   "arguments": ["Cargo.toml", 0],
+   "allow": ["requested", "discovery", "requested", "repeat", "repeat", "repeat"],
+   "deny": ["requested"]
+  },
+  "__exactOpendir": {
+   "arguments": ["llp/evidence"],
+   "allow": ["requested", "discovery", "requested", "repeat", "requested", "repeat", "repeat", "repeat", "repeat"],
+   "deny": ["requested"]
+  },
+  "d1AndD2Confirmation": "Every observed decision carries the DECLARED capability fs:list, so D2's surplus-capability rule is not engaged at all (there is no surplus). The extra requested/repeat pair in the opendir sequence is the parent-component `llp` walk — a proper path prefix of the floor selector — which the executor credits to ambient-mount authority via uses_ambient_project_prefix_authority (capsec_conformance_batch.rs), exactly D1's narrow traversal predicate. The operation's own decisions resolve on the authored static floor."
+ },
+ "correctionLoop": [
+  {
+   "iteration": 1,
+   "failure": "batch FAILED loudly at capsec_conformance_batch.rs:1974 — __exactAccess and __exactOpendir were absent from the reviewed allow-list of natives permitted to raise the 'filesystem policy denied' fragment",
+   "resolution": "added both to that list, verified against the refusal site (src/engine/hermes_runtime_fs.cc:1288, :2370, :2409 — both surfaces refuse through openArmedListTarget / throwFsAsyncResult, the same EACCES refusal as the natives already listed)"
+  },
+  {
+   "iteration": 2,
+   "failure": "batch FAILED loudly: 'enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h.allow: runtime typed stages disagree with the public recipe' — observed nine decisions, recipe pinned seven",
+   "resolution": "pinned the observed nine-decision sequence (the D3 loop working exactly as documented — a hand-authored guess from the sibling single-component shape was wrong)"
+  }
+ ],
+ "timings": {
+  "authoringWallClockMinutes": 26,
+  "correctionLoopIterations": 2,
+  "batchPrimarySeconds": 73.18,
+  "batchSecondarySeconds": 83.5,
+  "catalogRegenSeconds": 11
+ }
+}

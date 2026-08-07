@@ -5,6 +5,9 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-06 (points the bridge's native-or-absent behavior and
+teardown queue mechanics to LLP 0050 as the finalization-semantics authority)
+**Revised:** 2026-08-03 (isolates the optional app-host Rust-kernel imports in their own static-archive member so standalone desktop links do not acquire them)
 **Revised:** 2026-07-27 (adds the restricted consumer construction path, its one-way post-bootstrap/pre-publication Hermes dynamic-code latch while preserving host-selected `ex_hermes_eval`, and native asynchronous-failure checkpoints without reviving handler-reachable Promise observers)
 **Revised:** 2026-07-25 (LLP 0040 replaces the retired WebGPU-specific mailbox and activation bundle with the generic runtime-extension registry, fixed install phase, owner executor, completion tokens, and package-owned authenticated bootstrap inputs)
 **Revised:** 2026-07-25 (historical: separated the core bundle from an Ibex-owned WebGPU activation bundle; superseded by LLP 0040)
@@ -18,7 +21,7 @@ its generated async wrappers consistently on every supported host)
 **Revised:** 2026-07-18 (the Windows native smoke consumes the installed TCP
 bridge after structural lockdown has eagerly run and sealed its private lazy
 installer); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
-**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
+**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner); LLP 0050 (JS and native finalization semantics)
 
 ## Summary
 
@@ -229,6 +232,8 @@ otherwise classify every supported Hermes artifact as FinalizationRegistry-
 capable. The absence branch evaluates both authored production sources with the
 global absent, then constructs and explicitly revokes a real `FsHandle` rather
 than substituting a test-owned wrapper `[observed]` (`src/engine/mod.rs`).
+LLP 0050 is the authority for the JS weak-callback, native finalizer-queue,
+refusal-ownership, and teardown semantics summarized here.
 
 ## The event loop
 
@@ -592,9 +597,23 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | DNS | `hermes_runtime_dns.cc` | resolver |
 | SQLite | `hermes_runtime_sqlite.cc` | bridges to rusqlite via `ex_host_sqlite_*` |
 | Console/IPC/timers | `hermes_runtime_console.cc`, `_ipc.cc`, `_timers.cc` | |
-| OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
+| OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc`, `hermes_runtime_kernel_bridge.cc` | The kernel bridge is an optional app-host archive member; see below. |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
 | Native runtime extensions | `hermes_runtime_extension.cc` | generic descriptor validation, fixed-phase installation, operation membrane, owner callbacks, lifecycle, and optional keyed external buffers; feature-specific providers live in embedder packages |
+
+### App-host kernel bridge is a separate archive member
+
+The `ex_hermes_set_kernel_handle` implementation imports the Exact app host's
+Rust-kernel ABI (`exact_get_layout`, `exact_hit_test`, and related inspection
+functions). Those imports are optional for Ibex's standalone CLI. Static
+linkers select archive members as a unit, so keeping that implementation in
+the same object as the ordinary dispatch and module-event callbacks made MSVC
+pull the optional imports into standalone test and executable links. The build
+therefore compiles the kernel bridge through
+`hermes_runtime_kernel_bridge.cc` as its own archive member. App hosts that
+call `ex_hermes_set_kernel_handle` still select the member and must supply the
+kernel ABI; standalone executables do not select it and have no kernel-crate
+link dependency.
 
 The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
 Foundation/NSURLSession implementations `[observed]`

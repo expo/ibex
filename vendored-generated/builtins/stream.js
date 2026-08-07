@@ -1801,9 +1801,14 @@ Readable.prototype[Symbol.asyncIterator] = function(options) {
 function makeError(Constructor, code, message) {
 	var err = new Constructor(message);
 	err.code = code;
-	err.toString = function() {
-		return this.name + " [" + this.code + "]: " + this.message;
-	};
+	Object.defineProperty(err, "toString", {
+		value: function() {
+			return this.name + " [" + this.code + "]: " + this.message;
+		},
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
 	return err;
 }
 var _streamOperatorEmpty = {};

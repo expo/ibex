@@ -1,6 +1,6 @@
 # Observer test delay/hold injection rides process-global env vars, so parallel runs race
 
-**Status:** Open
+**Status:** Resolved
 **Severity:** P3
 **Systems:** Testing, Engine
 **Author:** Claude (Fable 5), directed by Charlie Cheever

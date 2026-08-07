@@ -2,9 +2,10 @@
 //! base snapshot.
 //!
 //! The C shim copies raw `environ` entries before constructors owned by this
-//! image, replaces the real environment with the contract-generated allowlist,
-//! and exposes the immutable copy here. Broker projection is first-wins and
-//! records names that cannot enter CapSec's canonical environment vocabulary.
+//! image. Ambient boot leaves the inherited environment installed; CapSec boot
+//! replaces it with the contract-generated allowlist. Both expose the immutable
+//! copy here. Broker projection is first-wins and records names that cannot
+//! enter CapSec's canonical environment vocabulary.
 //! @ref LLP 0029#4-compiled-mode-authority
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,6 +21,14 @@ unsafe extern "C" {
     fn ibex_compiled_environment_snapshot_entry(index: usize) -> *const c_char;
     fn ibex_compiled_environment_scrubbed_count() -> usize;
     fn ibex_compiled_environment_restored_count() -> usize;
+    fn ibex_compiled_boot_mode() -> i32;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompiledBootMode {
+    AmbientCompatibility,
+    CapsecRequested,
+    InformationRequested,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +39,7 @@ pub struct RejectedEnvironmentEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledEnvironmentSnapshot {
+    pub boot_mode: CompiledBootMode,
     pub raw_entries: Vec<Vec<u8>>,
     pub broker_base: BTreeMap<EnvironmentName, Vec<u8>>,
     pub duplicate_names: Vec<EnvironmentName>,
@@ -60,6 +70,12 @@ pub fn captured_environment() -> Result<CompiledEnvironmentSnapshot> {
     if probe_state != 1 {
         bail!("compiled environment constructor-order probe failed with state {probe_state}");
     }
+    let boot_mode = match unsafe { ibex_compiled_boot_mode() } {
+        1 => CompiledBootMode::AmbientCompatibility,
+        2 => CompiledBootMode::CapsecRequested,
+        3 => CompiledBootMode::InformationRequested,
+        state => bail!("compiled pre-init boot-mode selection failed with state {state}"),
+    };
     let count = unsafe { ibex_compiled_environment_snapshot_count() };
     let mut raw_entries = Vec::with_capacity(count);
     for index in 0..count {
@@ -80,6 +96,7 @@ pub fn captured_environment() -> Result<CompiledEnvironmentSnapshot> {
         bail!("compiled environment scrub/restore counts do not cover the captured snapshot");
     }
     Ok(project_environment_entries(
+        boot_mode,
         raw_entries,
         scrubbed_count,
         restored_count,
@@ -87,6 +104,7 @@ pub fn captured_environment() -> Result<CompiledEnvironmentSnapshot> {
 }
 
 fn project_environment_entries(
+    boot_mode: CompiledBootMode,
     raw_entries: Vec<Vec<u8>>,
     scrubbed_count: usize,
     restored_count: usize,
@@ -127,6 +145,7 @@ fn project_environment_entries(
         broker_base.insert(name, entry[separator + 1..].to_vec());
     }
     CompiledEnvironmentSnapshot {
+        boot_mode,
         raw_entries,
         broker_base,
         duplicate_names,
@@ -143,6 +162,7 @@ mod tests {
     #[test]
     fn broker_projection_is_first_wins_and_records_unrepresentable_names() {
         let snapshot = project_environment_entries(
+            CompiledBootMode::CapsecRequested,
             vec![
                 b"VALID_NAME=first".to_vec(),
                 b"VALID_NAME=second".to_vec(),
@@ -170,6 +190,8 @@ mod tests {
             snapshot.scrubbed_count + snapshot.restored_count,
             snapshot.raw_entries.len()
         );
-        assert_eq!(std::env::vars_os().count(), snapshot.restored_count);
+        assert_eq!(snapshot.boot_mode, CompiledBootMode::AmbientCompatibility);
+        assert_eq!(snapshot.scrubbed_count, 0);
+        assert_eq!(snapshot.restored_count, snapshot.raw_entries.len());
     }
 }

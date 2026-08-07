@@ -3793,10 +3793,9 @@ Object.defineProperty(X509Certificate.prototype, 'raw', {
 });
 
 var x509CertificateToString = function() { return this._pem; };
-X509Certificate.prototype.toString = x509CertificateToString;
 // Lazy builtin evaluation runs after primordial prototypes are locked down.
-// Define the own override directly so Object.prototype.toString being
-// non-writable cannot make the sloppy assignment above disappear.
+// Define the own override directly; a compiled CommonJS factory may be strict,
+// so assignment through frozen Object.prototype.toString would throw.
 // @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
 Object.defineProperty(X509Certificate.prototype, 'toString', {
   value: x509CertificateToString,

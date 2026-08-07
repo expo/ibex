@@ -230,7 +230,41 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         >,
         computed_candidate_sites: ComputedCandidateSiteMap,
     ) -> Result<Self, GraphError> {
-        Self::new_typed_with_call_time_deferred(records, computed_candidate_sites, BTreeSet::new())
+        let records = records.into_iter().collect::<Vec<_>>();
+        let mut bootstrap_internal_commonjs_requires = BTreeMap::new();
+        for (artifact, _) in &records {
+            let semantics = &artifact.artifact().semantics;
+            if semantics.source_goal != SourceGoalV1::Builtin {
+                continue;
+            }
+            let specifiers = semantics
+                .static_edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    StaticEdgeV1::CommonJsRequire { specifier }
+                        if super::is_bootstrap_internal_module_specifier(specifier.as_str()) =>
+                    {
+                        Some(specifier.as_str().to_owned())
+                    }
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>();
+            if !specifiers.is_empty() {
+                bootstrap_internal_commonjs_requires
+                    .insert(semantics.source_id.0.clone(), specifiers);
+            }
+        }
+        // Release envelopes authenticate the builtin artifact semantics and
+        // runtime identity, so the sealed bootstrap-only edge set is derived
+        // here instead of being serialized as an application graph binding.
+        // @ref LLP 0004#one-source-many-specifiers
+        Self::new_typed_with_private_commonjs_edges(
+            records,
+            computed_candidate_sites,
+            BTreeSet::new(),
+            BTreeSet::new(),
+            bootstrap_internal_commonjs_requires,
+        )
     }
 
     /// Build the static closure while retaining authenticated dynamic-site
@@ -1962,6 +1996,12 @@ mod tests {
             vec![StaticEdgeV1::CommonJsRequire {
                 specifier: name("internal/test/binding"),
             }],
+        );
+        let derived_bootstrap_plan =
+            SynchronousGraphPlan::new_typed([(verify(&bootstrap_owner), BTreeMap::new())]).unwrap();
+        assert_eq!(
+            derived_bootstrap_plan.bootstrap_internal_commonjs_requires(&bootstrap_owner_id),
+            BTreeSet::from(["internal/test/binding".to_owned()])
         );
         let bootstrap_plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
             [(verify(&bootstrap_owner), BTreeMap::new())],

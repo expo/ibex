@@ -3870,34 +3870,78 @@ function isJavaScriptFunctionNode(node) {
   );
 }
 
-function walkDirectFunctionBody(functionNode, visitor) {
-  const root = functionNode?.body;
-  if (!root) return;
-  const stack = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node || typeof node !== "object") continue;
-    if (node !== root && isJavaScriptFunctionNode(node)) continue;
-    if (typeof node.type === "string") visitor(node);
-    for (const [key, value] of Object.entries(node)) {
-      if (
-        key === "comments" ||
-        key === "errors" ||
-        key === "extra" ||
-        key === "loc" ||
-        key === "start" ||
-        key === "end"
-      ) {
-        continue;
+const AST_METADATA_KEYS = new Set([
+  "comments",
+  "end",
+  "errors",
+  "extra",
+  "loc",
+  "start",
+]);
+
+function pushAstChildren(stack, node) {
+  for (const [key, value] of Object.entries(node)) {
+    if (AST_METADATA_KEYS.has(key)) continue;
+    if (Array.isArray(value)) {
+      for (let index = value.length - 1; index >= 0; index -= 1) {
+        stack.push(value[index]);
       }
-      if (Array.isArray(value)) {
-        for (let index = value.length - 1; index >= 0; index -= 1)
-          stack.push(value[index]);
-      } else if (value && typeof value === "object") {
-        stack.push(value);
-      }
+    } else if (value && typeof value === "object") {
+      stack.push(value);
     }
   }
+}
+
+// @ref LLP 0046#33-timer-admission-is-negative-valued — a source-proven
+// callback argument is part of the conservative route, while the scheduling
+// call itself remains an unresolved marker until separately admitted.
+function walkDirectFunctionBody(
+  functionNode,
+  visitor,
+  resolveCallbackIdentifier = null,
+) {
+  const visitedFunctions = new Set();
+  const walkFunction = (currentFunction, isCallbackArgument = false) => {
+    if (!currentFunction || visitedFunctions.has(currentFunction)) return;
+    visitedFunctions.add(currentFunction);
+    const root = currentFunction.body;
+    if (!root) return;
+    const callbackFunctions = (argument) => {
+      if (callbackFunction(argument)) return [argument];
+      if (argument?.type === "Identifier") {
+        return resolveCallbackIdentifier?.(argument) ?? [];
+      }
+      if (argument?.type === "ConditionalExpression") {
+        return [
+          ...callbackFunctions(argument.consequent),
+          ...callbackFunctions(argument.alternate),
+        ];
+      }
+      if (argument?.type === "LogicalExpression") {
+        return [
+          ...callbackFunctions(argument.left),
+          ...callbackFunctions(argument.right),
+        ];
+      }
+      return [];
+    };
+    const stack = [root];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== "object") continue;
+      if (node !== root && isJavaScriptFunctionNode(node)) continue;
+      if (typeof node.type === "string") visitor(node, isCallbackArgument);
+      if (node.type === "CallExpression" && resolveCallbackIdentifier) {
+        for (const argument of node.arguments ?? []) {
+          for (const callback of callbackFunctions(argument)) {
+            walkFunction(callback, true);
+          }
+        }
+      }
+      pushAstChildren(stack, node);
+    }
+  };
+  walkFunction(functionNode);
 }
 
 function javascriptFunctionDefinitions(program) {
@@ -3975,6 +4019,44 @@ export function scanStaticBuiltinExports(
     );
   }
   const program = parseJavaScript(text, sourcePath);
+  const callbackBindings = javascriptLexicalBindingIndex(program);
+  const callbackAssignments = new Map();
+  walkAst(program, (node) => {
+    if (
+      node.type !== "AssignmentExpression" ||
+      node.operator !== "=" ||
+      node.left?.type !== "Identifier" ||
+      !callbackFunction(node.right)
+    ) {
+      return;
+    }
+    const binding = callbackBindings.resolve(node.left);
+    if (!binding) return;
+    let assignments = callbackAssignments.get(binding);
+    if (!assignments) {
+      assignments = [];
+      callbackAssignments.set(binding, assignments);
+    }
+    assignments.push(node.right);
+  });
+  const callbackDefinitionForIdentifier = (identifier) => {
+    const binding = callbackBindings.resolve(identifier);
+    if (!binding) return [];
+    if (
+      binding.kind === "function-declaration" ||
+      binding.kind === "function-expression-name"
+    ) {
+      return binding.writes === 0 ? [binding.node] : [];
+    }
+    if (
+      binding.node?.type === "VariableDeclarator" &&
+      callbackFunction(binding.node.init)
+    ) {
+      return binding.writes === 0 ? [binding.node.init] : [];
+    }
+    const assignments = callbackAssignments.get(binding) ?? [];
+    return binding.writes === 1 && assignments.length === 1 ? assignments : [];
+  };
   const {
     arrays: staticArrays,
     bindings: staticBindings,
@@ -4438,7 +4520,32 @@ export function scanStaticBuiltinExports(
     return { name };
   };
 
+  const directRouteMemo = new Map();
   const routeMemo = new Map();
+  const shortestPath = (paths) =>
+    uniqueSorted(paths).sort(
+      (left, right) =>
+        left.length - right.length || compareText(left, right),
+    )[0];
+  const representativeTerminalPaths = (paths) => {
+    // Callback expansion can multiply equivalent route paths. Keep one
+    // deterministic witness per terminal in the expanded memo; the complete
+    // pre-callback route is merged back into each export below.
+    const byTerminal = new Map();
+    for (const routePath of paths) {
+      const terminal = routePath.slice(routePath.lastIndexOf(" -> ") + 4);
+      const current = byTerminal.get(terminal);
+      if (
+        !current ||
+        routePath.length < current.length ||
+        (routePath.length === current.length &&
+          compareText(routePath, current) < 0)
+      ) {
+        byTerminal.set(terminal, routePath);
+      }
+    }
+    return uniqueSorted(byTerminal.values());
+  };
   const intrinsicGlobalCalls = new Set([
     "BigInt",
     "Boolean",
@@ -4482,15 +4589,22 @@ export function scanStaticBuiltinExports(
       moduleSpecifier: binding.moduleSpecifier,
     };
   };
-  const routeForCallable = (name, active = new Set()) => {
-    if (routeMemo.has(name)) return routeMemo.get(name);
+  const callableNodesForName = (name) =>
+    name.includes(".")
+      ? (qualifiedCallableDefinitions.get(name) ?? [])
+      : (callableDefinitionsByName.get(name) ?? []).map((row) => row.node);
+  const routeForCallable = (
+    name,
+    active = new Set(),
+    includeCallbackArguments = true,
+  ) => {
+    const memo = includeCallbackArguments ? routeMemo : directRouteMemo;
+    if (memo.has(name)) return memo.get(name);
     if (active.has(name)) {
       return { ambiguous: [], dependencies: [], paths: [], terminals: [] };
     }
     const qualified = name.includes(".");
-    const definitions = qualified
-      ? (qualifiedCallableDefinitions.get(name) ?? [])
-      : (callableDefinitionsByName.get(name) ?? []).map((row) => row.node);
+    const definitions = callableNodesForName(name);
     if (definitions.length === 0 || (!qualified && definitions.length > 1)) {
       const result = {
         ambiguous:
@@ -4507,7 +4621,7 @@ export function scanStaticBuiltinExports(
         dependencies: [],
         terminals: [],
       };
-      routeMemo.set(name, result);
+      memo.set(name, result);
       return result;
     }
     const nextActive = new Set(active);
@@ -4658,11 +4772,26 @@ export function scanStaticBuiltinExports(
       }
     };
     for (const definition of definitions) {
+      // Preserve direct-call discovery before adding deferred edges. Freezing
+      // that route below prevents callback-introduced cycles from erasing it.
       walkDirectFunctionBody(definition, analyzeDefinition);
+      if (includeCallbackArguments) {
+        walkDirectFunctionBody(
+          definition,
+          (node, isCallbackArgument) => {
+            if (isCallbackArgument) analyzeDefinition(node);
+          },
+          callbackDefinitionForIdentifier,
+        );
+      }
     }
     const ambiguous = new Set(directAmbiguities);
     for (const callee of calleeNames) {
-      const route = routeForCallable(callee, nextActive);
+      const route = routeForCallable(
+        callee,
+        nextActive,
+        includeCallbackArguments,
+      );
       for (const terminal of route.terminals) terminalNames.add(terminal);
       for (const routePath of route.paths) {
         routePaths.add(`${name} -> ${routePath}`);
@@ -4690,7 +4819,9 @@ export function scanStaticBuiltinExports(
         .map((dependency) => ({
           exportName: dependency.exportName,
           moduleSpecifier: dependency.moduleSpecifier,
-          paths: uniqueSorted(dependency.paths),
+          paths: includeCallbackArguments
+            ? [shortestPath(dependency.paths)].filter(Boolean)
+            : uniqueSorted(dependency.paths),
         }))
         .sort((left, right) =>
           compareText(
@@ -4698,10 +4829,12 @@ export function scanStaticBuiltinExports(
             `${right.moduleSpecifier}\u0000${right.exportName}`,
           ),
         ),
-      paths: uniqueSorted(routePaths),
+      paths: includeCallbackArguments
+        ? representativeTerminalPaths(routePaths)
+        : uniqueSorted(routePaths),
       terminals: uniqueSorted(terminalNames),
     };
-    routeMemo.set(name, result);
+    memo.set(name, result);
     return result;
   };
 
@@ -4711,7 +4844,10 @@ export function scanStaticBuiltinExports(
   // following a factory argument would let an unrelated constructor invent a
   // route.  Recover only factories that provably return a locally declared
   // callable and whose returned callable invokes a callable parameter.
-  const routeForReturnedCallableFactory = (call) => {
+  const routeForReturnedCallableFactory = (
+    call,
+    includeCallbackArguments = true,
+  ) => {
     if (
       call?.callee?.type !== "Identifier" ||
       (callableDefinitionsByName.get(call.callee.name) ?? []).length !== 1
@@ -4789,7 +4925,7 @@ export function scanStaticBuiltinExports(
           if (target) {
             mergeRoute(
               `${factoryName} -> ${label} -> parameter:${node.callee.name}`,
-              routeForCallable(target),
+              routeForCallable(target, new Set(), includeCallbackArguments),
             );
             return;
           }
@@ -4806,7 +4942,11 @@ export function scanStaticBuiltinExports(
           }
           mergeRoute(
             `${factoryName} -> ${label}`,
-            routeForCallable(node.callee.name),
+            routeForCallable(
+              node.callee.name,
+              new Set(),
+              includeCallbackArguments,
+            ),
           );
           return;
         }
@@ -4843,7 +4983,7 @@ export function scanStaticBuiltinExports(
       if (!target) return null;
       mergeRoute(
         `${factoryName} -> returned-parameter:${value.name}`,
-        routeForCallable(target),
+        routeForCallable(target, new Set(), includeCallbackArguments),
       );
     }
     if (
@@ -4872,31 +5012,48 @@ export function scanStaticBuiltinExports(
     };
   };
 
-  const routeForExport = (exportName) => {
+  const routeForExport = (exportName, includeCallbackArguments = true) => {
     const segments = exportName.split(".");
     const rootName = segments[0];
     const exactBindings = bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName);
     const rootBindings = bindings.get(ROOT_EXPORT_OBJECT)?.get(rootName);
     const routes = [];
     for (const localName of exactBindings ?? []) {
-      routes.push(routeForCallable(localName));
+      routes.push(
+        routeForCallable(localName, new Set(), includeCallbackArguments),
+      );
     }
     for (const call of callValuedBindings
       .get(ROOT_EXPORT_OBJECT)
       ?.get(exportName) ?? []) {
-      const route = routeForReturnedCallableFactory(call);
+      const route = routeForReturnedCallableFactory(
+        call,
+        includeCallbackArguments,
+      );
       if (route) routes.push(route);
     }
     if (routes.length === 0 && segments.length > 1) {
       const methodName = segments.at(-1);
       for (const owner of rootBindings ?? []) {
-        routes.push(routeForCallable(`${owner}.${methodName}`));
+        routes.push(
+          routeForCallable(
+            `${owner}.${methodName}`,
+            new Set(),
+            includeCallbackArguments,
+          ),
+        );
       }
     }
     if (routes.length === 0) {
       for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ??
         []) {
-        routes.push(routeForCallable(`${owner}.${exportName}`));
+        routes.push(
+          routeForCallable(
+            `${owner}.${exportName}`,
+            new Set(),
+            includeCallbackArguments,
+          ),
+        );
       }
     }
     const terminals = uniqueSorted(routes.flatMap((route) => route.terminals));
@@ -4942,6 +5099,45 @@ export function scanStaticBuiltinExports(
       terminals,
     };
   };
+
+  const mergeEnforcementRoutes = (routes) => {
+    const dependencies = new Map();
+    for (const route of routes.filter(Boolean)) {
+      for (const dependency of route.dependencies ?? []) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let paths = dependencies.get(key)?.paths;
+        if (!paths) {
+          paths = new Set();
+          dependencies.set(key, { ...dependency, paths });
+        }
+        for (const dependencyPath of dependency.paths) {
+          paths.add(dependencyPath);
+        }
+      }
+    }
+    return {
+      ambiguous: uniqueSorted(
+        routes.flatMap((route) => route?.ambiguous ?? []),
+      ),
+      dependencies: [...dependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
+      paths: uniqueSorted(routes.flatMap((route) => route?.paths ?? [])),
+      terminals: uniqueSorted(
+        routes.flatMap((route) => route?.terminals ?? []),
+      ),
+    };
+  };
+  const directEnforcementRoutes = new Map();
 
   walkAst(program, (node) => {
     if (
@@ -5037,6 +5233,49 @@ export function scanStaticBuiltinExports(
           target:
             candidate.left.object?.type === "Identifier"
               ? candidate.left.object.name
+              : null,
+        });
+      }
+      // A locked inherited prototype member cannot be shadowed with an
+      // assignment from strict CommonJS. Accept the equivalent closed-table
+      // descriptor copy used by Buffer's lazy initialization, while retaining
+      // the same source-closure proof as the assignment spelling above.
+      const descriptor = candidate.arguments?.[2];
+      const descriptorValue =
+        descriptor?.type === "ObjectExpression"
+          ? descriptor.properties.find(
+              (property) =>
+                property.type === "ObjectProperty" &&
+                !property.computed &&
+                property.key?.type === "Identifier" &&
+                property.key.name === "value",
+            )?.value
+          : null;
+      const isDefineProperty =
+        mutationCallName(candidate) === "Object.defineProperty" ||
+        mutationCallName(candidate) === "Reflect.defineProperty" ||
+        (sourceKey === "node_buffer" &&
+          sourcePath === "src/builtins/buffer.js" &&
+          candidate.callee?.type === "Identifier" &&
+          candidate.callee.name === "_defineBufferPrototypeProperty");
+      if (
+        candidate.type === "CallExpression" &&
+        isDefineProperty &&
+        candidate.arguments[1]?.type === "Identifier" &&
+        candidate.arguments[1].name === key.name &&
+        descriptorValue?.type === "MemberExpression" &&
+        descriptorValue.computed &&
+        descriptorValue.object?.type === "Identifier" &&
+        descriptorValue.object.name === node.right.name &&
+        descriptorValue.property?.type === "Identifier" &&
+        descriptorValue.property.name === key.name
+      ) {
+        tableCopyRegistrations.set(candidate, {
+          prototypeOwner: prototypeOwner(candidate.arguments[0]),
+          source: descriptorValue.object.name,
+          target:
+            candidate.arguments[0]?.type === "Identifier"
+              ? candidate.arguments[0].name
               : null,
         });
       }
@@ -7475,10 +7714,19 @@ export function scanStaticBuiltinExports(
     "exported-constructor-inherited-prototype",
     "exported-constructor-prototype",
   ]);
+  // Freeze the pre-callback routes in the same export order as the original
+  // inventory pass. Deferred edges may introduce new cycles, but they cannot
+  // erase a terminal that the direct walk already proved.
+  for (const [exportName] of facts.get(ROOT_EXPORT_OBJECT) ?? []) {
+    directEnforcementRoutes.set(exportName, routeForExport(exportName, false));
+  }
   const rows = [];
   for (const [exportName, idioms] of facts.get(ROOT_EXPORT_OBJECT) ?? []) {
     const exportIdioms = uniqueSorted(idioms);
-    const enforcementRoute = routeForExport(exportName);
+    const enforcementRoute = mergeEnforcementRoutes([
+      directEnforcementRoutes.get(exportName),
+      routeForExport(exportName),
+    ]);
     const valueShapes = new Set(
       valueShapeFacts.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? [],
     );
@@ -12320,6 +12568,8 @@ export function scanEvaluatedCppGlobalScripts(
   for (const statement of statements) {
     const variable = cppAssignmentVariable(statement);
     if (!variable) continue;
+    const equals = statement.findIndex((token) => token.value === "=");
+    const appends = equals > 0 && statement[equals - 1]?.value === "+";
     const values = statement
       .filter((token) => token.type === "string")
       .map((token) => token.value);
@@ -12328,7 +12578,12 @@ export function scanEvaluatedCppGlobalScripts(
     // Ignore ordinary labels/URLs cheaply. Evaluated scripts always contain at
     // least one JavaScript statement delimiter or function/object expression.
     if (!/[;{}()]/u.test(script)) continue;
-    scripts.set(variable, script);
+    scripts.set(
+      variable,
+      appends && scripts.has(variable)
+        ? `${scripts.get(variable)}${script}`
+        : script,
+    );
   }
 
   const evaluated = new Map();
@@ -13215,7 +13470,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "scripts/build-hermes-linux.sh":
           "sha256-af521ddda077302b82de42a024eba5e708b9072462d2c4e53c742d8cc473ea92",
         "scripts/build-hermes.sh":
-          "sha256-45d927d725f28145e7299283e8c9ea298c190aac83050484e63accad187036ae",
+          "sha256-60b2b604a01cb52186061c7e6967c9303d86ca587eee2db79d2df4e0f8c991e9",
       },
       sourceCommit: "e639a7bad8bfca844d982afa54fac786c65a8856",
       sourceRef: "260318099.0.0-stable",
@@ -13842,9 +14097,43 @@ export function scanLockdownEvaluatorSurfaces(
       `${sourcePath}#lockdownJS: expected exact armed and diagnostic script parts`,
     );
   }
-  // Reconstruct the production armed form. The diagnostic false form is not
-  // target evidence and cannot satisfy the fail-closed claim.
-  const script = `${parts[0]}true${parts[3]}`;
+  // Reconstruct the production armed form, including any later `+=` raw
+  // literals used to stay below compiler token-size limits. The diagnostic
+  // false form is not target evidence and cannot satisfy the fail-closed
+  // claim.
+  let script = `${parts[0]}true${parts[3]}`;
+  const bufferUse = tokens.findIndex(
+    (token, index) =>
+      token.value === "lockdownJS" &&
+      tokens[index + 1]?.value === "." &&
+      tokens[index + 2]?.value === "c_str",
+  );
+  if (bufferUse === -1) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact StringBuffer source route`,
+    );
+  }
+  for (const [start, end] of cppStatementRanges(tokens)) {
+    if (start <= assignmentEnd || end >= bufferUse) continue;
+    const statement = tokens.slice(start, end + 1);
+    if (cppAssignmentVariable(statement) !== "lockdownJS") continue;
+    const equals = statement.findIndex((token) => token.value === "=");
+    if (equals < 1 || statement[equals - 1]?.value !== "+") {
+      throw new Error(
+        `${sourcePath}#lockdownJS: post-declaration mutation must append exact literal bytes`,
+      );
+    }
+    const appended = statement
+      .slice(equals + 1)
+      .filter((token) => token.type === "string")
+      .map((token) => token.value);
+    if (appended.length === 0) {
+      throw new Error(
+        `${sourcePath}#lockdownJS: append mutation omitted its literal bytes`,
+      );
+    }
+    script += appended.join("");
+  }
   const lockdownTamingDigest = `sha256-${sha256Hex(script)}`;
   const tokenValues = tokens.map((token) => token.value);
   for (const [label, sequence] of [

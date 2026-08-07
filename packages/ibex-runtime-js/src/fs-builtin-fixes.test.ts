@@ -287,6 +287,34 @@ const fs = require('../../../src/builtins/fs.js');
 const fsp = require('../../../src/builtins/fs-promises.js');
 delete g.__exactFsMutationGuard;
 
+test('fs/promises copies names that collide with frozen Object.prototype', () => {
+  const modulePath = require.resolve('../../../src/builtins/fs-promises.js');
+  const prototypeDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'toString')!;
+  const baseDescriptor = Object.getOwnPropertyDescriptor(nodeFs.promises, 'toString');
+  const exportedToString = () => 'host-fs-promises';
+  try {
+    Object.defineProperty(nodeFs.promises, 'toString', {
+      value: exportedToString,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    Object.defineProperty(Object.prototype, 'toString', {
+      ...prototypeDescriptor,
+      writable: false,
+    });
+    delete (require as any).cache[modulePath];
+    const lockedDownPromises = require(modulePath);
+    expect(Object.hasOwn(lockedDownPromises, 'toString')).toBe(true);
+    expect(lockedDownPromises.toString).toBe(exportedToString);
+  } finally {
+    Object.defineProperty(Object.prototype, 'toString', prototypeDescriptor);
+    if (baseDescriptor === undefined) delete (nodeFs.promises as any).toString;
+    else Object.defineProperty(nodeFs.promises, 'toString', baseDescriptor);
+    delete (require as any).cache[modulePath];
+  }
+});
+
 let dir: string;
 beforeAll(() => {
   dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), 'eng22963-'));

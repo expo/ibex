@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertRecipeCatalogComplete,
   buildConformanceRecipeCatalog,
+  computeRecipeCatalogDigest,
 } from "./capsec-conformance-recipes.mjs";
 import {
   fixtureCatalogForTarget,
@@ -20,10 +22,16 @@ const repoRoot = path.resolve(
 );
 const capsecRoot = path.join(repoRoot, "capsec");
 const args = process.argv.slice(2);
-const knownOptions = new Set(["--output", "--require-complete", "--target"]);
+const knownOptions = new Set([
+  "--declared-allow-list",
+  "--output",
+  "--require-complete",
+  "--target",
+]);
 let outputPath = path.join(repoRoot, "target/capsec-executable-recipes.json");
 let requireComplete = false;
 let requestedTargetTriple;
+let declaredAllowListPath;
 for (let index = 0; index < args.length; index += 1) {
   const argument = args[index];
   if (!knownOptions.has(argument)) {
@@ -39,6 +47,8 @@ for (let index = 0; index < args.length; index += 1) {
   }
   if (argument === "--output") {
     outputPath = path.resolve(repoRoot, value);
+  } else if (argument === "--declared-allow-list") {
+    declaredAllowListPath = path.resolve(repoRoot, value);
   } else {
     requestedTargetTriple = value;
   }
@@ -74,6 +84,23 @@ const recipes = buildConformanceRecipeCatalog({
   capabilityDefinitions,
   target,
 });
+// @ref LLP 0049#3-construction-rules — rule 3's advance-declaration mechanics:
+// when the allow-list is declared BEFORE candidate generation, its content
+// digest (sha256 over the file's raw bytes, base64url, matching the catalog
+// digest spelling) is embedded in the candidate catalog itself, and the
+// recipeCatalogDigest is recomputed over the embedded field so the declaration
+// cannot be stripped without changing the catalog identity. The diff gate
+// (scripts/llp0045-route-evidence-diff.mjs) recomputes and compares it, which
+// makes an allow-list authored AFTER the diff mechanically unable to pass.
+// Without the flag nothing changes: no field is embedded and the catalog is
+// byte-identical to what this generator produced before the flag existed.
+if (declaredAllowListPath) {
+  recipes.declaredAllowListDigest = `sha256-${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(declaredAllowListPath))
+    .digest("base64url")}`;
+  recipes.recipeCatalogDigest = computeRecipeCatalogDigest(recipes);
+}
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(recipes, null, 2)}\n`, {
   flag: "wx",
@@ -82,6 +109,9 @@ console.log(
   JSON.stringify({
     output: path.relative(repoRoot, outputPath),
     recipeCatalogDigest: recipes.recipeCatalogDigest,
+    ...(recipes.declaredAllowListDigest
+      ? { declaredAllowListDigest: recipes.declaredAllowListDigest }
+      : {}),
     ...recipes.summary,
   }),
 );

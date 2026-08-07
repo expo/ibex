@@ -1,6 +1,6 @@
 # Compiled mount contract: /app, /work, unset cwd (LLP 0023 revision)
 
-**Status:** Open
+**Status:** Open — deferred to the v1.1 CapSec milestone
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -62,3 +62,11 @@ choose decision-register item 1's implicit-vs-policy-authored default.
 - No mount-aware relocation fixture (the phase-0 smoke does not
   exercise /app, /work, or cwd) and no phase-3 Node-compat sentinel
   evidence artifact.
+
+## LLP 0047 reconciliation — 2026-08-01
+
+Milestone 4 gives ambient boot ordinary inherited cwd semantics. The `/app`,
+optional `/work`, and unset-cwd contract in this ticket governs the
+CapSec-selected path and still needs runtime consumers plus relocation and
+Node-compat evidence. Missing CapSec mount material must refuse that path; it
+must not affect ambient cwd or trigger ambient fallback.

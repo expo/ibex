@@ -1212,15 +1212,18 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6517);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5911);
-    expect(executionPartition.genericProbes).toHaveLength(5911);
+    // The compat-loader stats object and its two counters, plus the explicitly
+    // scoped bundle-capture barrier, are reflected in the source-derived
+    // catalog. The generic and Host ABI tranches stay independently pinned.
+    expect(completeCatalog.rows).toHaveLength(6522);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5915);
+    expect(executionPartition.genericProbes).toHaveLength(5915);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
       ),
     ).toBe(false);
-    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
+    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(60);
     expect(executionPartition.hostAbi.rows).toHaveLength(485);
     // Thirty-five module-activation ABI rows need an owned graph/runtime
     // fixture; twenty-four runtime-extension/ambient-environment rows need an
@@ -1348,12 +1351,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 485, 62]);
+    ]).not.toEqual([60, 485, 62]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 485, 62]);
+    ]).toEqual([60, 485, 62]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {
@@ -1377,12 +1380,15 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         effectKeys.has(JSON.stringify(Object.values(row.key))),
       ),
     );
-    expect(effects).toHaveLength(565);
+    // 498 = 565 − 67: the LLP 0049 §4.1 seeding fixes moved 67 mis-seeded
+    // cells out of the effects classification (class-prefix carve-outs plus
+    // the node_http2 effect-assertion withdrawal).
+    expect(effects).toHaveLength(498);
     expect(
       effects.filter(
         (row) => row.probe.sourceDescriptor.invocation.cohort === "registrar",
       ),
-    ).toHaveLength(565);
+    ).toHaveLength(498);
     expect(
       effects.filter(
         (row) =>

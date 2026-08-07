@@ -126,7 +126,14 @@ describe("builtin non-capability/closed output recipes", () => {
     // calls now have exact
     // loaded zero-decision recipes instead of descriptor-only residual
     // accounts.
-    expect(rows).toHaveLength(413);
+    // +67 non-capability rows from the LLP 0049 §4.1 seeding fixes: the
+    // members carved out of the network/readline class prefixes (and the
+    // reclassified node_http2 cells) now enter this universe as
+    // receiver-lifecycle residuals instead of asserting effects their
+    // implementations do not have. All 67 are instance members needing a
+    // constructed receiver, hence unexercisable /
+    // receiver-needs-external-or-network-lifecycle.
+    expect(rows).toHaveLength(480);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -136,22 +143,22 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 193, closed: 220 });
+    ).toEqual({ "non-capability": 260, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 413,
+      total: 480,
       operations: {
         call: 205,
         construct: 16,
         "import-refusal": 22,
-        unexercisable: 170,
+        unexercisable: 237,
       },
       residualReasons: {
         "codec-route-retains-native-or-deferred-stream-state": 2,
         "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 6,
         "no-bounded-source-owned-receiver": 50,
-        "receiver-needs-external-or-network-lifecycle": 51,
+        "receiver-needs-external-or-network-lifecycle": 118,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
     });

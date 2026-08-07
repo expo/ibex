@@ -276,6 +276,11 @@ The runtime's other logical bindings are **not** mounted. In particular the
 `home` binding — when a snapshot declares the machine-global runtime cache
 holding generated JavaScript and bytecode — stays runtime-internal: the loader
 and cache machinery use it natively, and it is not addressable from JavaScript.
+The trusted launcher may select that cache with an absolute
+`--runtime-cache-dir` path for sandboxed environments, but selection does not
+make it a mount: the launcher canonicalizes it, authenticates it as disjoint
+from every project/package backing root, and retains that exact path for the
+process lifetime before materializing executable or protected artifacts.
 Mounting an internal executable cache would create cross-project disclosure and
 cache-poisoning channels (a write to another project's cached bundle is a write
 to code that project will later execute), and under the spelling `/home` it would

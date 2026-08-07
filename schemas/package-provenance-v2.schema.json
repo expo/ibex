@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/package-provenance-v2.schema.json",
+  "title": "Ibex embedded app-bound package provenance v2",
+  "type": "object",
+  "required": [
+    "schema",
+    "compilePlan",
+    "compilePlanDigest",
+    "catalogSequence",
+    "catalogEntryTarget",
+    "stubCoreDigest",
+    "stubCoreReconstruction",
+    "producerIdentity"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/package-provenance/2" },
+    "compilePlan": { "$ref": "app-bound-common-v1.schema.json#/$defs/compilePlanV2" },
+    "compilePlanDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "catalogSequence": { "type": "integer", "minimum": 1 },
+    "catalogEntryTarget": { "type": "string", "minLength": 1 },
+    "stubCoreDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "stubCoreReconstruction": { "$ref": "app-bound-common-v1.schema.json#/$defs/stubCoreReconstruction" },
+    "producerIdentity": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

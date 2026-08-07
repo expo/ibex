@@ -1,10 +1,12 @@
 # LLP 0034: Enable Hermes ES6 Block Scoping in Ibex
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Engine, Runtime, Build, Module Loader, Devtools, Verification
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-08-05 (author acceptance recorded after the compiler,
+runtime, catalog, and release-fixture implementation converged on this mode)
 **Revised:** 2026-07-19; 2026-07-26 (tracked non-linkable Windows cross-compile exception)
 **Related:** LLP 0003 (engine bridge); LLP 0005 (build pipeline); LLP 0007 (Vite/Rolldown/Oxc convergence); LLP 0019 (Hermes-compat transform authority); Exact LLP 0312 (Ibex transform authority); Exact LLP 0368 (TUI target); ENG-22558; ENG-22559; ENG-22569; ENG-25278; ENG-25279; ENG-25280; ENG-25281
 

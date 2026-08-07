@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/restricted-worker-target-advertisement-v1.schema.json",
+  "title": "Ibex restricted-worker target advertisement v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "target",
+    "engineCompatibilityDigest",
+    "nativeAbi",
+    "languageProfile",
+    "languageProfileDigest",
+    "workerPolicy",
+    "workerPolicyDigest",
+    "brokerProtocol",
+    "globalInventoryDigest",
+    "defaultsDigest",
+    "maximaDigest",
+    "evidence"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/restricted-worker-target-advertisement/1" },
+    "target": { "$ref": "app-bound-common-v1.schema.json#/$defs/target" },
+    "engineCompatibilityDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "nativeAbi": { "const": "ibex/restricted-worker-abi/1" },
+    "languageProfile": { "const": "ibex/external-script-profile/1" },
+    "languageProfileDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "workerPolicy": { "const": "ibex/restricted-external-worker-policy/1" },
+    "workerPolicyDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "brokerProtocol": { "const": "ibex/restricted-worker-broker/1" },
+    "globalInventoryDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "defaultsDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "maximaDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "evidence": {
+      "type": "object",
+      "required": ["schema", "suiteDigest", "engineArtifactDigest", "policyArtifactDigest", "brokerCorpusDigest"],
+      "properties": {
+        "schema": { "const": "ibex/restricted-worker-target-evidence/1" },
+        "suiteDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "engineArtifactDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "policyArtifactDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "brokerCorpusDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

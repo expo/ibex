@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/stub-contract-v4.schema.json",
+  "title": "Ibex app-bound runtime stub contract v4",
+  "type": "object",
+  "required": [
+    "schema",
+    "profile",
+    "releaseEligible",
+    "target",
+    "engine",
+    "hermesc",
+    "acceptedSchemas",
+    "abis",
+    "transformProfileDigest",
+    "runtimeCapsecProjectionDigest",
+    "runtimeIdentityDigest",
+    "environmentProfileDigest",
+    "boot",
+    "backends",
+    "externalWorker"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/stub-contract/4" },
+    "profile": { "const": "app-bound-parent-v1" },
+    "releaseEligible": { "const": true },
+    "target": { "$ref": "app-bound-common-v1.schema.json#/$defs/target" },
+    "engine": { "$ref": "app-bound-common-v1.schema.json#/$defs/engine" },
+    "hermesc": { "$ref": "app-bound-common-v1.schema.json#/$defs/hermesc" },
+    "acceptedSchemas": { "$ref": "app-bound-common-v1.schema.json#/$defs/acceptedSchemas" },
+    "abis": { "$ref": "app-bound-common-v1.schema.json#/$defs/abis" },
+    "transformProfileDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "runtimeCapsecProjectionDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "runtimeIdentityDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "environmentProfileDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+    "boot": { "$ref": "app-bound-common-v1.schema.json#/$defs/boot" },
+    "backends": { "$ref": "app-bound-common-v1.schema.json#/$defs/backendInventory" },
+    "externalWorker": { "$ref": "app-bound-common-v1.schema.json#/$defs/externalWorker" }
+  },
+  "additionalProperties": false
+}

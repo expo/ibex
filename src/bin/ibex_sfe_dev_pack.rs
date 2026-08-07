@@ -222,6 +222,11 @@ fn run() -> Result<()> {
     )?;
     let entry = EntryDesignationV1::one(captured.entry.encode()?).canonical_bytes()?;
     let mut sections = vec![
+        SectionInputV1::canonical(
+            "stub-contract",
+            SectionKindV1::StubContract,
+            contract.canonical_bytes()?,
+        ),
         SectionInputV1::canonical("provenance", SectionKindV1::ProvenanceManifest, provenance),
         SectionInputV1::canonical("graph", SectionKindV1::EmbeddedModuleGraph, graph_bytes),
         SectionInputV1::canonical("policy", SectionKindV1::ResolvedPolicy, policy),
@@ -563,6 +568,9 @@ fn canonical_policy(
             "packageClosureOptIns": [],
             "materializedSites": [],
         },
+        // @ref LLP 0022#2-startup-project-identity-and-session-arming — rootImports is the
+        // authenticated set of direct package imports; this relative-file fixture has none.
+        "rootImports": [],
         "principals": [],
     });
     policy["policyDigest"] = serde_json::Value::String(compute_checked_contract_digest(
@@ -570,4 +578,26 @@ fn canonical_policy(
         &policy,
     )?);
     Ok(capsec_semantics::canonical::to_jcs_bytes(&policy)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_policy_tracks_the_complete_canonical_schema() -> Result<()> {
+        let graph_identity = digest_bytes("ibex:test-graph:1", b"graph")?;
+        let source_integrity = digest_bytes("ibex:test-source:1", b"source")?;
+        let entry_components = [PathComponent::utf8("entry.mjs").map_err(anyhow::Error::msg)?];
+        let bytes = canonical_policy(
+            &graph_identity,
+            &entry_components,
+            &source_integrity,
+            "aarch64-apple-darwin",
+        )?;
+        let policy: capsec_semantics::policy::CanonicalPolicy = serde_json::from_slice(&bytes)?;
+
+        assert!(policy.root_imports.is_empty());
+        Ok(())
+    }
 }

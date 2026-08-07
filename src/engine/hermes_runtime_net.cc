@@ -965,6 +965,9 @@ void installNetOwnerHostFunction(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactNetOwner", std::move(netOwnerFn));
+  // @ref LLP 0046#34-step-0-the-premise-is-false-the-fix-is-four-lines — the
+  // source walker may credit this captured terminal only while it is immutable.
+  sealGlobalHostFunction(rt, "__exactNetOwner");
 }
 
 void installNetHostFunctions(ExactHermesRuntime* handle) {

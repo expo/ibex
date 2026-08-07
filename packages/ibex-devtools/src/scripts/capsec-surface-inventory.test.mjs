@@ -70,6 +70,8 @@ const LOCKDOWN_EVALUATOR_SOURCE = String.raw`
     tameCtor(Function.prototype, 'Function');
     tameCtor(getProto(function*(){}), 'GeneratorFunction');
     tameCtor(getProto(async function(){}), 'AsyncFunction');
+)JS";
+  lockdownJS += R"JS(
     makeTamed('eval');
   })())JS";
   auto buffer = std::make_shared<facebook::jsi::StringBuffer>(lockdownJS.c_str());
@@ -1390,6 +1392,103 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       paths: ["export:read -> api.read -> __exactReadFile"],
       terminals: ["__exactReadFile"],
     });
+  });
+
+  test("builtin routes include only functions passed as callback arguments", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function readLater() {
+          return __exactTcpRead(1, 65536);
+        }
+        function connect() {
+          cleanup();
+          setTimeout(function connectUnixLater() {
+            __exactUnixConnect('/tmp/socket');
+          }, 0);
+          setImmediate(readLater);
+          function connectTcpLater() {
+            __exactTcpConnect('127.0.0.1', 443);
+            setTimeout(connectTcpLater, 10);
+          }
+          queueMicrotask(connectTcpLater);
+          Promise.resolve().then(recursiveDirect);
+          function neverPassed() {
+            __exactUdpRecv(2, 65536);
+          }
+        }
+        function recursiveDirect() {
+          recursiveHelper();
+        }
+        function recursiveHelper() {
+          __exactHashSync('sha256', 'input');
+          recursiveDirect();
+        }
+        function cleanup() {
+          __exactTcpClose(1);
+        }
+        function shadowedCallback() {
+          __exactUdpRecv(2, 65536);
+        }
+        function acceptsCallerCallback(shadowedCallback) {
+          setTimeout(shadowedCallback, 0);
+        }
+        function shadowedNestedCallback() {
+          __exactUdpRecv(2, 65536);
+        }
+        function keepsLexicalShadow({ shadowedNestedCallback }) {
+          setTimeout(() => setTimeout(shadowedNestedCallback, 0), 0);
+        }
+        module.exports = {
+          connect,
+          recursiveDirect,
+          acceptsCallerCallback,
+          keepsLexicalShadow,
+        };
+      `,
+      {
+        sourceKey: "node_callback_routes",
+        sourcePath: "src/builtins/callback-routes.js",
+      },
+    );
+    const evidence = rows.find(
+      (row) => row.name === "export:node_callback_routes:connect",
+    ).metadata.enforcementRouteEvidence;
+    expect(evidence.terminals).toEqual([
+      "__exactHashSync",
+      "__exactTcpClose",
+      "__exactTcpConnect",
+      "__exactTcpRead",
+      "__exactUnixConnect",
+    ]);
+    expect(evidence.terminals).not.toContain("__exactUdpRecv");
+    expect(evidence.paths).toContain(
+      "export:connect -> connect -> __exactUnixConnect",
+    );
+    expect(evidence.ambiguousCallees).toEqual(
+      expect.arrayContaining([
+        "unresolved-call:queueMicrotask",
+        "unresolved-call:setImmediate",
+        "unresolved-call:setTimeout",
+      ]),
+    );
+    expect(
+      rows.find(
+        (row) =>
+          row.name === "export:node_callback_routes:recursiveDirect",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual(["__exactHashSync"]);
+    expect(
+      rows.find(
+        (row) =>
+          row.name ===
+          "export:node_callback_routes:acceptsCallerCallback",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual([]);
+    expect(
+      rows.find(
+        (row) => row.name === "export:node_callback_routes:keepsLexicalShadow",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual([]);
   });
 
   test("builtin routes follow only source-proven returned-callable wrappers", () => {
@@ -6464,7 +6563,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(363);
+    expect(first.hostAbi).toHaveLength(365);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -6539,8 +6638,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 312,
-      "structural-only": 51,
+      "output-bearing": 313,
+      "structural-only": 52,
     });
     expect(
       catalogAbiAccounts.filter(
@@ -6572,7 +6671,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 66, out: 231, return: 293 });
+    ).toEqual({ callback: 66, out: 231, return: 294 });
     expect(
       Object.fromEntries(
         [
@@ -6585,10 +6684,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "none:void": 70,
+      "none:void": 71,
       "value:aggregate": 17,
       "value:pointer": 50,
-      "value:scalar": 226,
+      "value:scalar": 227,
     });
     expect(
       Object.fromEntries(
@@ -6604,7 +6703,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 39,
       inout: 10,
-      input: 915,
+      input: 919,
       output: 87,
     });
 
@@ -7186,10 +7285,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(14);
+    expect(producers).toHaveLength(15);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(19);
+    ).toBe(20);
     expect(
       first.loader
         .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")

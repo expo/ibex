@@ -1,5 +1,5 @@
 //#region src/builtins/buffer.js
-var BufferProto = {};
+var BufferProto = Object.create(null);
 var objectToString = Object.prototype.toString;
 var detachedArrayBuffersSymbol = typeof Symbol === "function" && typeof Symbol.for === "function" ? Symbol.for("exact.detachedArrayBuffers") : "__exactDetachedArrayBuffers";
 function getDetachedArrayBuffers() {
@@ -1542,15 +1542,12 @@ Buffer.prototype = Object.create(Uint8Array.prototype, { constructor: {
 	configurable: true
 } });
 var _defineBufferPrototypeProperty = Object.defineProperty;
-for (var _bk in BufferProto) if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) {
-	Buffer.prototype[_bk] = BufferProto[_bk];
-	_defineBufferPrototypeProperty(Buffer.prototype, _bk, {
-		value: BufferProto[_bk],
-		writable: true,
-		configurable: true,
-		enumerable: true
-	});
-}
+for (var _bk in BufferProto) if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) _defineBufferPrototypeProperty(Buffer.prototype, _bk, {
+	value: BufferProto[_bk],
+	writable: true,
+	configurable: true,
+	enumerable: true
+});
 _defineBufferPrototypeProperty(Buffer.prototype, "toString", {
 	value: BufferProto.toString,
 	writable: true,

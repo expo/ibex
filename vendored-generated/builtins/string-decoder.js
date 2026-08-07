@@ -242,7 +242,6 @@ StringDecoder.prototype[Symbol.toPrimitive] = function() {
 var stringDecoderToString = function() {
 	return "[object StringDecoder]";
 };
-StringDecoder.prototype.toString = stringDecoderToString;
 Object.defineProperty(StringDecoder.prototype, "toString", {
 	value: stringDecoderToString,
 	writable: true,

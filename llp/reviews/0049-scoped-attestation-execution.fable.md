@@ -1,0 +1,169 @@
+# Reviews — LLP 0049 (Claude/Fable family)
+
+## Round 1 — 2026-08-06
+
+- **Family:** Claude (Fable 5)
+- **Provider/runtime:** fresh general-purpose subagent via Claude Code Agent
+  tool (independent context; the authoring session did not write this review)
+- **Date:** 2026-08-06
+- **Redacted:** no (public-repo content only)
+- **Method:** full-repo read-only review at `main` = `aaa007ad`, document
+  revision `e84e9e9dd319`, with a mandatory execution pass (retained-catalog
+  digest + summary verification, line-pin checks, scope-identity greps,
+  backlog-ticket cross-check) run before prose review; targeted questions
+  Q1–Q4 per the round-1 brief
+- **Verdict:** NOT READY
+
+### Review body (verbatim)
+
+**Reviewer:** independent adversarial reviewer (Claude/Fable family), did not author the document.
+**Document revision verified:** `shasum -a 256` of `llp/0049-scoped-attestation-execution.plan.md` = `e84e9e9dd319…` — matches the brief. Repo at `main`, HEAD `aaa007ad`, clean except the (untracked) document itself.
+
+#### 1. Execution-pass results
+
+1. **§2 catalog table — PASS.** The retained 146 MB catalog's digest field (`recipeCatalogDigest`, not `digest`) = `sha256-z5QPdB9MRkAq54UR9Z_1R7f5mzeklzv0HIp0Iqy4wfY`, exactly as claimed; `summary` = 23,765 required / 3,931 fully executable / 3,124 internally verified / 16,710 unresolved / 11,680 adapter-executable — all five match the doc's table. `target.triple` = `aarch64-apple-darwin`, `profile` = `ibex/capsec/1`.
+2. **§4.1 line pins — PASS.** `function builtinExportClassification` at `packages/ibex-devtools/src/scripts/capsec-coverage-model.mjs:8842`; the `node_http2` `/^(?:http2serverrequest|http2serverresponse)(?:\.|$)/` → `effectSpec(["network:listen"])` at :9368–9371; the readline `/^interface(?:\.|$)/` catch-all at :9644. (Caveat: this is one of **three** effect-assertion sites in the `node_http2` block — see Concern 6.)
+3. **§2 "no scope identity exists" — PASS.** Case-insensitive grep for `scopeDigest|scope-digest|scope_digest` under `src/`, `crates/`, `packages/ibex-devtools/src`: zero hits. `ExpectedArmingIdentity` (`crates/capsec-semantics/src/arming.rs:70–109`): profile, digests, target, entry, canonicalizers, protected artifacts — no scope field.
+4. **§2 scope numbers — PASS.** `issues/20260728-capsec-public-surface-evidence-backlog.md:49–51` records 610 cells / 536 clean / 74 poisoned, 3,927 rows / 491 surfaces / 81 classes; lines 67–68 record post-tranche 3,922 / 490 / 80. All match, including the +671 rows / +17 classes drift arithmetic.
+5. **§3 rule 3 tooling — PASS.** `scripts/llp0045-route-evidence-diff.mjs` exists (16,862 bytes); `package.json:60` carries `test:llp0045-route-evidence-gate`.
+6. **Spot checks — PASS with one imprecision.** 168-row delta = 23,765 − 23,597 ✓; commits `53409737` ("seal network owner hook aliases"), `8cf677e7` ("callback-argument attribution"), `63bd1933` ("prove direct environment writes") all exist with matching subjects; §3 rule 9's feature vector matches `llp/0039…decision.md:259` verbatim; "timeout policy v5" is real (`llp/0032…spec.md:8`); all four `checkPromotion` names exist at `run-capsec-conformance.mjs:1878–1897` and `assertReportMayAdvertise`/`assertRecipeCatalogComplete` at `:12–17`; `verify:capsec-conformance` (`package.json:21`) and `check:secure-mode` (`package.json:50`) exist; all three §11 evidence files exist under `llp/evidence/`; both cited issue files exist; LLP 0039:76–77 ("disappears when the default build can arm from a real conformance report") matches §1's non-goal and §10 item d. The imprecision: §4.1's "all 18 producers throw" (Concern 6).
+
+#### 2. Overall assessment
+
+This is the best-grounded plan in this corpus: every empirical claim I executed reproduced exactly, the construction rules genuinely encode the LLP 0045/0046 failure modes, and the Phase 1 ordering correctly preserves LLP 0044's review-before-gate-code constraint, including neutralizing the round-1 Fable MATERIAL #1 (rule 8 + §7.4 hold the "no conformance claim, never refused" line with negative controls demoted to evidence-not-proof). But the plan's own headline discipline — "every phase below has an entry gate and an exit gate that are commands" — is not implemented for three of its four phases, its Phase 1 gate-code enumeration silently drops the two consumers LLP 0044's table most explicitly marks as requiring amendment (portable report admission and the promotion-bundle cell invariant), no phase's exit gate ever discharges the 74 poisoned cells, and the kill criteria miss the single most plausible way this program dies slowly (in-scope inventory growth outrunning authoring). These are all fixable in one revision, and none produces an unsound published claim (the Phase 3 gates fail closed on every gap found), but a plan whose stated value is its gates should not ship with holes in the gates.
+
+#### 3. Strengths
+
+- **§2 ground truth is real.** Every number checked against the retained catalog, the backlog ticket, and git reproduced exactly — the first plan in this corpus authored against verified rather than asserted denominators, and it says so honestly ("Do not reuse these numbers without regenerating").
+- **§3 rules 2–7 are the distilled LLP 0046 §8 lesson**, each traceable to a specific documented failure (string buckets, stale denominators, one-directional gates, the `net.Socket.connect` misattribution), not generic hygiene.
+- **§1's objective is stated in gate names that exist in code** (`run-capsec-conformance.mjs:1878–1897`), so the definition of done is executable, not prose.
+- **§5 preserves LLP 0044's hard ordering** (join matrix → review → gate code; register item 5 decided post-matrix) and §5.3's adversarial fixture list matches LLP 0044 §2's seven classes exactly.
+- **§3 rule 8 / §7.4 neutralize the LLP 0044 Fable r1 MATERIAL #1**: the claim wording, the layer-naming rule, and the evidence-not-proof labeling are all carried forward intact.
+- **§9's "prior estimates are hypotheses to test" posture and §10's clean register** (with the item-1-rejection branch named as a valid exit) are exactly right.
+
+#### 4. Concerns
+
+1. **MATERIAL — §5.1/§5.3: the two consumers LLP 0044 says must change are never scheduled.** LLP 0044 §2's consumer table marks **portable report admission** (`src/host/portable_target_admission.rs` — "must validate the scoped required set against the re-derived expansion instead") and the **portable promotion bundle cell invariant** (`capsec-portable-promotion-bundle.mjs` — "must accept out-of-scope `unsupported` cells listed in the bound scope artifact, and only those") as requiring amendment. Neither appears anywhere in LLP 0049: §5.1's join-matrix "including" list names the promotion authority, bundle verifier, lineage verifier, `build.rs` selector, target-cell bytes, and fixture catalog but not report admission; §5.3's gate-code list (generator, scoped `assertRecipeCatalogComplete`, `ScopedAdvertised`, introspection, fixtures) reads as exhaustive and includes neither. §7.3 then presupposes admission-side re-derivation ("re-derived at admission from the bound inventory") that nobody was told to build. The adversarial fixtures would eventually catch it, but the plan should not rely on its fixtures to discover its own missing work items. **Resolve:** name both in §5.3's gate-code list, or state that the gate-code worklist is "every consumer the join matrix marks scope-validating," making the matrix the authoritative worklist.
+2. **MATERIAL — Summary vs body: the entry-gate promise is unimplemented.** The Summary asserts "every phase below has an **entry gate and an exit gate that are commands**," and §3 rule 5 requires each phase's entry gate to include a fresh catalog + scope measurement. Only Phase 3 has a written entry gate (§7). Phases 0, 1, and 2 have exit gates only; Phase 1's dependence on Phase 0's item-1 decision is implicit; Phase 2's entry is a prose sentence ("starts the moment Phase 0's exit gate passes" — which of Phase 0's two exit gates?). **Resolve:** write the entry gate (command + measurement + dependency) for each phase, or soften the Summary claim.
+3. **MATERIAL — no exit gate ever discharges the 74 poisoned cells.** §5.2 lives in Phase 1, but §5.3's exit gate (review artifacts, item 5 decided, gate code + fixtures, `check:secure-mode`) never mentions them; Phase 2's exit gate covers "the clean set" only; Phase 3's entry gate is just "Phases 1 and 2 exit gates both passed." The 74 are in scope (610-cell scope, complete-cell unit), so `unresolved-in-scope === 0` cannot hold until they are audited out, grammar-excluded, or the scope is re-cut — yet the phase structure lets the program arrive at Phase 3 with that obligation undischarged, discovering it only when the ceremony fails. **Resolve:** add "§5.2 disposition complete (each of the 74: audited, grammar-excluded, or scope re-cut decided)" to Phase 1's exit gate.
+4. **MATERIAL — §6's parallelism premise is overstated against §9's re-cut branch.** "Every clean row in scope is owed under any scope design" is true for scope-identity design outcomes but false under the §5.2/§9 fallback: if the 74 survive both routes and the scope is re-cut to "a narrower family set," clean rows already authored in dropped families were not owed. The plan neither bounds nor acknowledges that waste, and its rows-per-class-descending ordering is poisoning-blind. **Resolve:** either acknowledge the bounded waste explicitly (74/610 cells poisoned puts a ceiling on it) or order early tranches toward families with zero poisoned cells until §5.2 reports.
+5. **MATERIAL — §4.2/§9: item 2's "physically refused" outcome has no branch.** The exit gate says "items 1–4 decided" and names only item-1 rejection as a plan-terminating outcome. If the author chooses the physically-refused posture on item 2 (LLP 0044 calls it "a materially larger runtime program whose cost would need its own estimate"), the claim wording, the `ScopedAdvertised` arm state, and Phase 3's publication step are all invalidated — and the plan is silent. **Resolve:** add "item 2 decided as physically-refused → this plan returns to the author for re-scoping/re-estimation" alongside the item-1 branch.
+6. **MINOR — §4.1's http2 item is imprecise twice.** (a) "All 18 producers throw" conflates LLP 0046 §2's finding: four *producers* throw (http2.js:250/254/258/262); the other cells are field-initializing constructors and header-map members. (b) The pinned withdrawal (:9368–9371) is one of **three** effect-assertion sites in the `node_http2` block — `connect` → `network:connect` at :9355–9358 and `performServerHandshake` → `network:listen` at :9363–9366 also assert effects on throwing producers. Presumably those two land under the `unsupported-throwing-stub` disposition, but the item should say how the withdrawal and the stub disposition partition the 18, or the fix as pinned leaves two false effect assertions standing.
+7. **MINOR — §4.1's track label contradicts its last item.** `ex_host_env_ambient_set` "disposition must be settled here" — but choosing a disposition for an in-scope class whose asserted effect is inactive in the secure profile is a semantic ruling (the backlog ticket calls it "a seeding/disposition review prerequisite" and "an explicit release constraint"), sitting in the track headed "code, no author decision needed." Either specify the disposition in the plan or move the ruling into the §4.2 packet.
+8. **MINOR — §3 rule 7's "terminal-diff instrument" does not exist as an artifact.** The `8cf677e7` comparison was ad hoc (nothing under `scripts/` or `packages/ibex-devtools/src` implements per-edgeId unioned terminal-set diffing as a named tool). Rule 3's gate enumerates route-evidence fields from the data so it may subsume much of it, but the plan invokes rules 3 and 7 as two distinct per-batch instruments. **Resolve:** land the instrument (script + `package.json` entry) as a Phase 0 deliverable, or state that rule 7 is satisfied by rule 3's tool over the terminal fields.
+9. **MINOR — §3 rule 3 operational trap:** `llp0045-route-evidence-diff.mjs` defaults `--scope network` and supports only `network|all` (`:42`, `:63–64`). Every fs+env+process batch must pass `--scope all` or the gate trivially passes on the rows that matter. One sentence in §6's loop fixes it.
+10. **MINOR — §2/§11 vs rule 1's letter:** the authoring-time catalog exists only in a session scratchpad; no summary is retained under `llp/evidence/` (contrast the 0044 measurement's retained JSON). Re-derivable by an 11-second regen at `aaa007ad`, so not unsound — but the plan's own rule says prose inherits numbers from retained artifacts. Retain a summary at commit time.
+
+#### 5. Answers to Q1–Q4
+
+**Q1 (Phase 1 completeness).** Nearly complete, with two omissions — the report-admission re-derivation and the promotion-bundle cell invariant (Concern 1), the only two consumer-table rows LLP 0044 marks "must be amended" that LLP 0049 never names. Everything else maps: the armed-snapshot trio with the three sub-questions ✓, both advertisement chains with the v1 row-group treatment ✓, the six join-matrix artifacts ✓, all four LLP 0021 amendment elements ✓ (single-active-scope implicitly via the duplicate-scopes fixture), LLP 0032/0036 amendments ✓, all seven adversarial fixture classes verbatim ✓, `Host::new_armed_with_target_cells` via the `ScopedAdvertised` arm state ✓, the typed decision path correctly left unamended ✓. Nothing in Phase 1 exceeds what LLP 0044 requires before gate code: §5.2's audits run in parallel without gating the matrix, and re-reviewing the claim wording inside the package is justified by Phase 3's wording-immunity requirement.
+
+**Q2 (phase ordering).** The Phase 1 ∥ Phase 2 design is sound in the main line and register item c's "wait for the decision packet" recommendation is right — but the justifying premise ("owed under any scope design") fails under the §9 scope re-cut branch (Concern 4); a Phase 1/§5.2 outcome *can* invalidate Phase 2 output, in exactly one way: re-cut to a narrower family set. No Phase 1 design outcome invalidates Phase 2 evidence otherwise (schema changes don't touch authored templates or pinned sequences; the ceremony re-executes everything at Phase 3). Phase 0's two tracks do have a hidden serialization the "two tracks" framing obscures: the §4.2 packet requires §4.1's post-seeding re-measurement (item 4 must be decided on numbers that include the `ex_host_env_ambient_set` resolution, which changes the in-scope counts), so 4.2 strictly follows 4.1's exit gate — worth stating, since a one-sitting packet assembled early would repeat the plan-against-stale-numbers error. And the ambient-set item itself straddles the tracks (Concern 7).
+
+**Q3 (kill-criteria gaps).** Three plausible failure modes escape §9 and §3: (a) **the treadmill** — the scope is intensional, so in-scope inventory growth (+671 rows / +17 classes in five days is the plan's own cited precedent) continuously refills the worklist; kill criterion 1 measures authoring slope once at calibration, rule 5 re-cuts tranches routinely and §9 explicitly labels that "routine, not fatal" — so authoring at a healthy slope that is nonetheless slower than net in-scope growth triggers nothing, forever. Add a net-closure criterion (e.g., two consecutive phase-boundary re-measurements where the worklist shrank by less than the authoring throughput → return to author). (b) **Phase 1 review-loop non-termination** — the serial critical path has no round/time bound, and the corpus documents a reviewer with a permanent NOT READY stance; the author decides under LLP 0005, but a plan with kill criteria should name the trigger. (c) **Item 2 decided as physically-refused** (Concern 5). A fourth, weaker: a Phase 2 batch exposing a genuine *enforcement* defect (not an attribution pattern — those stop and file against LLP 0037) has no named stop rule, though ordinary ticket discipline probably covers it.
+
+**Q4 (unenforceable §3 rules).** Rule 7 is the clear case: it mandates an instrument that does not exist as an artifact (Concern 8) — a rule whose checker must be built is a rule that gets skipped in week three. Rule 2 has no checker, actor, or artifact: nothing prevents a tranche plan from sizing against a residual-reason bucket except a reader remembering LLP 0046; requiring each tranche-plan work item to cite the emitting code (`file:line`) would make it checkable. Rule 9's "port-binding suites never run in parallel" names no enforcement mechanism, and Phase 2 explicitly fans out across agents and the machine fleet — this needs a runner-level lock or an explicit serial rule in the batch harness, not agent good behavior. Rule 3 is enforceable but has the silent `--scope network` default (Concern 9). Rules 1, 5, 6, and 8 have adequate artifacts/actors (§11 index, phase-boundary regen, the review package).
+
+#### 6. Suggestions (non-blocking)
+
+- §6: state the batch-evidence retention path/naming convention now (rule 1 says `llp/evidence/`; ~80 template classes of receipts need a scheme before the fan-out starts, not after).
+- §4.1: add the `--scope all` flag and the seeding-fix allow-list location to the exit gate command, making it copy-pasteable per the Summary's "gates are commands" standard.
+- §9: record the current in-scope inventory growth rate (rows/day) alongside the calibration metrics so the treadmill criterion (Q3a) has a measured baseline.
+- §10 item e: the recommendation is sound, but note that Concern 1's two consumers are gate-changing code — their *implementation* rides Phase 1's formal loop regardless of this document's own review intensity.
+
+#### 7. Open questions for the author
+
+- When the join matrix marks a consumer scope-validating, does its amendment automatically join §5.3's gate-code worklist, or is §5.3's list intended as exhaustive? (Determines whether Concern 1 is an enumeration bug or a design decision.)
+- Which of the 18 `node_http2` cells does the §4.1 withdrawal cover vs the `unsupported-throwing-stub` disposition, given the three distinct effect-assertion sites (:9355, :9363, :9368)?
+- Is Phase 2's engine rebuilt when Phase 1's gate code lands mid-campaign (rule 9 pins the feature vector, but the engine binary digest recipes bind will drift across the race the §7 entry gate acknowledges)?
+- Who runs the §4.2 sitting — and if the author amends a recommendation (e.g., item 4 to a different family set), does Phase 2's already-started calibration tranche survive?
+
+#### 8. Recommended next step and verdict
+
+One focused revision: add the two missing consumers to §5.3 (Concern 1), write the missing entry gates (Concern 2), close the poisoned-cell gating hole (Concern 3), add the item-2 and treadmill branches (Concerns 4, 5, Q3a), and sweep the MINORs — every fix is wording or a small deliverable addition; none disturbs the phase architecture, which is sound. Then execute; no second full review round is warranted if the delta is confined to these items.
+
+**Verdict: NOT READY** — the plan's skeleton, ground truth, and ordering are right and fully verified, but a plan whose contract is "gates that are commands" cannot be executed as written while three phases lack entry gates, two required gate-code items are unscheduled, and its largest standing obligation (the 74) is outside every exit gate.
+
+## Round 2 (delta, final round) — 2026-08-06
+
+- **Family:** Claude (Fable 5)
+- **Provider/runtime:** fresh general-purpose subagent via Claude Code Agent
+  tool (independent context; distinct from the round-1 reviewer and from the
+  authoring session)
+- **Date:** 2026-08-06
+- **Redacted:** no (public-repo content only)
+- **Method:** delta round at document revision `629599dea0b3`, HEAD
+  `aaa007ad`; executed the revision's new factual claims (http2 sites,
+  evidence-file digest self-verification, rule 3 mechanism produceability);
+  full disposition table over both families' round-1 concerns with
+  IN-DELTA / PRE-EXISTING labels per the round-2 brief
+- **Verdict:** NOT READY — narrowly, on one IN-DELTA MATERIAL; reviewer
+  states "With edit 1 in either form, this reviewer is READY."
+
+### Review body (verbatim)
+
+**Reviewer:** independent adversarial reviewer (Claude/Fable family); did not author the document or its revision.
+**Precondition:** `shasum -a 256 llp/0049-scoped-attestation-execution.plan.md` = `629599dea0b3266298f79989d42fa27e65b04760e026819bac8423ca3bc207b5` — matches the brief. `git rev-parse --short HEAD` = `aaa007ad`, branch `main`; `git status` shows exactly the four untracked files the brief describes (the LLP, the evidence summary, the two review artifacts). Proceeding.
+
+#### 1. Delta-verification results (executed, not trusted)
+
+1. **http2 site 1 — PASS.** `capsec-coverage-model.mjs:9355–9358`: `/^connect$/` → `effectSpec(["network:connect"], "network", "WP6", …)` — exactly as the doc partitions it (verified via `grep -n` line-numbered read of :9345–9375).
+2. **http2 site 2 — PASS.** `:9363–9366`: `/^performserverhandshake$/` → `effectSpec(["network:listen"], …)`.
+3. **http2 site 3 — PASS.** `:9368–9371`: `/^(?:http2serverrequest|http2serverresponse)(?:\.|$)/` → `effectSpec(["network:listen"], …)`.
+4. **Four producers throw unconditionally — PASS (with a one-line-pin note).** `src/builtins/http2.js`: `function createServer()` :250, `createSecureServer()` :254, `connect()` :258, `performServerHandshake()` :262, each body a single `throw _createUnsupportedError(…)` (:251/:255/:259/:263). The doc pins the function-declaration lines; the throw statements are one line below each. Consistent with LLP 0046 (`llp/0046-network-terminal-provenance-measurement.research.md:97–105`, which also confirms the 9-refusal and 42-alias counts at :34, :69, :406–407).
+5. **Evidence summary exists and digest self-verifies — PASS.** `shasum -a 256` of `llp/evidence/0049-authoring-catalog-summary-4381ae02a8c7ee5d4438debc5ad0b664b6fe291ea80fae34a6a3ff77dbd4758a.json` = `4381ae02…d4758a`, equal to its filename digest.
+6. **Evidence counts match §2 — PASS.** File `summary`: requiredFixtures 23,765 / fullyExecutable 3,931 / internallyVerified 3,124 / unresolved 16,710 / adapterExecutable 11,680; `recipeCatalogDigest` = `sha256-z5QPdB9MRkAq54UR9Z_1R7f5mzeklzv0HIp0Iqy4wfY`; target `aarch64-apple-darwin`, profile `ibex/capsec/1`; `generatedAtHead: aaa007ad` — all five counts and the digest match the §2 table (llp/0049:113–126) and the §11 row (:627).
+7. **Rule 3 advance-declaration mechanism — FAIL (as enforcement; see New Finding 1).** The tool exists and does what rule 3's core gate needs (`scripts/llp0045-route-evidence-diff.mjs`: default `{ scope: "network" }` at :43, `network|all` only at :63–64, mandatory non-empty `sourceSpan`/`proof`, post-diff skeleton per header :30–36 — all matching the doc's characterization). But the ordering mechanism (:182–188, "the allow-list's content digest is recorded in the batch's evidence envelope before the candidate catalog is generated") assumes machinery nothing produces or checks: `grep -rn 'allowListDigest|evidenceEnvelope|evidence envelope'` across `scripts/` and `packages/ibex-devtools/src` = zero hits; the only envelope precedent (`llp/evidence/0044-batch-timing-501504f6….json`) is a hand-authored JSON with no allow-list field; and §6 retains the envelope **at commit time, after** the regen and diff (:461–463), so the claimed "before" ordering is self-attested, not verifiable. §4.1's Phase 0 deliverable bullet (:272–276) lands the rule 7 instrument and the rule 9 lock but not an envelope schema or an ordering checker.
+8. **Other load-bearing delta claims — PASS.** All named artifacts exist: `src/host/portable_target_admission.rs`, `capsec-portable-promotion-bundle.mjs`, `capsec-portable-engine-evidence-contract.mjs`, `generate-capsec-registry.mjs`; `new_armed_with_target_cells` in `src/host/mod.rs`; `ibex/capsec-target-advertisements/2` in the evidence-contract module; the LLP 0044 must-amend rows with the exact quoted obligations at `llp/0044-…rfc.md:289` and `:292`; the ambient-set ruling text at `issues/20260728-…backlog.md:73–79` ("five rows… ABI returns `-1`… explicit release constraint") matching §4.2 (:289–294); `issues/20260801-readline-…`, `issues/20260805-windows-rust-default-full-suite-broadly-red.md`, and both port-binding suites (`tests/node_net_builtins.rs`; `host_http_server` hits in `src/`) exist. Both round-1 review artifacts read in full.
+
+#### 2. Disposition table
+
+| Concern | Disposition | Where |
+| --- | --- | --- |
+| **Codex 1 (BLOCKER)** — §7 "refuses everything else" | **RESOLVED** | Phase 3 exit gate :519–527: remainder gets "exactly the disposition the reviewed `ScopedAdvertised` state specifies — a disposition, not a refusal claim," CI refusal properties name their exact layer, physical-entrypoint only if item 2 selected it |
+| **Fable 1 / Codex 2** — must-amend consumers unscheduled; checklist/fixtures incomplete | **RESOLVED** | :327–329 matrix = authoritative worklist; both consumers named with their exact LLP 0044 obligations :339–346; v2 reader :347–350; closed v1 chain row group :351–353; `Host::new_armed_with_target_cells` :354–357; typed decision path scope-transparent :358–360; Go verifier :361–362; full lifecycle binding set :366–371; §5.3 "every consumer the matrix marks scope-validating (explicitly including… two must-amend consumers)" :405–407; fixtures gain observed-closure-escape :411–413, split/merge :413–414, adversarial-composition (diagnostic) :414–416; split/merge mapping artifacts :368–370 |
+| **Fable 2 / Codex 5 (gates-are-commands part)** — entry gates missing, Summary overstates | **RESOLVED** | Summary rescoped :74–79 ("where it is a decision or a review outcome, the gate says so and names the artifact"); written entry gates: Phase 0 :241–244, Phase 1 :318–319, Phase 2 :448–450, Phase 3 :490–492 |
+| **Codex 5 (rule-3/rule-7 checker part) / Fable Q4** | **PARTIAL** | Rule 7 → named tool `scripts/capsec-terminal-evidence-diff.mjs` as a Phase 0 deliverable with interim gate :203–212, :272–276 — resolved. Rule 2 → tranche-review `file:line` checker :170–174 — resolved. Rule 9 → `flock` on `target/.capsec-port-suite.lock`, Phase 0 :227–231 — resolved. Rule 3 advance declaration → the new mechanism is asserted but unproducible/unverifiable as written (New Finding 1); `MASKED, NOT NEW` still has no named checker (tool contains zero occurrences of `MASKED`) |
+| **Codex 3 / Fable Q2** — Phase 0 exit only 1–4; hidden track serialization | **RESOLVED** | "strictly serialized" with the stale-numbers rationale :236–240; packet = items 1,2,3,4,6,8,9,10 :286–287; exit gate "all eight items plus the ambient-set ruling decided" :300–301; item 5 BLOCKED :295–296, item 7 deferred :296–297; Phase 2 entry requires §4.2 exit incl. item 9 :448–449 |
+| **Fable 3** — the 74 in no exit gate | **RESOLVED** | §5.3 exit gate :418–425: "§5.2 disposition complete — each of the 74… audit-cleared, grammar-excluded…, or covered by a decided scope re-cut," with the `unresolved-in-scope === 0` unreachability argument stated |
+| **Fable 4 / Codex 4** — parallelism premise vs re-cut; diagnostic split | **RESOLVED** | §6 "Everything Phase 2 executes is diagnostic," authoritative only at Phase 3 (absorbing engine/schema drift) :433–439; waste ceiling bounded by 74/610 geometry, early tranches to zero-poisoned families :440–446 |
+| **Fable 5 / part of Codex 6** — item-2 physically-refused branch | **RESOLVED** | §4.2 diversion :305–309; §9 kill criterion :572–575 |
+| **Codex 6 / Fable Q3** — cumulative reforecast, item-5 rejection, treadmill, review bound | **RESOLVED** | Net-closure treadmill :557–562 (baseline rate measured at calibration :481–483); cumulative reforecast, third-stop trigger :563–567; item-5 rejection halt :572–575 (also §5.3 exit :419–420); Phase 1 three-round bound per LLP 0005 :579–583; cumulative 15% drift threshold :584–588 |
+| **Fable 6** — http2 three-site imprecision | **RESOLVED** | :261–268 partitions all three sites (verified above); four producers vs remaining cells stated with the stub disposition :265–268 |
+| **Fable 7** — ambient-set in the wrong track | **RESOLVED** | Ruling moved into the §4.2 packet as "a semantic ruling for the author, not a code fix" :288–294; in the exit gate :300–301 |
+| **Fable 8** — rule 7 instrument nonexistent | **RESOLVED** | Named script + `package.json` entry + schema as Phase 0 deliverable, interim rule stated :203–212, :272–276 |
+| **Fable 9** — `--scope all` trap | **RESOLVED** | Mandated with the rationale in rule 3 :176–178; in the §4.1 exit gate :278–280; in the §6 loop :459–460 (tool default verified `network`, tool :43) |
+| **Fable 10 / Codex 7** — catalog summary not retained | **RESOLVED** | Retained, digest-named, counts verified (checks 5–6); §2 :115–117, §11 :627 |
+
+#### 3. New findings
+
+1. **IN-DELTA — MATERIAL — rule 3's advance-declaration "enforcement" is a convention wearing an enforcement label** (llp/0049:182–188). The revision answers round-1 "cannot prove declaration occurred in advance" (Codex 5/Q4) with: *"Advance declaration is enforced by ordering: the allow-list's content digest is recorded in the batch's evidence envelope before the candidate catalog is generated."* Three defects, verified: (a) no envelope schema, producer, or field exists anywhere in the tooling (zero grep hits for any envelope/allow-list-digest machinery; the 0044 precedent is hand-authored JSON); (b) nothing can verify the ordering — §6 retains the envelope at commit time (:461–463), after the regen and the diff, in the same commit, so "before" is self-attested by the same actor the rule distrusts; (c) unlike rule 7's honestly-declared missing instrument, this checker is not scheduled — §4.1's deliverables bullet (:272–276) covers the terminal-diff tool and port lock only. By the document's own §3 preamble ("a rule with neither [checker nor artifact] is a rule that gets skipped in week three"), this sub-rule currently has neither, and the sentence claims otherwise — the one place the revision repairs a gate hole with wording rather than a mechanism. **Exact resolution (either):** (i) make the ordering checkable — have the catalog generator accept and embed the allow-list digest into the candidate catalog (or require the envelope/allow-list committed before generation and have the gate check commit ancestry), define the envelope schema, and add both to the §4.1 deliverables bullet; or (ii) delete "is enforced by ordering" and state it as a declared procedure verified at tranche review, matching rule 2's checker style.
+2. **PRE-EXISTING — MINOR — `MASKED, NOT NEW` vocabulary has no named checker** (llp/0049:180–182; residue of Codex 5/Q4). The tool contains no occurrence of `MASKED`; the requirement is checkable only by a human reading proof text, and rule 3 names no reviewer for it. One clause assigning it to tranche review (alongside rule 2's checker) closes it.
+3. **PRE-EXISTING — MINOR — producer line pins are declaration lines, not throw lines** (llp/0049:265–266). `http2.js:250/254/258/262` are the `function` lines; the `throw` statements are :251/:255/:259/:263. Harmless as a producer pin, but a document this precise about pins should say which it means — or pin the throws.
+
+No other in-delta defect found: the serialization rationale, the waste ceiling arithmetic (74/610), the net-closure test semantics, the ambient-set five-row characterization, the item-count arithmetic ("all eight" = 1,2,3,4,6,8,9,10), the diagnostic-schema step (:508–514), and every named file, symbol, suite, and issue ticket checked out against the repo.
+
+#### 4. Verdict
+
+**NOT READY** — narrowly, and on one item. Every round-1 concern from both families is genuinely resolved in substance except one sub-part of Codex 5, and the revision's repair for exactly that sub-part introduced the document's only false claim: an enforcement mechanism that nothing produces, nothing checks, and nothing is scheduled to build. In a plan whose stated thesis is "no gate is satisfied by intent," a self-attested ordering labeled "enforced" is material by the document's own standard, and the loop ending here makes precision on it the point.
+
+**Minimal flip set (one edit, plus one optional):**
+1. Rule 3 (:182–188): either add the envelope schema + ordering verification (generator-embedded allow-list digest, or committed-before check) to the §4.1 Phase 0 deliverables bullet, or reword the sentence to a declared procedure checked at tranche review — dropping the word "enforced."
+2. (Optional, same edit) Name tranche review as the `MASKED, NOT NEW` checker.
+
+Nothing else blocks: the phase architecture, gates, worklist authority, fixture set, and kill criteria are complete, internally consistent, and verified against the repository, and every gate that matters fails closed. With edit 1 in either form, this reviewer is READY.
+
+## Close-out ledger — 2026-08-06 (written by the loop orchestrator, not a reviewer)
+
+The loop closed at two rounds by pre-declared design. The round-2 flip sets
+from both families were applied in full (rule 3 reworded to a declared
+procedure with the envelope mechanics scheduled as §4.1 deliverables;
+scope-measurement tool + schema named and exit gates made copy-pasteable;
+net-closure inequality corrected; geometric waste ceiling withdrawn;
+enforcement-defect stop rule added; MASKED-NOT-NEW checker assigned to
+tranche review; http2 throw-line pins). Final revision `a622cba8c65b` is
+UNREVIEWED beyond `629599dea0b3`. Terminal verdicts: Fable r2 NOT READY
+(stating "With edit 1 in either form, this reviewer is READY"; that edit
+was applied in its mechanism-scheduling form), Codex r2 NOT READY (all
+three flip-set items applied). Status remains Draft; acceptance and the
+§10 register are the author's.

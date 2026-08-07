@@ -109,7 +109,9 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ibex-module-transform-native
 try {
   for (const fixture of selectedCorpus) {
     const project = path.join(root, fixture.id);
-    const home = path.join(project, '.home');
+    // The authenticated binary cache must remain outside every JavaScript-
+    // mounted project root, matching the Tier-3 real-binary harness.
+    const home = path.join(root, '.homes', fixture.id);
     fs.mkdirSync(home, { recursive: true });
     writeProject(project, fixture);
 

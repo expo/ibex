@@ -1,31 +1,119 @@
 {
   "schema": "ibex/capsec-suite-plan/1",
   "planId": "capsec-full-matrix-stage1",
-  "timeoutPolicyVersion": 3,
+  "timeoutPolicyVersion": 5,
   "heartbeatIntervalMs": 30000,
   "commands": {
-    "capsec-registry-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
-    "capsec-contract-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
-    "generated-policy-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
-    "all-generated-drift": { "phase": "preflight", "deadlineMs": 300000, "gracePeriodMs": 10000 },
-    "linked-literate-references": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
-    "exact-loaded-engine-attestation": { "phase": "engine-attestation-before", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "generate-executable-recipes": { "phase": "recipe-catalog", "deadlineMs": 180000, "gracePeriodMs": 10000 },
-    "exact-hermes-typed-adapter-recipes": { "phase": "adapter-evidence", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "rust-default-full": { "phase": "product-prerequisites", "deadlineMs": 2700000, "gracePeriodMs": 60000 },
-    "rust-workspace-all-features-executable-tests": { "phase": "product-prerequisites", "deadlineMs": 2700000, "gracePeriodMs": 60000 },
-    "rust-workspace-all-features-all-targets-compile": { "phase": "product-prerequisites", "deadlineMs": 900000, "gracePeriodMs": 30000 },
-    "devtools-js-full": { "phase": "product-prerequisites", "deadlineMs": 900000, "gracePeriodMs": 30000 },
-    "runtime-js-full": { "phase": "product-prerequisites", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "android-websocket-behavioral": { "phase": "product-prerequisites", "deadlineMs": 300000, "gracePeriodMs": 20000 },
-    "hermes-transform-loader-corpora": { "phase": "product-prerequisites", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "runtime-environment-inventory-drift": { "phase": "product-prerequisites", "deadlineMs": 180000, "gracePeriodMs": 10000 },
-    "exact-fixture-evidence-pilot": { "phase": "fixture-evidence", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "exact-fixture-evidence-portable-pilot": { "phase": "fixture-evidence", "deadlineMs": 360000, "gracePeriodMs": 30000 },
-    "exact-loaded-engine-attestation-after-evidence": { "phase": "engine-attestation-after", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "generate-conformance-report": { "phase": "final-aggregate", "deadlineMs": 180000, "gracePeriodMs": 10000 },
-    "loaded-engine-preflight": { "phase": "inherited-intrinsic-alias-diagnostic", "deadlineMs": 600000, "gracePeriodMs": 30000 },
-    "loaded-intrinsic-alias-execution": { "phase": "inherited-intrinsic-alias-diagnostic", "deadlineMs": 600000, "gracePeriodMs": 30000 }
+    "capsec-registry-drift": {
+      "phase": "preflight",
+      "deadlineMs": 120000,
+      "gracePeriodMs": 10000
+    },
+    "capsec-contract-drift": {
+      "phase": "preflight",
+      "deadlineMs": 120000,
+      "gracePeriodMs": 10000
+    },
+    "generated-policy-drift": {
+      "phase": "preflight",
+      "deadlineMs": 120000,
+      "gracePeriodMs": 10000
+    },
+    "all-generated-drift": {
+      "phase": "preflight",
+      "deadlineMs": 300000,
+      "gracePeriodMs": 10000
+    },
+    "linked-literate-references": {
+      "phase": "preflight",
+      "deadlineMs": 120000,
+      "gracePeriodMs": 10000
+    },
+    "exact-loaded-engine-attestation": {
+      "phase": "engine-attestation-before",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "generate-executable-recipes": {
+      "phase": "recipe-catalog",
+      "deadlineMs": 180000,
+      "gracePeriodMs": 10000
+    },
+    "exact-hermes-typed-adapter-recipes": {
+      "phase": "adapter-evidence",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "rust-default-full": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 2700000,
+      "gracePeriodMs": 60000
+    },
+    "rust-workspace-default-openssl-executable-tests": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 2700000,
+      "gracePeriodMs": 60000
+    },
+    "rust-workspace-host-features-all-targets-compile": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 900000,
+      "gracePeriodMs": 30000
+    },
+    "devtools-js-full": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 900000,
+      "gracePeriodMs": 30000
+    },
+    "runtime-js-full": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "android-websocket-behavioral": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 300000,
+      "gracePeriodMs": 20000
+    },
+    "hermes-transform-loader-corpora": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "runtime-environment-inventory-drift": {
+      "phase": "product-prerequisites",
+      "deadlineMs": 180000,
+      "gracePeriodMs": 10000
+    },
+    "exact-fixture-evidence-pilot": {
+      "phase": "fixture-evidence",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "exact-fixture-evidence-portable-pilot": {
+      "phase": "fixture-evidence",
+      "deadlineMs": 360000,
+      "gracePeriodMs": 30000
+    },
+    "exact-loaded-engine-attestation-after-evidence": {
+      "phase": "engine-attestation-after",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "generate-conformance-report": {
+      "phase": "final-aggregate",
+      "deadlineMs": 180000,
+      "gracePeriodMs": 10000
+    },
+    "loaded-engine-preflight": {
+      "phase": "inherited-intrinsic-alias-diagnostic",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    },
+    "loaded-intrinsic-alias-execution": {
+      "phase": "inherited-intrinsic-alias-diagnostic",
+      "deadlineMs": 600000,
+      "gracePeriodMs": 30000
+    }
   },
   "dynamicCommands": {
     "public-fixtures-": {
@@ -42,9 +130,9 @@
   "targets": {
     "aarch64-apple-darwin": {
       "outerTimeoutMs": 22500000,
-      "setupReserveMs": 3600000,
+      "setupReserveMs": 3480000,
       "cleanupUploadReserveMs": 900000,
-      "maxPublicFixtureBatches": 9,
+      "maxPublicFixtureBatches": 11,
       "maxPortablePublicFixtureBatches": 8,
       "aliasDiagnosticCommands": [
         "loaded-engine-preflight",
@@ -54,13 +142,14 @@
     },
     "x86_64-pc-windows-msvc": {
       "outerTimeoutMs": 22500000,
-      "setupReserveMs": 3600000,
+      "setupReserveMs": 3480000,
       "cleanupUploadReserveMs": 900000,
-      "maxPublicFixtureBatches": 8,
+      "maxPublicFixtureBatches": 10,
       "maxPortablePublicFixtureBatches": 0,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {
-        "exact-loaded-engine-attestation": 2700000
+        "exact-loaded-engine-attestation": 2700000,
+        "public-fixtures-005-d0b17e51064234a80cd89dc1c8f4a2f2fbedab33b08f7d065b33f5926cfe3d5f": 420000
       }
     }
   },

@@ -298,8 +298,14 @@ fn probe_production(ibex: &Path, script: &Path) -> ProductionAvailability {
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    const EXPECTED_REFUSAL: &str = "has no unique verified advertisement";
-    if stdout.contains(EXPECTED_REFUSAL) || stderr.contains(EXPECTED_REFUSAL) {
+    const EXPECTED_REFUSALS: [&str; 2] = [
+        "has no unique verified advertisement",
+        "legacy v1 target advertisements are diagnostic-only and remain closed",
+    ];
+    if EXPECTED_REFUSALS
+        .iter()
+        .any(|refusal| stdout.contains(refusal) || stderr.contains(refusal))
+    {
         return ProductionAvailability::Unadvertised;
     }
 

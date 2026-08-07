@@ -38,35 +38,64 @@ further 42 are exact export aliases of other counted cells (296 unique).
 **Prerequisite, not parallel cleanup** — certifying a mis-seeded cell would
 certify a claim that is false about the source:
 
-- [ ] Fix `builtinExportClassification` (capsec-coverage-model.mjs:8788): member
-      carve-outs *before* the receiver-class prefixes, following the existing
-      :9207/:9216/:9219 pattern. Prefer exact-string member sets over widened
-      regexes — a widened regex silently absorbs future members, which is how
-      this arose.
-- [ ] New `unsupported-throwing-stub` disposition for the 9 refusal cells —
-      `pure-in-memory-compute` is the wrong rationale for a throw.
-- [ ] Withdraw the `node_http2` effect assertion: 18/18 cells mis-seeded, 0
-      capability-bearing, every producer throws (http2.js:250/254/258/262). The
-      model asserts an effect the implementation does not have.
-- [ ] De-duplicate the 42 alias cells (`net.Stream.*` ≡ `net.Socket.*`
-      net.js:4623; `ws.Server*` ≡ `ws.WebSocketServer*` ws.js:1185-1186).
+- [x] Fix `builtinExportClassification`: member carve-outs *before* the
+      receiver-class prefixes, exact-string member sets — **landed 2026-08-06**
+      (LLP 0049 Phase 0). Caveat recorded in the allow-list note: the LLP 0046
+      `K-cell-verdicts.tsv` could not be found, so membership was re-derived
+      from `src/builtins` at HEAD with a conservative any-doubt-stays-seeded
+      rule; measured movement 82 cells (vs the 90 the 2026-08-01 measurement
+      predicted — surface growth since then accounts for part of the gap).
+      Deliberately-left-seeded residuals are enumerated in
+      `llp/evidence/0049-allow-list-phase0-seeding.json`.
+- [x] New `unsupported-throwing-stub` disposition — **landed 2026-08-06** as a
+      non-capability rationale id in `capsec/registry/policy-rules.json` (8
+      cells at HEAD, not 9: the four http2 producers, the two `.pipe` stubs,
+      the two ws `_handle` accessors; each keeps an authorable
+      observe-the-throw obligation, nothing retired; closed vocabularies
+      untouched).
+- [x] Withdraw the `node_http2` effect assertions — **landed 2026-08-06**, all
+      three sites (connect, performServerHandshake, and the class prefix), not
+      just the one the original note pinned.
+- [x] De-duplicate the alias cells — **landed 2026-08-06** via a reviewed
+      exact-export-alias table + fail-closed join (59 cells at HEAD — net 50,
+      ws 9 — vs the 42 the 2026-08-01 measurement counted; surface growth).
+      Obligations attach to the canonical cell; alias edgeIds stay covered on
+      the shared fixtures.
 - [ ] Re-measure, then author the successor plan — organized by **analyzer
-      capability**, not by ambiguity-string bucket.
+      capability**, not by ambiguity-string bucket. *(Partially discharged
+      2026-08-06: post-seeding network accounting is measured — 507
+      network-asserting cells, network Lane B 284 → 216 — but the successor
+      plan still MUST NOT be authored until the origin-policy decision above
+      is made; that decision is deliberately NOT part of LLP 0049's Phase 0
+      packet.)*
 
-**Ready to staff now — measured, cheap, independent of the above:**
+**Landed 2026-08-05:**
 
-- [ ] **Normalize the four hook aliases + harden the hook install.** 4 JS lines
-      (`const _x = globalThis.__exactNetOwner`, which the walker resolves today
-      unchanged) + 3 C++ lines (`writable:false, configurable:false` at
-      hermes_runtime_net.cc:967, hermes_runtime_http.cc:347, and the Windows
-      shim). **46 cells.** The two halves must land together: normalization
-      alone makes the analyzer credit a terminal the runtime does not guarantee.
-      See issues/20260801-net-owner-hook-lazily-captured-after-user-code.md.
-- [ ] **Callback-argument attribution** (`walkDirectFunctionBody`,
-      capsec-surface-inventory.mjs:3873). **11 cells**, and genuine hardening —
-      it surfaces `__exactTcpAccept`/`__exactTcpRead`/`__exactUdpRecv`/
-      `__exactUnixConnect` routes invisible today. **Must land before any timer
-      admission**, which is negative-valued without it (clears 0, falsifies 6).
+- [x] **Normalized the four hook aliases + hardened every hook install.** The
+      two `http.js` aliases plus the `net.js` and `dgram.js` aliases now use the
+      walker's existing `const _x = globalThis.__exact*Owner` form. The POSIX
+      net install (`hermes_runtime_net.cc:967-970`), HTTP install
+      (`hermes_runtime_http.cc:347-350`), and Windows shim
+      (`hermes_runtime_platform_windows.cc:2870-2873`) seal the installed host
+      function non-writable and non-configurable before returning. Fresh Apple
+      and Windows recipe catalogs both moved network Lane B **338 → 292:
+      exactly 46 cells cleared**, matching the estimate. In total, **104 unique
+      network cells** had route-evidence changes (1,126 scenario recipes / 3,408
+      gated route-and-residual entries); the other 58 gained or changed
+      provenance without leaving Lane B. The focused P2 ticket is closed under
+      `issues/closed/20260801-net-owner-hook-lazily-captured-after-user-code.md`.
+- [x] **Callback-argument attribution** (`walkDirectFunctionBody`,
+      capsec-surface-inventory.mjs, landed 2026-08-05). The original **11-cell
+      network Lane B** estimate reproduced exactly and all 11 now have a
+      terminal. Measuring the outside-Lane-B class at the same time found and
+      corrected **9 network misattributions** (**20 network cells total**).
+      Repository-wide, 46 misattributions were corrected and 15 zero-terminal
+      cells gained terminals (13 carried and cleared formal Lane B); 0 recorded
+      terminals were removed. `unresolved-call:setTimeout` remains unadmitted.
+      See issues/closed/20260801-conformance-misattributed-terminals-outside-lane-b.md.
+
+Nothing remains under "ready to staff now" — both measured, independent items
+above have landed.
 
 **Landed 2026-08-01:**
 
@@ -92,9 +121,9 @@ certify a claim that is false about the source:
 - issues/closed/20260801-builtin-commonjs-require-activation-refused.md — the
   entire CommonJS builtin surface was broken on `main`; only `path` loaded.
 - issues/20260801-net-owner-hook-lazily-captured-after-user-code.md (P2)
-- issues/20260801-lockdown-tostring-override-blocks-builtins.md (P1)
+- issues/closed/20260801-lockdown-tostring-override-blocks-builtins.md (resolved)
 - issues/20260801-readline-interface-prefix-seeds-stdio-effect.md
-- issues/20260801-conformance-misattributed-terminals-outside-lane-b.md
+- issues/closed/20260801-conformance-misattributed-terminals-outside-lane-b.md
 
 **Done when:** the successor plan authored in LLP 0046 §6's sequence passes its
 own exit gate. This ticket tracks the rescope; the original "373 → ~0" metric is

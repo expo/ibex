@@ -21,6 +21,16 @@
   (offsetof(type, member) + sizeof(((type*)0)->member))
 
 IBEX_C_ABI_ASSERT(version, EX_HERMES_STRUCTURED_EVAL_ABI_VERSION == 2u);
+IBEX_C_ABI_ASSERT(restricted_worker_version,
+                  EX_RESTRICTED_WORKER_ABI_VERSION_V1 == 1u);
+IBEX_C_ABI_ASSERT(restricted_worker_frame_tag,
+                  EX_RESTRICTED_WORKER_EVENT_FRAME_V1 == 1u);
+IBEX_C_ABI_ASSERT(restricted_worker_closed_tag,
+                  EX_RESTRICTED_WORKER_EVENT_CLOSED_V1 == 4u);
+IBEX_C_ABI_ASSERT(restricted_worker_heap_fault,
+                  EX_RESTRICTED_WORKER_FAULT_HEAP_LIMIT_V1 == 1u);
+IBEX_C_ABI_ASSERT(restricted_worker_interrupt_fault,
+                  EX_RESTRICTED_WORKER_FAULT_INTERRUPT_UNAVAILABLE_V1 == 6u);
 IBEX_C_ABI_ASSERT(work_unit_event_version,
                   EX_HERMES_WORK_UNIT_EVENT_ABI_VERSION == 1u);
 IBEX_C_ABI_ASSERT(cancellation_event_version,
@@ -185,6 +195,18 @@ IBEX_C_ABI_ASSERT(owned_bytes_length_offset_64,
                   offsetof(ExHermesOwnedBytes, length) == 8u);
 IBEX_C_ABI_ASSERT(owned_bytes_size_64,
                   sizeof(ExHermesOwnedBytes) == 16u);
+IBEX_C_ABI_ASSERT(restricted_worker_options_arming_offset_64,
+                  offsetof(ExRestrictedWorkerOptionsV1, arming_json) == 8u);
+IBEX_C_ABI_ASSERT(restricted_worker_options_limits_offset_64,
+                  offsetof(ExRestrictedWorkerOptionsV1, limits_json) == 24u);
+IBEX_C_ABI_ASSERT(restricted_worker_options_size_64,
+                  sizeof(ExRestrictedWorkerOptionsV1) == 40u);
+IBEX_C_ABI_ASSERT(restricted_worker_event_nonce_offset_64,
+                  offsetof(ExRestrictedWorkerEventV1, runtime_nonce) == 16u);
+IBEX_C_ABI_ASSERT(restricted_worker_event_bytes_offset_64,
+                  offsetof(ExRestrictedWorkerEventV1, bytes) == 24u);
+IBEX_C_ABI_ASSERT(restricted_worker_event_size_64,
+                  sizeof(ExRestrictedWorkerEventV1) == 40u);
 IBEX_C_ABI_ASSERT(position_line_offset_64,
                   offsetof(ExHermesSourcePosition, line) == 16u);
 IBEX_C_ABI_ASSERT(position_column_offset_64,

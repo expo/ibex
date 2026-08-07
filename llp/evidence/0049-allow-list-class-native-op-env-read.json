@@ -1,0 +1,32 @@
+{
+ "measurement": "llp-0049-phase2-calibration-class-1",
+ "templateClass": "surface.native.op × [env:read]",
+ "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+ "note": "Declared BEFORE candidate generation. Closes the nonempty logical branch of surface.native.op.exactgetallenv.1xzi2u1 (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal) by authoring nativeEnvironmentEnumerationTemplate in NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES. The empty logical branch (branch-selection + no-effect rows) was already fully-executable and is unchanged. No route field changes; the delta is exactly the residual-reason clearances below on the six nonempty-branch fixtures.",
+ "entries": [
+  {
+   "edgeId": "surface.native.op.exactgetallenv.1xzi2u1",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "native-public-arguments-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3129",
+   "proof": "Authored: __exactGetAllEnv gains a 'nonempty' logical-branch probe template (nativeEnvironmentEnumerationTemplate, capsec-conformance-recipes.mjs:1039) registered in NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES:3129, so the template lookup at capsec-conformance-recipes.mjs (nativePublicProbeForPlan branch-template path) no longer emits native-public-arguments-not-authored for the six nonempty-branch fixtures. Enforcement site: src/engine/hermes_runtime.cc:5060-5137 (armed enumeration authorizes each principal-overlay name via typedEnvironmentOverlayAccessAllowed, hermes_runtime_internal.h:2000-2026, at stages requested+commit; denial skips the name)."
+  },
+  {
+   "edgeId": "surface.native.op.exactgetallenv.1xzi2u1",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "public-surface-invocation-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3129",
+   "proof": "Same authored probe: the six nonempty-branch fixtures now carry a public-surface invocation (ibex/capsec-native-global-invocation/1, globalName __exactGetAllEnv, arity 0, one __exactSetEnv seeding setup on a non-deniable setup floor), so residualReasons() no longer records public-surface-invocation-not-authored (emitting code: capsec-conformance-recipes.mjs residualReasons(), the !publicSurfaceProbe branch)."
+  },
+  {
+   "edgeId": "surface.native.op.exactgetallenv.1xzi2u1",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "conditional-branch-selection-probe-not-authored",
+   "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3129",
+   "proof": "The nonempty branch-selection fixture is now witnessed by the same source-bound public invocation (the authored template includes the branch-selection scenario; the loaded-engine observation of the seeded enumeration IS the branch witness per the conditional-branch rule in residualReasons(): 'Resolved by loaded-engine public evidence'). Emitting code: capsec-conformance-recipes.mjs residualReasons(), the conditional-<scenario>-probe-not-authored branch."
+  }
+ ]
+}

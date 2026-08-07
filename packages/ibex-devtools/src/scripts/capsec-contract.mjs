@@ -27,7 +27,10 @@ import {
   fixtureObligationsForBranch,
 } from "./capsec-fixture-obligations.mjs";
 import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
-import { enforcementBranchIdentity } from "./capsec-coverage-model.mjs";
+import {
+  enforcementBranchIdentity,
+  exactExportAliasTarget,
+} from "./capsec-coverage-model.mjs";
 import {
   buildOutputDispositionDataset,
   canonicalOutputDispositionKey,
@@ -3026,6 +3029,39 @@ export function validateImplementationManifestSemantics(
       if (exactTerminal.length !== 1) {
         throw new Error(
           `${label}: static route does not join exactly one terminal enforcement branch`,
+        );
+      }
+    } else if (row.enforcementRoute.kind === "exact-export-alias") {
+      // Independent re-verification of the reviewed exact-export-alias join:
+      // the alias row must name a reviewed alias mapping, and must join
+      // exactly one canonical row that shares the enforcement branch id, the
+      // final route source refs, and the final terminal. The generic fixture
+      // obligation checks below then hold the alias to the canonical
+      // obligations.
+      const aliasTarget = exactExportAliasTarget(row.observedKey);
+      if (
+        aliasTarget === null ||
+        !row.enforcementRoute.proofPaths.includes(
+          `${row.observedKey} -> ${aliasTarget.canonicalObservedKey}`,
+        )
+      ) {
+        throw new Error(
+          `${label}: exact-export-alias route is not backed by the reviewed alias table`,
+        );
+      }
+      const canonicalRows = (
+        implementationByObservedKey.get(aliasTarget.canonicalObservedKey) ?? []
+      ).filter(
+        (candidate) =>
+          candidate.enforcementBranchId === row.enforcementBranchId &&
+          canonicalJson(candidate.enforcementRoute.sourceRefs) ===
+            canonicalJson(row.enforcementRoute.sourceRefs) &&
+          candidate.enforcementRoute.terminalObservedKey ===
+            row.enforcementRoute.terminalObservedKey,
+      );
+      if (canonicalRows.length !== 1) {
+        throw new Error(
+          `${label}: exact-export-alias does not join exactly one canonical enforcement branch`,
         );
       }
     } else if (

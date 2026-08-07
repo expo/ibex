@@ -415,19 +415,34 @@ unsafe extern "C" {
     fn ex_hermes_free_string(value: *mut c_char);
     #[cfg(feature = "sfe-dev-spike")]
     fn ex_hermes_create_diagnostic() -> *mut c_void;
-    #[cfg(feature = "sfe-dev-spike")]
+    #[cfg(feature = "sfe-compiled-runtime")]
+    fn ibex_private_hermes_create_compiled_ambient_v1() -> *mut c_void;
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
-    #[cfg(feature = "sfe-dev-spike")]
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_destroy(runtime: *mut c_void);
-    #[cfg(feature = "sfe-dev-spike")]
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_poll(runtime: *mut c_void, now_ms: u64) -> i32;
-    #[cfg(feature = "sfe-dev-spike")]
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_next_timer(runtime: *mut c_void) -> i64;
-    #[cfg(feature = "sfe-dev-spike")]
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_has_pending_tasks(runtime: *mut c_void) -> i32;
-    #[cfg(feature = "sfe-dev-spike")]
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_now_ms() -> u64;
-    #[cfg(any(test, feature = "sfe-dev-spike"))]
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
+    fn ibex_private_hermes_take_compiled_async_failure_v1(
+        runtime: *mut c_void,
+        dropped_count: *mut u64,
+        message: *mut *mut u8,
+        message_len: *mut usize,
+    ) -> i32;
+    #[cfg(feature = "sfe-compiled-runtime")]
+    fn ibex_private_install_app_bound_worker_bridge_v1(
+        runtime: *mut c_void,
+        contract: *const u8,
+        contract_len: usize,
+    ) -> i32;
+    #[cfg(any(test, feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_eval(
         runtime: *mut c_void,
         data: *const u8,
@@ -458,18 +473,27 @@ pub fn preflight_hermes_bytecode(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Explicitly diagnostic owner used only by LLP 0029's phase-0 dynamic stub.
-/// Production compiled executables must construct an advertised armed runtime.
-#[cfg(feature = "sfe-dev-spike")]
-pub struct DiagnosticModuleRuntime {
+/// Runtime owner shared by the explicitly named diagnostic constructor and
+/// LLP 0047's deliberate compiled-ambient constructor. Callers cannot change
+/// posture after construction.
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
+pub struct CompiledModuleRuntime {
     raw: NonNull<c_void>,
 }
 
-#[cfg(feature = "sfe-dev-spike")]
-impl DiagnosticModuleRuntime {
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
+impl CompiledModuleRuntime {
+    #[cfg(feature = "sfe-dev-spike")]
     pub fn new() -> Result<Self> {
         let raw = NonNull::new(unsafe { ex_hermes_create_diagnostic() })
             .ok_or_else(|| anyhow!("diagnostic Hermes runtime construction failed"))?;
+        Ok(Self { raw })
+    }
+
+    #[cfg(feature = "sfe-compiled-runtime")]
+    pub fn new_ambient() -> Result<Self> {
+        let raw = NonNull::new(unsafe { ibex_private_hermes_create_compiled_ambient_v1() })
+            .ok_or_else(|| anyhow!("compiled ambient Hermes runtime construction failed"))?;
         Ok(Self { raw })
     }
 
@@ -499,7 +523,11 @@ impl DiagnosticModuleRuntime {
         entry_designation: &str,
         invoked_name: &str,
         application_arguments: &[String],
+        boot_mode: &str,
     ) -> Result<()> {
+        if !matches!(boot_mode, "ambient-compatibility" | "capsec-requested") {
+            bail!("compiled process boot mode is invalid");
+        }
         let mut argv = Vec::with_capacity(application_arguments.len() + 2);
         argv.push(exec_path.to_owned());
         argv.push(entry_designation.to_owned());
@@ -507,20 +535,44 @@ impl DiagnosticModuleRuntime {
         let argv = serde_json::to_string(&argv)?;
         let exec_path = serde_json::to_string(exec_path)?;
         let invoked_name = serde_json::to_string(invoked_name)?;
+        let boot_mode = serde_json::to_string(boot_mode)?;
         let source = format!(
             "globalThis.__exactArgv={argv};\n\
              globalThis.__exactExecArgv=[];\n\
              globalThis.__exactExecPath={exec_path};\n\
              globalThis.__exactRawArgv0={invoked_name};\n\
+             globalThis.__ibexCompiledBootMode={boot_mode};\n\
              if (globalThis.process && typeof globalThis.process === 'object') {{\n\
                globalThis.process.argv=globalThis.__exactArgv;\n\
                globalThis.process.execArgv=globalThis.__exactExecArgv;\n\
                globalThis.process.argv0=globalThis.__exactRawArgv0;\n\
                globalThis.process.execPath=globalThis.__exactExecPath;\n\
+               globalThis.process.ibexBootMode=globalThis.__ibexCompiledBootMode;\n\
              }}\n\
              true;"
         );
         self.eval_text(&source, "ibex:compiled-process-metadata")?;
+        Ok(())
+    }
+
+    /// Install the closed app-bound parent bridge before authenticated parent
+    /// modules evaluate. General compiled executables never receive it.
+    /// @ref LLP 0048#61-native-construction-and-ownership-seam
+    #[cfg(feature = "sfe-compiled-runtime")]
+    pub fn install_app_bound_worker_bridge(&mut self, contract: &[u8]) -> Result<()> {
+        if contract.is_empty() {
+            bail!("app-bound restricted-worker bridge contract is empty");
+        }
+        let status = unsafe {
+            ibex_private_install_app_bound_worker_bridge_v1(
+                self.raw.as_ptr(),
+                contract.as_ptr(),
+                contract.len(),
+            )
+        };
+        if status != 0 {
+            bail!("app-bound restricted-worker bridge install refused ({status})");
+        }
         Ok(())
     }
 
@@ -535,6 +587,7 @@ impl DiagnosticModuleRuntime {
             let observed_generation = compiled_wake_generation();
             let now = unsafe { ex_hermes_now_ms() };
             let executed = unsafe { ex_hermes_poll(self.raw.as_ptr(), now) };
+            take_compiled_async_failure(self.raw)?;
             if executed < 0 {
                 bail!("compiled Hermes task execution failed");
             }
@@ -590,11 +643,57 @@ impl DiagnosticModuleRuntime {
     }
 }
 
+/// Turn the runtime's owner-thread background-failure receipt into the
+/// standalone process's fatal disposition. The compiled image has no
+/// supervisor to receive these values, so it releases the worker-local root
+/// before returning a stable refusal to its process boundary.
+/// @ref LLP 0024#9-asynchronous-failures
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
+fn take_compiled_async_failure(runtime: NonNull<c_void>) -> Result<()> {
+    let mut dropped_count = 0;
+    let mut message = std::ptr::null_mut();
+    let mut message_len = 0;
+    let status = unsafe {
+        ibex_private_hermes_take_compiled_async_failure_v1(
+            runtime.as_ptr(),
+            &mut dropped_count,
+            &mut message,
+            &mut message_len,
+        )
+    };
+    let detail = if message.is_null() {
+        String::new()
+    } else {
+        let bytes = unsafe { std::slice::from_raw_parts(message, message_len) };
+        let detail = String::from_utf8_lossy(bytes).into_owned();
+        unsafe { ex_hermes_free_string(message.cast()) };
+        detail
+    };
+    match status {
+        0 => Ok(()),
+        1 => {
+            if detail.is_empty() {
+                bail!("compiled JavaScript background failure was unhandled");
+            }
+            bail!("compiled JavaScript background failure was unhandled: {detail}");
+        }
+        2 => bail!(
+            "compiled JavaScript background failure receipts were dropped ({})",
+            dropped_count
+        ),
+        -1 => bail!("compiled JavaScript background failure receipt failed"),
+        status => bail!("compiled JavaScript background failure receipt was invalid ({status})"),
+    }
+}
+
 #[cfg(feature = "sfe-dev-spike")]
+pub type DiagnosticModuleRuntime = CompiledModuleRuntime;
+
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 static COMPILED_EVENT_LOOP_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
     (std::sync::Mutex::new(0), std::sync::Condvar::new());
 
-#[cfg(feature = "sfe-dev-spike")]
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 extern "C" fn wake_compiled_event_loop(_: *mut c_void) {
     let mut generation = COMPILED_EVENT_LOOP_WAKE
         .0
@@ -604,7 +703,7 @@ extern "C" fn wake_compiled_event_loop(_: *mut c_void) {
     COMPILED_EVENT_LOOP_WAKE.1.notify_one();
 }
 
-#[cfg(feature = "sfe-dev-spike")]
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 fn compiled_wake_generation() -> u64 {
     *COMPILED_EVENT_LOOP_WAKE
         .0
@@ -612,7 +711,7 @@ fn compiled_wake_generation() -> u64 {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-#[cfg(feature = "sfe-dev-spike")]
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 fn wait_for_compiled_wake(observed_generation: u64, wait: std::time::Duration) {
     let generation = COMPILED_EVENT_LOOP_WAKE
         .0
@@ -629,10 +728,10 @@ fn wait_for_compiled_wake(observed_generation: u64, wait: std::time::Duration) {
     );
 }
 
-#[cfg(feature = "sfe-dev-spike")]
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 struct CompiledWakeHookGuard;
 
-#[cfg(feature = "sfe-dev-spike")]
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 impl CompiledWakeHookGuard {
     fn install() -> Self {
         crate::engine::ex_hermes_set_host_wake_hook(
@@ -643,15 +742,15 @@ impl CompiledWakeHookGuard {
     }
 }
 
-#[cfg(feature = "sfe-dev-spike")]
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
 impl Drop for CompiledWakeHookGuard {
     fn drop(&mut self) {
         crate::engine::ex_hermes_set_host_wake_hook(None, std::ptr::null_mut());
     }
 }
 
-#[cfg(feature = "sfe-dev-spike")]
-impl Drop for DiagnosticModuleRuntime {
+#[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
+impl Drop for CompiledModuleRuntime {
     fn drop(&mut self) {
         unsafe { ex_hermes_destroy(self.raw.as_ptr()) };
     }
@@ -883,6 +982,40 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             _runtime: PhantomData,
             _owner_thread: PhantomData,
         })
+    }
+
+    /// Drive the compiled host queue until at least one task has executed or
+    /// the queue is idle. A suspended asynchronous module graph retains this
+    /// runtime borrow, so it cannot use the outer owner loop between graph
+    /// polls. `false` asks the caller to repoll the graph itself: an already
+    /// settled Promise may need that poll despite having no host work.
+    /// @ref LLP 0026#6-top-level-await-and-dynamic-import
+    #[cfg(any(feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
+    pub fn drive_compiled_tasks_until_progress(&self) -> Result<bool> {
+        let _wake_hook = CompiledWakeHookGuard::install();
+        loop {
+            let observed_generation = compiled_wake_generation();
+            let now = unsafe { ex_hermes_now_ms() };
+            let executed = unsafe { ex_hermes_poll(self.raw.as_ptr(), now) };
+            take_compiled_async_failure(self.raw)?;
+            if executed < 0 {
+                bail!("compiled Hermes task execution failed");
+            }
+            if executed > 0 {
+                return Ok(true);
+            }
+            if unsafe { ex_hermes_has_pending_tasks(self.raw.as_ptr()) } == 0 {
+                return Ok(false);
+            }
+
+            let next_timer = unsafe { ex_hermes_next_timer(self.raw.as_ptr()) };
+            let wait = if next_timer < 0 {
+                std::time::Duration::from_secs(1)
+            } else {
+                std::time::Duration::from_millis((next_timer as u64).saturating_sub(now))
+            };
+            wait_for_compiled_wake(observed_generation, wait);
+        }
     }
 
     /// Install the exact provider invoked only for authenticated deferred
@@ -3372,7 +3505,12 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         )
     }
 
-    #[cfg(any(test, feature = "sfe-dev-spike", feature = "dev-committed-embedder"))]
+    #[cfg(any(
+        test,
+        feature = "sfe-dev-spike",
+        feature = "sfe-compiled-runtime",
+        feature = "dev-committed-embedder"
+    ))]
     pub fn link_prepared(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
@@ -3395,7 +3533,12 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         )
     }
 
-    #[cfg(any(test, feature = "sfe-dev-spike", feature = "dev-committed-embedder"))]
+    #[cfg(any(
+        test,
+        feature = "sfe-dev-spike",
+        feature = "sfe-compiled-runtime",
+        feature = "dev-committed-embedder"
+    ))]
     pub fn link_prepared_with_computed_candidates(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
@@ -4011,6 +4154,41 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         )
     }
 
+    /// Link an already-admitted compiled graph while retaining its exact
+    /// computed-import table and prepared carriers. The asynchronous schedule
+    /// is derived from digest-covered artifact TLA facts before any record is
+    /// evaluated.
+    /// @ref LLP 0026#6-top-level-await-and-dynamic-import
+    #[cfg(any(
+        test,
+        feature = "sfe-dev-spike",
+        feature = "sfe-compiled-runtime",
+        feature = "dev-committed-embedder"
+    ))]
+    pub fn link_prepared_with_computed_candidates(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
+        computed_candidates: &ComputedDynamicImportLinks,
+    ) -> Result<Self> {
+        let schedule = plan.asynchronous_evaluation_plan(entry)?;
+        let linked = NativeSynchronousGraph::link_inner(
+            runtime,
+            plan,
+            entry,
+            schedule.evaluation_order.clone(),
+            configs,
+            Vec::new(),
+            None,
+            Some(computed_candidates),
+            Some(prepared_entries),
+            None,
+        )?;
+        Self::from_synchronous(linked, schedule)
+    }
+
     pub fn link_authorized_deferred<P: GraphImportPolicy>(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
@@ -4596,9 +4774,10 @@ mod tests {
                 "/app/entry.mjs",
                 "custom-argv0",
                 &["--inspect".into(), "compile".into()],
+                "ambient-compatibility",
             )
             .unwrap();
-        let source = b"JSON.stringify([globalThis.__exactArgv,globalThis.__exactExecArgv,globalThis.__exactRawArgv0,globalThis.__exactExecPath])";
+        let source = b"JSON.stringify([globalThis.__exactArgv,globalThis.__exactExecArgv,globalThis.__exactRawArgv0,globalThis.__exactExecPath,globalThis.__ibexCompiledBootMode])";
         let source_url = CString::new("compiled-process-metadata-test.js").unwrap();
         let mut output = std::ptr::null_mut();
         let status = unsafe {
@@ -4614,7 +4793,7 @@ mod tests {
         assert_eq!(status, 0);
         assert_eq!(
             take_error(output),
-            r#"[["/tmp/app","/app/entry.mjs","--inspect","compile"],[],"custom-argv0","/tmp/app"]"#
+            r#"[["/tmp/app","/app/entry.mjs","--inspect","compile"],[],"custom-argv0","/tmp/app","ambient-compatibility"]"#
         );
     }
 
@@ -8900,6 +9079,14 @@ export const result = JSON.stringify({
                 assert!(
                     error.contains("CommonJS record evaluation threw"),
                     "unexpected error: {error}"
+                );
+                assert!(
+                    error.contains("commonjs-throw"),
+                    "missing source identity: {error}"
+                );
+                assert!(
+                    error.contains("commonjs-throw.cjs"),
+                    "missing source label stack: {error}"
                 );
                 assert!(record.create_esm_adapter().is_err());
             }

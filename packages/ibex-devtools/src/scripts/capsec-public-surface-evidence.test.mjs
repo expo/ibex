@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  authenticatedBuiltinSourceRuntimeNonce,
   assertPublicSurfaceExecutionComplete,
   buildPublicFixtureEvidence,
   buildPublicSurfaceExecutionArtifact,
@@ -2615,25 +2616,45 @@ function completeClosedLoaderCatalog() {
   return catalog;
 }
 
-function completeClosedTerminalBuiltinCatalog() {
+function completeClosedTerminalBuiltinCatalog({
+  sourceKey = "node_vm",
+  terminalBuiltinRoot = "vm",
+  moduleSpecifiers = ["node:vm", "vm"],
+  exportName = "runInNewContext",
+} = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
+  const exportSurface = exportName !== undefined;
+  const surfaceName = exportSurface
+    ? `export:${sourceKey}:${exportName}`
+    : terminalBuiltinRoot;
   const sourceDescriptor = {
     kind: "closed-terminal-builtin",
-    surfaceObservedKey: "builtin:export:node_vm:runInNewContext",
-    sourceKey: "node_vm",
-    exportName: "runInNewContext",
-    moduleSpecifiers: ["node:vm", "vm"],
-    sourceRefs: ["src/builtins/vm.js#exports:runInNewContext"],
-    sourceMetadata: {
-      surfaceType: "export",
-      sourceKey: "node_vm",
-      exportName: "runInNewContext",
-      importReachability: "public",
-      publicModuleSpecifiers: ["node:vm", "vm"],
-    },
+    surfaceObservedKey: `builtin:${surfaceName}`,
+    sourceKey,
+    ...(exportSurface ? { exportName } : {}),
+    moduleSpecifiers,
+    sourceRefs: [
+      exportSurface
+        ? `src/builtins/vm.js#exports:${exportName}`
+        : `modules.ts#specifiers:${sourceKey}`,
+    ],
+    sourceMetadata: exportSurface
+      ? {
+          surfaceType: "export",
+          sourceKey,
+          exportName,
+          importReachability: "public",
+          publicModuleSpecifiers: moduleSpecifiers,
+        }
+      : {
+          sourceKey,
+          bundleExternal: true,
+          importReachability: "public",
+          moduleBuiltin: true,
+        },
   };
-  recipe.fixtureId = "fixture.builtin.vm.run-in-new-context.closed";
+  recipe.fixtureId = `fixture.builtin.${terminalBuiltinRoot}.closed`;
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
   recipe.route.alternatives[0].terminalObservedKey =
@@ -2641,13 +2662,13 @@ function completeClosedTerminalBuiltinCatalog() {
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "builtin",
-    surfaceName: "export:node_vm:runInNewContext",
+    surfaceName,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
     operation: {
       kind: "terminal-builtin-import",
-      terminalBuiltinRoot: "vm",
-      moduleSpecifiers: ["node:vm", "vm"],
+      terminalBuiltinRoot,
+      moduleSpecifiers,
       expectedRejectionFragment: "Import denied:",
     },
   });
@@ -5324,6 +5345,21 @@ describe("CapSec public-surface promotion evidence", () => {
         executions: replayedRuntimeExecutions,
       }),
     ).toThrow(/reused a runtime nonce/);
+
+    expect(
+      authenticatedBuiltinSourceRuntimeNonce({
+        evidence: {
+          runtimeObservation: {
+            invocation: {
+              sourceExecution: {
+                schema: "ibex/capsec-loader-source-point-execution/1",
+                runtimeNonce: "u64:1",
+              },
+            },
+          },
+        },
+      }),
+    ).toBeUndefined();
   });
 
   test("accepts only the exact zero-decision builtin normal-return proof", () => {
@@ -8454,6 +8490,51 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/authenticated import gate/);
+  });
+
+  test("accepts every reviewed terminal builtin root at the authenticated import gate", () => {
+    for (const [sourceKey, terminalBuiltinRoot, moduleSpecifiers] of [
+      ["node_async_hooks", "async_hooks", ["async_hooks", "node:async_hooks"]],
+      [
+        "node_diagnostics_channel",
+        "diagnostics_channel",
+        ["diagnostics_channel", "node:diagnostics_channel"],
+      ],
+      ["node_domain", "domain", ["domain", "node:domain"]],
+      [
+        "node_inspector",
+        "inspector",
+        [
+          "inspector",
+          "inspector/promises",
+          "node:inspector",
+          "node:inspector/promises",
+        ],
+      ],
+      ["node_vm", "vm", ["node:vm", "vm"]],
+      ["node_wasi", "wasi", ["node:wasi", "wasi"]],
+      [
+        "node_worker_threads",
+        "worker_threads",
+        ["node:worker_threads", "worker_threads"],
+      ],
+    ]) {
+      const catalog = completeClosedTerminalBuiltinCatalog({
+        sourceKey,
+        terminalBuiltinRoot,
+        moduleSpecifiers,
+        exportName: undefined,
+      });
+      const recipe = catalog.recipes[0];
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: closedRuntimeObservation(recipe),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
   });
 
   test("accepts crypto control closure only when every alias is pinned and denied", () => {

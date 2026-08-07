@@ -6,7 +6,7 @@ Evidence status: **unpromotable**.
 
 Reason: The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations.
 
-The machine dataset contains 6521 canonical rows; 6193 are explicit `non-path` decisions pinned by catalog digest `sha256-UHA0RaHGAGc8W96brEVbuFJBjyi4VpGRrEHJi6_eTKo`.
+The machine dataset contains 6522 canonical rows; 6193 are explicit `non-path` decisions pinned by catalog digest `sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU`.
 
 The table below projects every material (non-`non-path`) decision. The JSON artifact is normative and total.
 
@@ -70,6 +70,7 @@ The table below projects every material (non-`non-path`) decision. The JSON arti
 | `surface.builtin.export.node.url.fileurltopath.1urxemj` | `[[return]]` | `export:node_url:fileURLToPath` | `all` | `builtin` | `default` | `javascript.package-call-loaded` | `virtual-absolute` | `{"normalizedValue":"virtual-absolute","outcome":"return"}` |
 | `surface.builtin.export.node.url.pathtofileurl.1g8ik13` | `[[return]]` | `export:node_url:pathToFileURL` | `all` | `builtin` | `default` | `javascript.package-call-loaded` | `virtual-absolute` | `{"normalizedValue":"virtual-file-url","outcome":"return"}` |
 | `surface.host.abi.ex.android.initialize.1c4cnq6` | `[[return]]` | `ex_android_initialize` | `all` | `host-abi` | `default` | `host.private-native-call-initialized` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
+| `surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j` | `[[return]]` | `ex_hermes_deliver_animation_frame` | `all` | `host-abi` | `default` | `host.private-native-call-initialized` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.host.abi.ex.hermes.dispatch.event.0lbx6vi` | `[[return]]` | `ex_hermes_dispatch_event` | `all` | `host-abi` | `default` | `host.private-native-call-initialized` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.host.abi.ex.hermes.emit.module.event.00w52n6` | `[[return]]` | `ex_hermes_emit_module_event` | `all` | `host-abi` | `default` | `host.private-native-call-initialized` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.host.abi.ex.hermes.emit.module.view.event.1oibky8` | `[[return]]` | `ex_hermes_emit_module_view_event` | `all` | `host-abi` | `default` | `host.private-native-call-initialized` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |

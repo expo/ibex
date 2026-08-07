@@ -1,7 +1,7 @@
 "use strict";
 //#region src/builtins/dgram.js
 var EventEmitter = require("events");
-var _dgramOwnerHost = typeof __exactNetOwner === "function" ? __exactNetOwner : null;
+const _dgramOwnerHost = globalThis.__exactNetOwner;
 var _hasNativeDgram = typeof __exactUdpSocket === "function";
 var _dgramEventEmitterOwned = Object.create(null);
 [

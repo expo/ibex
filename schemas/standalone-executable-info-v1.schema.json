@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/standalone-executable-info-v1.schema.json",
+  "title": "Ibex standalone executable self-information report v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "execution",
+    "integrity",
+    "boot",
+    "target",
+    "backendInventory",
+    "provenanceKind"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/standalone-executable-info/1" },
+    "execution": {
+      "type": "object",
+      "required": ["applicationEvaluated"],
+      "properties": { "applicationEvaluated": { "const": false } },
+      "additionalProperties": false
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "status",
+        "envelopeSchema",
+        "stubContractDigest",
+        "graphIdentity",
+        "recordCount",
+        "carrierCount",
+        "candidateTableCount"
+      ],
+      "properties": {
+        "status": { "const": "admitted" },
+        "envelopeSchema": { "const": "ibex/single-file-executable/2" },
+        "stubContractDigest": { "$ref": "#/$defs/digest" },
+        "graphIdentity": { "$ref": "#/$defs/digest" },
+        "recordCount": { "type": "integer", "minimum": 1 },
+        "carrierCount": { "type": "integer", "minimum": 1 },
+        "candidateTableCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "boot": {
+      "type": "object",
+      "required": [
+        "defaultMode",
+        "capsecSelector",
+        "informationSelector",
+        "capsecAdvertisementIdentity",
+        "capsecAvailability"
+      ],
+      "properties": {
+        "defaultMode": { "const": "ambient-compatibility" },
+        "capsecSelector": { "$ref": "#/$defs/capsecSelector" },
+        "informationSelector": { "$ref": "#/$defs/informationSelector" },
+        "capsecAdvertisementIdentity": {
+          "oneOf": [{ "const": "" }, { "$ref": "#/$defs/digest" }]
+        },
+        "capsecAvailability": {
+          "enum": ["unavailable-no-advertisement", "contract-advertised"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "minimumPlatform"],
+      "properties": {
+        "triple": { "type": "string", "minLength": 1 },
+        "minimumPlatform": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "backendInventory": {
+      "type": "object",
+      "required": ["schema", "entries"],
+      "properties": {
+        "schema": { "const": "ibex/sfe-backend-inventory/1" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["surface", "status", "implementation", "limitation"],
+            "properties": {
+              "surface": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["available", "limited", "unavailable"] },
+              "implementation": { "type": "string", "minLength": 1 },
+              "limitation": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenanceKind": { "enum": ["release", "development"] }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "capsecSelector": {
+      "type": "object",
+      "required": ["spelling", "position", "escape"],
+      "properties": {
+        "spelling": { "const": "--ibex-capsec" },
+        "position": { "const": "first-argument-only" },
+        "escape": { "const": "leading-double-dash" }
+      },
+      "additionalProperties": false
+    },
+    "informationSelector": {
+      "type": "object",
+      "required": ["spelling", "position", "escape", "reportSchema"],
+      "properties": {
+        "spelling": { "const": "--ibex-info" },
+        "position": { "const": "first-argument-only" },
+        "escape": { "const": "leading-double-dash" },
+        "reportSchema": { "const": "ibex/standalone-executable-info/1" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

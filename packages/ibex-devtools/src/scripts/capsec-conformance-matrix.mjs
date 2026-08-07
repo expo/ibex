@@ -57,6 +57,39 @@ export const CONFORMANCE_PREFLIGHT_COMMANDS = Object.freeze([
   ["linked-literate-references", pythonCommand, ["./ref-check"]],
 ]);
 
+// The performance observer is deliberately available only to the dedicated
+// release iOS Simulator lane. Generic host conformance must exercise every
+// other crate feature without turning that target-bound observer into an
+// invalid macOS or Windows build. The adjacent contract test keeps this list
+// synchronized with Cargo.toml.
+export const CONFORMANCE_HOST_FEATURES = Object.freeze([
+  "app-host",
+  "capsec-conformance-observer",
+  "cli-notify",
+  "dev-committed-embedder",
+  "host-http-server",
+  "insecure",
+  "module-runner",
+  "module-runner-spike",
+  "openssl-crypto",
+  "runtime-extension-conformance",
+  "sfe-catalog-build",
+  "sfe-compiled-runtime",
+  "sfe-dev-spike",
+  "sfe-static-network",
+  "standard",
+  "tls-client-identity-openssl",
+  "unadvertised-dev-arming",
+]);
+
+// Executable product tests must preserve the ordinary runtime posture. Most
+// optional host features deliberately change that posture and are exercised
+// by dedicated lanes; OpenSSL is the one additive backend whose behavioral
+// tests belong in this generic profile.
+export const CONFORMANCE_EXECUTABLE_FEATURES = Object.freeze([
+  "openssl-crypto",
+]);
+
 export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
   [
     "rust-default-full",
@@ -64,12 +97,13 @@ export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
     ["./scripts/run-tests.sh", "--", "--test-threads=1"],
   ],
   [
-    "rust-workspace-all-features-executable-tests",
+    "rust-workspace-default-openssl-executable-tests",
     "cargo",
     [
       "test",
       "--workspace",
-      "--all-features",
+      "--features",
+      CONFORMANCE_EXECUTABLE_FEATURES.join(","),
       "--lib",
       "--bins",
       "--tests",
@@ -79,17 +113,20 @@ export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
     ],
   ],
   [
-    "rust-workspace-all-features-all-targets-compile",
+    "rust-workspace-host-features-all-targets-compile",
     "cargo",
-    ["check", "--workspace", "--all-features", "--all-targets"],
+    [
+      "check",
+      "--workspace",
+      "--no-default-features",
+      "--features",
+      CONFORMANCE_HOST_FEATURES.join(","),
+      "--all-targets",
+    ],
   ],
   ["devtools-js-full", "bun", ["test", "packages/ibex-devtools/src/scripts"]],
   ["runtime-js-full", "bun", ["test", "packages/ibex-runtime-js/src"]],
-  [
-    "android-websocket-behavioral",
-    "bash",
-    ["./scripts/test-android-java.sh"],
-  ],
+  ["android-websocket-behavioral", "bash", ["./scripts/test-android-java.sh"]],
   ["hermes-transform-loader-corpora", "bun", ["run", "test:hermes-compat"]],
   [
     "runtime-environment-inventory-drift",

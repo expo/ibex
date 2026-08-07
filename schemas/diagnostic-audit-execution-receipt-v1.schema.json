@@ -82,7 +82,11 @@
       ],
       "properties": {
         "observedCount": { "$ref": "#/$defs/count" },
-        "retainedCount": { "$ref": "#/$defs/count" },
+        "retainedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
         "droppedCount": { "$ref": "#/$defs/count" },
         "truncated": { "type": "boolean" },
         "streamDigest": { "$ref": "#/$defs/digest" },
@@ -168,7 +172,22 @@
       },
       "additionalProperties": false,
       "if": { "properties": { "kind": { "const": "completed" } }, "required": ["kind"] },
-      "else": { "required": ["kind", "failureClass"] }
+      "then": { "properties": { "failureClass": false } },
+      "else": {
+        "properties": {
+          "failureClass": {
+            "enum": [
+              "capture-identity",
+              "generation",
+              "admission",
+              "hard-security-decision",
+              "invocation",
+              "execution"
+            ]
+          }
+        },
+        "required": ["kind", "failureClass"]
+      }
     }
   }
 }

@@ -2639,6 +2639,7 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
   if (out_evicted == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  const std::string sourceId = entry->source_id;
   ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "CommonJS host-task boundary is unavailable");
@@ -2658,7 +2659,10 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
     // Keep the engine-side reason (LLP 0413 Phase 2 integration finding):
     // the retained token names the structured value, but embedders reading
     // only the error string got an application-shaped generic label.
-    pendingError = "CommonJS record evaluation threw: " + error.getMessage();
+    const auto message = error.getMessage();
+    const auto stack = error.getStack();
+    pendingError = "CommonJS record evaluation threw in " + sourceId + ": " +
+        (stack.empty() ? message : message + "\n" + stack);
   } catch (const std::exception& error) {
     pendingError = error.what();
   } catch (...) {
@@ -3483,6 +3487,7 @@ extern "C" int32_t ex_hermes_module_complete_dynamic_activation(
 
   NativeModuleRecordEntry* moduleRequester = nullptr;
   NativeCommonJsRecordEntry* commonJsRequester = nullptr;
+  uint64_t requesterContextId = 0;
   if (request.requester_is_commonjs) {
     auto requester =
         runtime->commonjs_records.find(request.requester_record_id);
@@ -3492,6 +3497,7 @@ extern "C" int32_t ex_hermes_module_complete_dynamic_activation(
       return EXACT_RUNTIME_DRIVE_STALE;
     }
     commonJsRequester = &requester->second;
+    requesterContextId = requester->second.context_handle_id;
   } else {
     auto requester =
         runtime->module_records.find(request.requester_record_id);
@@ -3501,6 +3507,12 @@ extern "C" int32_t ex_hermes_module_complete_dynamic_activation(
       return EXACT_RUNTIME_DRIVE_STALE;
     }
     moduleRequester = &requester->second;
+    requesterContextId = requester->second.context_handle_id;
+  }
+  auto requesterContext = runtime->graph_contexts.find(requesterContextId);
+  if (requesterContext == runtime->graph_contexts.end() ||
+      requesterContext->second.graph_generation != request.graph_generation) {
+    return EXACT_RUNTIME_DRIVE_STALE;
   }
   if (success) {
     const uint64_t targetId = target_record.opaque[2];
@@ -3533,6 +3545,17 @@ extern "C" int32_t ex_hermes_module_complete_dynamic_activation(
   const bool computed = request.computed;
   const uint32_t site = request.site;
   const std::string specifier = request.specifier;
+  std::vector<uint64_t> constrained(
+      requesterContext->second.constrained_principals.begin(),
+      requesterContext->second.constrained_principals.end());
+  // The mailbox completion is a fresh native drive with no live requester
+  // frame. Restore the requester's authenticated graph carrier while settling
+  // its public Promise and draining the resulting continuation; otherwise an
+  // `await import()` continuation would resume as no-user authority.
+  // @ref LLP 0026#6-top-level-await-and-dynamic-import
+  ScopedNativePrincipal scheduledPrincipal(
+      requesterContext->second.schedule_owner);
+  ScopedTypedPrincipalStack constrainedScope(constrained);
   ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   bool completed = false;

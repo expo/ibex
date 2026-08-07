@@ -704,7 +704,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-routing",
       "pub(crate) enum AuthenticatedProductIngress {",
       "async fn run_capsec_audit(",
-      "sha256-Jyk-aRGDH9a3z1vOn2nXFVy0s5lTbGJXWb8U1SD09Qk",
+      "sha256-N_YK6YV5KfLTeJg444sGAFssNnvOYqTnxbSEwyIfxnI",
     ),
     freezeReviewedRange(
       "authenticated-product-execution",
@@ -738,7 +738,10 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "closed-ingress-types",
       "pub(crate) struct ReplSessionIngress {",
       "impl AuthenticatedFileIngress {",
-      "sha256-HHcVXVMkehf_gRGI8S8XgqR57Y5155xZJV_WsA70A7M",
+      // Restamped 2026-08-03: the debug-only native-runner gate adds an
+      // authenticated prepared-activation cache locator inside this closed
+      // ingress type range; release builds cannot select it.
+      "sha256-gvka5soES2zECuRQgDW_LaomwqyoLQaxHIzoJi302Qc",
     ),
     freezeReviewedRange(
       "runtime-ingress-constructors",
@@ -750,10 +753,11 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      // Restamped 2026-07-31: 1a9e8234 added the LLP 0042 committed-admission
-      // gate (parse-free publication attempted first; any refusal rebuilds
-      // cold and never rejoins the refused cache generation).
-      "sha256-Xy6O5FqO6aNU32dKQAk6y9IxVPrbf0m52BxEEip_358",
+      // Restamped 2026-08-03: the authenticated real-binary profile bypasses
+      // production commitment selection, retains typed quarantine telemetry,
+      // and exercises source/prepared publication through the same joined
+      // graph without making the selector available in release builds.
+      "sha256-XxwAKQUKiD8Us_KeSfJ1ONUkXrpVY3A7aD2exUuBOzI",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
@@ -767,7 +771,10 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-native-graph-join",
       "    async fn evaluate_native_module_graph(",
       "    async fn install_capsec_context_test_observer(",
-      "sha256-bA65eLY2kZALZnUkHwbNyg-teFvNI0-xYiJ3wpGEBCw",
+      // Restamped 2026-08-03: the joined graph path preserves authenticated
+      // preparation diagnostics, emits debug receipts after successful
+      // execution, and rewrites native failures with artifact source maps.
+      "sha256-mGHFWdXhyOGjazcUASIfKoHO-CIFX4fq3uTkCka2q5U",
     ),
   ]),
   "src/bin/ibex/terminal_session.rs": Object.freeze([
@@ -795,7 +802,9 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-session-and-minting",
       "struct ArmedSessionIdentity {",
       "struct SubmissionPermit {",
-      "sha256-Ym76Z7zEgrQrIS1m-CqFYlWOFHgAypqdzkLG321uqak",
+      // Restamped 2026-08-03: canonical file-shape minting admits `.cts` as
+      // authenticated TypeScript with an explicit CommonJS module kind.
+      "sha256-wb5NMQol6No5OthCR2BpAFYAGoaxmvY7ScBdgJ4rM_8",
     ),
     freezeReviewedRange(
       "immutable-request-and-native-credential",

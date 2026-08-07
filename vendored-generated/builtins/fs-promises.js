@@ -391,11 +391,17 @@ var promises = {
 	},
 	readFileSync: function(path, options) {
 		return fs.readFileSync(path, options);
-	}
+	},
+	toString: base.toString
 };
 for (var key in base) {
 	if (key === "FileHandle" || key === "constants") continue;
-	if (typeof promises[key] === "undefined") promises[key] = base[key];
+	if (!Object.prototype.hasOwnProperty.call(promises, key)) Object.defineProperty(promises, key, {
+		value: base[key],
+		writable: true,
+		enumerable: true,
+		configurable: true
+	});
 }
 module.exports = promises;
 //#endregion

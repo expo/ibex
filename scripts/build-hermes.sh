@@ -12,6 +12,8 @@
 #   ./scripts/build-hermes.sh --release            # Build without debugger
 #   ./scripts/build-hermes.sh --debug              # Force debugger on
 #   ./scripts/build-hermes.sh --clean              # Clean cache and rebuild
+#   ./scripts/build-hermes.sh --normalize-static-archive <path>
+#                                                   # Normalize one Apple archive in place
 #
 # The built xcframework is cached at:
 #   ~/.cache/exact/hermes/<version>/
@@ -46,6 +48,63 @@ HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
 MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
 MACOS_STATIC_DIR="$FRAMEWORKS_DIR/macos-static"
 PROFILE_RECEIPT_DEST="$FRAMEWORKS_DIR/hermes-profile-provenance.json"
+
+# Apple's archive tools preserve member mtimes and numeric owner ids unless
+# deterministic mode is requested. Two otherwise byte-identical Hermes builds
+# therefore produced different fat .a files. Normalize each architecture with
+# libtool -D, then recreate the universal archive in canonical architecture
+# order. The object bytes and member order stay source-derived; only archive
+# metadata and the derived symbol table are rebuilt.
+# @ref LLP 0047#implementation-checkpoint--2026-08-03 — matching physical
+# builders must converge before their release-kit identities are compared.
+normalize_macos_static_archive() {
+    local archive="$1"
+    local archive_dir temp_dir arch
+    local -a normalized_slices
+
+    if [[ ! -f "$archive" || -L "$archive" ]]; then
+        echo "[✗] Static archive is absent or redirected: $archive" >&2
+        return 1
+    fi
+    archive_dir="$(cd "$(dirname "$archive")" && pwd)"
+    archive="$archive_dir/$(basename "$archive")"
+    temp_dir="$(mktemp -d "$archive_dir/.ibex-static-archive.XXXXXX")"
+
+    if ! (
+        set -e
+        normalized_slices=()
+        for arch in $(lipo -archs "$archive" | tr ' ' '\n' | LC_ALL=C sort); do
+            [[ -n "$arch" ]] || continue
+            lipo "$archive" -thin "$arch" \
+                -output "$temp_dir/$arch.input.a"
+            libtool -static -D -no_warning_for_no_symbols \
+                -o "$temp_dir/$arch.normalized.a" \
+                "$temp_dir/$arch.input.a"
+            normalized_slices+=("$temp_dir/$arch.normalized.a")
+        done
+        [[ ${#normalized_slices[@]} -gt 0 ]]
+        lipo -create "${normalized_slices[@]}" \
+            -output "$temp_dir/normalized.a"
+        chmod 0644 "$temp_dir/normalized.a"
+        mv "$temp_dir/normalized.a" "$archive"
+    ); then
+        rm -rf "$temp_dir"
+        echo "[✗] Could not normalize static archive: $archive" >&2
+        return 1
+    fi
+    rm -rf "$temp_dir"
+}
+
+# A narrow utility mode lets the deterministic transform be tested against
+# synthetic archives without cloning or building Hermes.
+if [[ "${1:-}" == "--normalize-static-archive" ]]; then
+    if [[ $# -ne 2 ]]; then
+        echo "usage: $0 --normalize-static-archive <path>" >&2
+        exit 2
+    fi
+    normalize_macos_static_archive "$2"
+    exit 0
+fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -475,6 +534,9 @@ cp "$HERMES_SRC/build_macosx/lib/libhermesvm_a.a" "$VERSION_CACHE/macos-static/"
 cp "$HERMES_SRC/build_macosx/lib/libhermesvmlean_a.a" "$VERSION_CACHE/macos-static/"
 cp "$HERMES_SRC/build_macosx/jsi/libjsi.a" "$VERSION_CACHE/macos-static/"
 cp "$HERMES_SRC/build_macosx/external/boost/boost_1_86_0/libs/context/libboost_context.a" "$VERSION_CACHE/macos-static/"
+for static_archive in "$VERSION_CACHE/macos-static/"*.a; do
+    normalize_macos_static_archive "$static_archive"
+done
 cp -R "$HERMES_SRC/destroot/include" "$VERSION_CACHE/"
 mkdir -p "$VERSION_CACHE/bin"
 cp "$HERMES_SRC/destroot/bin/hermesc" "$VERSION_CACHE/bin/" 2>/dev/null || true

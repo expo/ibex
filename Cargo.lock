@@ -1045,6 +1045,7 @@ dependencies = [
  "cc",
  "ibex-runtime",
  "ibex-sfe-format",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -1120,12 +1121,15 @@ dependencies = [
 name = "ibex-sfe-catalog"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64",
  "capsec-semantics",
+ "dirs",
  "ibex-sfe-format",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
 ]
 
@@ -1140,6 +1144,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -2460,8 +2465,6 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "ring"
 version = "0.17.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
 dependencies = [
  "cc",
  "cfg-if",

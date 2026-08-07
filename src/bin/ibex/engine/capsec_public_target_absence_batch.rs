@@ -123,8 +123,13 @@ const TARGET_ABSENCE_BATCH_COMMAND: [&str; 10] = [
     "--",
     "--test-threads=1",
 ];
-const EXPECTED_ABSENT_FIXTURES: usize = 112;
-const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 90;
+// The source-derived Apple catalog currently partitions every executable
+// absence row into 92 target-absence invocations and 22 native-global reads.
+// Keep both the total and the split fail-closed so catalog growth cannot earn
+// execution credit without updating this independent loaded-engine budget.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const EXPECTED_ABSENT_FIXTURES: usize = 114;
+const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 92;
 const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 22;
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {

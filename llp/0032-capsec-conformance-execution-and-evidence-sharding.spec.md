@@ -5,7 +5,20 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-25
+**Revised:** 2026-08-06 (adds the DRAFT scoped-advertisement amendment delta
+at the end of this document — the report schema carries the scope digest, no
+phase, deadline, or sharding changes; UNDER LLP 0049 PHASE 1 REVIEW with the
+LLP 0021 amendment it accompanies)
+**Revised:** 2026-08-03 (timeout policy version 5 gives the exact Windows
+`public-fixtures-005-d0b17e51064234a80cd89dc1c8f4a2f2fbedab33b08f7d065b33f5926cfe3d5f`
+non-capability builtin batch a 420-second deadline after the hosted runner
+completed 1,280 of 1,290 probes but crossed the common 300-second deadline and
+was killed at the 330-second grace boundary; exact dynamic-command overrides
+are now admitted and charged by critical-path accounting, the still-
+conservative Windows setup reserve narrows from 60 to 58 minutes, and the
+worst-case Windows path remains 374 minutes under the 375-minute outer bound;
+the common public-fixture deadline and Apple plan are unchanged)
+**Revised:** 2026-08-05
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021
 
 ## Summary
@@ -68,6 +81,28 @@ therefore returns the common public-fixture deadline to 300 seconds and raises
 the maximum public batch counts to nine on Apple and eight on Windows. Maximum
 critical paths are 366 and 364 minutes respectively, including reserves, below
 the unchanged 375-minute outer bounds.
+
+Implementation checkpoint (2026-08-03): the reviewed public-surface catalog
+now produces 11 Apple and 10 Windows command batches. Timeout policy version 4
+raises the per-target batch ceilings to those exact counts. The Apple setup
+that preceded the matrix completed in under 29 minutes in the failing CI
+observation, so its conservative setup reserve narrows from 60 to 58 minutes;
+the command deadlines and cleanup/upload reserve do not change. The resulting
+maximum critical paths are 374 minutes on both Apple and Windows, leaving one
+minute of outer-budget headroom for tests that exercise bounded policy
+variants.
+
+Implementation checkpoint (2026-08-03): PR #25's exact-head hosted Windows
+run physically passed 1,280 of 1,290 non-capability builtin probes but the
+batch crossed the common 300-second deadline and was terminated at the end of
+its 30-second cleanup grace without a probe assertion. Timeout policy version
+5 commits a 420-second override for that exact dynamic command ID rather than
+widening every public batch. Critical-path accounting now includes exact
+dynamic-command overrides. The Windows setup that preceded the suite took
+under 18 minutes in this observation, so its conservative reserve narrows from
+60 to 58 minutes; the resulting worst-case path remains 374 minutes, the same
+as version 4 and below the 375-minute outer containment bound. Apple and the
+common 300-second public-fixture class are unchanged.
 
 ## Motivation
 
@@ -168,6 +203,22 @@ Splitting a suite does not broaden what counts as evidence. In particular:
 - incomplete, timed-out, canceled, or mismatched work cannot be interpreted as
   an absent or unsupported target cell.
 
+The generic macOS and Windows product-prerequisite lanes MUST use distinct
+executable and compile-time Rust feature profiles. The executable profile MUST
+preserve the ordinary default runtime posture and add `openssl-crypto`, the
+additive host backend whose behavioral tests belong in the generic lane.
+Features that deliberately select a producer, fixture observer, development
+arming mode, or other specialized runtime posture execute behaviorally in
+their dedicated lanes instead of being combined into an incoherent runtime.
+
+The compile-time profile MUST cover every Cargo feature valid for an ordinary
+host build, using an explicit feature list kept in deterministic sync with
+`Cargo.toml`. It MUST exclude `capsec-simulator-performance-observer`: that
+release-only feature belongs to the dedicated iOS Simulator performance lane
+and intentionally refuses every other target. Excluding it from generic host
+compilation does not make it optional or untested; it preserves the feature's
+target boundary while keeping the host profile coherent.
+
 ## Required execution model
 
 ### Command envelope
@@ -259,14 +310,14 @@ failure and never as an absent or unsupported target.
 The first implementation SHOULD use deliberately conservative classes, then
 tune them from retained measurements. Initial planning values are:
 
-| Command class | Initial deadline |
-| --- | ---: |
-| Preflight and metadata checks | 10 minutes |
-| Engine build or attestation | 30 minutes |
-| Public fixture shard | 30 minutes |
-| Rust default-feature product suite | 90 minutes |
-| Rust all-features product suite | 120 minutes |
-| Other product prerequisite | 60 minutes |
+| Command class                   | Initial deadline |
+| ------------------------------- | ---------------: |
+| Preflight and metadata checks   |       10 minutes |
+| Engine build or attestation     |       30 minutes |
+| Public fixture shard            |       30 minutes |
+| Rust default-plus-OpenSSL tests |       90 minutes |
+| Rust host-feature compile suite |      120 minutes |
+| Other product prerequisite      |       60 minutes |
 
 Target-specific overrides are permitted when committed to the plan. A timeout
 is a failed attempt, not a slow success. Because a failed predecessor stops
@@ -314,6 +365,15 @@ escape that cannot be ruled out is a cleanup-proof failure, which sets the
 contamination marker and fails closed. Defense against deliberately malicious
 workloads is the aggregate's job (reject what cannot be proven), not the
 envelope's.
+
+Detection MUST bind an observed descendant to a stable process identity, not
+only a reusable PID. A descendant that entered another process group but whose
+exact identity is proven to have exited before the command terminates is not a
+cleanup-proof failure: no process remains to clean up, and ordinary trusted
+test commands may create such transient groups intentionally. A still-live
+identity at command termination, timeout, or cancellation remains an escape
+and fails closed. Cleanup MUST NOT signal a PID after the observed identity has
+exited, because that PID may have been reused by an unrelated process.
 
 On POSIX systems, the implementation SHOULD place the command in a dedicated
 process group, send a graceful termination signal, wait for the declared grace
@@ -380,7 +440,7 @@ The authoritative suite SHOULD expose these named phases:
     construction also runs through the command envelope).
 
 This order deliberately corrects the current runner, which attests the engine
-*before* running the fixture-evidence pilot. The final attestation MUST follow
+_before_ running the fixture-evidence pilot. The final attestation MUST follow
 every engine-using evidence phase; an attestation that brackets only part of
 the engine-using work does not establish identity continuity.
 
@@ -739,3 +799,36 @@ introduce one cross-platform command envelope, apply it to the current
 sequential runner, and make command state visible while CI is running. Runtime
 measurements from that stage should determine where sharding actually pays for
 its additional provenance surface.
+
+## Amendment delta: scoped advertisement (2026-08-06)
+
+> **Status: DRAFT, UNDER LLP 0049 PHASE 1 REVIEW; no gate code may land
+> until the review of the LLP 0021 scoped-advertisement amendment
+> completes (LLP 0044 §7 item 5).** This delta is deliberately small; the
+> design and the join matrix live in LLP 0021's amendment.
+
+- **The report schema carries the scope digest.** Both report schemas —
+  the rich `ibex/capsec-conformance/1`
+  (`packages/ibex-devtools/src/scripts/capsec-conformance.mjs:571`) and
+  the portable `ibex/capsec-conformance/2`
+  (`src/host/portable_target_admission.rs:34`) — gain a `scopeDigest`
+  binding in `bindings`, alongside the existing catalog and evidence
+  digests. The scoped completeness semantics of that binding are LLP 0021
+  amendment §A2/§A9 M4, not this document's concern; the schema files
+  and digest-contract pins that binding change restamps (both report
+  JSON Schemas close `bindings` with `additionalProperties: false`) are
+  enumerated in LLP 0021 amendment §A9 M30, and whether the rich v1
+  report revs its schema id or evolves in place is LLP 0021 amendment
+  §A10 #6.
+- **No phase changes.** The phase graph, command envelope, deadline
+  policy (currently version 5), resumption rules, shard-manifest field
+  set, authority classes, and aggregate-validation rules are unchanged.
+  The suite-plan digest already commits to "all conformance inputs"
+  (Terminology); once the scope artifact is a conformance input, that
+  existing commitment covers it — stated here explicitly so a scope swap
+  between attempts is a plan mismatch, not a new rule.
+- **Diagnostic separation is reused, not extended.** Out-of-scope
+  negative-control and adversarial-composition runs are diagnostic
+  shards/artifacts under the existing authority boundary: distinct
+  authority label, distinct storage path, rejected by the authoritative
+  aggregator. No new authority class is created for them.

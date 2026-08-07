@@ -223,6 +223,103 @@ fn authenticated_evaluation(evaluation: Stage1Evaluation) -> AuthenticatedEvalua
     }
 }
 
+#[cfg(feature = "module-runner")]
+struct NativeModuleSourceMap {
+    source_label: String,
+    bundle_path: String,
+    map: super::sourcemap::SourceMap,
+}
+
+#[cfg(feature = "module-runner")]
+fn native_module_source_maps(
+    plan: &ibex_runtime::module_loader::graph::SynchronousGraphPlan<'_>,
+    configs: &std::collections::BTreeMap<
+        ibex_runtime::module_loader::identity::SourceId,
+        ibex_runtime::engine::module_runner::NativeModuleRecordConfig,
+    >,
+) -> Result<std::collections::BTreeMap<String, NativeModuleSourceMap>> {
+    let mut maps = std::collections::BTreeMap::new();
+    for (source_id, config) in configs {
+        let artifact = plan.artifact(source_id)?;
+        let source_map = &artifact.artifact().semantics.source_map;
+        let source_labels = source_map
+            .source_ids
+            .iter()
+            .map(|source| {
+                configs
+                    .get(&source.0)
+                    .map(|source_config| source_config.source_label.clone())
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "native module source map names a source outside its authenticated graph"
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let map =
+            super::sourcemap::SourceMap::from_parts(source_labels, source_map.mappings.as_str())
+                .ok_or_else(|| anyhow!("native module source map has no authenticated sources"))?;
+        let bundle_path = config
+            .virtual_path
+            .clone()
+            .unwrap_or_else(|| config.source_label.clone());
+        maps.insert(
+            config.source_label.clone(),
+            NativeModuleSourceMap {
+                source_label: config.source_label.clone(),
+                bundle_path,
+                map,
+            },
+        );
+    }
+    Ok(maps)
+}
+
+#[cfg(feature = "module-runner")]
+fn rewrite_native_module_source_positions(
+    mut evaluation: AuthenticatedEvaluation,
+    source_maps: &std::collections::BTreeMap<String, NativeModuleSourceMap>,
+) -> AuthenticatedEvaluation {
+    let AuthenticatedEvaluation::Throw(thrown) = &mut evaluation else {
+        return evaluation;
+    };
+    let AuthenticatedThrowMetadata::Captured {
+        stack, positions, ..
+    } = &mut thrown.metadata
+    else {
+        return evaluation;
+    };
+
+    if let Some(stack) = stack {
+        for source_map in source_maps.values() {
+            if stack.contains(source_map.source_label.as_str())
+                || stack.contains(source_map.bundle_path.as_str())
+            {
+                *stack = super::sourcemap::rewrite_error(
+                    stack,
+                    &source_map.map,
+                    source_map.bundle_path.as_str(),
+                );
+            }
+        }
+    }
+    for position in positions {
+        let Some(source_map) = source_maps.get(position.source_label.as_str()) else {
+            continue;
+        };
+        let Some((source_label, line, column)) = source_map.map.lookup(
+            position.line.saturating_sub(1),
+            position.column.saturating_sub(1),
+        ) else {
+            continue;
+        };
+        position.source_label = source_label.to_owned();
+        position.line = line;
+        position.column = column;
+    }
+    evaluation
+}
+
 // The native bootstrap installs this one-shot trusted hook before any bundled
 // runtime code executes. Rust invokes it only after the embedded/disk runtime
 // path is complete, then removes the hook so application code cannot recapture
@@ -2463,6 +2560,7 @@ impl HermesEngine {
         };
         use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
 
+        let native_test_profile = crate::runtime::native_runner_test_profile()?;
         let mut phase = crate::runtime::StartupPhaseTrace::begin();
         self.load_runtime().await?;
         phase.mark("graph_runtime_load");
@@ -2481,10 +2579,14 @@ impl HermesEngine {
         let armed_snapshot_digest = self.armed_snapshot_digest.clone();
         let admitted = unsafe {
             admit_prepare_authenticated_module_graph(raw.cast(), session, request, |request| {
-                let preparation = prepare(request).map_err(|_| {
-                    EngineFault::Rejected(Arc::from(
-                        "authenticated module graph preparation failed",
-                    ))
+                let preparation = prepare(request).map_err(|error| {
+                    // The preparer has already consumed an authenticated
+                    // request, so its source-labelled producer diagnostic is
+                    // safe and necessary for the native diagnostics contract.
+                    // @ref LLP 0026#10-diagnostics-and-source-maps
+                    EngineFault::Rejected(Arc::from(format!(
+                        "authenticated module graph preparation failed: {error:#}"
+                    )))
                 })?;
                 match preparation {
                     super::AuthenticatedModuleGraphPreparation::Native(graph) => {
@@ -2558,11 +2660,13 @@ impl HermesEngine {
         let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, nonce)? };
         let mut forced_terminal = None;
         let mut retained_activation_state = None;
+        let mut source_maps = std::collections::BTreeMap::new();
 
         let graph_result: Result<()> = async {
             let plan = graph.plan()?;
             phase.mark("graph_plan");
             let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
+            source_maps = native_module_source_maps(&plan, &configs)?;
             phase.mark("graph_execution_inputs");
             let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
             let prepared_entries = graph.prepared_entries()?;
@@ -2653,6 +2757,8 @@ impl HermesEngine {
                                 let expanded_plan = activation_state.source_graph.plan()?;
                                 let (configs, contexts) =
                                     activation_state.source_graph.native_execution_inputs(generation)?;
+                                let expanded_source_maps =
+                                    native_module_source_maps(&expanded_plan, &configs)?;
                                 let expanded_deferred =
                                     activation_state.source_graph.deferred_dynamic_links();
                                 let available_prepared =
@@ -2670,21 +2776,25 @@ impl HermesEngine {
                                     &contexts,
                                     &expanded_deferred,
                                     Some(&available_prepared),
-                                )
+                                )?;
+                                Ok(expanded_source_maps)
                             });
-                        if let Err(error) = activation {
-                            activation_state
-                                .source_graph
-                                .rollback_activation(checkpoint);
-                            let diagnostic = format!(
-                                "dynamic module activation refused: {error}"
-                            );
-                            if let Err(refusal_error) = native_runtime
-                                .refuse_dynamic_activation(&request, &diagnostic)
-                            {
-                                return Err(error.context(format!(
-                                    "activation refusal completion failed: {refusal_error}"
-                                )));
+                        match activation {
+                            Ok(expanded_source_maps) => source_maps = expanded_source_maps,
+                            Err(error) => {
+                                activation_state
+                                    .source_graph
+                                    .rollback_activation(checkpoint);
+                                let diagnostic = format!(
+                                    "dynamic module activation refused: {error}"
+                                );
+                                if let Err(refusal_error) = native_runtime
+                                    .refuse_dynamic_activation(&request, &diagnostic)
+                                {
+                                    return Err(error.context(format!(
+                                        "activation refusal completion failed: {refusal_error}"
+                                    )));
+                                }
                             }
                         }
                     }
@@ -2797,6 +2907,8 @@ impl HermesEngine {
                             let expanded_plan = activation_state.source_graph.plan()?;
                             let (configs, contexts) =
                                 activation_state.source_graph.native_execution_inputs(generation)?;
+                            let expanded_source_maps =
+                                native_module_source_maps(&expanded_plan, &configs)?;
                             let expanded_deferred =
                                 activation_state.source_graph.deferred_dynamic_links();
                             let available_prepared =
@@ -2814,20 +2926,24 @@ impl HermesEngine {
                                 &contexts,
                                 &expanded_deferred,
                                 Some(&available_prepared),
-                            )
+                            )?;
+                            Ok(expanded_source_maps)
                         });
-                    if let Err(error) = activation {
-                        activation_state
-                            .source_graph
-                            .rollback_activation(checkpoint);
-                        let diagnostic =
-                            format!("dynamic module activation refused: {error}");
-                        if let Err(refusal_error) = native_runtime
-                            .refuse_dynamic_activation(&request, &diagnostic)
-                        {
-                            return Err(error.context(format!(
-                                "activation refusal completion failed: {refusal_error}"
-                            )));
+                    match activation {
+                        Ok(expanded_source_maps) => source_maps = expanded_source_maps,
+                        Err(error) => {
+                            activation_state
+                                .source_graph
+                                .rollback_activation(checkpoint);
+                            let diagnostic =
+                                format!("dynamic module activation refused: {error}");
+                            if let Err(refusal_error) = native_runtime
+                                .refuse_dynamic_activation(&request, &diagnostic)
+                            {
+                                return Err(error.context(format!(
+                                    "activation refusal completion failed: {refusal_error}"
+                                )));
+                            }
                         }
                     }
                 }
@@ -2929,6 +3045,12 @@ impl HermesEngine {
         let settled = unsafe { structured.finish(terminal) }.map_err(anyhow::Error::new);
         if graph_result.is_ok() && settled.is_ok() {
             if let Some(state) = retained_activation_state {
+                if let Some(profile) = native_test_profile {
+                    crate::runtime::emit_native_runner_execution_receipt(
+                        &state.source_graph,
+                        profile,
+                    )?;
+                }
                 if state.source_graph.has_call_time_activation_links() {
                     runtime.retain_module_activation_state(state)?;
                 }
@@ -2940,7 +3062,10 @@ impl HermesEngine {
         // file-program owner performs quiescence, while the runtime-lifetime
         // generation pin preserves records for delayed `--keep-alive` imports.
         match (graph_result, settled) {
-            (Ok(()), Ok(evaluation)) => Ok(authenticated_evaluation(evaluation)),
+            (Ok(()), Ok(evaluation)) => Ok(rewrite_native_module_source_positions(
+                authenticated_evaluation(evaluation),
+                &source_maps,
+            )),
             (Ok(()), Err(error)) => Err(error),
             (Err(_graph_error), Ok(evaluation))
                 if matches!(
@@ -2950,7 +3075,10 @@ impl HermesEngine {
                         | Stage1EvaluationOutcome::Lifecycle { .. }
                 ) =>
             {
-                Ok(authenticated_evaluation(evaluation))
+                Ok(rewrite_native_module_source_positions(
+                    authenticated_evaluation(evaluation),
+                    &source_maps,
+                ))
             }
             (Err(graph_error), Ok(_)) => Err(graph_error),
             (Err(graph_error), Err(settlement_error)) => Err(graph_error.context(format!(
@@ -6365,6 +6493,58 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
+    // @ref LLP 0005#c-compilation — Windows cargo test binaries load the
+    // digest-checked copy staged beside the executable, while other targets
+    // load the selected artifact at its canonical path.
+    fn loaded_engine_matches_selected_artifact(
+        loaded_path: &std::path::Path,
+        loaded_digest: &str,
+        selected_path: &std::path::Path,
+        selected_digest: &str,
+        content_staging_permitted: bool,
+    ) -> bool {
+        loaded_digest == selected_digest
+            && (loaded_path == selected_path
+                || (content_staging_permitted
+                    && loaded_path.file_name() == selected_path.file_name()))
+    }
+
+    #[test]
+    fn loaded_engine_selection_allows_only_digest_bound_windows_staging() {
+        let selected = std::path::Path::new("C:/ibex/hermes/bin/hermesvm.dll");
+        let staged = std::path::Path::new("C:/ibex/target/debug/deps/hermesvm.dll");
+        let other_name = std::path::Path::new("C:/ibex/target/debug/deps/other.dll");
+
+        assert!(loaded_engine_matches_selected_artifact(
+            staged,
+            "sha256-selected",
+            selected,
+            "sha256-selected",
+            true,
+        ));
+        assert!(!loaded_engine_matches_selected_artifact(
+            staged,
+            "sha256-selected",
+            selected,
+            "sha256-selected",
+            false,
+        ));
+        assert!(!loaded_engine_matches_selected_artifact(
+            staged,
+            "sha256-other",
+            selected,
+            "sha256-selected",
+            true,
+        ));
+        assert!(!loaded_engine_matches_selected_artifact(
+            other_name,
+            "sha256-selected",
+            selected,
+            "sha256-selected",
+            true,
+        ));
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn capsec_loaded_engine_identity_attestation() {
@@ -6385,8 +6565,16 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         let _lock = hermes_engine_test_lock().lock().await;
         let identity = HermesEngine::loaded_engine_identity()
             .expect("the linked Hermes object must expose a loaded identity");
-        assert_eq!(identity.engine_artifact_path, expected_path);
-        assert_eq!(identity.binary_digest, expected_digest);
+        assert!(
+            loaded_engine_matches_selected_artifact(
+                &identity.engine_artifact_path,
+                &identity.binary_digest,
+                &expected_path,
+                &expected_digest,
+                cfg!(windows),
+            ),
+            "loaded engine must be the selected artifact or its digest-bound Windows staging copy"
+        );
 
         let (host, snapshot_digest) =
             build_armed_test_host_at(None, false, false, false, Vec::new());
@@ -14137,7 +14325,7 @@ module.exports = JSON.stringify({
                     __exactFsPathAsync('truncate', '/project/existing.txt', '', 0, 0, 0);
                   });
                   expectClosed(function() {
-                    __exactFsStatAsync('/project/existing.txt', 'stat');
+                    __exactFsReadFileAsync('/project/existing.txt', 'r', 0, null);
                   });
                   expectClosed(function() {
                     __exactFsStatAsync('/project/existing.txt', 'lstat');
@@ -16693,6 +16881,242 @@ module.exports = JSON.stringify({
             Some("ENOENT")
         );
         assert!(!missing.exists());
+    }
+
+    /// Regression for the Exact-reported real-input carrier defect (Exact
+    /// `issues/20260805-input-dispatch-no-user-carrier-...`): a host input
+    /// event delivered through `ex_hermes_dispatch_event` must run under the
+    /// standard runtime entry boundary, so a granted first-party capability
+    /// op succeeds identically (a) directly in the activation's promise
+    /// reaction, (b) nested through the resulting native async completion,
+    /// and (c) detached across `setTimeout(0)` — with no capability denial
+    /// recorded. Before the drive guard, this harness produced
+    /// `ERR_IBEX_STALE_SESSION` (no Host session was ever entered).
+    ///
+    /// The complementary no-shed direction (a constrained carrier must stay
+    /// constrained across the same hop) is pinned by `__deputyTimerResult`
+    /// in `src/engine/runtime_extension_conformance_tests.rs`.
+    /// @ref LLP 0051#acceptance-evidence — positive input A/B witness
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn input_dispatch_entry_grants_first_party_capabilities_across_hops() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        std::fs::write(root.join("existing.txt"), b"payload").unwrap();
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        engine
+            .eval(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__abResults = {
+                    direct: 'pending',
+                    hop: 'pending',
+                    nested: 'pending',
+                    handler: 'pending'
+                  };
+                  var probe = function(slot, next) {
+                    try {
+                      __exactFsReadFileAsync('/project/existing.txt', 'r', 0, null).then(
+                        function() {
+                          globalThis.__abResults[slot] = 'granted';
+                          if (next) next();
+                        },
+                        function(error) {
+                          globalThis.__abResults[slot] =
+                            'denied:' + String(error && (error.code || error.message));
+                          if (next) next();
+                        });
+                    } catch (error) {
+                      globalThis.__abResults[slot] =
+                        'threw:' + String(error && error.message);
+                      if (next) next();
+                    }
+                  };
+                  globalThis.__exactDispatchEvent = function(id, payload) {
+                    globalThis.__abResults.handler = 'ran';
+                    Promise.resolve().then(function() {
+                      probe('direct', function() { probe('nested', null); });
+                    });
+                    setTimeout(function() { probe('hop', null); }, 0);
+                  };
+                  return 'installed';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        runtime
+            .with_runtime(|raw| {
+                let dispatched = unsafe { ex_hermes_dispatch_event(raw, 1, std::ptr::null()) };
+                assert_eq!(dispatched, 0, "dispatch_event failed");
+            })
+            .unwrap();
+        let mut outcome = String::new();
+        for _ in 0..100 {
+            runtime
+                .with_runtime(|raw| {
+                    let _ = unsafe { ex_hermes_poll(raw, current_time_ms() + 50) };
+                })
+                .unwrap();
+            outcome = engine
+                .eval_immediate("JSON.stringify(globalThis.__abResults)")
+                .await
+                .unwrap()
+                .unwrap();
+            if !outcome.contains("pending") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&outcome).unwrap();
+        assert_eq!(parsed["handler"], "ran", "the dispatch handler never ran");
+        assert_eq!(parsed["direct"], "granted", "direct-chain op outcome");
+        assert_eq!(parsed["nested"], "granted", "nested-chain op outcome");
+        assert_eq!(parsed["hop"], "granted", "setTimeout-hop op outcome");
+
+        // No legacy capability denial may be recorded for the activation
+        // (the armed typed plane's positive gate-liveness control is the
+        // withheld-authority sibling test below).
+        let (legacy, _typed) = crate::host::abi::take_installed_conformance_observations();
+        let denials: Vec<_> = legacy
+            .iter()
+            .filter(|decision| !decision.allowed)
+            .map(|decision| decision.capability.clone())
+            .collect();
+        assert!(
+            denials.is_empty(),
+            "input-seeded chain recorded capability denials: {denials:?}"
+        );
+    }
+
+    /// Gate-liveness control for the positive A/B above: the identical
+    /// dispatch-seeded probe with read authority withheld must be DENIED on
+    /// every leg, proving the grants in the positive test are real decisions
+    /// by a live gate rather than an absence of checks.
+    /// @ref LLP 0051#acceptance-evidence — positive input A/B witness
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn input_dispatch_probe_is_gated_when_read_authority_is_withheld() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        std::fs::write(root.join("existing.txt"), b"payload").unwrap();
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        engine
+            .eval(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__abResults = {
+                    direct: 'pending',
+                    hop: 'pending',
+                    handler: 'pending'
+                  };
+                  var probe = function(slot) {
+                    try {
+                      __exactFsReadFileAsync('/project/existing.txt', 'r', 0, null).then(
+                        function() { globalThis.__abResults[slot] = 'granted'; },
+                        function(error) {
+                          globalThis.__abResults[slot] =
+                            'denied:' + String(error && (error.code || error.message));
+                        });
+                    } catch (error) {
+                      globalThis.__abResults[slot] =
+                        'denied-sync:' + String(error && error.message);
+                    }
+                  };
+                  globalThis.__exactDispatchEvent = function(id, payload) {
+                    globalThis.__abResults.handler = 'ran';
+                    Promise.resolve().then(function() { probe('direct'); });
+                    setTimeout(function() { probe('hop'); }, 0);
+                  };
+                  return 'installed';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                let dispatched = unsafe { ex_hermes_dispatch_event(raw, 1, std::ptr::null()) };
+                assert_eq!(dispatched, 0, "dispatch_event failed");
+            })
+            .unwrap();
+        let mut outcome = String::new();
+        for _ in 0..100 {
+            runtime
+                .with_runtime(|raw| {
+                    let _ = unsafe { ex_hermes_poll(raw, current_time_ms() + 50) };
+                })
+                .unwrap();
+            outcome = engine
+                .eval_immediate("JSON.stringify(globalThis.__abResults)")
+                .await
+                .unwrap()
+                .unwrap();
+            if !outcome.contains("pending") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&outcome).unwrap();
+        assert_eq!(parsed["handler"], "ran", "the dispatch handler never ran");
+        for slot in ["direct", "hop"] {
+            let value = parsed[slot].as_str().unwrap_or("missing");
+            assert!(
+                value.starts_with("denied"),
+                "withheld-authority {slot} probe was not denied: {value}"
+            );
+        }
+    }
+
+    /// Runtime admission at the input ingress: `ex_hermes_dispatch_event` must
+    /// refuse a stale generation rather than dereferencing it. (Owner-thread
+    /// refusal is enforced by the same guard; `with_runtime` already asserts
+    /// owner-thread affinity in this harness, so the reachable admission
+    /// witness here is the post-shutdown generation.)
+    /// @ref LLP 0051#acceptance-evidence — admission tests
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn input_dispatch_refuses_a_stale_runtime_generation() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval("globalThis.__exactDispatchEvent = function() {}; 'installed'")
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let stale_address = runtime
+            .with_runtime(|raw| raw as usize)
+            .expect("runtime pointer");
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
+        let refused = unsafe {
+            ex_hermes_dispatch_event(
+                stale_address as *mut HermesRuntimeOpaque,
+                1,
+                std::ptr::null(),
+            )
+        };
+        assert_eq!(
+            refused, -1,
+            "input dispatch admitted a destroyed runtime generation"
+        );
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]

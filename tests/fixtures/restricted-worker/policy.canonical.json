@@ -1,0 +1,1 @@
+{"capabilities":["broker:snapback-app-cli:1"],"clock":"denied","dynamicCode":"disabled","environment":"denied","filesystem":"denied","imports":"denied","network":"denied","persistence":"denied","randomness":"denied","schema":"ibex/restricted-external-worker-policy/1","subprocess":"denied"}

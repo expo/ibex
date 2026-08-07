@@ -1776,8 +1776,9 @@ class VectorBuffer : public facebook::jsi::MutableBuffer {
  public:
   explicit VectorBuffer(std::vector<uint8_t> data) : data_(std::move(data)) {}
 
-  size_t size() const override { return data_.size(); }
-  uint8_t* data() override { return data_.data(); }
+  ~VectorBuffer() override;
+  size_t size() const override;
+  uint8_t* data() override;
 
  private:
   std::vector<uint8_t> data_;
@@ -2452,6 +2453,9 @@ void unregisterSignalRuntime(ExactHermesRuntime* handle);
 void installFsMutationGuardHostFunction(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
+void sealGlobalHostFunction(
+    facebook::jsi::Runtime& runtime,
+    const char* name);
 // Install only the runtime/principal-bound retained-wrapper owner primitive.
 // Full socket and TLS host functions remain behind __exactEnsureNet.
 void installNetOwnerHostFunction(ExactHermesRuntime* handle);
@@ -2583,11 +2587,24 @@ TryRuntimeCallbackResult tryPushRuntimeExtensionCallback(
     std::function<void(facebook::jsi::Runtime&)> fn,
     std::function<void()> ownerDisposition) noexcept;
 
-// Enqueue a native-resource finalizer without transferring ownership on
-// failure. A successful enqueue guarantees `fn` runs on the runtime thread,
-// including while destroy waits for native producer pins to drain.
-bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
-                          std::function<void()> fn);
+enum class PushRuntimeFinalizerResult : uint8_t {
+  Accepted,
+  Stale,
+  Invalid,
+};
+
+// Each accepted native-resource finalizer receives exactly one owner-thread
+// invocation attempt, including while destroy waits for native producer pins to
+// drain. Refusal transfers nothing: `fn` remains owned by and is destroyed by
+// the producer. Every producer must be either refusal-impossible, with a
+// lifetime proof that keeps admission valid, or fallback-backed, with a named
+// authoritative fallback that owns reclamation after refusal. Finalizer bodies
+// must be effectively noexcept, non-blocking, invoke no user JavaScript, never
+// re-enter Hermes, and be idempotent against the owner's authoritative sweep.
+// @ref LLP 0050#4-decision-d3--native-tier-contract-and-the-staleness-story
+PushRuntimeFinalizerResult pushRuntimeFinalizer(
+    RuntimeCallbackTarget target,
+    std::function<void()>& fn);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

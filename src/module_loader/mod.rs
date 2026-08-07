@@ -2975,7 +2975,18 @@ impl ModuleLoader {
         // Content-dependent downlevel classification is deferred to that same
         // authorized read so metadata resolution cannot become a read bypass.
         // @ref LLP 0023#21-staged-authorization-identity
-        if kind == ModuleKind::Esm && Self::needs_transpile(&full_path) {
+        // The compatibility source loader may later lower TypeScript bytes to
+        // CommonJS, but metadata-only resolution must preserve `.mts`'s
+        // unambiguous Module source goal for authenticated graph producers.
+        // @ref LLP 0026#1-source-admission-and-resolution
+        let explicit_module_extension = full_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("mts"));
+        if kind == ModuleKind::Esm
+            && Self::needs_transpile(&full_path)
+            && !explicit_module_extension
+        {
             kind = ModuleKind::CommonJs;
         }
 
@@ -6855,6 +6866,28 @@ mod tests {
 
         assert_eq!(esm_meta.kind, ModuleKind::Esm);
         assert_eq!(cjs_meta.kind, ModuleKind::CommonJs);
+    }
+
+    #[test]
+    fn explicit_mts_source_goal_survives_metadata_only_resolution() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("entry.mts");
+        std::fs::write(&file, "await Promise.resolve();").unwrap();
+        let loader = test_loader();
+
+        let meta = loader
+            .resolve_meta_typed(
+                file.to_str().unwrap(),
+                None,
+                ResolutionKind::Entry,
+                &ConditionSet::for_kind(ResolutionKind::Entry),
+                &ImportAttributes::default(),
+            )
+            .unwrap();
+
+        assert_eq!(meta.kind, ModuleKind::Esm);
+        let compatibility = loader.load_source(meta).unwrap();
+        assert_eq!(compatibility.kind, ModuleKind::CommonJs);
     }
 
     #[test]

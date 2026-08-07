@@ -91,7 +91,8 @@
           "type": "object",
           "required": ["kind", "proofPaths", "proofSourceRefs", "sourceRefs", "terminalObservedKey"],
           "properties": {
-            "kind": { "enum": ["surface-branch", "exact-source-and-semantics", "static-builtin-call-graph"] },
+            "kind": { "enum": ["surface-branch", "exact-source-and-semantics", "static-builtin-call-graph", "exact-export-alias"] },
+            "canonicalSurfaceBranchId": { "$ref": "#/$defs/stableId" },
             "proofPaths": {
               "type": "array",
               "minItems": 1,

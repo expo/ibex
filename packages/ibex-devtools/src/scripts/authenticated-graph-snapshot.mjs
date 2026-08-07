@@ -82,18 +82,18 @@ function validateSourceIdValue(source, label = 'SourceId') {
       assertNonEmpty(component.value, `${label}.path[${index}].value`);
     });
   } else if (source?.kind === 'builtin') {
-    assertExactKeys(source, ['kind', 'domain', 'source_key'], [], label);
+    assertExactKeys(source, ['kind', 'domain', 'sourceKey'], [], label);
     assertNonEmpty(source.domain, `${label}.domain`);
-    assertNonEmpty(source.source_key, `${label}.source_key`);
+    assertNonEmpty(source.sourceKey, `${label}.sourceKey`);
   } else if (source?.kind === 'synthetic') {
     assertExactKeys(
       source,
-      ['kind', 'session_identity', 'source_identity'],
+      ['kind', 'sessionIdentity', 'sourceIdentity'],
       [],
       label,
     );
-    assertNonEmpty(source.session_identity, `${label}.session_identity`);
-    assertNonEmpty(source.source_identity, `${label}.source_identity`);
+    assertNonEmpty(source.sessionIdentity, `${label}.sessionIdentity`);
+    assertNonEmpty(source.sourceIdentity, `${label}.sourceIdentity`);
   } else {
     throw new TypeError(`${label} has an unsupported kind`);
   }

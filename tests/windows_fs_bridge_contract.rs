@@ -230,7 +230,8 @@ fn windows_open_sync_paths_keep_backing_bytes_native_and_virtual_paths_public() 
     }
 
     let read_file = source_section(WINDOWS_FS, "auto readFileFn =", "auto writeFileFn =");
-    assert!(read_file.contains("exactResolveVfsPath(runtime, pathArg(runtime, args[0]))"));
+    assert!(read_file.contains("auto input = pathArg(runtime, args[0])"));
+    assert!(read_file.contains("exactResolveVfsPath(runtime, input)"));
     assert!(read_file.contains("requireReadCapability(runtime, path.virtualPath)"));
     assert!(read_file.contains("ex_host_fs_read_file(path.backing.c_str()"));
     assert!(read_file.contains("throwFs(runtime, \"open\", path.virtualPath)"));
@@ -242,12 +243,13 @@ fn windows_open_sync_paths_keep_backing_bytes_native_and_virtual_paths_public() 
     assert!(write_file.contains("throwFs(runtime, \"write\", path.virtualPath)"));
 
     let open = source_section(WINDOWS_FS, "auto fsOpenFn =", "auto fsCloseFn =");
-    assert!(open.contains("exactResolveVfsPath(runtime, pathArg(runtime, args[0]))"));
+    assert!(open.contains("auto input = pathArg(runtime, args[0])"));
+    assert!(open.contains("exactResolveVfsPath(runtime, input)"));
     assert!(open.contains("requireReadCapability(runtime, path.virtualPath)"));
     assert!(open.contains("requireWriteCapability(runtime, path.virtualPath)"));
     assert!(open.contains("ex_host_fs_open(path.backing.c_str(), host_flags)"));
     assert!(open.contains("throwFs(runtime, \"open\", path.virtualPath)"));
-    assert!(open.contains("file,\n            path.virtualPath,"));
+    assert!(open.contains("file,\n            virtualPath,"));
 
     for (start, end, host_call, capability, syscall) in [
         (
@@ -350,7 +352,8 @@ fn windows_open_async_paths_preserve_both_spellings_across_workers() {
         "auto readFileAsyncFn =",
         "auto writeFileAsyncFn =",
     );
-    assert!(read_entry.contains("exactResolveVfsPath(runtime, pathArg(runtime, args[0]))"));
+    assert!(read_entry.contains("auto input = pathArg(runtime, args[0])"));
+    assert!(read_entry.contains("exactResolveVfsPath(runtime, input)"));
     assert!(read_entry.contains("requireReadCapability(runtime, path.virtualPath)"));
     assert!(read_entry.contains("backingPath = path.backing"));
     assert!(read_entry.contains("virtualPath = path.virtualPath"));

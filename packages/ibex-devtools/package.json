@@ -26,6 +26,9 @@
     "./scripts/hermes-compat-corpus": {
       "import": "./src/scripts/hermes-compat-corpus.mjs"
     },
+    "./scripts/sfe-performance": {
+      "import": "./src/scripts/sfe-performance.mjs"
+    },
     "./scripts/rolldown-bundle": {
       "import": "./src/scripts/rolldown-bundle.mjs"
     },

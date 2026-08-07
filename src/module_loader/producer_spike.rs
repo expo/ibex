@@ -14,10 +14,11 @@ use anyhow::{anyhow, bail, Context, Result};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, CallExpression, Declaration,
-    ExportDefaultDeclarationKind, Expression, ForOfStatement, FunctionBody, IdentifierReference,
-    ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind,
-    MetaProperty, ObjectProperty, ObjectPropertyKind, Program, PropertyKind,
-    SimpleAssignmentTarget, Statement, UpdateExpression, VariableDeclarationKind, WithClause,
+    ExportDefaultDeclarationKind, Expression, ForOfStatement, FormalParameter, FunctionBody,
+    IdentifierReference, ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression,
+    ImportOrExportKind, JSXElement, JSXFragment, MetaProperty, ObjectProperty, ObjectPropertyKind,
+    Program, PropertyKind, SimpleAssignmentTarget, Statement, TSEnumDeclaration,
+    TSModuleDeclaration, UpdateExpression, VariableDeclarationKind, WithClause,
 };
 use oxc_ast_visit::{walk, Visit};
 use oxc_codegen::{Codegen, CodegenOptions};
@@ -218,9 +219,35 @@ pub struct DynamicImportSiteV1 {
     pub runtime_options_supported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GuardedUnsupportedShapeV1 {
+    ComputedDynamicImportWithoutCandidateTable,
+    ComputedCommonJsRequire,
+    UnsupportedDynamicImportOptions,
+}
+
+impl GuardedUnsupportedShapeV1 {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ComputedDynamicImportWithoutCandidateTable => {
+                "computed-dynamic-import-without-candidate-table"
+            }
+            Self::ComputedCommonJsRequire => "computed-commonjs-require",
+            Self::UnsupportedDynamicImportOptions => "unsupported-dynamic-import-options",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuardedUnsupportedSiteV1 {
+    pub shape: GuardedUnsupportedShapeV1,
+    pub original_source_span: OriginalSourceSpanV1,
+}
+
 pub struct ProducedModuleArtifactV1 {
     pub artifact: ModuleArtifactV1,
     pub dynamic_import_sites: Vec<DynamicImportSiteV1>,
+    pub guarded_unsupported_sites: Vec<GuardedUnsupportedSiteV1>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1427,6 +1454,18 @@ pub fn produce_module_artifact_with_sites_v1(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let guarded_unsupported_sites = spike
+        .dynamic_edges
+        .iter()
+        .filter(|edge| !edge.runtime_options_supported)
+        .map(|edge| GuardedUnsupportedSiteV1 {
+            shape: GuardedUnsupportedShapeV1::UnsupportedDynamicImportOptions,
+            original_source_span: OriginalSourceSpanV1 {
+                start: edge.original_source_offset,
+                end: edge.original_source_end,
+            },
+        })
+        .collect();
     let export_descriptors = spike
         .export_descriptors
         .iter()
@@ -1489,6 +1528,7 @@ pub fn produce_module_artifact_with_sites_v1(
     Ok(ProducedModuleArtifactV1 {
         artifact,
         dynamic_import_sites,
+        guarded_unsupported_sites,
     })
 }
 
@@ -1653,6 +1693,31 @@ pub fn produce_commonjs_artifact_with_sites_v1(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let mut guarded_unsupported_sites = visitor
+        .dynamic_edges
+        .iter()
+        .filter(|edge| !edge.runtime_options_supported)
+        .map(|edge| GuardedUnsupportedSiteV1 {
+            shape: GuardedUnsupportedShapeV1::UnsupportedDynamicImportOptions,
+            original_source_span: OriginalSourceSpanV1 {
+                start: edge.original_source_offset,
+                end: edge.original_source_end,
+            },
+        })
+        .collect::<Vec<_>>();
+    guarded_unsupported_sites.extend(intermediate.authored_computed_requires.iter().cloned().map(
+        |original_source_span| GuardedUnsupportedSiteV1 {
+            shape: GuardedUnsupportedShapeV1::ComputedCommonJsRequire,
+            original_source_span,
+        },
+    ));
+    guarded_unsupported_sites.sort_by_key(|site| {
+        (
+            site.original_source_span.start,
+            site.original_source_span.end,
+            site.shape,
+        )
+    });
     let rewritten = apply_replacements(
         &intermediate.code,
         Span::new(0, intermediate.code.len() as u32),
@@ -1717,6 +1782,7 @@ pub fn produce_commonjs_artifact_with_sites_v1(
     Ok(ProducedModuleArtifactV1 {
         artifact,
         dynamic_import_sites,
+        guarded_unsupported_sites,
     })
 }
 
@@ -2029,6 +2095,211 @@ fn export_descriptor_v1(descriptor: &SpikeExportDescriptor) -> Result<ExportDesc
 
 fn transform_with_oxc(path: &Path, source: &str) -> Result<IntermediateSource> {
     transform_with_oxc_goal(path, source, true)
+}
+
+/// Closed Oxc transform for one app-bound external script. The output is one
+/// callable expression consumed by the restricted-worker constructor; it is
+/// never admitted to the parent module graph.
+/// @ref LLP 0048#2-external-script-language-and-transform-profile
+#[derive(Debug, Clone)]
+pub struct ExternalScriptTransformV1 {
+    pub callable_source: Vec<u8>,
+    pub composed_source_map: Vec<u8>,
+    pub has_default_export: bool,
+}
+
+pub fn transform_external_script_v1(
+    path: &Path,
+    source: &str,
+) -> Result<ExternalScriptTransformV1> {
+    if source.len() > 1024 * 1024 {
+        bail!("external script exceeds the fixed 1 MiB source ceiling");
+    }
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(path)
+        .unwrap_or_else(|_| SourceType::mjs())
+        .with_module(true);
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    if !parsed.diagnostics.is_empty() {
+        bail!("external script parse failed: {:?}", parsed.diagnostics);
+    }
+    let program = parsed.program;
+    let mut default_span = None;
+    for statement in &program.body {
+        match statement {
+            Statement::ImportDeclaration(_)
+            | Statement::ExportAllDeclaration(_)
+            | Statement::ExportNamedDeclaration(_) => {
+                bail!("external scripts cannot import or export runtime bindings")
+            }
+            Statement::ExportDefaultDeclaration(declaration) => {
+                if default_span.is_some() {
+                    bail!("external scripts may contain at most one default export");
+                }
+                let Some(expression) = declaration.declaration.as_expression() else {
+                    bail!("external script default export must be an assignment expression");
+                };
+                default_span = Some((declaration.span, expression.span()));
+            }
+            _ => {}
+        }
+    }
+    #[derive(Default)]
+    struct ClosedProfile {
+        dynamic_import: bool,
+        import_meta: bool,
+        jsx: bool,
+        non_erasable_typescript: bool,
+    }
+    impl<'a> Visit<'a> for ClosedProfile {
+        fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
+            self.dynamic_import = true;
+            walk::walk_import_expression(self, expression);
+        }
+        fn visit_meta_property(&mut self, property: &MetaProperty<'a>) {
+            if property.meta.name == "import" && property.property.name == "meta" {
+                self.import_meta = true;
+            }
+            walk::walk_meta_property(self, property);
+        }
+        fn visit_jsx_element(&mut self, _: &JSXElement<'a>) {
+            self.jsx = true;
+        }
+        fn visit_jsx_fragment(&mut self, _: &JSXFragment<'a>) {
+            self.jsx = true;
+        }
+        fn visit_ts_enum_declaration(&mut self, _: &TSEnumDeclaration<'a>) {
+            self.non_erasable_typescript = true;
+        }
+        fn visit_ts_module_declaration(&mut self, _: &TSModuleDeclaration<'a>) {
+            self.non_erasable_typescript = true;
+        }
+        fn visit_formal_parameter(&mut self, parameter: &FormalParameter<'a>) {
+            if parameter.accessibility.is_some() || parameter.readonly || parameter.r#override {
+                self.non_erasable_typescript = true;
+            }
+            walk::walk_formal_parameter(self, parameter);
+        }
+    }
+    let mut closed = ClosedProfile::default();
+    closed.visit_program(&program);
+    if closed.dynamic_import || closed.import_meta {
+        bail!("external scripts cannot use import() or import.meta");
+    }
+    if closed.jsx {
+        bail!("external scripts do not admit JSX");
+    }
+    if closed.non_erasable_typescript {
+        bail!("external scripts admit only erasable TypeScript syntax");
+    }
+
+    let binding = "__ibex_external_default_value__";
+    if source.contains(binding) {
+        bail!("external script uses a producer-reserved binding");
+    }
+    let rewritten = if let Some((declaration, expression)) = default_span {
+        let start = usize::try_from(declaration.start).context("external span overflow")?;
+        let expression_start =
+            usize::try_from(expression.start).context("external expression span overflow")?;
+        let end = usize::try_from(expression.end).context("external expression span overflow")?;
+        format!(
+            "{}const {binding} = ({});{}",
+            &source[..start],
+            &source[expression_start..end],
+            &source[end..]
+        )
+    } else {
+        source.to_owned()
+    };
+    let intermediate = transform_with_oxc_goal(path, &rewritten, true)?;
+    if intermediate.code.as_bytes().len() > 4 * 1024 * 1024 {
+        bail!("external script transform exceeds the fixed 4 MiB ceiling");
+    }
+    let prefix = "(async function(api,snapback,args,signal,console,setTimeout,clearTimeout){\n\"use strict\";\n";
+    let suffix = if default_span.is_some() {
+        format!("\nreturn {{present:true,value:await {binding}}};\n}})")
+    } else {
+        "\nreturn {present:false};\n})".to_owned()
+    };
+    let callable = format!("{prefix}{}{suffix}", intermediate.code);
+    let mut builder = SourceMapBuilder::default();
+    builder.set_file("external-script.worker.js");
+    let source_name = path.to_string_lossy();
+    let source_id = builder.set_source_and_content(&source_name, source);
+    let lookup = intermediate.map.generate_lookup_table();
+    let offset = prefix.lines().count().saturating_sub(1) as u32;
+    for (line, _) in intermediate.code.lines().enumerate() {
+        let generated = u32::try_from(line).context("external source map line overflow")?;
+        let original = intermediate
+            .map
+            .lookup_token(&lookup, generated, 0)
+            .map(|token| token.get_src_line())
+            .unwrap_or(generated);
+        builder.add_token(offset + generated, 0, original, 0, Some(source_id), None);
+    }
+    let mut map: Value = serde_json::from_str(&builder.into_sourcemap().to_json_string())?;
+    map["x_ibex_composed"] = Value::Bool(true);
+    let map = serde_json::to_vec(&map)?;
+    if map.len() > 8 * 1024 * 1024 {
+        bail!("external script source map exceeds the fixed 8 MiB ceiling");
+    }
+    Ok(ExternalScriptTransformV1 {
+        callable_source: callable.into_bytes(),
+        composed_source_map: map,
+        has_default_export: default_span.is_some(),
+    })
+}
+
+#[cfg(test)]
+mod external_script_tests {
+    use super::*;
+
+    #[test]
+    fn transforms_erased_typescript_and_default_value() {
+        let output = transform_external_script_v1(
+            Path::new("example.ts"),
+            "const value: number = 41; export default await Promise.resolve(value + 1);",
+        )
+        .unwrap();
+        let code = String::from_utf8(output.callable_source).unwrap();
+        assert!(output.has_default_export);
+        assert!(code.starts_with(
+            "(async function(api,snapback,args,signal,console,setTimeout,clearTimeout)"
+        ));
+        assert!(code.contains("return {present:true,value:await __ibex_external_default_value__}"));
+        assert!(!code.contains(": number"));
+        assert!(!output.composed_source_map.is_empty());
+    }
+
+    #[test]
+    fn transforms_no_default_to_absent_settlement() {
+        let output =
+            transform_external_script_v1(Path::new("example.js"), "console.log('ok');").unwrap();
+        assert!(!output.has_default_export);
+        assert!(String::from_utf8(output.callable_source)
+            .unwrap()
+            .contains("return {present:false}"));
+    }
+
+    #[test]
+    fn refuses_open_module_and_non_erasable_profiles() {
+        for (name, source) in [
+            ("static-import.ts", "import x from './x.js';"),
+            ("dynamic-import.ts", "void import('./x.js');"),
+            ("jsx.tsx", "const x = <div />;"),
+            ("enum.ts", "enum Value { A }"),
+            (
+                "parameter-property.ts",
+                "class Value { constructor(public item: number) {} }",
+            ),
+            ("default-function.ts", "export default function nope() {}"),
+        ] {
+            assert!(
+                transform_external_script_v1(Path::new(name), source).is_err(),
+                "{name}"
+            );
+        }
+    }
 }
 
 fn transform_with_oxc_goal(

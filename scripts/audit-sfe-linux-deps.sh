@@ -121,7 +121,11 @@ done
 # inverse check proves that the release image actually retained the selected
 # static networking backend rather than silently compiling its bridge out.
 # @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited
-if ! LC_ALL=C nm -g "$binary" 2>/dev/null | grep -E '[[:space:]]curl_easy_init$' >/dev/null; then
+# curl-sys builds the vendored archive with hidden visibility, so the retained
+# definition is normally a local text symbol (`t`) rather than a global one.
+# Inspect the complete static symbol table; the DT_NEEDED allowlist above is
+# the independent proof that this definition did not come from libcurl.so.
+if ! LC_ALL=C nm "$binary" 2>/dev/null | grep -E '[[:space:]][Tt][[:space:]]curl_easy_init$' >/dev/null; then
   echo "audit: compiled Linux release profile lacks the static libcurl Fetch/WebSocket backend" >&2
   exit 1
 fi

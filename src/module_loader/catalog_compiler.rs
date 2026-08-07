@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context as _, Result};
 use capsec_semantics::model::Digest;
+use ibex_sfe_catalog::app_bound::AdmittedCatalogTargetV2;
 use ibex_sfe_catalog::AdmittedCatalogTargetV1;
 use ibex_sfe_format::{EngineCompatibilityV1, HermescCompatibilityV1, HermescRecipeV1};
 
@@ -52,8 +53,77 @@ pub fn compile_catalog_embedded_graph_to_hbc(
     })
 }
 
+/// Compile an app-bound parent's authenticated graph with the compiler tuple
+/// admitted by Catalog V2. The physical carrier recipe is intentionally the
+/// same as general SFE production; only the V4 contract/catalog authority is
+/// distinct.
+/// @ref LLP 0048#10-inspection-and-evidence
+#[cfg(any(test, feature = "module-runner"))]
+pub fn compile_app_bound_catalog_embedded_graph_to_hbc(
+    target: &AdmittedCatalogTargetV2<'_>,
+    source: PreparedEmbeddedSourceGraphV1,
+) -> Result<PreparedEmbeddedSourceGraphV1> {
+    let carriers = source
+        .carriers
+        .into_iter()
+        .map(|carrier| {
+            let (manifest, payload) = compile_app_bound_catalog_carrier_to_hbc(
+                target,
+                &carrier.manifest,
+                &carrier.payload,
+            )?;
+            Ok(EmbeddedPreparedCarrierV1 {
+                pair_id: carrier.pair_id,
+                manifest,
+                payload,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(PreparedEmbeddedSourceGraphV1 {
+        graph: source.graph,
+        carriers,
+        candidate_tables: source.candidate_tables,
+    })
+}
+
+pub fn compile_app_bound_catalog_carrier_to_hbc(
+    target: &AdmittedCatalogTargetV2<'_>,
+    source_manifest: &PreparedModuleCarrierV2,
+    factory_table_source: &[u8],
+) -> Result<(PreparedModuleCarrierV2, Vec<u8>)> {
+    compile_carrier_fields(
+        &target.contract.engine,
+        &target.contract.hermesc,
+        target.entry.hbc_version,
+        &target.entry.engine_compatibility_identity,
+        target.hermesc,
+        source_manifest,
+        factory_table_source,
+    )
+}
+
 pub fn compile_catalog_carrier_to_hbc(
     target: &AdmittedCatalogTargetV1<'_>,
+    source_manifest: &PreparedModuleCarrierV2,
+    factory_table_source: &[u8],
+) -> Result<(PreparedModuleCarrierV2, Vec<u8>)> {
+    compile_carrier_fields(
+        &target.contract.engine,
+        &target.contract.hermesc,
+        target.entry.hbc_version,
+        &target.entry.engine_compatibility_identity,
+        target.hermesc,
+        source_manifest,
+        factory_table_source,
+    )
+}
+
+fn compile_carrier_fields(
+    engine: &EngineCompatibilityV1,
+    compiler: &HermescCompatibilityV1,
+    catalog_hbc_version: u32,
+    engine_compatibility_identity: &str,
+    hermesc: &[u8],
     source_manifest: &PreparedModuleCarrierV2,
     factory_table_source: &[u8],
 ) -> Result<(PreparedModuleCarrierV2, Vec<u8>)> {
@@ -69,17 +139,17 @@ pub fn compile_catalog_carrier_to_hbc(
         hbc_version,
         recipe_digest: contract_recipe,
         ..
-    } = &target.contract.hermesc
+    } = compiler
     else {
         bail!("admitted catalog target has no release hermesc identity");
     };
-    if contract_recipe != &recipe_digest || *hbc_version != target.entry.hbc_version {
+    if contract_recipe != &recipe_digest || *hbc_version != catalog_hbc_version {
         bail!("catalog hermesc contract disagrees with the fixed production recipe");
     }
     let EngineCompatibilityV1::StaticHermes {
         hbc_version: engine_hbc_version,
         ..
-    } = &target.contract.engine
+    } = engine
     else {
         bail!("admitted catalog target has no static Hermes engine identity");
     };
@@ -87,7 +157,7 @@ pub fn compile_catalog_carrier_to_hbc(
         bail!("catalog compiler and static engine HBC versions disagree");
     }
 
-    let hbc = run_fixed_hermesc(target.hermesc, factory_table_source)?;
+    let hbc = run_fixed_hermesc(hermesc, factory_table_source)?;
     let metadata = HermesBytecodeMetadataV1::inspect(&hbc)?;
     if metadata.bytecode_version != *hbc_version {
         bail!(
@@ -97,7 +167,7 @@ pub fn compile_catalog_carrier_to_hbc(
         );
     }
     let binding = PreparedCarrierEngineBindingV2::StaticCompatibility {
-        compatibility_identity: Digest::new(target.entry.engine_compatibility_identity.clone())
+        compatibility_identity: Digest::new(engine_compatibility_identity.to_owned())
             .map_err(anyhow::Error::msg)?,
     };
     let manifest = source_manifest.bind_hermes_bytecode(&hbc, binding)?;
@@ -127,10 +197,17 @@ fn run_fixed_hermesc(hermesc: &[u8], source: &[u8]) -> Result<Vec<u8>> {
     }
 
     let result = Command::new(&compiler)
+        // @ref LLP 0034#decision — the fixed recipe and its authenticated
+        // digest include the runtime's enabled block-scoping semantics.
+        .arg("-Xes6-block-scoping")
         .arg("-emit-binary")
         .arg("-out")
-        .arg(&output)
-        .arg(&input)
+        // Hermes records the input filename in HBC. Keep both recipe paths
+        // relative to the private working directory so its random absolute
+        // location cannot perturb carrier or final executable bytes.
+        // @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+        .arg("carrier.hbc")
+        .arg("carrier.js")
         .env_clear()
         .current_dir(directory.path())
         .stdin(Stdio::null())
@@ -163,14 +240,36 @@ fn write_new(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+#[cfg(all(test, not(target_os = "windows")))]
 mod tests {
     use super::*;
 
+    fn checked_in_tool(name: &str) -> std::path::PathBuf {
+        let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/hermes");
+        let path = match (name, std::env::consts::OS, std::env::consts::ARCH) {
+            ("hermesc", "macos", "aarch64") => tools.join("hermesc-macos-arm64"),
+            ("hermes", "macos", "aarch64") => tools.join("hermes"),
+            ("hermesc", "linux", "x86_64") => tools.join("hermesc-linux-x64"),
+            ("hermes", "linux", "x86_64") => tools.join("hermes-linux-x64"),
+            ("hermesc", "linux", "aarch64") => tools.join("hermesc-linux-arm64"),
+            ("hermes", "linux", "aarch64") => tools.join("hermes-linux-arm64"),
+            _ => panic!(
+                "catalog HBC engine-truth fixture has no tool mapping for {}-{}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+        };
+        assert!(
+            path.is_file(),
+            "checked-in {name} tool is absent: {}",
+            path.display()
+        );
+        path
+    }
+
     #[test]
     fn fixed_recipe_emits_inspectable_real_hbc() {
-        let compiler = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tools/hermes/hermesc-macos-arm64");
+        let compiler = checked_in_tool("hermesc");
         let compiler = std::fs::read(compiler).expect("checked-in macOS hermesc");
         let hbc = run_fixed_hermesc(
             &compiler,
@@ -180,5 +279,47 @@ mod tests {
         let metadata = HermesBytecodeMetadataV1::inspect(&hbc).unwrap();
         assert_eq!(metadata.file_length as usize, hbc.len());
         assert!(metadata.bytecode_version > 0);
+    }
+
+    #[test]
+    fn fixed_recipe_is_work_directory_independent() {
+        let compiler = std::fs::read(checked_in_tool("hermesc")).expect("checked-in hermesc");
+        let source = b"(function(){return Object.freeze(Object.create(null));})()";
+        let first = run_fixed_hermesc(&compiler, source).unwrap();
+        let second = run_fixed_hermesc(&compiler, source).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn fixed_recipe_preserves_per_iteration_capture_in_leave_raw_loop() {
+        let compiler = std::fs::read(checked_in_tool("hermesc")).expect("checked-in hermesc");
+        let hbc = run_fixed_hermesc(
+            &compiler,
+            br#"const callbacks = [];
+for (const value of ["skip", "a", "b"]) {
+  if (value === "skip") continue;
+  callbacks.push(() => value);
+}
+print(JSON.stringify(callbacks.map((read) => read())));"#,
+        )
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let bytecode = directory.path().join("block-scoping.hbc");
+        std::fs::write(&bytecode, hbc).unwrap();
+        let result = Command::new(checked_in_tool("hermes"))
+            .arg(&bytecode)
+            .env_clear()
+            .current_dir(directory.path())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "Hermes refused catalog HBC: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap().trim(),
+            r#"["a","b"]"#
+        );
     }
 }

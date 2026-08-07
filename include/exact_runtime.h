@@ -27,6 +27,48 @@ extern "C" {
 /// Opaque handle to an Exact Hermes runtime
 typedef struct ExactHermesRuntime ExactHermesRuntime;
 
+/// Opaque, dedicated-thread external-script worker. This handle intentionally
+/// cannot be passed to any generic Hermes/runtime entry point.
+/// @ref LLP 0048#61-native-construction-and-ownership-seam
+#define EX_RESTRICTED_WORKER_ABI_VERSION_V1 1u
+typedef struct ExactRestrictedWorkerV1 ExactRestrictedWorkerV1;
+
+typedef struct ExRestrictedWorkerOptionsV1 {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  const uint8_t *arming_json;
+  size_t arming_json_len;
+  const uint8_t *limits_json;
+  size_t limits_json_len;
+} ExRestrictedWorkerOptionsV1;
+
+typedef enum ExRestrictedWorkerEventTagV1 {
+  EX_RESTRICTED_WORKER_EVENT_FRAME_V1 = 1,
+  EX_RESTRICTED_WORKER_EVENT_RESOURCE_V1 = 2,
+  EX_RESTRICTED_WORKER_EVENT_ENGINE_FAULT_V1 = 3,
+  EX_RESTRICTED_WORKER_EVENT_CLOSED_V1 = 4
+} ExRestrictedWorkerEventTagV1;
+
+typedef enum ExRestrictedWorkerFaultV1 {
+  EX_RESTRICTED_WORKER_FAULT_NONE_V1 = 0,
+  EX_RESTRICTED_WORKER_FAULT_HEAP_LIMIT_V1 = 1,
+  EX_RESTRICTED_WORKER_FAULT_HERMES_V1 = 2,
+  EX_RESTRICTED_WORKER_FAULT_LOCKDOWN_V1 = 3,
+  EX_RESTRICTED_WORKER_FAULT_QUEUE_PROTOCOL_V1 = 4,
+  EX_RESTRICTED_WORKER_FAULT_INTERNAL_V1 = 5,
+  EX_RESTRICTED_WORKER_FAULT_INTERRUPT_UNAVAILABLE_V1 = 6
+} ExRestrictedWorkerFaultV1;
+
+typedef struct ExRestrictedWorkerEventV1 {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  uint32_t tag;
+  uint32_t fault;
+  uint64_t runtime_nonce;
+  uint8_t *bytes;
+  size_t bytes_len;
+} ExRestrictedWorkerEventV1;
+
 /// Generation-bearing native module-runner capability. The words are an
 /// opaque ABI payload; callers must not inspect or synthesize them. Every
 /// operation validates all three against the runtime registry before JSI.
@@ -158,6 +200,29 @@ typedef enum ExHostVfsResultDiscriminant {
 // =============================================================================
 // Runtime Lifecycle
 // =============================================================================
+
+int32_t ex_restricted_worker_create_v1(
+    const ExRestrictedWorkerOptionsV1 *options,
+    ExactRestrictedWorkerV1 **out_worker,
+    uint64_t *out_runtime_nonce);
+int32_t ex_restricted_worker_start_v1(
+    ExactRestrictedWorkerV1 *worker,
+    const uint8_t *transformed_source, size_t transformed_source_len,
+    const uint8_t *composed_source_map, size_t composed_source_map_len,
+    const uint8_t *start_frame, size_t start_frame_len);
+int32_t ex_restricted_worker_submit_frame_v1(
+    ExactRestrictedWorkerV1 *worker,
+    const uint8_t *frame, size_t frame_len);
+int32_t ex_restricted_worker_take_event_v1(
+    ExactRestrictedWorkerV1 *worker,
+    uint32_t wait_ms,
+    ExRestrictedWorkerEventV1 *out_event);
+int32_t ex_restricted_worker_interrupt_v1(
+    ExactRestrictedWorkerV1 *worker, uint64_t runtime_nonce);
+int32_t ex_restricted_worker_destroy_v1(
+    ExactRestrictedWorkerV1 *worker, uint64_t runtime_nonce);
+void ex_restricted_worker_event_dispose_v1(
+    ExRestrictedWorkerEventV1 *event);
 
 /// Legacy lifecycle symbol retained for ABI compatibility. It is deliberately
 /// non-executable and always returns NULL. Production callers must use

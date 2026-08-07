@@ -1,6 +1,6 @@
 # Reconcile the `process.cwd` CapSec install identity
 
-Status: Resolved
+**Status:** Resolved
 
 The exact committed Apple snapshot cannot start the complete native public
 primary shard because three checked artifacts disagree about the source-derived

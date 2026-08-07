@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-UHA0RaHGAGc8W96brEVbuFJBjyi4VpGRrEHJi6_eTKo",
+  "catalogKeyDigest": "sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -20238,6 +20238,23 @@
         "surfaceId": "surface.builtin.export.node.fs.promises.symlink.09z1mfq",
         "output": "[[value]]",
         "alias": "export:node_fs_promises:symlink",
+        "mode": "all",
+        "sourceKind": "builtin",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.builtin.export.node.fs.promises.tostring.0nbg5ir",
+        "output": "[[value]]",
+        "alias": "export:node_fs_promises:toString",
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "default",
@@ -51523,12 +51540,12 @@
         "returnVariant": "default",
         "contextId": "host.private-native-call-initialized"
       },
-      "disposition": "non-path",
+      "disposition": "absent",
       "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
+        "outcome": "absent",
+        "normalizedValue": "absent"
       },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1vYcd7Juz0aE5JHR0s6bP7yV3wHz8FbmFCqLfR8ZpTQ, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
@@ -110879,10 +110896,10 @@
     }
   ],
   "counts": {
-    "catalogRows": 6521,
-    "dispositionRows": 6521,
+    "catalogRows": 6522,
+    "dispositionRows": 6522,
     "byDisposition": {
-      "absent": 152,
+      "absent": 153,
       "closed": 28,
       "non-path": 6193,
       "private-native-path": 5,

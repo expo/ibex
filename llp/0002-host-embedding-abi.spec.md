@@ -5,6 +5,11 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-03 (LLP 0048 reserves the versioned opaque
+`ExactRestrictedWorkerV1` family: an authenticated restricted-worker arming
+receipt, separate owner-thread Hermes/Host, bounded frame queues, structured
+events, nonce-authenticated interruption, and owner-thread destruction; it is
+not the armed project constructor, `no_eval`, generic eval, or host-call bridge)
 **Revised:** 2026-07-27 (adds the fail-closed `ex_hermes_create_no_eval` consumer constructor, which completes trusted bootstrap before irreversibly disabling JavaScript dynamic-code compilation and opts that restricted runtime into the native owner-thread asynchronous-failure queue)
 **Revised:** 2026-07-25 (LLP 0040 supersedes the WebGPU-specific artifact builder, provider registration, private bridge, and deferred activation sections with the generic authenticated native runtime-extension registry, constructors, authority finalizer, owner executor, and lifecycle)
 **Revised:** 2026-07-25 (historical: separated authenticated GPU-provider registration from WebGPU runtime activation; superseded by LLP 0040)
@@ -32,7 +37,7 @@
 resolved filesystem object share one host-boundary authorization identity)
 **Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-15 (structured throw metadata now carries a closed, trap-free native Error class derived from the JSError's internal direct-prototype identity); 2026-07-15 (the independent C11 consumer now executes the adversarial structured-value and cancellation ABI cases at runtime in the conformance profile); 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
-**Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
+**Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract); LLP 0048 (restricted external-worker construction and broker ABI)
 
 ## Summary
 
@@ -105,6 +110,36 @@ does not re-derive the inherited rationale `[inferred: the five are singled out
 because they are the minimum surface a host must call to stand up and drive a
 runtime — everything else is either a richer convenience (poll, timers,
 debugger) or a callback the engine makes, not one the host makes]`.
+
+### Restricted external-worker family (normative reservation)
+
+LLP 0048 §6 owns the exact additive
+`EX_RESTRICTED_WORKER_ABI_VERSION_V1` contract and complete C declarations.
+The family publishes an opaque `ExactRestrictedWorkerV1`, never a generic
+runtime handle. Its constructor consumes canonical
+`ibex/restricted-worker-arming/1` and `ibex/restricted-worker-limits/1` bytes;
+creates a separate Hermes/Host on an internally owned thread; installs
+and seals only the digest-bound restricted globals and broker closures; and
+irreversibly disables dynamic compilation before it becomes startable.
+
+The only operations are one-shot create/start, bounded canonical-frame submit
+and event take, control-nonce interrupt, consuming owner-thread destroy, and
+event-buffer disposal. One consistent producer and one consistent consumer own
+the queue calls; interrupt alone is any-thread, while create/start/destroy are
+coordinator-thread serialized and all JSI/physical destruction stay on the
+internal owner thread. Exact version/`struct_size`, borrowed-input and owned-
+event rules, closed event/fault enums, zeroed failure outputs, fixed status
+values, ceiling checks before copy/allocation, distinct 128-bit run id and
+64-bit control nonce, stale-nonce rejection, and C11/C++/Swift/linter fixtures
+are normative in LLP 0048. No function accepts an operation-name string, exposes
+`ExactHermesRuntime *`, or admits generic eval/module/debugger/extension entry.
+
+This additive family is not part of LLP 0000's historical five-function
+minimum until that root contract is deliberately revised. Its existence alone
+does not advertise any tuple; the 0048 enforcement and acceptance evidence is
+required. `ex_hermes_create_armed`, `ex_hermes_create_no_eval`,
+`ex_hermes_eval`, and the generic sync/async host-call bridges are not
+substitutes and must fail typed admission if selected for that profile.
 
 ## What actually crosses the boundary
 

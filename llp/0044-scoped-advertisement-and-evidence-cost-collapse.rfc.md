@@ -5,6 +5,18 @@
 **Systems:** Security, Conformance, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-31
+**Revised:** 2026-08-03 (records a second source-family validator correction
+found by the same physical replay: the reviewed readline call validator no
+longer applies its callable allowlist to inert data reads such as
+`node:readline.promises`, while callable-as-read near misses remain rejected)
+**Revised:** 2026-08-03 (records the next physical authoring correction found
+after `Sign.end`: deprecated root `node:fs` constant accessors emit DEP0176,
+so their four target-applicable rows are residual rather than zero-effect
+public reads; the inert `fs.constants` carrier remains covered)
+**Revised:** 2026-08-03 (records the resolution of the day-one `Sign.end`
+probe failure: the zlib end validator now scopes its `.end` vocabulary to
+the `node_zlib` source family while still rejecting cross-family reuse of its
+dedicated setup)
 **Revised:** 2026-07-31d (§5 day-one measurement addendum, §9 — this
 revision is UNREVIEWED beyond the dual-READY revision `e41717a8b82b`; it
 adds measured data and changes no design content. Headline: the cost
@@ -474,6 +486,27 @@ generator flag.
 
 ## 7. Author-decision register
 
+> **Resolution record — 2026-08-06 (the LLP 0049 §4.2 decision packet,
+> decided on the post-seeding re-measurement at catalog
+> `sha256-C4T2GOmlKtNepQb5tBc5gulZ9MVwVsGJf5mwqyYzmhw`, fs+env+process =
+> 610 cells / 537 clean / 73 poisoned / 3,927 authorable rows):**
+> item **1 ACCEPTED** (scoped certification adopted); item **2 =
+> UNCERTIFIED remainder** (author choice; the physically-refused posture
+> declined); item **3 = complete-cell unit** and item **6 = monotone
+> lineage as specified** and item **8 = Lanes A–D audit scopes as
+> specified** and item **9 = budget per calibration** and item **10 =
+> formal multi-model loop for the gate/arming package** — these five
+> taken as the RFC's recommendations under the author's standing
+> default-recommendation disposition (2026-08-06) and recorded here as
+> author decisions; item **4 = fs+env+process** as the v1.1 scope. Item
+> **5 remains BLOCKED** on the join-matrix review package (LLP 0049
+> Phase 1); item **7 remains deferred** with the second tuple.
+> Additional ruling in the same packet: `ex_host_env_ambient_set`
+> (`surface.host.abi × env:write`) is **target-inapplicable in the secure
+> profile** — its rows classify as inapplicable under the secure feature
+> vector with a generated release constraint, not as unresolved
+> obligations. Execution sequencing: LLP 0049.
+
 Decisions this RFC surfaces for the owner; each blocks the step noted:
 
 1. **Accept scoped certification at all** (blocks everything; this is
@@ -559,8 +592,22 @@ env 5%, process 0%. Representative batch execution
 (`capsec_public_noncap_builtin_recipe_batch`, bound engine): **16.24 s**
 — and it failed loudly on one live contract-mismatch
 (`node:crypto` `Sign.end`; filed as
-issues/20260731-noncap-crypto-sign-end-probe-contract-mismatch.md),
+issues/closed/20260731-noncap-crypto-sign-end-probe-contract-mismatch.md and
+resolved on 2026-08-03 by source-scoping the zlib `.end` validator),
 demonstrating the authoring loop the estimate must price.
+A later PR #25 Apple replay and Windows full-matrix run passed `Sign.end` and
+then exposed the same next authored-contract error at deprecated root
+`node:fs.F_OK`: its getter enters the DEP0176 warning path, which armed
+runtimes intentionally disable. The exact four `F_OK` / `R_OK` / `W_OK` /
+`X_OK` root accessors are now residual (filed and resolved as
+issues/closed/20260803-noncap-fs-deprecated-constant-accessor-probes.md), while
+their inert values remain covered through `fs.constants`.
+The next fresh-catalog replay then exposed a separate loaded-engine validator
+scope error at the inert `node:readline.promises` data read: a call-only
+readline vocabulary was being applied to every export in the source family.
+That validator now bypasses non-callable reads while continuing to reject
+unreviewed calls and callable-as-read recipes (filed and resolved as
+issues/closed/20260803-noncap-readline-data-read-validator-scope.md).
 
 **What the measurement establishes:**
 

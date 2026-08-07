@@ -123,3 +123,7 @@ tests/fixtures/portable-engine/** text eol=lf
 tools/portable-engine-attestation-verifier/** text eol=lf
 scripts/build-portable-engine-attestation-verifier.sh text eol=lf
 scripts/build-portable-engine-attestation-verifier.test.sh text eol=lf
+
+# Preserve third-party ring sources and pregenerated assembly byte-for-byte.
+# Upstream intentionally carries whitespace that Git's default checker flags.
+vendor/ring/** -whitespace

@@ -1,6 +1,6 @@
 # Windows `__exactFsOpen` write-denial public evidence mismatch
 
-Status: Resolved
+**Status:** Resolved
 
 The physical `x86_64-pc-windows-msvc` native public primary shard fails on:
 

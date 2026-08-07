@@ -1,6 +1,6 @@
 # ibex compile + inspect-executable (producer pipeline and CLI)
 
-**Status:** Open
+**Status:** Open — release publication/receipt actions remain
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -108,3 +108,96 @@ decisions recorded in LLP 0029.
 - `CompilePlanV1` is constructed after capture/compile and consumed as
   provenance cross-check, not as the single immutable producer input
   the body describes.
+
+## LLP 0047 reconciliation — 2026-08-01
+
+Catalog reachability and the recorded new-user policy-authoring sequence are
+milestone 1. Release evaluation no longer waits for successful CapSec arming:
+milestone 2 opens the ambient-default path after the same inner admission and
+keeps explicit CapSec requests fail-closed. Inspection's authenticated mode
+report depends on the authenticated stub contract plus its envelope section; the remaining
+`--deny-unsupported`, TOCTOU, wrong-engine inspection, and two-builder gaps
+remain owned here.
+
+## Implementation checkpoint — 2026-08-01
+
+The previously unreachable public route now works in a catalog-pinned release
+build. It generates/checks the exact native graph-backed production policy,
+compiles real HBC, emits a V2 executable, ad-hoc signs it, and inspection
+authenticates and reports its boot contract. Both macOS arm64 and Linux x86-64
+artifacts run after relocation with source and catalog unavailable. The
+remaining open criteria are the official Linux GLIBC 2.35 receipt,
+two-clean-builder reproducibility, and the older `--deny-unsupported`/TOCTOU
+gaps above.
+
+## Implementation checkpoint — 2026-08-02
+
+The remaining producer correctness gaps are closed. Source capture now retains
+a deterministic, path-independent inventory of computed dynamic imports
+without candidate tables, computed CommonJS `require` calls, and unsupported
+dynamic-import option sites. Ordinary compilation prints every site and keeps
+the authenticated invocation-time guards; `--deny-unsupported` refuses the
+same inventory before policy admission, HBC compilation, or output
+publication. The release-kit matrix proves both behaviors and successful
+dead-branch execution in a real macOS release envelope.
+
+CompilePlanV1 is fixed before `hermesc` executes, and the producer now runs the
+same inner graph/policy/carrier/provenance admission used by inspection before
+publishing either output. Source-mutation and policy-divergence fixtures prove
+the post-capture path consumes the immutable snapshot. The policy author's
+Rolldown analysis/native-snapshot comparator has direct negative fixtures for
+file, package, entry, and candidate-set divergence. Inspection derives the HBC
+engine expectation from the authenticated stub contract, cross-checks the plan
+against that contract, and refuses a self-consistent carrier manifest naming a
+different static engine.
+
+The official Ubuntu 22.04/GLIBC 2.35 recipient receipt and two-physical-builder
+Linux exact-identity comparison are green, and CI contains duplicate clean jobs
+plus a strict comparator for both tuples. This ticket remains open only for a
+matching macOS two-clean-builder receipt and execution of the configured clean
+jobs on a published commit.
+
+A fresh current-source macOS release kit also passes the entire installed-user
+matrix after the producer-newer/stub-older authority checks and policy/native
+graph comparator were packaged. The final source-stable rebuild after the
+inspection-completeness work has catalog
+`sha256-LGJFbrY46eA_9MbMPx1QZijWdpQcsQTeGoL0mQIrCcw` and policy toolchain
+`sha256-TFpMdNyyREUzRTT_L0heu9oac4en2dvws7hGMO8ne5I`. The remaining evidence
+is external to the local implementation: a matching second clean macOS builder
+and the configured clean jobs on the eventually published commit.
+
+The matching fleet MacBook Air (Xcode 26.6 / build 17F113) was unreachable on
+2026-08-02. The reachable Mac mini is on Xcode 26.4.1 / build 17E202, so it is
+not substituted for the strict identical-toolchain comparison. This preserves
+the meaning of the open receipt instead of accepting a merely second machine.
+
+## Author-decision checkpoint — 2026-08-02
+
+The author approved LLP 0047 recommendations 1, 3, and 4. Compilation keeps
+explicit policy authoring and never synthesizes a minimal policy; ambient
+compatibility is ratified as the v1 default; and copied artifacts reserve exact
+first-position `--ibex-info`. The strict boot contract is now
+`StubContractV3`, external inspection is `ibex/executable-inspection/3`, and
+the artifact emits `ibex/standalone-executable-info/1` only after complete
+self-admission and before application-runtime construction. Focused unit and
+release-kit fixtures own first-position, later-position, leading-`--` escape,
+and no-entry-evaluation behavior. This resolves the local product-decision
+portion of the ticket; publication and matching clean-macOS evidence remain.
+
+Inspection now closes the remaining LLP 0029 instance-consistency gap. Release
+provenance authenticates a reconstruction descriptor for the catalog stub;
+the inspector inversely projects the actual ELF or Mach-O outer bytes, rehashes
+them, and reports `stubCoreConsistency` separately from platform signature and
+external attestation. A fresh macOS kit refused an independent outer-stub
+mutation, preserved the same rehashed stub identity through signature removal
+and replacement, and passed the complete installed-user matrix with catalog
+`sha256-LGJFbrY46eA_9MbMPx1QZijWdpQcsQTeGoL0mQIrCcw` and policy toolchain
+`sha256-TFpMdNyyREUzRTT_L0heu9oac4en2dvws7hGMO8ne5I`.
+
+## Maintenance reconciliation — 2026-08-05
+
+The matching macOS two-clean-builder comparison subsequently passed and is no
+longer an open criterion here. The producer implementation is complete for the
+ambient-v1 scope; this ticket remains open only until the exact catalog-pinned
+release is published, reinstalled from that publication, and exercised by the
+configured clean release jobs on the published revision.

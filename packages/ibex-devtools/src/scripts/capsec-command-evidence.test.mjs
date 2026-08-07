@@ -313,6 +313,28 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "a transient escaped descendant that exits before its command does not contaminate",
+  async () => {
+    const { root, evidenceDirectory, supervisor } = fixture();
+    const evidence = await runObservedCommand({
+      supervisor,
+      id: "capsec-registry-drift",
+      command: process.execPath,
+      args: [
+        "-e",
+        `const {spawn}=require('child_process');const c=spawn(process.execPath,['-e','setTimeout(()=>{},75)'],{detached:true,stdio:'ignore'});c.unref();setTimeout(()=>{},250);`,
+      ],
+      cwd: root,
+    });
+    expect(evidence.classification).toBe("success");
+    expect(evidence.cleanup.escapedDescendants).toEqual([]);
+    expect(
+      fs.existsSync(path.join(evidenceDirectory, "contaminated.json")),
+    ).toBe(false);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "a session-escaping descendant contaminates the runner and blocks later work",
   async () => {
     const { root, evidenceDirectory, supervisor } = fixture({

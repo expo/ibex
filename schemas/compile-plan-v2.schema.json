@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/compile-plan-v2.schema.json",
+  "title": "Ibex immutable app-bound executable compile plan v2",
+  "$ref": "app-bound-common-v1.schema.json#/$defs/compilePlanV2"
+}

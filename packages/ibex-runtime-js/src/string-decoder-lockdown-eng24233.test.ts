@@ -25,7 +25,7 @@ test('StringDecoder installs its toString override after primordial lockdown', (
     sandbox,
   );
   vm.runInContext(
-    `(function(module, exports) { ${stringDecoderSource}\n})(module, exports);`,
+    `(function(module, exports) { "use strict"; ${stringDecoderSource}\n})(module, exports);`,
     sandbox,
     { filename: 'node:string_decoder' },
   );

@@ -181,6 +181,34 @@ fi
 [ -n "$filter" ] && cmd+=("$filter")
 [ "${#passthrough[@]}" -gt 0 ] && cmd+=(-- "${passthrough[@]}")
 
+# Port-suite lock (LLP 0049 §3 rule 9): the loopback-port-binding suites —
+# `node_net_builtins` (tests/node_net_builtins.rs) and the host-http-server
+# suites (tests/node_http_native_response_destroy.rs plus the feature-gated
+# bin-target tests) — produce false failures when two runs overlap
+# (LLP 0046 §4). Serialize exactly the invocations that can run them, and
+# nothing else:
+#   * an explicit `--test` naming a port suite;
+#   * scope all|test, which always runs the tests/ integration binaries and
+#     therefore node_net_builtins;
+#   * scope bin with the host-http-server feature enabled, which compiles the
+#     feature-gated port-binding bin tests in.
+# The lock wraps this harness's cargo invocation only; commands stored in
+# recipes/evidence plans are themselves evidence (LLP 0039) and are never
+# rewritten to include it.
+port_suite_lock=""
+case "$test_target" in
+  node_net_builtins|node_http_native_response_destroy) port_suite_lock=1 ;;
+esac
+if [ -z "$test_target" ]; then
+  case "$scope" in
+    all|test) port_suite_lock=1 ;;
+    bin) case ",$features," in *,host-http-server,*) port_suite_lock=1 ;; esac ;;
+  esac
+fi
+if [ -n "$port_suite_lock" ]; then
+  cmd=("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/with-port-suite-lock.sh" "${cmd[@]}")
+fi
+
 echo "run-tests: ${cmd[*]}  (scope=$scope)" >&2
 
 tmp="$(mktemp "${TMPDIR:-/tmp}/ibex-run-tests.XXXXXX")"

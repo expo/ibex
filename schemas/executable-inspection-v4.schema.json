@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/executable-inspection-v4.schema.json",
+  "title": "Ibex app-bound executable inspection report v4",
+  "type": "object",
+  "required": [
+    "schema",
+    "file",
+    "envelopeConsistency",
+    "platformSignature",
+    "stubCoreConsistency",
+    "runtimeAdmission",
+    "appBound",
+    "target",
+    "backendInventory",
+    "provenance"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/executable-inspection/4" },
+    "file": { "type": "string", "minLength": 1 },
+    "envelopeConsistency": {
+      "type": "object",
+      "required": ["state", "schema", "stubContractSchema", "compilePlanSchema", "packageProvenanceSchema", "envelopeDigest", "stubContractDigest", "sectionCount"],
+      "properties": {
+        "state": { "const": "consistent" },
+        "schema": { "const": "ibex/single-file-executable/3" },
+        "stubContractSchema": { "const": "ibex/stub-contract/4" },
+        "compilePlanSchema": { "const": "ibex/compile-plan/2" },
+        "packageProvenanceSchema": { "const": "ibex/package-provenance/2" },
+        "envelopeDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "stubContractDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "sectionCount": { "type": "integer", "minimum": 1, "maximum": 100000 }
+      },
+      "additionalProperties": false
+    },
+    "platformSignature": { "$ref": "app-bound-common-v1.schema.json#/$defs/platformSignature" },
+    "stubCoreConsistency": {
+      "type": "object",
+      "required": ["state", "digest", "size"],
+      "properties": {
+        "state": { "const": "consistent" },
+        "digest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "size": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "runtimeAdmission": {
+      "type": "object",
+      "required": ["applicationEvaluated", "graphIdentity", "recordCount", "carrierCount"],
+      "properties": {
+        "applicationEvaluated": { "const": false },
+        "graphIdentity": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "recordCount": { "type": "integer", "minimum": 1 },
+        "carrierCount": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "appBound": { "$ref": "app-bound-common-v1.schema.json#/$defs/appBoundReport" },
+    "target": { "$ref": "app-bound-common-v1.schema.json#/$defs/target" },
+    "backendInventory": { "$ref": "app-bound-common-v1.schema.json#/$defs/backendInventory" },
+    "provenance": { "$ref": "package-provenance-v2.schema.json" }
+  },
+  "additionalProperties": false
+}

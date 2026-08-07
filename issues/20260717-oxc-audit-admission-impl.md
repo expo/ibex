@@ -87,3 +87,28 @@ evaluation path. The loader conformance runner
 Cross-cutting: every phase runs the capsec regen chain; LLP 0021 needs the
 foreground-vs-armed revision (LLP 0030 §1 says so); LLP 0028's register row
 updates with progress.
+
+## Phase 1 landed — 2026-08-05
+
+The closed `ibex/diagnostic-graph-snapshot/1` and
+`ibex/diagnostic-audit-execution-receipt/1` schemas now have executable valid
+and invalid mutation vectors. The CapSec semantics crate exposes the wire
+projection and receipt plus opaque, non-serializable
+`ForegroundAuditGraphSnapshotV1` and `ForegroundAuditDecisionContextV1` live
+types. Their fields and construction seal are module-private, no conversion to
+`ArmedSnapshot` exists, and compile-fail tests pin external fabrication,
+deserialization, and diagnostic-to-armed conversion as type errors. Phase 1
+does not expose a live-handle constructor; Phase 2 must add the sole
+capture-backed construction path together with the retained-object and byte
+capture fences.
+
+`src/compiled_contract.rs` carries a closed diagnostic-only registry for both
+schema documents. It intentionally does not add either diagnostic evidence
+type to the production stub's `acceptedSchemas`. The complete CapSec/vendored
+regeneration chain and the independent generated-drift check completed without
+tracked artifact changes.
+
+Phases 2–6 remain open. In particular this phase does not change
+`SourceGraphHost`, graph capture, artifact admission, the native linker,
+receipts at runtime, CLI routing, conformance routing, or compatibility
+evaluator reachability.

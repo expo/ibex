@@ -9,6 +9,8 @@ use ibex_windows_dll_staging::stage_runtime_dlls;
 mod hermes_profile_provenance;
 #[path = "build_support/hermes_symbol_probe.rs"]
 mod hermes_symbol_probe;
+#[path = "build_support/hermesc_source_label.rs"]
+mod hermesc_source_label;
 #[path = "build_support/portable_engine_build_consumption.rs"]
 mod portable_engine_build_consumption;
 #[cfg(target_os = "macos")]
@@ -185,6 +187,7 @@ fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
         });
         paths.push(entry.path());
     }
+    paths.sort();
     paths
 }
 
@@ -499,6 +502,20 @@ fn install_hermes_profile_provenance(install: HermesProfileProvenanceInstall<'_>
             output.display()
         )
     });
+
+    // Classification is an authenticated artifact property, not an OS probe.
+    // This point is reached only after the receipt, reviewed profile identity,
+    // selected runtime image, linked dependency, and link artifact (when any)
+    // have all validated. Portable selection bypasses this function entirely.
+    // @ref LLP 0050#2-decision-d1--artifact-bound-capability-classification
+    let finalization_capable = match target_os {
+        "macos" | "linux" => receipt["profileId"] == "source-patched",
+        "windows" => receipt["profileId"] == "windows-source-patched",
+        _ => false,
+    };
+    if finalization_capable {
+        println!("cargo:rustc-cfg=ibex_hermes_finalization_capable");
+    }
 }
 
 fn windows_import_library_for_link(
@@ -676,6 +693,7 @@ fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
 }
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(ibex_hermes_finalization_capable)");
     println!("cargo:rerun-if-env-changed=IBEX_LEGACY_HERMES_BLOCK_SCOPING");
     let manifest_dir = env_path("CARGO_MANIFEST_DIR");
     precompute_capsec_registry_record_digest(&manifest_dir);
@@ -1227,6 +1245,9 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
+    println!("cargo:rerun-if-changed=src/engine/hermes_restricted_worker.cc");
+    println!("cargo:rerun-if-changed=src/engine/restricted_worker_wrapper.inc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_app_bound_bridge.cc");
     println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.cc");
     println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
@@ -1254,6 +1275,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_debugger.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ios.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_kernel_bridge.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_console.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_timers.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_osinfo.cc");
@@ -1792,16 +1814,7 @@ fn main() {
                     .unwrap_or_else(|error| panic!("Portable bootstrap hermesc refused: {error}"));
                 true
             } else {
-                matches!(
-                    hermesc_command(&hermesc)
-                        .arg("-emit-binary")
-                        .arg("-O")
-                        .arg("-out")
-                        .arg(&hbc_path)
-                        .arg(&js_path)
-                        .status(),
-                    Ok(status) if status.success()
-                )
+                run_checkout_independent_hermesc_compile(&hermesc, &js_path, &hbc_path)
             };
 
             match compile_succeeded {
@@ -1999,6 +2012,8 @@ fn main() {
         .file("src/engine/hermes_runtime_fetch.cc")
         .file("src/engine/hermes_runtime_ipc.cc")
         .file("src/engine/hermes_runtime_worklet.cc")
+        .file("src/engine/hermes_restricted_worker.cc")
+        .file("src/engine/hermes_app_bound_bridge.cc")
         .include(&hermes_include_dir)
         .include(&jsi_include_dir)
         .include("include")
@@ -2031,6 +2046,9 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_INSECURE").is_some() {
         build.define("IBEX_INSECURE_BUILD", None);
     }
+    if std::env::var_os("CARGO_FEATURE_SFE_COMPILED_RUNTIME").is_some() {
+        build.define("IBEX_SFE_COMPILED_RUNTIME", None);
+    }
 
     if target_os == "windows" {
         let hermes_jsi_cpp = hermes_include_dir.join("jsi").join("jsi.cpp");
@@ -2061,8 +2079,11 @@ fn main() {
         // sans-IO rustls engine can be driven from src/builtins/tls.js.
         build.file("src/engine/hermes_runtime_tls.cc");
         // Despite the historical filename, this file owns the platform-neutral
-        // exact.dispatch/module/kernel C ABI that native hosts install.
+        // exact.dispatch/module C ABI that native hosts install.
         build.file("src/engine/hermes_runtime_ios.cc");
+        // @ref LLP 0003#app-host-kernel-bridge-is-a-separate-archive-member —
+        // keep optional kernel-host imports out of standalone link closure.
+        build.file("src/engine/hermes_runtime_kernel_bridge.cc");
         // This file also provides the non-Android no-op definitions for the
         // Android host hooks that installGlobals()/destroy() call unconditionally.
         build.file("src/engine/hermes_runtime_android.cc");
@@ -2089,6 +2110,9 @@ fn main() {
             .file("src/engine/hermes_runtime_http.cc")
             .file("src/engine/hermes_runtime_debugger.cc")
             .file("src/engine/hermes_runtime_ios.cc")
+            // @ref LLP 0003#app-host-kernel-bridge-is-a-separate-archive-member —
+            // keep optional kernel-host imports out of standalone link closure.
+            .file("src/engine/hermes_runtime_kernel_bridge.cc")
             .file("src/engine/hermes_runtime_android.cc")
             .file("src/engine/hermes_runtime_osinfo.cc")
             .file("src/engine/hermes_runtime_process_setup.cc")
@@ -2279,11 +2303,15 @@ fn main() {
         build.define("EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT", None);
     }
 
-    // Debugger support is auto-detected on macOS so we do not compile against
-    // debugger APIs that are missing from the checked-in Hermes framework.
+    // Debugger support is derived from the exact linked desktop artifact so a
+    // lean static Hermes archive cannot make the adapter compile calls to
+    // symbols that are absent at final link.
+    // @ref LLP 0029#7-phases-gates-and-the-author-decision-register — both
+    // eligible engine variants must remain mechanically honest until the
+    // measured lean-vs-full release choice is ratified.
     let enable_debugger = portable_engine.is_none()
         && target_os != "windows"
-        && should_enable_hermes_debugger(&target_os, hermes_macos_binary.as_deref());
+        && should_enable_hermes_debugger(&target_os, hermes_frame_attribution_binary.as_deref());
 
     if enable_debugger {
         build.define("HERMES_ENABLE_DEBUGGER", None);
@@ -2820,7 +2848,13 @@ fn emit_rerun_for_tree(path: &Path) {
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_dir() => {
             if let Ok(entries) = std::fs::read_dir(path) {
-                for entry in entries.flatten() {
+                let mut entries = entries.flatten().collect::<Vec<_>>();
+                // Cargo retains directive order in the build fingerprint.
+                // Filesystem enumeration order must therefore never choose
+                // Rust metadata or final native bytes.
+                // @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+                entries.sort_by_key(|entry| entry.file_name());
+                for entry in entries {
                     if entry.file_name() == "node_modules" {
                         continue;
                     }
@@ -3520,16 +3554,7 @@ fn generate_runtime_bundle_bytecode_header(
             .unwrap_or_else(|error| panic!("Portable runtime-bundle hermesc refused: {error}"));
         true
     } else {
-        matches!(
-            hermesc_command(hermesc)
-                .arg("-emit-binary")
-                .arg("-O")
-                .arg("-out")
-                .arg(&bundled_runtime_hbc)
-                .arg(bundled_runtime)
-                .status(),
-            Ok(result) if result.success()
-        )
+        run_checkout_independent_hermesc_compile(hermesc, bundled_runtime, &bundled_runtime_hbc)
     };
 
     if !compile_succeeded {
@@ -3999,6 +4024,19 @@ fn hermesc_command(hermesc: &Path) -> std::process::Command {
     command
 }
 
+fn run_checkout_independent_hermesc_compile(hermesc: &Path, source: &Path, output: &Path) -> bool {
+    let mut command = hermesc_command(hermesc);
+    command
+        .arg("-emit-binary")
+        .arg("-O")
+        .arg("-out")
+        .arg(output);
+    hermesc_source_label::append_checkout_independent_source(&mut command, source).unwrap_or_else(
+        |error| panic!("Cannot construct checkout-independent hermesc input: {error}"),
+    );
+    matches!(command.status(), Ok(status) if status.success())
+}
+
 fn resolve_macos_hermes_framework(lib_root: &Path) -> Option<AppleFramework> {
     let search_dirs = [
         lib_root.to_path_buf(),
@@ -4068,17 +4106,16 @@ fn find_framework_binary(framework_dir: &Path, framework_name: &str) -> Option<P
     candidates.into_iter().find(|path| path.exists())
 }
 
-fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
-    let output = std::process::Command::new("nm")
-        .args(["-gU", binary_path.to_string_lossy().as_ref()])
-        .output()
-        .or_else(|_| {
-            std::process::Command::new("xcrun")
-                .arg("nm")
-                .arg("-gU")
-                .arg(binary_path)
-                .output()
-        });
+fn hermes_has_debugger_symbols(target_os: &str, binary_path: &Path) -> bool {
+    let mut command = std::process::Command::new("nm");
+    configure_defined_nm_command(&mut command, target_os, binary_path);
+    command.arg(binary_path);
+    let output = command.output().or_else(|_| {
+        let mut command = std::process::Command::new("xcrun");
+        command.arg("nm");
+        configure_defined_nm_command(&mut command, target_os, binary_path);
+        command.arg(binary_path).output()
+    });
 
     let Ok(output) = output else {
         return false;
@@ -4088,7 +4125,12 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
         return false;
     }
 
-    String::from_utf8_lossy(&output.stdout).contains("AsyncDebuggerAPI")
+    let symbols = String::from_utf8_lossy(&output.stdout);
+    // A no-debugger Hermes still retains RuntimeTaskRunner definitions whose
+    // signatures mention AsyncDebuggerAPI. Require the exact constructor and
+    // loaded-script query that the adapter calls so those stubs cannot create
+    // a false-positive link profile.
+    symbols.contains("AsyncDebuggerAPIC") && symbols.contains("getLoadedScripts")
 }
 
 // @ref LLP 0013#mechanism-3 — detect whether the exact linked desktop Hermes
@@ -4170,17 +4212,17 @@ fn hermes_has_job_constrained_principals(target_os: &str, binary_path: &Path) ->
     hermes_exports_exact_symbols(target_os, binary_path, JOB_CONSTRAINED_PRINCIPAL_SYMBOLS)
 }
 
-fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {
+fn should_enable_hermes_debugger(target_os: &str, hermes_binary: Option<&Path>) -> bool {
     match parse_env_flag("HERMES_ENABLE_DEBUGGER") {
         Some(false) => false,
         Some(true) => {
-            if target_os == "macos" {
-                let Some(binary_path) = hermes_macos_binary else {
+            if matches!(target_os, "macos" | "linux") {
+                let Some(binary_path) = hermes_binary else {
                     panic!(
-                        "HERMES_ENABLE_DEBUGGER=1 was requested, but no macOS Hermes framework binary was found."
+                        "HERMES_ENABLE_DEBUGGER=1 was requested, but no {target_os} Hermes binary was found."
                     );
                 };
-                if !macos_hermes_has_debugger_symbols(binary_path) {
+                if !hermes_has_debugger_symbols(target_os, binary_path) {
                     panic!(
                         "HERMES_ENABLE_DEBUGGER=1 was requested, but {} does not export Hermes debugger symbols. Rebuild Hermes with debugger support or unset HERMES_ENABLE_DEBUGGER.",
                         binary_path.display()
@@ -4191,8 +4233,8 @@ fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&P
         }
         None => match target_os {
             "ios" | "android" => false,
-            "macos" => match hermes_macos_binary {
-                Some(binary_path) if macos_hermes_has_debugger_symbols(binary_path) => true,
+            "macos" | "linux" => match hermes_binary {
+                Some(binary_path) if hermes_has_debugger_symbols(target_os, binary_path) => true,
                 Some(binary_path) => {
                     println!(
                         "cargo:warning=Hermes debugger disabled: {} does not export debugger symbols.",
@@ -4202,7 +4244,7 @@ fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&P
                 }
                 None => {
                     println!(
-                        "cargo:warning=Hermes debugger disabled: could not locate a macOS Hermes framework binary."
+                        "cargo:warning=Hermes debugger disabled: could not locate the linked {target_os} Hermes binary."
                     );
                     false
                 }

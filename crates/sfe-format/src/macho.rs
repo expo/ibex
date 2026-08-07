@@ -4,7 +4,8 @@
 //! executables with header slack. It never rewrites existing section offsets.
 //! @ref LLP 0029#2-executable-layout-stub-envelope-footer — macOS payloads live in a named segment and remain discoverable after code signing appends its signature
 
-use super::{Error, Result, FOOTER_LEN_V1, FOOTER_MAGIC_V1, FORMAT_VERSION_V1};
+use super::app_bound::{FOOTER_MAGIC_V3, FORMAT_VERSION_V3};
+use super::{Error, Result, FOOTER_LEN_V1, FOOTER_MAGIC_V2, FORMAT_VERSION_V2};
 
 const MACH_HEADER_64_LEN: usize = 32;
 const MH_MAGIC_64: u32 = 0xfeedfacf;
@@ -98,6 +99,143 @@ pub fn validate_signed_envelope_layout_v1(file: &[u8]) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Return the catalog stub's original `__LINKEDIT` virtual size. Apple's
+/// signer rewrites this value to fit the new signature, and signature removal
+/// does not restore it, so release provenance carries the catalog value for
+/// inspection-time reconstruction.
+pub fn linkedit_vmsize_v1(unsigned_stub: &[u8]) -> Result<u64> {
+    let facts = parse(unsigned_stub)?;
+    if facts.code_signature.is_some() || facts.ibex_payload.is_some() {
+        return Err(Error::Contract(
+            "stub-core reconstruction facts require an uninjected signature-stripped Mach-O".into(),
+        ));
+    }
+    Ok(read_u64(unsigned_stub, facts.linkedit.command_offset + 32)?)
+}
+
+/// Project the catalog's signature-stripped stub bytes back out of an injected
+/// Mach-O. This is the inverse of `inject_envelope_segment_v1` for the portion
+/// sealed by the catalog instance digest. It deliberately ignores the
+/// replaceable platform-signature tail.
+/// @ref LLP 0029#2-executable-layout-stub-envelope-footer — the inspector rehashes the actual stub-core projection
+pub fn reconstruct_stub_core_v1(
+    file: &[u8],
+    original_size: u64,
+    original_linkedit_vmsize: u64,
+) -> Result<Vec<u8>> {
+    let facts = parse(file)?;
+    let (payload_offset, payload_size) = facts
+        .ibex_payload
+        .ok_or_else(|| Error::Contract("Mach-O has no __IBEX payload to remove".into()))?;
+    let insertion_size =
+        align_up(payload_size, MACHO_PAGE_ALIGNMENT).ok_or(Error::EnvelopeRange)?;
+    let current_linkedit_offset =
+        usize::try_from(facts.linkedit.fileoff).map_err(|_| Error::EnvelopeRange)?;
+    if payload_offset
+        .checked_add(insertion_size)
+        .is_none_or(|expected| expected != current_linkedit_offset)
+    {
+        return Err(Error::Contract(
+            "Mach-O __IBEX allocation does not immediately precede __LINKEDIT".into(),
+        ));
+    }
+    let original_size = usize::try_from(original_size).map_err(|_| Error::EnvelopeRange)?;
+    let original_linkedit_size = original_size
+        .checked_sub(payload_offset)
+        .ok_or_else(|| Error::Contract("stub-core size precedes its __LINKEDIT offset".into()))?;
+    let current_linkedit_end = current_linkedit_offset
+        .checked_add(original_linkedit_size)
+        .ok_or(Error::EnvelopeRange)?;
+    if current_linkedit_end > file.len()
+        || facts
+            .code_signature
+            .is_some_and(|(offset, _)| current_linkedit_end > offset)
+    {
+        return Err(Error::Contract(
+            "completed Mach-O does not retain the catalog stub's complete __LINKEDIT bytes".into(),
+        ));
+    }
+
+    let mut commands = Vec::with_capacity(facts.sizeofcmds as usize);
+    let mut cursor = MACH_HEADER_64_LEN;
+    let mut removed_payload = 0usize;
+    let mut removed_signature = 0usize;
+    for _ in 0..facts.ncmds {
+        let cmd = read_u32(file, cursor)?;
+        let cmdsize = read_u32(file, cursor + 4)? as usize;
+        let is_payload = cmd == LC_SEGMENT_64 && fixed_name(file, cursor + 8)? == "__IBEX";
+        if is_payload {
+            removed_payload += 1;
+        } else if cmd == LC_CODE_SIGNATURE {
+            removed_signature += 1;
+        } else {
+            commands.extend_from_slice(
+                file.get(cursor..cursor + cmdsize)
+                    .ok_or(Error::EnvelopeRange)?,
+            );
+        }
+        cursor = cursor.checked_add(cmdsize).ok_or(Error::EnvelopeRange)?;
+    }
+    if cursor != facts.commands_end
+        || removed_payload != 1
+        || removed_signature != usize::from(facts.code_signature.is_some())
+    {
+        return Err(Error::Contract(
+            "Mach-O command table cannot be projected to one unsigned stub".into(),
+        ));
+    }
+    let original_ncmds = facts
+        .ncmds
+        .checked_sub(u32::try_from(removed_payload + removed_signature).unwrap())
+        .ok_or(Error::EnvelopeRange)?;
+    let original_sizeofcmds = u32::try_from(commands.len()).map_err(|_| Error::EnvelopeRange)?;
+    let commands_end = MACH_HEADER_64_LEN
+        .checked_add(commands.len())
+        .ok_or(Error::EnvelopeRange)?;
+    if commands_end > facts.first_section_offset || original_size < payload_offset {
+        return Err(Error::EnvelopeRange);
+    }
+
+    let mut output = Vec::with_capacity(original_size);
+    output.extend_from_slice(file.get(..payload_offset).ok_or(Error::EnvelopeRange)?);
+    output.extend_from_slice(
+        file.get(current_linkedit_offset..current_linkedit_end)
+            .ok_or(Error::EnvelopeRange)?,
+    );
+    if output.len() != original_size {
+        return Err(Error::EnvelopeRange);
+    }
+    output[MACH_HEADER_64_LEN..facts.commands_end].fill(0);
+    output[MACH_HEADER_64_LEN..commands_end].copy_from_slice(&commands);
+    write_u32(&mut output, 16, original_ncmds);
+    write_u32(&mut output, 20, original_sizeofcmds);
+    reverse_linkedit_layout(
+        &mut output,
+        current_linkedit_offset as u64,
+        insertion_size as u64,
+        original_linkedit_vmsize,
+        original_linkedit_size as u64,
+    )?;
+
+    let reconstructed = parse(&output)?;
+    if reconstructed.code_signature.is_some()
+        || reconstructed.ibex_payload.is_some()
+        || usize::try_from(reconstructed.linkedit.fileoff)
+            .ok()
+            .and_then(|offset| {
+                usize::try_from(reconstructed.linkedit.filesize)
+                    .ok()
+                    .and_then(|size| offset.checked_add(size))
+            })
+            != Some(output.len())
+    {
+        return Err(Error::Contract(
+            "reconstructed Mach-O is not a terminal signature-stripped stub".into(),
+        ));
+    }
+    Ok(output)
 }
 
 /// Insert a standalone envelope (built with an empty stub) as the
@@ -290,6 +428,96 @@ fn adjust_linkedit_layout(
     Ok(())
 }
 
+fn reverse_linkedit_layout(
+    header: &mut [u8],
+    current_linkedit_fileoff: u64,
+    file_delta: u64,
+    original_linkedit_vmsize: u64,
+    original_linkedit_filesize: u64,
+) -> Result<()> {
+    let ncmds = read_u32(header, 16)?;
+    let commands_end = MACH_HEADER_64_LEN + read_u32(header, 20)? as usize;
+    let mut cursor = MACH_HEADER_64_LEN;
+    let mut restored_linkedit = false;
+    for _ in 0..ncmds {
+        let cmd = read_u32(header, cursor)?;
+        let cmdsize = read_u32(header, cursor + 4)? as usize;
+        if cmd == LC_SEGMENT_64 {
+            let name = fixed_name(header, cursor + 8)?.to_owned();
+            if name == "__LINKEDIT" {
+                sub_u64(header, cursor + 24, file_delta)?;
+                write_u64(header, cursor + 32, original_linkedit_vmsize);
+                sub_u64(header, cursor + 40, file_delta)?;
+                write_u64(header, cursor + 48, original_linkedit_filesize);
+                restored_linkedit = true;
+            }
+            let nsects = read_u32(header, cursor + 64)? as usize;
+            for index in 0..nsects {
+                let section = cursor + SEGMENT_COMMAND_64_LEN + index * SECTION_64_LEN;
+                sub_offset_u32_if_at_or_after(
+                    header,
+                    section + 48,
+                    current_linkedit_fileoff,
+                    file_delta,
+                )?;
+                sub_offset_u32_if_at_or_after(
+                    header,
+                    section + 56,
+                    current_linkedit_fileoff,
+                    file_delta,
+                )?;
+            }
+        }
+        match cmd {
+            0x2 => {
+                for offset in [8usize, 16] {
+                    sub_offset_u32_if_at_or_after(
+                        header,
+                        cursor + offset,
+                        current_linkedit_fileoff,
+                        file_delta,
+                    )?;
+                }
+            }
+            0xb => {
+                for offset in [32usize, 40, 48, 56, 64, 72] {
+                    sub_offset_u32_if_at_or_after(
+                        header,
+                        cursor + offset,
+                        current_linkedit_fileoff,
+                        file_delta,
+                    )?;
+                }
+            }
+            0x22 | 0x8000_0022 => {
+                for offset in [8usize, 16, 24, 32, 40] {
+                    sub_offset_u32_if_at_or_after(
+                        header,
+                        cursor + offset,
+                        current_linkedit_fileoff,
+                        file_delta,
+                    )?;
+                }
+            }
+            0x16 | 0x1d | 0x1e | 0x21 | 0x25 | 0x26 | 0x29 | 0x2b | 0x2c | 0x2e | 0x8000_0033
+            | 0x8000_0034 => sub_offset_u32_if_at_or_after(
+                header,
+                cursor + 8,
+                current_linkedit_fileoff,
+                file_delta,
+            )?,
+            _ => {}
+        }
+        cursor = cursor.checked_add(cmdsize).ok_or(Error::EnvelopeRange)?;
+    }
+    if cursor != commands_end || !restored_linkedit {
+        return Err(Error::Contract(
+            "Mach-O command table changed during stub-core reconstruction".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn add_offset_u32_if_at_or_after(
     bytes: &mut [u8],
     offset: usize,
@@ -315,13 +543,38 @@ fn add_u64(bytes: &mut [u8], offset: usize, delta: u64) -> Result<()> {
     Ok(())
 }
 
+fn sub_offset_u32_if_at_or_after(
+    bytes: &mut [u8],
+    offset: usize,
+    threshold: u64,
+    delta: u64,
+) -> Result<()> {
+    let value = read_u32(bytes, offset)?;
+    if value != 0 && u64::from(value) >= threshold {
+        let adjusted = u64::from(value)
+            .checked_sub(delta)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(Error::EnvelopeRange)?;
+        write_u32(bytes, offset, adjusted);
+    }
+    Ok(())
+}
+
+fn sub_u64(bytes: &mut [u8], offset: usize, delta: u64) -> Result<()> {
+    let adjusted = read_u64(bytes, offset)?
+        .checked_sub(delta)
+        .ok_or(Error::EnvelopeRange)?;
+    write_u64(bytes, offset, adjusted);
+    Ok(())
+}
+
 fn validate_standalone_envelope(bytes: &[u8]) -> Result<()> {
     if bytes.len() < FOOTER_LEN_V1 {
         return Err(Error::Footer);
     }
     let footer = &bytes[bytes.len() - FOOTER_LEN_V1..];
-    if footer[..16] != FOOTER_MAGIC_V1
-        || read_u32(footer, 16)? != FORMAT_VERSION_V1
+    let profile = (&footer[..16], read_u32(footer, 16)?);
+    if !matches!(profile, (magic, version) if (magic == FOOTER_MAGIC_V2 && version == FORMAT_VERSION_V2) || (magic == FOOTER_MAGIC_V3 && version == FORMAT_VERSION_V3))
         || read_u32(footer, 20)? as usize != FOOTER_LEN_V1
         || read_u64(footer, 24)? != 0
     {
@@ -574,27 +827,23 @@ mod tests {
         bytes
     }
 
-    #[test]
-    fn synthetic_header_has_space_for_one_new_segment() {
-        let stub = synthetic_stub();
-        let facts = parse(&stub).unwrap();
-        assert_eq!(facts.first_section_offset, 512);
-        assert_eq!(facts.commands_end, 256);
-        assert!(facts.code_signature.is_none());
-    }
-
-    #[test]
-    fn injected_segment_remains_admissible_with_post_signing_tail_bytes() {
-        let contract = crate::digest(b"macho contract");
+    fn standalone_envelope() -> Vec<u8> {
+        let contract_value = crate::fixture_stub_contract();
+        let contract = contract_value.digest().unwrap();
         let entry = EntryDesignationV1::one(
             "ibex-source-id-v1:eyJkb21haW4iOiJpYmV4LXJ1bnRpbWUiLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZV9rZXkiOiJleGFjdDpmcyJ9",
         )
         .canonical_bytes()
         .unwrap();
-        let standalone = build_executable_v1(
+        build_executable_v1(
             b"",
             &contract,
             vec![
+                SectionInputV1::canonical(
+                    "stub-contract",
+                    SectionKindV1::StubContract,
+                    contract_value.canonical_bytes().unwrap(),
+                ),
                 SectionInputV1::canonical(
                     "provenance",
                     SectionKindV1::ProvenanceManifest,
@@ -625,7 +874,46 @@ mod tests {
                 ),
             ],
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    fn structurally_signed_image() -> (Vec<u8>, usize) {
+        let mut image =
+            inject_envelope_segment_v1(&synthetic_stub(), &standalone_envelope()).unwrap();
+        let facts = parse(&image).unwrap();
+        assert!(facts.commands_end + 16 <= facts.first_section_offset);
+        let signature_command = facts.commands_end;
+        let signature_offset = image.len() as u32;
+        write_u32(&mut image, signature_command, LC_CODE_SIGNATURE);
+        write_u32(&mut image, signature_command + 4, 16);
+        write_u32(&mut image, signature_command + 8, signature_offset);
+        write_u32(&mut image, signature_command + 12, 16);
+        write_u32(&mut image, 16, facts.ncmds + 1);
+        write_u32(&mut image, 20, facts.sizeofcmds + 16);
+        write_u64(
+            &mut image,
+            facts.linkedit.command_offset + 48,
+            facts.linkedit.filesize + 16,
+        );
+        image.extend_from_slice(&CSMAGIC_EMBEDDED_SIGNATURE);
+        image.extend_from_slice(&[0; 12]);
+        (image, signature_command)
+    }
+
+    #[test]
+    fn synthetic_header_has_space_for_one_new_segment() {
+        let stub = synthetic_stub();
+        let facts = parse(&stub).unwrap();
+        assert_eq!(facts.first_section_offset, 512);
+        assert_eq!(facts.commands_end, 256);
+        assert!(facts.code_signature.is_none());
+    }
+
+    #[test]
+    fn injected_segment_remains_admissible_with_post_signing_tail_bytes() {
+        let contract_value = crate::fixture_stub_contract();
+        let contract = contract_value.digest().unwrap();
+        let standalone = standalone_envelope();
         let image = inject_envelope_segment_v1(&synthetic_stub(), &standalone).unwrap();
         let admitted = admit_executable_v1(&image, &contract).unwrap();
         assert_eq!(admitted.stub_len, 16 * 1024);
@@ -638,33 +926,162 @@ mod tests {
         post_signing.extend_from_slice(b"detached-signature-placeholder");
         assert!(admit_executable_v1(&post_signing, &contract).is_ok());
 
-        let mut structurally_signed = post_signing;
-        structurally_signed
-            .truncate(structurally_signed.len() - b"detached-signature-placeholder".len());
-        let facts = parse(&structurally_signed).unwrap();
-        assert!(facts.commands_end + 16 <= facts.first_section_offset);
-        let signature_offset = structurally_signed.len() as u32;
+        let (structurally_signed, _) = structurally_signed_image();
+        validate_signed_envelope_layout_v1(&structurally_signed).unwrap();
+    }
+
+    #[test]
+    fn completed_image_reconstructs_the_exact_catalog_stub_core() {
+        // @ref LLP 0029#2-executable-layout-stub-envelope-footer — platform signing
+        // may rewrite __LINKEDIT metadata, but inspection still rehashes the
+        // exact signature-stripped catalog instance
+        let stub = synthetic_stub();
+        let original_vmsize = linkedit_vmsize_v1(&stub).unwrap();
+        let unsigned = inject_envelope_segment_v1(&stub, &standalone_envelope()).unwrap();
+        assert_eq!(
+            reconstruct_stub_core_v1(&unsigned, stub.len() as u64, original_vmsize).unwrap(),
+            stub
+        );
+
+        let (mut signed, _) = structurally_signed_image();
+        let signed_facts = parse(&signed).unwrap();
+        write_u64(
+            &mut signed,
+            signed_facts.linkedit.command_offset + 32,
+            MACHO_PAGE_ALIGNMENT as u64,
+        );
+        assert_eq!(
+            reconstruct_stub_core_v1(&signed, stub.len() as u64, original_vmsize).unwrap(),
+            stub
+        );
+    }
+
+    #[test]
+    fn injection_refuses_signed_duplicate_nonzero_slack_and_nonterminal_inputs() {
+        // @ref LLP 0029#2-executable-layout-stub-envelope-footer — injection
+        // is defined only over the stripped, unique, zero-slack-safe layout
+        let envelope = standalone_envelope();
+
+        let mut signature_bearing = synthetic_stub();
+        let facts = parse(&signature_bearing).unwrap();
         write_u32(
-            &mut structurally_signed,
+            &mut signature_bearing,
             facts.commands_end,
             LC_CODE_SIGNATURE,
         );
-        write_u32(&mut structurally_signed, facts.commands_end + 4, 16);
+        write_u32(&mut signature_bearing, facts.commands_end + 4, 16);
+        write_u32(&mut signature_bearing, facts.commands_end + 8, 1);
+        write_u32(&mut signature_bearing, facts.commands_end + 12, 1);
+        write_u32(&mut signature_bearing, 16, facts.ncmds + 1);
+        write_u32(&mut signature_bearing, 20, facts.sizeofcmds + 16);
+        assert!(inject_envelope_segment_v1(&signature_bearing, &envelope)
+            .unwrap_err()
+            .to_string()
+            .contains("strip it before injection"));
+
+        let already_injected = inject_envelope_segment_v1(&synthetic_stub(), &envelope).unwrap();
+        assert!(inject_envelope_segment_v1(&already_injected, &envelope)
+            .unwrap_err()
+            .to_string()
+            .contains("already contains an __IBEX payload"));
+
+        let mut nonzero_slack = synthetic_stub();
+        let facts = parse(&nonzero_slack).unwrap();
+        nonzero_slack[facts.commands_end] = 1;
+        assert!(inject_envelope_segment_v1(&nonzero_slack, &envelope)
+            .unwrap_err()
+            .to_string()
+            .contains("slack is not zero-filled"));
+
+        let mut insufficient_slack = synthetic_stub();
+        let facts = parse(&insufficient_slack).unwrap();
         write_u32(
-            &mut structurally_signed,
-            facts.commands_end + 8,
-            signature_offset,
+            &mut insufficient_slack,
+            MACH_HEADER_64_LEN + 120,
+            (facts.commands_end + IBEX_COMMAND_LEN - 1) as u32,
         );
-        write_u32(&mut structurally_signed, facts.commands_end + 12, 16);
-        write_u32(&mut structurally_signed, 16, facts.ncmds + 1);
-        write_u32(&mut structurally_signed, 20, facts.sizeofcmds + 16);
+        assert!(inject_envelope_segment_v1(&insufficient_slack, &envelope)
+            .unwrap_err()
+            .to_string()
+            .contains("insufficient load-command slack"));
+
+        let mut nonterminal_linkedit = synthetic_stub();
+        let facts = parse(&nonterminal_linkedit).unwrap();
         write_u64(
-            &mut structurally_signed,
+            &mut nonterminal_linkedit,
             facts.linkedit.command_offset + 48,
-            facts.linkedit.filesize + 16,
+            facts.linkedit.filesize - 1,
         );
-        structurally_signed.extend_from_slice(&CSMAGIC_EMBEDDED_SIGNATURE);
-        structurally_signed.extend_from_slice(&[0; 12]);
-        validate_signed_envelope_layout_v1(&structurally_signed).unwrap();
+        assert!(inject_envelope_segment_v1(&nonterminal_linkedit, &envelope)
+            .unwrap_err()
+            .to_string()
+            .contains("must be aligned and terminate"));
+    }
+
+    #[test]
+    fn signed_layout_refuses_tail_magic_range_linkedit_and_duplicate_signature_mutations() {
+        // @ref LLP 0029#2-executable-layout-stub-envelope-footer — one
+        // terminal signature and terminal __LINKEDIT must seal the payload
+        let (signed, signature_command) = structurally_signed_image();
+        validate_signed_envelope_layout_v1(&signed).unwrap();
+
+        let mut trailing = signed.clone();
+        trailing.push(0);
+        assert!(validate_signed_envelope_layout_v1(&trailing).is_err());
+
+        let mut zero_size = signed.clone();
+        write_u32(&mut zero_size, signature_command + 12, 0);
+        assert!(validate_signed_envelope_layout_v1(&zero_size).is_err());
+
+        let mut wrong_magic = signed.clone();
+        let signature_offset = read_u32(&wrong_magic, signature_command + 8).unwrap() as usize;
+        wrong_magic[signature_offset] ^= 1;
+        assert!(validate_signed_envelope_layout_v1(&wrong_magic).is_err());
+
+        let mut before_payload_end = signed.clone();
+        let facts = parse(&before_payload_end).unwrap();
+        let (payload_offset, _) = facts.ibex_payload.unwrap();
+        write_u32(
+            &mut before_payload_end,
+            signature_command + 8,
+            payload_offset as u32,
+        );
+        assert!(validate_signed_envelope_layout_v1(&before_payload_end).is_err());
+
+        let mut short_linkedit = signed.clone();
+        let facts = parse(&short_linkedit).unwrap();
+        write_u64(
+            &mut short_linkedit,
+            facts.linkedit.command_offset + 48,
+            facts.linkedit.filesize - 1,
+        );
+        assert!(validate_signed_envelope_layout_v1(&short_linkedit).is_err());
+
+        let mut duplicate_signature = signed;
+        let facts = parse(&duplicate_signature).unwrap();
+        let second = facts.commands_end;
+        assert!(second + 16 <= facts.first_section_offset);
+        let original_signature_offset =
+            read_u32(&duplicate_signature, signature_command + 8).unwrap();
+        let original_signature_size =
+            read_u32(&duplicate_signature, signature_command + 12).unwrap();
+        write_u32(&mut duplicate_signature, second, LC_CODE_SIGNATURE);
+        write_u32(&mut duplicate_signature, second + 4, 16);
+        write_u32(
+            &mut duplicate_signature,
+            second + 8,
+            original_signature_offset,
+        );
+        write_u32(
+            &mut duplicate_signature,
+            second + 12,
+            original_signature_size,
+        );
+        write_u32(&mut duplicate_signature, 16, facts.ncmds + 1);
+        write_u32(&mut duplicate_signature, 20, facts.sizeofcmds + 16);
+        assert!(validate_signed_envelope_layout_v1(&duplicate_signature)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate code signatures"));
     }
 }

@@ -48,15 +48,14 @@ const RUNTIME_BOOTSTRAP_PATH = "packages/ibex-runtime-js/src/bootstrap.ts";
 const COMPAT_BOOTSTRAP_PATH = "src/engine/bootstrap/compat-polyfills.js";
 
 const REVIEWED_PROFILE_DIGEST =
-  // Restamped 2026-07-31 with the windows-source-patched
-  // sourceInstallerAuthorityDigest move (install-windows-hermes.ps1 gh-probe
-  // fix); same review as the evaluator review-id restamp in
-  // capsec-coverage-model.mjs.
-  "sha256-695fd4c9d81b622e689a1a23b8f1961d58f18600a00b806a3eead41bc2154a67";
+  // Restamped 2026-08-03 with the source-patched Apple build-authority move
+  // that normalizes static-archive metadata across physical Macs; same review
+  // as the evaluator review-id restamp in capsec-coverage-model.mjs.
+  "sha256-0b45bdac0ba92fb7e73026163cbaf2c4b89e843c38e7466b80faebfd660d0155";
 const REVIEWED_SOURCE_REVIEW_DIGEST =
-  // Restamped 2026-07-31 alongside REVIEWED_PROFILE_DIGEST above (same
-  // installer-authority move, same review).
-  "sha256-3eae32ded97ed981f38c1a0030ca0529a202b7168cfdaea52798d5b1af79d3f3";
+  // Restamped 2026-08-03 alongside REVIEWED_PROFILE_DIGEST above (same Apple
+  // archive-normalization authority move, same review).
+  "sha256-805447458b3d5e5c92d48d25dd462df7d6f05163f54526ccb766ab7ee3f20ccd";
 
 const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
   bufferImplementation:

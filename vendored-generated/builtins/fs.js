@@ -42,9 +42,14 @@ function _fsInvalidArgType(name, expected, actual) {
 	var requirement = expectedText.indexOf("an instance of ") === 0 ? expectedText : "of type " + expectedText;
 	var err = /* @__PURE__ */ new TypeError("The \"" + name + "\" argument must be " + requirement + ". Received " + received);
 	err.code = "ERR_INVALID_ARG_TYPE";
-	err.toString = function() {
-		return "TypeError [ERR_INVALID_ARG_TYPE]: " + this.message;
-	};
+	Object.defineProperty(err, "toString", {
+		value: function() {
+			return "TypeError [ERR_INVALID_ARG_TYPE]: " + this.message;
+		},
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
 	return err;
 }
 function _fsOutOfRange(name, received, min, max) {
@@ -1298,11 +1303,16 @@ function decodeBytes(bytes, encoding) {
 }
 function wrapBuffer(bytes) {
 	if (typeof Buffer !== "undefined" && Buffer.from) return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-	bytes.toString = function(encoding, start, end) {
-		var slice = start !== void 0 || end !== void 0 ? bytes.slice(start || 0, end) : bytes;
-		if (!encoding) return decodeBytes(slice, "utf8");
-		return decodeBytes(slice, encoding);
-	};
+	Object.defineProperty(bytes, "toString", {
+		value: function(encoding, start, end) {
+			var slice = start !== void 0 || end !== void 0 ? bytes.slice(start || 0, end) : bytes;
+			if (!encoding) return decodeBytes(slice, "utf8");
+			return decodeBytes(slice, encoding);
+		},
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
 	return bytes;
 }
 function _encodeFsPathResult(value, options) {

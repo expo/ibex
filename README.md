@@ -19,6 +19,8 @@ and app framework live in the `exact` repo.
   host ABI in `src/host`, the module loader, vendored Brotli).
 - The `ibex` runtime binary (`src/bin/ibex`) for running JavaScript and
   TypeScript files.
+- Catalog-pinned release builds can package a program as a standalone,
+  self-contained executable; see [Standalone executables](./docs/standalone-executables.md).
 - The Hermes build scripts (`scripts/build-hermes-*.sh`, `download-hermes.sh`).
 
 ## The contract
@@ -62,6 +64,28 @@ Run the local binary with:
 ```sh
 cargo run --bin ibex -- --version
 ```
+
+### Running source safely
+
+Ordinary source execution is enforce-only and fails closed unless Ibex's
+standard promotion pipeline has shipped a generated CapSec v2 target
+advertisement for the exact runtime tuple. `--project-root` selects the
+trusted project mount; it never generates or refreshes an advertisement. Until
+a production tuple is advertised, `ibex capsec audit <file>` is available as
+an explicitly unarmed diagnostic workflow, not as an enforce-mode substitute.
+
+Ibex normally stores generated bundles, bytecode, and protected CapSec
+artifacts in the platform cache directory. In a filesystem sandbox where that
+directory is not writable, pass a trusted, writable absolute path before the
+command:
+
+```sh
+ibex --runtime-cache-dir /absolute/private/cache --project-root /absolute/project run app.mjs
+```
+
+The override does not expose a JavaScript mount or relax cache checks. Ibex
+canonicalizes the directory and refuses it if it overlaps the authenticated
+project or package roots.
 
 `build.rs` auto-detects the standalone layout; `HERMES_INCLUDE_DIR` and
 `HERMES_LIB_DIR` override the Hermes locations. `HERMES_VERSION` can override

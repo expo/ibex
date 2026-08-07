@@ -3510,7 +3510,6 @@ Object.defineProperty(X509Certificate.prototype, "raw", {
 var x509CertificateToString = function() {
 	return this._pem;
 };
-X509Certificate.prototype.toString = x509CertificateToString;
 Object.defineProperty(X509Certificate.prototype, "toString", {
 	value: x509CertificateToString,
 	writable: true,

@@ -422,7 +422,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_597);
+    // LLP 0049 §4.1 seeding fixes: the class-prefix carve-outs, the
+    // node_http2 effect-assertion withdrawal, and the exact-export-alias
+    // join (net.Stream ≡ net.Socket, ws.Server ≡ ws.WebSocketServer)
+    // deliberately reduced the denominator; the full delta is explained in
+    // llp/evidence/0049-allow-list-phase0-seeding.json.
+    expect(recipes.summary.requiredFixtures).toBe(22_505);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -433,10 +438,11 @@ describe("exact-target CapSec executable recipes", () => {
     // or are read through a reviewed inert prototype path. Eight fixed-prime
     // DiffieHellman construction and state-only calls add no random work.
     // Three exact source-only compatibility helpers retain only harness-owned
-    // values and perform no native key-store or terminal work. A separately
-    // bounded readline Interface.close call proves exact listener teardown on
-    // an inert harness-owned input shim. Interface.pause separately proves its
-    // retained paused state and then closes that shim before completion.
+    // values and perform no native key-store or terminal work. The debug-only
+    // native-runner profile selector adds one reviewed structural obligation.
+    // A separately bounded readline Interface.close call proves exact listener
+    // teardown on an inert harness-owned input shim. Interface.pause separately
+    // proves its retained paused state and then closes that shim before completion.
     // Eleven idle zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
     // Three isolated sync encoders process one fixed four-byte Buffer and
@@ -472,11 +478,26 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_928);
+    // Five direct environment-write receipts bind one exact principal-overlay
+    // name and value to the armed __exactSetEnv JSI source.
+    // −5 from the exact-export-alias join: the executable net.Stream.*
+    // no-decision probes were byte-identical duplicates of the still
+    // executable net.Socket.* probes and merged onto them (LLP 0049 §4.1).
+    // +16 from the LLP 0049 Phase 2 calibration tranche: six armed
+    // whole-environment enumeration receipts on the nonempty logical branch
+    // (one seeded principal-overlay name, disclosed on allow and skipped on
+    // the denial-return deny), plus five direct __exactAccess and five direct
+    // __exactOpendir list receipts.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_942);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_042);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_627);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_124);
+    expect(recipes.summary.unresolvedFixtures).toBe(15_439);
+    expect(
+      recipes.summary.residualReasons[
+        "builtin-export-requires-deprecation-warning"
+      ],
+    ).toBe(4);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -539,8 +560,13 @@ describe("exact-target CapSec executable recipes", () => {
     // routes that this harness could otherwise claim structurally. The three
     // branch-local filesystem closures use the closed-surface harness, while
     // the direct non-recursive mkdir branch and retained async reads add native
-    // selection proofs.
-    expect(nativePublicFixtures).toHaveLength(557);
+    // selection proofs. Five direct environment writes bind the exact armed
+    // __exactSetEnv source and principal-overlay resource. The LLP 0049
+    // Phase 2 calibration tranche adds sixteen more: six armed
+    // whole-environment enumeration receipts on the nonempty logical branch
+    // and five each for the direct __exactAccess and __exactOpendir list
+    // terminals.
+    expect(nativePublicFixtures).toHaveLength(578);
     expect(
       nativePublicFixtures
         .filter(
@@ -611,7 +637,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_256);
+    // Moved with the LLP 0049 §4.1 seeding fixes (same mechanism as the
+    // Apple pin above; the delta is target-independent model accounting).
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_164);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -666,9 +694,23 @@ describe("exact-target CapSec executable recipes", () => {
     // The same twelve shared-state closures and eight target-applicable nested
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_564);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_028);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_664);
+    // The same five direct environment-write receipts exercise Windows' exact
+    // selected __exactSetEnv source branch independently.
+    // −5: same exact-export-alias join as the Apple pin above.
+    // +6 from the LLP 0049 Phase 2 calibration tranche: the same six armed
+    // whole-environment enumeration receipts exercise Windows' selected
+    // __exactGetAllEnv source branch independently. The tranche's direct
+    // __exactAccess and __exactOpendir list receipts do NOT land here — their
+    // filesystem surfaces are not typed on this target and keep their
+    // pre-existing public-surface-filesystem-not-typed-on-target residual.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_566);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_110);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(15_488);
+    expect(
+      windowsRecipes.summary.residualReasons[
+        "builtin-export-requires-deprecation-warning"
+      ],
+    ).toBe(4);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -733,7 +775,10 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(142);
+    // +5: the tranche's direct __exactOpendir list receipts are typed on
+    // Apple but not on this target, so Windows keeps them as untyped-surface
+    // residuals rather than borrowing the Apple probe.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(147);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -1929,7 +1974,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_042);
+    expect(rationaleOnly).toHaveLength(3_124);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1938,12 +1983,16 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 511,
-      "generation-recheck": 511,
-      "principal-restore": 511,
-      "snapshot-mismatch-deny": 511,
-      "cannot-widen-authority": 499,
-      "post-lockdown-invariant": 499,
+      // +1 each: Http2ServerResponse.createPushResponse now carries the
+      // callback-attribution-carrier rationale (LLP 0049 §4.1). −2 on the
+      // effects-only pair: two mis-seeded cells left the effects
+      // classification in the same change.
+      "attribution-missing-deny": 514,
+      "generation-recheck": 514,
+      "principal-restore": 514,
+      "snapshot-mismatch-deny": 514,
+      "cannot-widen-authority": 534,
+      "post-lockdown-invariant": 534,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -3581,7 +3630,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(112);
+    expect(rows).toHaveLength(114);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
@@ -3676,10 +3725,10 @@ describe("exact-target CapSec executable recipes", () => {
       },
     });
 
-    expect(bindings).toHaveLength(115);
+    expect(bindings).toHaveLength(116);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "host-abi"),
-    ).toHaveLength(59);
+    ).toHaveLength(60);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "native-op"),
     ).toHaveLength(56);
@@ -3689,7 +3738,7 @@ describe("exact-target CapSec executable recipes", () => {
           binding.invocationSchema ===
           "ibex/capsec-target-absence-invocation/1",
       ),
-    ).toHaveLength(93);
+    ).toHaveLength(94);
     expect(
       bindings.filter(
         (binding) =>
@@ -3711,7 +3760,7 @@ describe("exact-target CapSec executable recipes", () => {
       .map((decision) => canonicalOutputDispositionKey(decision.key))
       .sort();
     expect(actualKeys).toEqual(expectedKeys);
-    expect(targetAbsentDecisions).toHaveLength(115);
+    expect(targetAbsentDecisions).toHaveLength(116);
     const bindingByKey = new Map(
       bindings.map((binding) => [
         canonicalOutputDispositionKey(binding.key),
@@ -3931,7 +3980,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(670);
+    expect(startupEnvironmentRecipes).toHaveLength(706);
     expect(
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.terminalObservedKey === "startup:env:CLICOLOR_FORCE",
@@ -4263,7 +4312,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(604);
+    ).toHaveLength(640);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>
@@ -5978,7 +6027,10 @@ describe("exact-target CapSec executable recipes", () => {
       node_http: 13,
       node_https: 3,
       node_module: 3,
-      node_net: 27,
+      // 22 = 27 − 5: the net.Stream.* duplicates merged onto their
+      // canonical net.Socket.* cells via the reviewed exact-export-alias
+      // join (LLP 0049 §4.1; src/builtins/net.js:4623 `Stream: Socket,`).
+      node_net: 22,
       node_readline: 3,
       node_tls: 9,
       node_v8: 1,
@@ -6571,14 +6623,17 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
           "node_net" &&
         new Set([
+          // Stream.close / Stream.resetAndDestroy no longer author separate
+          // probes: net.Stream is the same function object as net.Socket
+          // (src/builtins/net.js:4623) and the reviewed exact-export-alias
+          // join attaches their obligations to the Socket cells, whose
+          // probes below now carry both edgeIds (LLP 0049 §4.1).
           "Server.close",
           "Socket.close",
           "Socket.resetAndDestroy",
-          "Stream.close",
-          "Stream.resetAndDestroy",
         ]).has(recipe.publicSurfaceProbe.invocation.exportName),
     );
-    expect(idleNetTerminalCalls).toHaveLength(5);
+    expect(idleNetTerminalCalls).toHaveLength(3);
     expect(
       idleNetTerminalCalls.every(
         (recipe) =>
@@ -8400,6 +8455,214 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny" ? ["requested"] : ["requested", "commit"],
       );
+    }
+  });
+
+  test("binds armed scalar environment writes to one exact principal overlay name", () => {
+    const environmentWrite = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactSetEnv",
+    );
+    expect(environmentWrite).toHaveLength(5);
+    expect(environmentWrite.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    for (const recipe of environmentWrite) {
+      expect(recipe).toMatchObject({
+        actionIds: ["env:write"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [
+              {
+                kind: "json-literal",
+                value: "IBEX_CAPSEC_NATIVE_ENV_WRITE",
+              },
+              { kind: "json-literal", value: "ibex-capsec-value" },
+            ],
+            requiredFloor: [
+              {
+                cap: "env:write",
+                resource: {
+                  kind: "environment-name",
+                  target: "principal-overlay",
+                  name: "IBEX_CAPSEC_NATIVE_ENV_WRITE",
+                },
+              },
+            ],
+            expectedActionIds: ["env:write"],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny" ? ["requested"] : ["requested", "commit"],
+      );
+    }
+  });
+
+  // LLP 0049 Phase 2 calibration class 1.
+  test("binds armed environment enumeration to one seeded principal overlay name", () => {
+    const enumeration = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactGetAllEnv" &&
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0,
+    );
+    expect(enumeration).toHaveLength(6);
+    expect(enumeration.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "branch-selection",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    for (const recipe of enumeration) {
+      const { invocation } = recipe.publicSurfaceProbe;
+      expect(recipe.status).toBe("fully-executable");
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.actionIds).toEqual(["env:read"]);
+      expect(invocation.arguments).toEqual([]);
+      // The read authority is deniable; the overlay-seeding write authority is
+      // harness infrastructure that the deny scenario never refuses, so denial
+      // lands on exactly the declared capability.
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "env:read",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "IBEX_CAPSEC_NATIVE_ENV_ENUM",
+          },
+        },
+      ]);
+      expect(invocation.requiredSetupFloor).toEqual([
+        {
+          cap: "env:write",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "IBEX_CAPSEC_NATIVE_ENV_ENUM",
+          },
+        },
+      ]);
+      expect(invocation.setup).toEqual([
+        {
+          kind: "invoke-native-global",
+          globalName: "__exactSetEnv",
+          arguments: [
+            "IBEX_CAPSEC_NATIVE_ENV_ENUM",
+            "ibex-capsec-enum-value",
+          ],
+        },
+      ]);
+      // A denial-return surface: enumeration skips the name it cannot
+      // authorize and still returns, so the typed denied decision — not an
+      // exception — carries the denial.
+      // @ref LLP 0037#denial-return-evidence-existssync — a denied read still
+      // records a typed denied decision while the public call returns.
+      expect(invocation.expectedResult).toBe("return");
+      if (recipe.scenario === "deny") {
+        expect(invocation.expectedTypedStages).toEqual(["requested"]);
+        expect(invocation.expectedTypedOutcomes).toEqual(["deny"]);
+      } else {
+        expect(invocation.expectedTypedStages).toEqual([
+          "requested",
+          "commit",
+        ]);
+        expect(invocation.expectedTypedOutcomes).toBeUndefined();
+      }
+    }
+  });
+
+  // LLP 0049 Phase 2 calibration class 2.
+  test("binds the direct armed list terminals to their observed sequences", () => {
+    const expectations = new Map([
+      [
+        "__exactAccess",
+        {
+          args: [
+            { kind: "json-literal", value: "Cargo.toml" },
+            { kind: "json-literal", value: 0 },
+          ],
+          path: ["Cargo.toml"],
+          allow: [
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+          ],
+        },
+      ],
+      [
+        "__exactOpendir",
+        {
+          args: [{ kind: "json-literal", value: "llp/evidence" }],
+          path: ["llp", "evidence"],
+          // Nine, not the seven a first-principles guess produced: the
+          // two-component fixture path walks its parent as well.
+          allow: [
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+            "repeat",
+          ],
+        },
+      ],
+    ]);
+    for (const [globalName, expected] of expectations) {
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(rows).toHaveLength(5);
+      expect(rows.map((recipe) => recipe.scenario)).toEqual([
+        "allow",
+        "deny",
+        "malformed",
+        "missing-attribution",
+        "wrong-principal",
+      ]);
+      for (const recipe of rows) {
+        const { invocation } = recipe.publicSurfaceProbe;
+        expect(recipe.status).toBe("fully-executable");
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.actionIds).toEqual(["fs:list"]);
+        expect(invocation.arguments).toEqual(expected.args);
+        expect(invocation.requiredFloor).toEqual([
+          {
+            cap: "fs:list",
+            resource: {
+              kind: "path-exact",
+              path: {
+                root: "project",
+                components: expected.path.map((value) => ({
+                  encoding: "utf8",
+                  value,
+                })),
+              },
+            },
+          },
+        ]);
+        expect(invocation.expectedTypedStages).toEqual(
+          recipe.scenario === "deny" ? ["requested"] : expected.allow,
+        );
+        expect(invocation.expectedResult).toBe(
+          recipe.scenario === "deny" ? "permission-denied" : "return",
+        );
+      }
     }
   });
 

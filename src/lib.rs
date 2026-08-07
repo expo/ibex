@@ -44,6 +44,7 @@ pub mod host;
 pub mod identity_generated;
 pub mod module_loader;
 pub mod repl_surface;
+pub mod restricted_worker;
 pub mod session_constants;
 pub mod session_lifecycle;
 #[cfg(feature = "host-http-server")]

@@ -263,13 +263,20 @@ describe("Exact fixture-evidence pilot", () => {
       validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
     });
     expect(report.status).toBe("incomplete");
+    // Async sync-edge refusal, armed builtin sealing, the three compat-loader
+    // counters, the scoped bundle-capture barrier, and the debug-only native
+    // runner profile selector are all reflected in the source-derived fixture
+    // obligations while promotion remains closed.
     expect(report.summary).toMatchObject({
-      cells: 7_525,
+      cells: 7_580,
       conformantCells: 1,
-      incompleteCells: 7_524,
-      requiredFixtures: 23_592,
+      incompleteCells: 7_579,
+      // Moved with the LLP 0049 §4.1 seeding fixes (carve-outs, http2
+      // withdrawal, exact-export-alias join); the full delta is explained in
+      // llp/evidence/0049-allow-list-phase0-seeding.json.
+      requiredFixtures: 22_505,
       passedFixtures: 9,
-      missingFixtures: 23_583,
+      missingFixtures: 23_144,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(

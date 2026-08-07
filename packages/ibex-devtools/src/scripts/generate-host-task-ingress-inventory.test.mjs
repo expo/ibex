@@ -45,11 +45,11 @@ describe("LLP 0002 host-task ingress inventory", () => {
     expect(artifact.counts).toEqual({
       "user-execution-gate": 22,
       "engine-eval-or-prepare": 28,
-      "jsi-function-call": 109,
+      "jsi-function-call": 112,
     });
     expect(
       artifact.rows.reduce((count, row) => count + row.sites.length, 0),
-    ).toBe(159);
+    ).toBe(162);
     expect(artifact.ingressRows).toHaveLength(34);
     expect(
       artifact.rows.find(
@@ -58,6 +58,12 @@ describe("LLP 0002 host-task ingress inventory", () => {
           "src/engine/hermes_runtime_debugger.cc#ex_hermes_debugger_eval",
       )?.disposition,
     ).toBe("outer-host-task");
+    expect(
+      artifact.rows.find(
+        (row) =>
+          row.id === "src/engine/hermes_runtime.cc#sealGlobalHostFunction",
+      )?.disposition,
+    ).toBe("construction-no-app-code");
     expect(
       artifact.rows.find(
         (row) =>

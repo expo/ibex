@@ -33,7 +33,34 @@
 // is any change, and prints a skeleton allow-list you must fill in by hand.
 // The skeleton deliberately leaves `sourceSpan` and `proof` empty: this tool
 // cannot supply the evidence, only check that it was supplied.
+//
+// STRICT MODE (advance declaration, LLP 0049 §3 rule 3). When the candidate
+// catalog carries `declaredAllowListDigest` — embedded by the generator's
+// `--declared-allow-list` flag BEFORE the candidate was generated — this tool
+// requires `--allow-list` and fails unless sha256 (raw file bytes, base64url,
+// `sha256-` prefix) of the supplied allow-list matches the embedded digest.
+// That is the whole point of the mechanism: an allow-list authored AFTER the
+// diff was surveyed is, by construction, not the declared one and cannot
+// pass. A candidate with no embedded digest behaves exactly as before —
+// strict mode is opt-in at generation time, never inferred here.
+//
+// PROOF KINDS. `proofKind: "masked-not-new"` is the machine-checked form of
+// the `MASKED, NOT NEW` proof vocabulary (resolving one thing unmasks
+// another). Precedence rules, in order:
+//   1. Whenever `proofKind` is present it is validated in EVERY mode: the
+//      only recognized kind is "masked-not-new"; it is valid only on
+//      `direction: "added"` entries (masking can only explain an addition
+//      that was previously suppressed); its `proof` text must contain the
+//      literal token `MASKED, NOT NEW`; and its `sourceSpan` must name the
+//      masking site (non-empty, enforced with the universal sourceSpan rule).
+//   2. Only in strict mode is `proofKind` REQUIRED on entries whose proof
+//      text contains the token. The archived worked example
+//      (llp/evidence/0045-allow-list-duplicate-definition-hygiene.json)
+//      predates `proofKind` and must keep passing against undeclared
+//      candidates exactly as-is, so the requirement is scoped to candidates
+//      that opted into the declared-allow-list mechanics.
 
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 
 // ---------------------------------------------------------------- arguments
@@ -132,6 +159,38 @@ const candidateCatalog = read(args.candidate);
 const baseline = indexRecipes(baselineCatalog, "baseline");
 const candidate = indexRecipes(candidateCatalog, "candidate");
 
+// ------------------------------------------------ strict mode (rule 3)
+//
+// Digest spelling matches the generator: sha256 over the allow-list file's
+// RAW BYTES (not a canonicalization — the declaration is of the exact file),
+// base64url, `sha256-` prefixed.
+const declaredAllowListDigest = candidateCatalog.declaredAllowListDigest;
+if (
+  declaredAllowListDigest !== undefined &&
+  (typeof declaredAllowListDigest !== "string" ||
+    !declaredAllowListDigest.startsWith("sha256-"))
+) {
+  throw new Error(
+    `candidate catalog carries a malformed declaredAllowListDigest (${JSON.stringify(declaredAllowListDigest)}); expected a "sha256-"-prefixed string`,
+  );
+}
+const strictMode = declaredAllowListDigest !== undefined;
+if (strictMode) {
+  if (!args.allowList) {
+    throw new Error(
+      "candidate catalog declares an allow-list digest (strict mode): --allow-list is required, and it must be the exact file declared before generation",
+    );
+  }
+  const suppliedDigest = `sha256-${createHash("sha256")
+    .update(readFileSync(args.allowList))
+    .digest("base64url")}`;
+  if (suppliedDigest !== declaredAllowListDigest) {
+    throw new Error(
+      `allow-list was not the one declared before generation: candidate catalog declares ${declaredAllowListDigest}, but ${args.allowList} hashes to ${suppliedDigest}. An allow-list authored after the diff cannot pass in strict mode; fix the declared list and REGENERATE the candidate (the post-diff survey skeleton may only seed a re-run, never pass the gate).`,
+    );
+  }
+}
+
 /** @type {Array<{kind:string,cell:string,fixtureId:string,field:string,direction:string,value:string}>} */
 const changes = [];
 const pushChange = (change) => changes.push(change);
@@ -225,7 +284,9 @@ for (const fixtureId of allFixtures) {
 
 // -------------------------------------------------------------- allow-list
 
-function loadAllowList(path) {
+const MASKED_NOT_NEW_TOKEN = "MASKED, NOT NEW";
+
+function loadAllowList(path, { strict }) {
   if (!path) return { entries: [], present: false };
   const parsed = read(path);
   if (!Array.isArray(parsed.entries)) {
@@ -249,11 +310,40 @@ function loadAllowList(path) {
         `allow-list entry ${index}: direction must be added|removed|changed`,
       );
     }
+    // `MASKED, NOT NEW` proof-kind mechanics (LLP 0049 §3 rule 3). Precedence:
+    // a present `proofKind` is validated in EVERY mode; the REQUIREMENT that a
+    // token-carrying proof declare `proofKind` applies only in strict mode, so
+    // the archived pre-proofKind worked example under llp/evidence/ keeps
+    // passing as-is against candidates that never declared an allow-list.
+    if (entry.proofKind !== undefined) {
+      if (entry.proofKind !== "masked-not-new") {
+        throw new Error(
+          `allow-list entry ${index}: unrecognized proofKind ${JSON.stringify(entry.proofKind)}; the only machine-checked kind is "masked-not-new"`,
+        );
+      }
+      if (entry.direction !== "added") {
+        throw new Error(
+          `allow-list entry ${index}: proofKind "masked-not-new" is valid only on direction "added" entries (got "${entry.direction}") — masking can only explain an addition the masking site previously suppressed`,
+        );
+      }
+      if (!entry.proof.includes(MASKED_NOT_NEW_TOKEN)) {
+        throw new Error(
+          `allow-list entry ${index}: proofKind "masked-not-new" requires the proof text to carry the literal token "${MASKED_NOT_NEW_TOKEN}"`,
+        );
+      }
+      // sourceSpan is already required non-empty above; for this proof kind it
+      // is the MASKING SITE, and an entry without one declares an unmasking
+      // nobody can audit.
+    } else if (strict && entry.proof.includes(MASKED_NOT_NEW_TOKEN)) {
+      throw new Error(
+        `allow-list entry ${index}: proof text contains "${MASKED_NOT_NEW_TOKEN}" but the entry carries no proofKind; strict mode (candidate catalog declares an allow-list digest) requires proofKind: "masked-not-new" so the vocabulary is machine-checked, not prose`,
+      );
+    }
   });
   return { ...parsed, present: true };
 }
 
-const allowList = loadAllowList(args.allowList);
+const allowList = loadAllowList(args.allowList, { strict: strictMode });
 const entryUses = allowList.entries.map(() => 0);
 
 function matches(entry, change) {
@@ -350,6 +440,8 @@ const report = {
     recipes: candidateCatalog.recipes.length,
   },
   allowList: args.allowList ?? null,
+  strictMode,
+  declaredAllowListDigest: declaredAllowListDigest ?? null,
   result: passed ? "PASS" : "FAIL",
   changeCount: changes.length,
   explainedCount: changes.length - unexplained.length,
@@ -386,7 +478,7 @@ const summarize = (list, limit = 40) =>
 process.stderr.write(
   [
     `LLP 0045 §3 route-evidence gate — ${report.result}`,
-    `  scope: ${args.scope}`,
+    `  scope: ${args.scope}${strictMode ? `  (STRICT: declared allow-list ${declaredAllowListDigest})` : ""}`,
     `  baseline ${report.baseline.digest} (${report.baseline.recipes} recipes)`,
     `  candidate ${report.candidate.digest} (${report.candidate.recipes} recipes)`,
     `  changes: ${report.changeCount} (${report.explainedCount} allow-listed, ${report.unexplainedCount} unexplained)`,
