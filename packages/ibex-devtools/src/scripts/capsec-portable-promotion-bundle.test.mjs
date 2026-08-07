@@ -36,7 +36,10 @@ import {
   derivePortableRecipeCatalogV2,
   preparePortablePromotionFromDerivedArtifactsV2,
 } from "./capsec-portable-promotion-bundle.mjs";
-import { verifyPortablePromotionBundleDirectory } from "./verify-capsec-portable-promotion-bundle.mjs";
+import {
+  validatePortablePromotionBundleGraph,
+  verifyPortablePromotionBundleDirectory,
+} from "./verify-capsec-portable-promotion-bundle.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../../../..");
@@ -54,8 +57,7 @@ const baseMapped = vectors.documents.mappedInstance;
 const clone = (value) => structuredClone(value);
 const digest = (character) => `sha256-${character.repeat(43)}`;
 const nativeExecutor = PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS.find(
-  (descriptor) =>
-    descriptor.testName === "capsec_public_native_primary_batch",
+  (descriptor) => descriptor.testName === "capsec_public_native_primary_batch",
 );
 
 function exactBytes(value) {
@@ -70,6 +72,72 @@ function target() {
       "native-compartments",
       "native-lockdown",
     ],
+  };
+}
+
+function scopeBundle(scopeTarget, edgeIds) {
+  const predecessor = { kind: "genesis" };
+  const diff = {
+    scopeExpansionDiffSchema: "ibex/capsec-scope-expansion-diff/1",
+    profile: "ibex/capsec/1",
+    target: clone(scopeTarget),
+    predecessor,
+    previousExpandedCellIds: [],
+    currentExpandedCellIds: clone(edgeIds),
+    addedCellIds: clone(edgeIds),
+    retiredCellIds: [],
+    scopeExpansionDiffDigest: digest("A"),
+  };
+  diff.scopeExpansionDiffDigest = computeDomainDigest(
+    "ibex:capsec:scope-expansion-diff:1",
+    diff,
+    ["scopeExpansionDiffDigest"],
+  );
+  const mapping = {
+    scopeCellMappingSchema: "ibex/capsec-scope-cell-mapping/1",
+    profile: "ibex/capsec/1",
+    target: clone(scopeTarget),
+    predecessor,
+    additions: clone(edgeIds),
+    retirements: [],
+    mappings: [],
+    scopeCellMappingDigest: digest("A"),
+  };
+  mapping.scopeCellMappingDigest = computeDomainDigest(
+    "ibex:capsec:scope-cell-mapping:1",
+    mapping,
+    ["scopeCellMappingDigest"],
+  );
+  const scope = {
+    scopeSchema: "ibex/capsec-scope/1",
+    profile: "ibex/capsec/1",
+    target: clone(scopeTarget),
+    intensionalDefinition: {
+      capabilityFamilies: ["fs"],
+      surfaceKinds: ["native-op"],
+    },
+    expandedCellIds: clone(edgeIds),
+    closureEdges: edgeIds.map((edgeId) => ({
+      fromEdgeId: edgeId,
+      toEdgeId: edgeId,
+      dependencyKind: "source-derived-route",
+      implementationBranchId: "branch.portable.bundle",
+      terminalObservedKey: "native-op:portableBundle",
+      proofPaths: ["native-op:portableBundle"],
+      sourceRefs: ["src/host/mod.rs#portableBundle"],
+    })),
+    predecessor,
+    scopeExpansionDiffDigest: diff.scopeExpansionDiffDigest,
+    scopeCellMappingDigest: mapping.scopeCellMappingDigest,
+    scopeDigest: digest("A"),
+  };
+  scope.scopeDigest = computeDomainDigest("ibex:capsec:scope:1", scope, [
+    "scopeDigest",
+  ]);
+  return {
+    scopeArtifactBytes: exactBytes(scope),
+    scopeExpansionDiffBytes: exactBytes(diff),
+    scopeCellMappingBytes: exactBytes(mapping),
   };
 }
 
@@ -102,7 +170,7 @@ function conformanceRunner(reviewedSource = source()) {
 
 function sourceClosure() {
   const fixtureId = "fixture.portable.bundle";
-  const edgeId = "edge.portable.bundle";
+  const edgeId = "surface.portable.bundle";
   const branchId = "branch.portable.bundle";
   const enforcementBranchId = "enforcement.portable.bundle";
   const coverage = {
@@ -157,6 +225,7 @@ function sourceClosure() {
     enforcementBranchId,
     fixtureCatalog,
     fixtureId,
+    inScopeEdgeIds: [edgeId],
     implementation,
     targetCells,
   };
@@ -165,6 +234,7 @@ function sourceClosure() {
 function derivedPreparation() {
   const reviewedSource = source();
   const closure = sourceClosure();
+  const scoped = scopeBundle(reviewedSource.target, closure.inScopeEdgeIds);
   const recipe = {
     fixtureId: closure.fixtureId,
     status: "fully-executable",
@@ -248,6 +318,7 @@ function derivedPreparation() {
       coverageBytes: exactBytes(closure.coverage),
       implementationManifestBytes: exactBytes(closure.implementation),
       fixtureCatalogBytes: exactBytes(closure.fixtureCatalog),
+      ...scoped,
       targetCellsBytes: exactBytes(closure.targetCells),
       recipeCatalogBytes,
       publicSurfaceExecutionBytes: exactBytes(publicSurface),
@@ -268,6 +339,7 @@ function portableBindings(preparation) {
     implementationManifestDigest:
       preparation.authorityEntry.implementationManifestDigest,
     fixtureCatalogDigest: preparation.authorityEntry.fixtureCatalogDigest,
+    scopeDigest: preparation.scopeDigest,
     targetCellsRawContentDigest:
       preparation.authorityEntry.targetCellsRawContentDigest,
     recipeCatalogDigest: preparation.authorityEntry.recipeCatalogDigest,
@@ -405,6 +477,7 @@ describe("portable promotion bundle generation", () => {
       derivePortablePromotionTargetCells({
         coverage: closure.coverage,
         implementation: closure.implementation,
+        inScopeEdgeIds: closure.inScopeEdgeIds,
         target: target(),
       }),
     ).toEqual({
@@ -418,7 +491,7 @@ describe("portable promotion bundle generation", () => {
           implementationBranchIds: [closure.branchId],
           fixtures: [closure.fixtureId],
           rationale:
-            "Source-derived physical-promotion candidate; authority requires complete v2 execution evidence.",
+            "Source-derived scoped physical-promotion candidate; authority requires complete execution evidence.",
         },
       ],
     });
@@ -431,6 +504,7 @@ describe("portable promotion bundle generation", () => {
       derivePortablePromotionTargetCells({
         coverage: closure.coverage,
         implementation: closure.implementation,
+        inScopeEdgeIds: closure.inScopeEdgeIds,
         target: target(),
       }),
     ).toThrow(/conditional-unrefined/u);
@@ -443,6 +517,7 @@ describe("portable promotion bundle generation", () => {
       derivePortablePromotionTargetCells({
         coverage: closure.coverage,
         implementation: closure.implementation,
+        inScopeEdgeIds: closure.inScopeEdgeIds,
         target: target(),
       }),
     ).toThrow(/no required physical fixture/u);
@@ -512,6 +587,29 @@ describe("portable promotion bundle generation", () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test("refuses a second scope artifact in the closed bundle graph", () => {
+    const state = fixture();
+    const bundle = buildPortablePromotionBundleV2({
+      preparation: state.preparation,
+      processes: [state.process],
+    });
+    const members = bundle.files.map(({ logicalName, bytes }) => ({
+      logicalName,
+      bytes,
+    }));
+    members.push({
+      logicalName: "scope-artifact",
+      bytes: Buffer.from(state.preparation.scopeArtifactBytes),
+    });
+    expect(() =>
+      validatePortablePromotionBundleGraph({
+        manifestBytes: bundle.manifestBytes,
+        members,
+        expectedSourceRevision: bundle.manifest.sourceRevision,
+      }),
+    ).toThrow(/exact member set|duplicate/u);
   });
 
   test("keeps local mapped observations detached from publication bytes", () => {
@@ -597,6 +695,9 @@ describe("portable promotion bundle generation", () => {
         coverageBytes: exactBytes(state.closure.coverage),
         implementationManifestBytes: exactBytes(state.closure.implementation),
         fixtureCatalogBytes: exactBytes(state.closure.fixtureCatalog),
+        scopeArtifactBytes: state.preparation.scopeArtifactBytes,
+        scopeExpansionDiffBytes: state.preparation.scopeExpansionDiffBytes,
+        scopeCellMappingBytes: state.preparation.scopeCellMappingBytes,
         targetCellsBytes: exactBytes(targetCells),
         recipeCatalogBytes: state.preparation.recipeCatalogBytes,
         publicSurfaceExecutionBytes:
@@ -604,7 +705,84 @@ describe("portable promotion bundle generation", () => {
         outputDispositionEvidenceBytes:
           state.preparation.outputDispositionEvidenceBytes,
       }),
-    ).toThrow(/remain unsupported/u);
+    ).toThrow(/certified scope partition/u);
+  });
+
+  test("accepts unsupported bytes for exactly the scope artifact remainder", () => {
+    const state = derivedPreparation();
+    const remainderEdgeId = "surface.portable.remainder";
+    const coverage = clone(state.closure.coverage);
+    coverage.edges.push({
+      id: remainderEdgeId,
+      classification: "effects",
+      effectMode: "conditional-unrefined",
+      surface: { kind: "native-op", name: "portableRemainder" },
+      effects: [{ cap: "cap.portable.remainder" }],
+    });
+    coverage.edges.sort((left, right) =>
+      Buffer.compare(Buffer.from(left.id), Buffer.from(right.id)),
+    );
+    const implementation = clone(state.closure.implementation);
+    implementation.surfaces.push({
+      edgeId: remainderEdgeId,
+      branchId: "branch.portable.remainder",
+      targetVariant: "all",
+      targetApplicability: { kind: "all" },
+      fixtureObligations: ["fixture.portable.remainder"],
+      enforcementBranchId: "enforcement.portable.remainder",
+      enforcementRoute: {
+        terminalObservedKey: "native-op:portableRemainder",
+      },
+    });
+    const fixtureCatalog = fixtureCatalogForTarget({
+      coverage,
+      implementation,
+      target: target(),
+    });
+    const targetCells = clone(state.closure.targetCells);
+    targetCells.cells.push({
+      edgeId: remainderEdgeId,
+      target: target(),
+      disposition: "unsupported",
+      implementationBranchIds: ["branch.portable.remainder"],
+      fixtures: [],
+      rationale: "Outside the certified scope; no conformance claim is made.",
+    });
+    const preparation = preparePortablePromotionFromDerivedArtifactsV2({
+      reviewedSourceBytes: state.preparation.reviewedSourceBytes,
+      coverageBytes: exactBytes(coverage),
+      implementationManifestBytes: exactBytes(implementation),
+      fixtureCatalogBytes: exactBytes(fixtureCatalog),
+      targetCellsBytes: exactBytes(targetCells),
+      recipeCatalogBytes: state.preparation.recipeCatalogBytes,
+      publicSurfaceExecutionBytes:
+        state.preparation.publicSurfaceExecutionBytes,
+      outputDispositionEvidenceBytes:
+        state.preparation.outputDispositionEvidenceBytes,
+      scopeArtifactBytes: state.preparation.scopeArtifactBytes,
+      scopeExpansionDiffBytes: state.preparation.scopeExpansionDiffBytes,
+      scopeCellMappingBytes: state.preparation.scopeCellMappingBytes,
+    });
+    const process = detachedProcess(preparation);
+    const bundle = buildPortablePromotionBundleV2({
+      preparation,
+      processes: [process],
+    });
+    expect(bundle.report.summary).toMatchObject({
+      cells: 2,
+      conformantCells: 1,
+      incompleteCells: 0,
+      uncertifiedCells: 1,
+    });
+    expect(bundle.report.cells[1]).toMatchObject({
+      edgeId: remainderEdgeId,
+      status: "uncertified",
+      requiredFixtures: ["fixture.portable.remainder"],
+      passedFixtures: [],
+    });
+    expect(bundle.validated.targetCells.cells[1].disposition).toBe(
+      "unsupported",
+    );
   });
 
   test("refuses a target-cell subset even when its v2 documents are self-consistent", () => {
@@ -627,6 +805,9 @@ describe("portable promotion bundle generation", () => {
         coverageBytes: exactBytes(coverage),
         implementationManifestBytes: exactBytes(state.closure.implementation),
         fixtureCatalogBytes: exactBytes(state.closure.fixtureCatalog),
+        scopeArtifactBytes: state.preparation.scopeArtifactBytes,
+        scopeExpansionDiffBytes: state.preparation.scopeExpansionDiffBytes,
+        scopeCellMappingBytes: state.preparation.scopeCellMappingBytes,
         targetCellsBytes: state.preparation.targetCellsBytes,
         recipeCatalogBytes: state.preparation.recipeCatalogBytes,
         publicSurfaceExecutionBytes:
@@ -792,8 +973,7 @@ describe("rich-to-portable projections", () => {
     });
     const publicSurface = derivePortablePublicSurfaceExecutionV2({
       richPublicSurfaceExecution: {
-        publicSurfaceExecutionSchema:
-          "ibex/capsec-public-surface-executions/1",
+        publicSurfaceExecutionSchema: "ibex/capsec-public-surface-executions/1",
         profile: "ibex/capsec/1",
         sourceRevision: reviewedSource.sourceRevision,
         sourceTreeDigest: reviewedSource.sourceTreeDigest,

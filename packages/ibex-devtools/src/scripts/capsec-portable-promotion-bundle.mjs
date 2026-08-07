@@ -32,6 +32,7 @@ import {
   portableRecipeCatalogDigest,
   portableRecipePlanDigest,
   rawContentDigest,
+  validatePortableScopeBundle,
   validatePortablePromotionV2,
 } from "./capsec-portable-engine-evidence-contract.mjs";
 
@@ -146,7 +147,9 @@ function parseReviewedSource(reviewedSourceBytes) {
   return source;
 }
 
-function exactTargetCells(targetCells, target) {
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — only cells outside the bound expansion may remain
+// unsupported, and every cell outside it must do so.
+function exactTargetCells(targetCells, target, inScopeEdgeIds) {
   invariant(
     targetCells?.targetCellSchema === "ibex/capsec-target-cells/1" &&
       targetCells.profile === PROFILE &&
@@ -160,14 +163,26 @@ function exactTargetCells(targetCells, target) {
   invariant(rows.length > 0, "promotion target has no exact target cells");
   const edgeIds = rows.map((row) => row.edgeId);
   canonicalScalarSet(edgeIds, "promotion target-cell edge IDs");
+  const scopedEdgeIds = canonicalScalarSet(
+    inScopeEdgeIds,
+    "promotion scope edge IDs",
+  );
+  invariant(
+    scopedEdgeIds.length > 0 &&
+      scopedEdgeIds.every((edgeId) => edgeIds.includes(edgeId)),
+    "promotion scope has empty, duplicate, or non-inventory membership",
+  );
+  const inScope = new Set(scopedEdgeIds);
   invariant(
     rows.every(
       (row) =>
-        row.disposition !== "unsupported" &&
+        (inScope.has(row.edgeId)
+          ? row.disposition !== "unsupported"
+          : row.disposition === "unsupported") &&
         Array.isArray(row.fixtures) &&
         Array.isArray(row.implementationBranchIds),
     ),
-    "promotion target cells remain unsupported or malformed",
+    "promotion target cells differ from the certified scope partition",
   );
   for (const row of rows) {
     canonicalScalarSet(row.fixtures, `${row.edgeId} fixture IDs`);
@@ -188,11 +203,11 @@ function exactTargetCells(targetCells, target) {
 export function derivePortablePromotionTargetCells({
   coverage,
   implementation,
+  inScopeEdgeIds,
   target,
 }) {
   invariant(
-    Array.isArray(coverage?.edges) &&
-      Array.isArray(implementation?.surfaces),
+    Array.isArray(coverage?.edges) && Array.isArray(implementation?.surfaces),
     "candidate target cells require reviewed coverage and implementation bytes",
   );
   const fixtureCatalog = fixtureCatalogForTarget({
@@ -200,23 +215,33 @@ export function derivePortablePromotionTargetCells({
     implementation,
     target,
   });
-  const coverageByEdge = new Map(
-    coverage.edges.map((edge) => [edge.id, edge]),
+  const coverageByEdge = new Map(coverage.edges.map((edge) => [edge.id, edge]));
+  const scopedEdgeIds = canonicalScalarSet(
+    inScopeEdgeIds,
+    "candidate scope edge IDs",
   );
   invariant(
     coverageByEdge.size === coverage.edges.length &&
-      fixtureCatalog.length === coverage.edges.length,
+      fixtureCatalog.length === coverage.edges.length &&
+      scopedEdgeIds.length > 0 &&
+      scopedEdgeIds.every((edgeId) => coverageByEdge.has(edgeId)),
     "candidate target-cell source closure is incomplete or duplicated",
   );
+  const inScope = new Set(scopedEdgeIds);
   const cells = fixtureCatalog.map((catalogRow) => {
     const edge = coverageByEdge.get(catalogRow.edgeId);
-    invariant(edge, `${catalogRow.edgeId}: candidate cell has no coverage edge`);
     invariant(
-      edge.effectMode !== "conditional-unrefined",
+      edge,
+      `${catalogRow.edgeId}: candidate cell has no coverage edge`,
+    );
+    const certified = inScope.has(edge.id);
+    invariant(
+      !certified || edge.effectMode !== "conditional-unrefined",
       `${edge.id}: conditional-unrefined edge cannot enter candidate target cells`,
     );
-    const disposition =
-      catalogRow.implementationBranchIds.length === 0
+    const disposition = !certified
+      ? "unsupported"
+      : catalogRow.implementationBranchIds.length === 0
         ? "absent"
         : edge.classification === "effects"
           ? "enforced"
@@ -238,7 +263,7 @@ export function derivePortablePromotionTargetCells({
       `${edge.id} candidate fixture IDs`,
     );
     invariant(
-      catalogRow.requiredFixtures.length > 0,
+      !certified || catalogRow.requiredFixtures.length > 0,
       `${edge.id}: candidate target cell has no required physical fixture`,
     );
     return {
@@ -246,9 +271,10 @@ export function derivePortablePromotionTargetCells({
       target: clone(target),
       disposition,
       implementationBranchIds: clone(catalogRow.implementationBranchIds),
-      fixtures: clone(catalogRow.requiredFixtures),
-      rationale:
-        "Source-derived physical-promotion candidate; authority requires complete v2 execution evidence.",
+      fixtures: certified ? clone(catalogRow.requiredFixtures) : [],
+      rationale: certified
+        ? "Source-derived scoped physical-promotion candidate; authority requires complete execution evidence."
+        : "Outside the certified scope; no conformance claim is made.",
     };
   });
   cells.sort((left, right) => compareUtf8(left.edgeId, right.edgeId));
@@ -265,6 +291,7 @@ function validateSourceClosure({
   implementation,
   targetCells,
   targetRows,
+  inScopeEdgeIds,
   source,
 }) {
   invariant(
@@ -292,11 +319,13 @@ function validateSourceClosure({
     "promotion target cells do not cover the exact reviewed edge inventory",
   );
   const catalogByEdge = new Map(fixtureCatalog.map((row) => [row.edgeId, row]));
+  const inScope = new Set(inScopeEdgeIds);
   for (const row of targetRows) {
     const edge = coverageByEdge.get(row.edgeId);
     const catalogRow = catalogByEdge.get(row.edgeId);
-    const expectedDisposition =
-      catalogRow.implementationBranchIds.length === 0
+    const expectedDisposition = !inScope.has(row.edgeId)
+      ? "unsupported"
+      : catalogRow.implementationBranchIds.length === 0
         ? "absent"
         : edge.effectMode === "conditional-unrefined"
           ? null
@@ -309,10 +338,13 @@ function validateSourceClosure({
                 : null;
     invariant(
       expectedDisposition &&
-        catalogRow.requiredFixtures.length > 0 &&
+        (!inScope.has(row.edgeId) || catalogRow.requiredFixtures.length > 0) &&
         row.disposition === expectedDisposition &&
         same(row.implementationBranchIds, catalogRow.implementationBranchIds) &&
-        same(row.fixtures, catalogRow.requiredFixtures),
+        same(
+          row.fixtures,
+          inScope.has(row.edgeId) ? catalogRow.requiredFixtures : [],
+        ),
       `${row.edgeId}: target cell differs from independently derived source closure`,
     );
   }
@@ -446,8 +478,7 @@ export function derivePortablePublicSurfaceExecutionV2({
     summary: {
       requiredFixtures: expectedFixtureIds.length,
       executableFixtures: executions.length,
-      internallyVerifiedFixtures:
-        expectedFixtureIds.length - executions.length,
+      internallyVerifiedFixtures: expectedFixtureIds.length - executions.length,
       residualFixtures: 0,
       executedFixtures: executions.length,
       passedFixtures: executions.length,
@@ -541,8 +572,19 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
   recipeCatalogBytes,
   publicSurfaceExecutionBytes,
   outputDispositionEvidenceBytes,
+  scopeArtifactBytes,
+  scopeExpansionDiffBytes,
+  scopeCellMappingBytes,
 }) {
   const source = parseReviewedSource(reviewedSourceBytes);
+  const scopeBundle = validatePortableScopeBundle({
+    scopeArtifactBytes,
+    scopeExpansionDiffBytes,
+    scopeCellMappingBytes,
+    expectedTarget: source.target,
+  });
+  const inScopeEdgeIds = scopeBundle.scope.expandedCellIds;
+  const scopeDigest = scopeBundle.scope.scopeDigest;
   const coverage = parseBytes(coverageBytes, "reviewed coverage bytes");
   const implementation = parseBytes(
     implementationManifestBytes,
@@ -565,13 +607,18 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
     outputDispositionEvidenceBytes,
     "portable output-disposition bytes",
   );
-  const targetRows = exactTargetCells(targetCells, source.target);
+  const targetRows = exactTargetCells(
+    targetCells,
+    source.target,
+    inScopeEdgeIds,
+  );
   validateSourceClosure({
     coverage,
     fixtureCatalog,
     implementation,
     targetCells,
     targetRows,
+    inScopeEdgeIds,
     source,
   });
   const fixtures = requiredFixtureIds(targetRows);
@@ -584,20 +631,18 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
         recipeCatalog.recipes.map((row) => row.fixtureId),
         fixtures,
       ) &&
-      recipeCatalog.recipes.every(
-        (row) => {
-          const reviewedStatus =
-            row.status === "fully-executable" ||
-            (row.status === "internally-verified" &&
-              row.executor === INTERNAL_INVARIANT_EXECUTOR);
-          return (
-            reviewedStatus &&
-            typeof row.executor === "string" &&
-            row.executor.length > 0 &&
-            row.planDigest === portableRecipePlanDigest(row)
-          );
-        },
-      ),
+      recipeCatalog.recipes.every((row) => {
+        const reviewedStatus =
+          row.status === "fully-executable" ||
+          (row.status === "internally-verified" &&
+            row.executor === INTERNAL_INVARIANT_EXECUTOR);
+        return (
+          reviewedStatus &&
+          typeof row.executor === "string" &&
+          row.executor.length > 0 &&
+          row.planDigest === portableRecipePlanDigest(row)
+        );
+      }),
     "portable recipe bytes differ from reviewed complete fixture membership",
   );
   const portableRecipeByFixture = new Map(
@@ -625,19 +670,17 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
         publicSurfaceExecution.executions.map((row) => row.fixtureId),
         publicFixtures,
       ) &&
-      publicSurfaceExecution.executions.every(
-        (row) => {
-          const recipe = portableRecipeByFixture.get(row.fixtureId);
-          return (
-            recipe &&
-            recipe.status === "fully-executable" &&
-            row.outcome === "passed" &&
-            row.executor === recipe.executor &&
-            row.evidenceDigest ===
-              portablePublicSurfaceExecutionEvidenceDigest(row)
-          );
-        },
-      ) &&
+      publicSurfaceExecution.executions.every((row) => {
+        const recipe = portableRecipeByFixture.get(row.fixtureId);
+        return (
+          recipe &&
+          recipe.status === "fully-executable" &&
+          row.outcome === "passed" &&
+          row.executor === recipe.executor &&
+          row.evidenceDigest ===
+            portablePublicSurfaceExecutionEvidenceDigest(row)
+        );
+      }) &&
       publicSurfaceExecution.summary.requiredFixtures === fixtures.length &&
       publicSurfaceExecution.summary.executableFixtures ===
         publicFixtures.length &&
@@ -659,8 +702,8 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
         sourceTreeDigest: source.sourceTreeDigest,
       },
     ) &&
-    outputDispositionEvidence.outputDispositionEvidenceSchema ===
-      "ibex/capsec-output-disposition-evidence/4" &&
+      outputDispositionEvidence.outputDispositionEvidenceSchema ===
+        "ibex/capsec-output-disposition-evidence/4" &&
       outputDispositionEvidence.status === "verified" &&
       outputDispositionEvidence.sourceRevision === source.sourceRevision &&
       outputDispositionEvidence.sourceTreeDigest === source.sourceTreeDigest &&
@@ -687,6 +730,7 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
     registryDigest: source.registryDigest,
     implementationManifestDigest: canonicalDigest(implementation),
     fixtureCatalogDigest: canonicalDigest(fixtureCatalog),
+    scopeDigest,
     targetCellsRawContentDigest: rawContentDigest(targetCellsBytes),
     recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
     recipeCatalogRawContentDigest: rawContentDigest(recipeCatalogBytes),
@@ -715,6 +759,7 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
     fixtureCatalog,
     fixtures,
     implementation,
+    inScopeEdgeIds: clone(inScopeEdgeIds),
     outputDispositionEvidence,
     outputDispositionEvidenceBytes: bytes(
       outputDispositionEvidenceBytes,
@@ -729,6 +774,22 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
     recipeCatalogBytes: bytes(recipeCatalogBytes, "portable recipe bytes"),
     reviewedSourceBytes: bytes(reviewedSourceBytes, "reviewed source bytes"),
     source,
+    scopeDigest,
+    scopeArtifact: scopeBundle.scope,
+    scopeArtifactBytes: bytes(
+      scopeArtifactBytes,
+      "CapSec scope artifact bytes",
+    ),
+    scopeExpansionDiff: scopeBundle.diff,
+    scopeExpansionDiffBytes: bytes(
+      scopeExpansionDiffBytes,
+      "CapSec scope expansion-diff bytes",
+    ),
+    scopeCellMapping: scopeBundle.mapping,
+    scopeCellMappingBytes: bytes(
+      scopeCellMappingBytes,
+      "CapSec scope cell-mapping bytes",
+    ),
     targetCells,
     targetCellsBytes: bytes(targetCellsBytes, "promotion target-cell bytes"),
     targetRows,
@@ -750,8 +811,18 @@ export function preparePortablePromotionV2({
   richOutputDispositionEvidenceBytes,
   outputShapeCatalogBytes,
   outputDispositionRowsBytes,
+  scopeArtifactBytes,
+  scopeExpansionDiffBytes,
+  scopeCellMappingBytes,
 }) {
   const source = parseReviewedSource(reviewedSourceBytes);
+  const scopeBundle = validatePortableScopeBundle({
+    scopeArtifactBytes,
+    scopeExpansionDiffBytes,
+    scopeCellMappingBytes,
+    expectedTarget: source.target,
+  });
+  const inScopeEdgeIds = scopeBundle.scope.expandedCellIds;
   const coverage = parseBytes(coverageBytes, "reviewed coverage bytes");
   const implementation = parseBytes(
     implementationManifestBytes,
@@ -760,6 +831,7 @@ export function preparePortablePromotionV2({
   const targetCells = derivePortablePromotionTargetCells({
     coverage,
     implementation,
+    inScopeEdgeIds,
     target: source.target,
   });
   const derivedTargetCellsBytes = exactJsonBytes(targetCells);
@@ -771,7 +843,11 @@ export function preparePortablePromotionV2({
       "supplied promotion target cells differ from independent source closure",
     );
   }
-  const targetRows = exactTargetCells(targetCells, source.target);
+  const targetRows = exactTargetCells(
+    targetCells,
+    source.target,
+    inScopeEdgeIds,
+  );
   const fixtureCatalog = fixtureCatalogForTarget({
     coverage,
     implementation,
@@ -783,6 +859,7 @@ export function preparePortablePromotionV2({
     implementation,
     targetCells,
     targetRows,
+    inScopeEdgeIds,
     source,
   });
   const fixtures = requiredFixtureIds(targetRows);
@@ -864,22 +941,28 @@ export function preparePortablePromotionV2({
     recipeCatalogBytes,
     publicSurfaceExecutionBytes,
     outputDispositionEvidenceBytes,
+    scopeArtifactBytes,
+    scopeExpansionDiffBytes,
+    scopeCellMappingBytes,
   });
 }
 
+// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — uncertified rows keep honest source-derived fixture
+// obligations while contributing no passed fixture to authoritative unions.
 function reportCells(preparation) {
   const fixtureCatalogByEdge = new Map(
     preparation.fixtureCatalog.map((row) => [row.edgeId, row]),
   );
   return preparation.targetRows.map((targetCell) => {
     const sourceCell = fixtureCatalogByEdge.get(targetCell.edgeId);
+    const certified = targetCell.disposition !== "unsupported";
     return {
       edgeId: targetCell.edgeId,
       implementationBranchIds: clone(targetCell.implementationBranchIds),
       enforcementBranchIds: clone(sourceCell.enforcementBranchIds),
-      status: "conformant",
-      requiredFixtures: clone(targetCell.fixtures),
-      passedFixtures: clone(targetCell.fixtures),
+      status: certified ? "conformant" : "uncertified",
+      requiredFixtures: clone(sourceCell.requiredFixtures),
+      passedFixtures: certified ? clone(targetCell.fixtures) : [],
       missingFixtures: [],
       failedFixtures: [],
     };
@@ -1006,6 +1089,9 @@ function processProjection(processes, preparation) {
 function candidateFiles(input) {
   const files = [
     ["portable-promotion-authority", input.authorityBytes],
+    ["scope-artifact", input.scopeArtifactBytes],
+    ["scope-expansion-diff", input.scopeExpansionDiffBytes],
+    ["scope-cell-mapping", input.scopeCellMappingBytes],
     ["portable-conformance-report", input.reportBytes],
     ["target-attestations", input.attestationCatalogBytes],
     ["target-advertisements", input.advertisementCatalogBytes],
@@ -1051,6 +1137,7 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
     implementationManifestDigest:
       preparation.authorityEntry.implementationManifestDigest,
     fixtureCatalogDigest: preparation.authorityEntry.fixtureCatalogDigest,
+    scopeDigest: preparation.scopeDigest,
     targetCellsRawContentDigest:
       preparation.authorityEntry.targetCellsRawContentDigest,
     recipeCatalogDigest: preparation.authorityEntry.recipeCatalogDigest,
@@ -1065,6 +1152,9 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
     mappedEngineExecutionEvidence: processState.references,
   };
   const cells = reportCells(preparation);
+  const conformantCellCount = cells.filter(
+    (cell) => cell.status === "conformant",
+  ).length;
   const report = {
     conformanceSchema: "ibex/capsec-conformance/2",
     profile: PROFILE,
@@ -1072,8 +1162,9 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
     bindings,
     summary: {
       cells: cells.length,
-      conformantCells: cells.length,
+      conformantCells: conformantCellCount,
       incompleteCells: 0,
+      uncertifiedCells: cells.length - conformantCellCount,
       requiredFixtures: preparation.fixtures.length,
       passedFixtures: preparation.fixtures.length,
       missingFixtures: 0,
@@ -1087,11 +1178,12 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
   const reportBytes = exactJsonBytes(report);
   const reportRawContentDigest = rawContentDigest(reportBytes);
   const attestations = {
-    targetAttestationSchema: "ibex/capsec-target-attestations/2",
+    targetAttestationSchema: "ibex/capsec-target-attestations/3",
     profile: PROFILE,
     attestations: [
       {
         target: clone(preparation.source.target),
+        scopeDigest: preparation.scopeDigest,
         conformanceDigest: report.conformanceDigest,
         reportRawContentDigest,
         sourceRevision: preparation.source.sourceRevision,
@@ -1111,13 +1203,14 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
     ],
   };
   const advertisements = {
-    targetAdvertisementSchema: "ibex/capsec-target-advertisements/2",
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
     profile: PROFILE,
     targetCellsRawContentDigest:
       preparation.authorityEntry.targetCellsRawContentDigest,
     advertisements: [
       {
         target: clone(preparation.source.target),
+        scopeDigest: preparation.scopeDigest,
         conformanceDigest: report.conformanceDigest,
         reportRawContentDigest,
         sourceRevision: preparation.source.sourceRevision,
@@ -1143,6 +1236,9 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
   };
   const input = {
     authorityBytes: preparation.authorityBytes,
+    scopeArtifactBytes: preparation.scopeArtifactBytes,
+    scopeExpansionDiffBytes: preparation.scopeExpansionDiffBytes,
+    scopeCellMappingBytes: preparation.scopeCellMappingBytes,
     reportBytes,
     attestationCatalogBytes: exactJsonBytes(attestations),
     advertisementCatalogBytes: exactJsonBytes(advertisements),

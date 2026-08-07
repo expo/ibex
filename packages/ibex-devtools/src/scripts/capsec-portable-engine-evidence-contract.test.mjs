@@ -33,11 +33,7 @@ const digest = (character) => `sha256-${character.repeat(43)}`;
 const readJson = (filePath) =>
   parseJsonStrict(fs.readFileSync(filePath), path.relative(repoRoot, filePath));
 const portableVectors = readJson(
-  path.join(
-    schemasDir,
-    "vectors",
-    "portable-engine-provenance-v1.valid.json",
-  ),
+  path.join(schemasDir, "vectors", "portable-engine-provenance-v1.valid.json"),
 );
 const basePortableEngine = portableVectors.documents.portableIdentity;
 const baseMappedEngine = portableVectors.documents.mappedInstance;
@@ -67,6 +63,76 @@ function defaultTarget() {
   };
 }
 
+function scopeBundle(target, edgeId = "surface.portable.engine.example") {
+  const predecessor = { kind: "genesis" };
+  const diff = withSelfDigest(
+    {
+      scopeExpansionDiffSchema: "ibex/capsec-scope-expansion-diff/1",
+      profile: "ibex/capsec/1",
+      target: clone(target),
+      predecessor,
+      previousExpandedCellIds: [],
+      currentExpandedCellIds: [edgeId],
+      addedCellIds: [edgeId],
+      retiredCellIds: [],
+      scopeExpansionDiffDigest: digest("A"),
+    },
+    "scopeExpansionDiffDigest",
+    (value) =>
+      computeDomainDigest("ibex:capsec:scope-expansion-diff:1", value, [
+        "scopeExpansionDiffDigest",
+      ]),
+  );
+  const mapping = withSelfDigest(
+    {
+      scopeCellMappingSchema: "ibex/capsec-scope-cell-mapping/1",
+      profile: "ibex/capsec/1",
+      target: clone(target),
+      predecessor,
+      additions: [edgeId],
+      retirements: [],
+      mappings: [],
+      scopeCellMappingDigest: digest("A"),
+    },
+    "scopeCellMappingDigest",
+    (value) =>
+      computeDomainDigest("ibex:capsec:scope-cell-mapping:1", value, [
+        "scopeCellMappingDigest",
+      ]),
+  );
+  const scope = withSelfDigest(
+    {
+      scopeSchema: "ibex/capsec-scope/1",
+      profile: "ibex/capsec/1",
+      target: clone(target),
+      intensionalDefinition: {
+        capabilityFamilies: ["fs"],
+        surfaceKinds: ["native-op"],
+      },
+      expandedCellIds: [edgeId],
+      closureEdges: [
+        {
+          fromEdgeId: edgeId,
+          toEdgeId: edgeId,
+          dependencyKind: "source-derived-route",
+          implementationBranchId: "branch.portable-engine-example",
+          terminalObservedKey: "native-op:portableEngineExample",
+          proofPaths: ["native-op:portableEngineExample"],
+          sourceRefs: ["src/host/mod.rs#portableEngineExample"],
+        },
+      ],
+      predecessor,
+      scopeExpansionDiffDigest: diff.scopeExpansionDiffDigest,
+      scopeCellMappingDigest: mapping.scopeCellMappingDigest,
+      scopeDigest: digest("A"),
+    },
+    "scopeDigest",
+    (value) =>
+      computeDomainDigest("ibex:capsec:scope:1", value, ["scopeDigest"]),
+  );
+  return { scope, diff, mapping };
+}
+
 function buildFixture({
   target = defaultTarget(),
   authorityTarget = target,
@@ -81,14 +147,14 @@ function buildFixture({
   authorityTarget = clone(authorityTarget);
   engine = clone(engine);
   authorityEngine = clone(authorityEngine);
-  const requiredFixtureIds = fixtureIds
-    ? [...fixtureIds].sort()
-    : [fixtureId];
+  const requiredFixtureIds = fixtureIds ? [...fixtureIds].sort() : [fixtureId];
   if (requiredFixtureIds.length === 0) {
     throw new Error("test fixture requires at least one fixture ID");
   }
   const sourceRevision = "a".repeat(40);
   const sourceTreeDigest = digest("A");
+  const scoped = scopeBundle(target);
+  const scopeDigest = scoped.scope.scopeDigest;
   const conformanceRunner = {
     sourceRevision,
     sourceTreeDigest,
@@ -109,7 +175,7 @@ function buildFixture({
     profile: "ibex/capsec/1",
     cells: [
       {
-        edgeId: "edge.portable-engine-example",
+        edgeId: "surface.portable.engine.example",
         target: clone(target),
         disposition: "enforced",
         implementationBranchIds: ["branch.portable-engine-example"],
@@ -163,8 +229,7 @@ function buildFixture({
   });
   const publicSurfaceExecution = withSelfDigest(
     {
-      publicSurfaceExecutionSchema:
-        "ibex/capsec-public-surface-executions/2",
+      publicSurfaceExecutionSchema: "ibex/capsec-public-surface-executions/2",
       profile: "ibex/capsec/1",
       sourceRevision,
       sourceTreeDigest,
@@ -229,6 +294,7 @@ function buildFixture({
     registryDigest: digest("U"),
     implementationManifestDigest: digest("Y"),
     fixtureCatalogDigest: digest("c"),
+    scopeDigest,
     targetCellsRawContentDigest: rawContentDigest(targetCellsBytes),
     recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
     recipeCatalogRawContentDigest,
@@ -379,6 +445,7 @@ function buildFixture({
         cells: 1,
         conformantCells: 1,
         incompleteCells: 0,
+        uncertifiedCells: 0,
         requiredFixtures: requiredFixtureIds.length,
         passedFixtures: requiredFixtureIds.length,
         missingFixtures: 0,
@@ -395,7 +462,7 @@ function buildFixture({
       })),
       cells: [
         {
-          edgeId: "edge.portable-engine-example",
+          edgeId: "surface.portable.engine.example",
           implementationBranchIds: ["branch.portable-engine-example"],
           enforcementBranchIds: ["branch.portable-engine-example"],
           status: "conformant",
@@ -429,6 +496,7 @@ function buildFixture({
         implementationManifestDigest:
           report.bindings.implementationManifestDigest,
         fixtureCatalogDigest: report.bindings.fixtureCatalogDigest,
+        scopeDigest,
         targetCellsRawContentDigest:
           report.bindings.targetCellsRawContentDigest,
         recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
@@ -443,11 +511,12 @@ function buildFixture({
   const authorityBytes = exactBytes(authority);
 
   const attestations = {
-    targetAttestationSchema: "ibex/capsec-target-attestations/2",
+    targetAttestationSchema: "ibex/capsec-target-attestations/3",
     profile: "ibex/capsec/1",
     attestations: [
       {
         target: clone(target),
+        scopeDigest,
         conformanceDigest: report.conformanceDigest,
         reportRawContentDigest: rawContentDigest(reportBytes),
         sourceRevision,
@@ -464,12 +533,13 @@ function buildFixture({
     ],
   };
   const advertisements = {
-    targetAdvertisementSchema: "ibex/capsec-target-advertisements/2",
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
     profile: "ibex/capsec/1",
     targetCellsRawContentDigest: report.bindings.targetCellsRawContentDigest,
     advertisements: [
       {
         target: clone(target),
+        scopeDigest,
         conformanceDigest: report.conformanceDigest,
         reportRawContentDigest: rawContentDigest(reportBytes),
         sourceRevision,
@@ -498,6 +568,9 @@ function buildFixture({
     advertisementCatalogBytes: exactBytes(advertisements),
     targetCellsBytes,
     recipeCatalogBytes,
+    scopeArtifactBytes: exactBytes(scoped.scope),
+    scopeExpansionDiffBytes: exactBytes(scoped.diff),
+    scopeCellMappingBytes: exactBytes(scoped.mapping),
     publicSurfaceExecutionBytes,
     outputDispositionEvidenceBytes,
     processes: [
@@ -555,8 +628,7 @@ function rewriteAttemptReferenceChain(input, mutateAttempt) {
     "attestations",
   );
   attestations.attestations[0].conformanceDigest = report.conformanceDigest;
-  attestations.attestations[0].reportRawContentDigest =
-    reportRawContentDigest;
+  attestations.attestations[0].reportRawContentDigest = reportRawContentDigest;
   attestations.attestations[0].mappedEngineExecutionEvidence = [
     clone(reference),
   ];
@@ -564,8 +636,7 @@ function rewriteAttemptReferenceChain(input, mutateAttempt) {
     rewritten.advertisementCatalogBytes,
     "advertisements",
   );
-  advertisements.advertisements[0].conformanceDigest =
-    report.conformanceDigest;
+  advertisements.advertisements[0].conformanceDigest = report.conformanceDigest;
   advertisements.advertisements[0].reportRawContentDigest =
     reportRawContentDigest;
   advertisements.advertisements[0].mappedEngineExecutionEvidence = [
@@ -640,8 +711,7 @@ function rewriteFixtureProcessChain(input, mutateFixture) {
     rewritten.advertisementCatalogBytes,
     "advertisements",
   );
-  advertisements.advertisements[0].conformanceDigest =
-    report.conformanceDigest;
+  advertisements.advertisements[0].conformanceDigest = report.conformanceDigest;
   advertisements.advertisements[0].reportRawContentDigest = reportRawDigest;
   advertisements.advertisements[0].mappedEngineExecutionEvidence = [
     clone(evidenceReference),
@@ -717,8 +787,7 @@ function orphanFirstExecutionFromMappedEvidence(input) {
     rewritten.advertisementCatalogBytes,
     "advertisements",
   );
-  advertisements.advertisements[0].conformanceDigest =
-    report.conformanceDigest;
+  advertisements.advertisements[0].conformanceDigest = report.conformanceDigest;
   advertisements.advertisements[0].reportRawContentDigest = reportRawDigest;
   advertisements.advertisements[0].mappedEngineExecutionEvidence = [
     clone(evidenceReference),
@@ -764,26 +833,26 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     expect(fixture.publicSurfaceExecution.executions[0].evidenceDigest).toBe(
       "sha256-MxU1J_ukMETJyQtjbNH9Ke4t4V29VNSZ81SYHkvwB88",
     );
-    expect(
-      fixture.publicSurfaceExecution.publicSurfaceExecutionDigest,
-    ).toBe("sha256-Z0CDjpEj-ytxf2h6-gH4lf_4wWr6A10sUf2GGGxaQ8Y");
+    expect(fixture.publicSurfaceExecution.publicSurfaceExecutionDigest).toBe(
+      "sha256-Z0CDjpEj-ytxf2h6-gH4lf_4wWr6A10sUf2GGGxaQ8Y",
+    );
     expect(
       fixture.outputDispositionEvidence.observations[0].observationDigest,
     ).toBe("sha256-BnNTBOX_xO0eTu79WUDCocXEKeZOHJYpsGkxcGaIhH4");
     expect(fixture.bindingDigest).toBe(
-      "sha256-hqv4wOByyUCcWJXJ_P1vBwaDHR16VHfJSsCFX5FF0pg",
+      "sha256-0XRZh3edrwbBpwZ-1PPnR0fcR6sXl8LPqyV3EdFhMGU",
     );
     expect(fixture.fixtureArtifact.artifactDigest).toBe(
-      "sha256-bea2Xrn1q25jZBNA6Aq73PFaT2vdWaxMw92p_WejNe0",
+      "sha256-M55CwnuMtNes4hb4mQ9uWxi2OTAtrdOuHsN3KooJFsc",
     );
     expect(fixture.evidence.evidenceDigest).toBe(
-      "sha256-e7FgHFg29J1VWQmahgpBdSGPkaFizL0ibgX-bdox8AE",
+      "sha256-csbYzB2YJiMNnW2Fat8tyhZLN9XNwJRx7hke8SZTx4I",
     );
     expect(fixture.attempt.attemptDigest).toBe(
-      "sha256-u37V87f-cVgvbA5nfYDwSFyVoj7DiJ8qBus__fIZJ3w",
+      "sha256-Ulmt6SFwTo35PjdTwgRS6V7NKniCdACxSoGuwC90eFA",
     );
     expect(fixture.report.conformanceDigest).toBe(
-      "sha256-oXzhgFVWkK4m3s-9KNAXDWvO3YhwJ7XrQeFisKG-RrQ",
+      "sha256-mzQXBUch2WVfODnDijomyVNYCf2GxCOi8F2h7kN4xkk",
     );
     expect(fixture.evidence.outputDigests).toEqual([
       fixture.report.executions[0].rawContentDigest,
@@ -794,9 +863,12 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
   });
 
   test("recomputes the complete acyclic portable execution binding", () => {
-    const input = rewriteFixtureProcessChain(buildFixture().input, (artifact) => {
-      artifact.bindingDigest = digest("I");
-    });
+    const input = rewriteFixtureProcessChain(
+      buildFixture().input,
+      (artifact) => {
+        artifact.bindingDigest = digest("I");
+      },
+    );
     expectRefused(
       input,
       /report execution differs from its detached fixture artifact/u,
@@ -948,7 +1020,10 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       ],
     });
     const input = orphanFirstExecutionFromMappedEvidence(fixture.input);
-    expectRefused(input, /report execution references unbound mapped-engine evidence/u);
+    expectRefused(
+      input,
+      /report execution references unbound mapped-engine evidence/u,
+    );
   });
 
   test("joins report execution raw and semantic digests to exact output bytes", () => {
@@ -969,7 +1044,10 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
         report.conformanceDigest = portableConformanceDigest(report);
       },
     );
-    expectRefused(semanticMismatch, /differs from its detached fixture artifact/u);
+    expectRefused(
+      semanticMismatch,
+      /differs from its detached fixture artifact/u,
+    );
   });
 
   test("refuses every incomplete or non-passing report shape", () => {
@@ -1032,6 +1110,70 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       },
     );
     expectRefused(advertisedCells, /target-cell raw bytes differ/u);
+  });
+
+  test("refuses scoped-state substitution across every publication join", () => {
+    const replacedScope = clone(buildFixture().input);
+    replacedScope.scopeArtifactBytes = mutateJsonBytes(
+      replacedScope.scopeArtifactBytes,
+      (scope) => {
+        scope.intensionalDefinition.capabilityFamilies = ["process"];
+        scope.scopeDigest = computeDomainDigest("ibex:capsec:scope:1", scope, [
+          "scopeDigest",
+        ]);
+      },
+    );
+    expectRefused(replacedScope, /scope artifact differs/u);
+
+    for (const field of [
+      "attestationCatalogBytes",
+      "advertisementCatalogBytes",
+    ]) {
+      const input = clone(buildFixture().input);
+      input[field] = mutateJsonBytes(input[field], (catalog) => {
+        const entries = catalog.attestations ?? catalog.advertisements;
+        entries[0].scopeDigest = digest("M");
+      });
+      expectRefused(input, /differs from report or independent authority/u);
+    }
+
+    const authority = clone(buildFixture().input);
+    authority.authorityBytes = mutateJsonBytes(
+      authority.authorityBytes,
+      (artifact) => {
+        artifact.targets[0].scopeDigest = digest("M");
+      },
+    );
+    expectRefused(authority, /differs from independently derived/u);
+  });
+
+  test("refuses duplicate scopes for one tuple", () => {
+    for (const replacementScopeDigest of [null, digest("M")]) {
+      const input = clone(buildFixture().input);
+      input.advertisementCatalogBytes = mutateJsonBytes(
+        input.advertisementCatalogBytes,
+        (catalog) => {
+          const duplicate = clone(catalog.advertisements[0]);
+          if (replacementScopeDigest !== null) {
+            duplicate.scopeDigest = replacementScopeDigest;
+          }
+          catalog.advertisements.push(duplicate);
+        },
+      );
+      expectRefused(input, /schema invalid|requires one exact target entry/u);
+    }
+  });
+
+  test("refuses a scoped advertisement forced through the v1 chain", () => {
+    const input = clone(buildFixture().input);
+    input.advertisementCatalogBytes = mutateJsonBytes(
+      input.advertisementCatalogBytes,
+      (catalog) => {
+        catalog.targetAdvertisementSchema =
+          "ibex/capsec-target-advertisements/1";
+      },
+    );
+    expectRefused(input, /advertisements schema invalid/u);
   });
 
   test("strict-validates and recomputes recipe, public, and output semantics", () => {
@@ -1211,7 +1353,9 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     expect(() => validatePortablePromotionV2(first.input)).not.toThrow();
     expect(() => validatePortablePromotionV2(second.input)).not.toThrow();
     expect(second.evidence.engine).toEqual(first.evidence.engine);
-    expect(second.evidence.evidenceDigest).not.toBe(first.evidence.evidenceDigest);
+    expect(second.evidence.evidenceDigest).not.toBe(
+      first.evidence.evidenceDigest,
+    );
     expect(second.report.conformanceDigest).not.toBe(
       first.report.conformanceDigest,
     );
@@ -1302,26 +1446,24 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     expectRefused(input, /report schema invalid/u);
   });
 
-  test("valid future documents leave current promotion authority closed", () => {
+  test("valid scoped documents do not mutate tracked publication bytes", () => {
     const fixture = buildFixture();
+    const attestationPath = path.join(
+      repoRoot,
+      "capsec",
+      "conformance",
+      "target-attestations.json",
+    );
+    const advertisementPath = path.join(
+      repoRoot,
+      "capsec",
+      "generated",
+      "target-advertisements.json",
+    );
+    const attestationsBefore = fs.readFileSync(attestationPath);
+    const advertisementsBefore = fs.readFileSync(advertisementPath);
     expect(() => validatePortablePromotionV2(fixture.input)).not.toThrow();
-    const currentAttestations = readJson(
-      path.join(repoRoot, "capsec", "conformance", "target-attestations.json"),
-    );
-    const currentAdvertisements = readJson(
-      path.join(repoRoot, "capsec", "generated", "target-advertisements.json"),
-    );
-    const trustPolicy = readJson(
-      path.join(schemasDir, "portable-engine-provenance-trust-policy-v1.json"),
-    );
-    expect(currentAttestations.targetAttestationSchema).toBe(
-      "ibex/capsec-target-attestations/1",
-    );
-    expect(currentAttestations.attestations).toEqual([]);
-    expect(currentAdvertisements.targetAdvertisementSchema).toBe(
-      "ibex/capsec-target-advertisements/1",
-    );
-    expect(currentAdvertisements.advertisements).toEqual([]);
-    expect(trustPolicy.portableArtifactAcceptanceEnabled).toBe(false);
+    expect(fs.readFileSync(attestationPath)).toEqual(attestationsBefore);
+    expect(fs.readFileSync(advertisementPath)).toEqual(advertisementsBefore);
   });
 });
