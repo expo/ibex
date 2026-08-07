@@ -12,6 +12,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import net from "node:net";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import {
@@ -398,6 +399,206 @@ function readConfinedGeneratedJson(filePath, label) {
   return readJsonStrict(confinedPath);
 }
 
+const PROMOTION_CATALOG_PATH =
+  "schemas/portable-engine-promotion-admission-catalog-v1.json";
+const FOUNDATION_DOCUMENT_PATHS = Object.freeze({
+  targetAdvertisements: "capsec/generated/target-advertisements.json",
+  targetAttestations: "capsec/conformance/target-attestations.json",
+});
+const PROMOTION_CATALOG_VERSIONS = Object.freeze({
+  "ibex/portable-engine-promotion-admission-catalog/1": Object.freeze({
+    admissionSchema: "ibex/portable-engine-promotion-admission/1",
+    admissionDomain: "ibex.portable-engine-promotion-admission.v1",
+  }),
+  "ibex/portable-engine-promotion-admission-catalog/2": Object.freeze({
+    admissionSchema: "ibex/portable-engine-promotion-admission/2",
+    admissionDomain: "ibex.portable-engine-promotion-admission.v2",
+  }),
+});
+const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}$/u;
+
+function checkedGit(repositoryRoot, args, { encoding = null } = {}) {
+  return execFileSync(
+    "/usr/bin/git",
+    [
+      "--no-replace-objects",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
+      ...args,
+    ],
+    {
+      cwd: repositoryRoot,
+      encoding,
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 30_000,
+      env: {
+        PATH: "/usr/bin:/bin",
+        LC_ALL: "C",
+        LANG: "C",
+        GIT_CONFIG_COUNT: "0",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_SYSTEM: "/dev/null",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_NO_LAZY_FETCH: "1",
+        GIT_NO_REPLACE_OBJECTS: "1",
+        GIT_OPTIONAL_LOCKS: "0",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    },
+  );
+}
+
+function checkedGitText(repositoryRoot, args, label) {
+  const value = checkedGit(repositoryRoot, args, { encoding: "utf8" }).trim();
+  if (!GIT_OBJECT_ID_PATTERN.test(value)) {
+    throw new Error(`${label}: checked Git returned a malformed object ID`);
+  }
+  return value;
+}
+
+function readTrackedJsonAtRevision(repositoryRoot, revision, relativePath) {
+  if (!GIT_OBJECT_ID_PATTERN.test(revision)) {
+    throw new Error(`${relativePath}: malformed artifact-source revision`);
+  }
+  const objectId = checkedGitText(
+    repositoryRoot,
+    ["rev-parse", "--verify", `${revision}:${relativePath}`],
+    relativePath,
+  );
+  const objectType = checkedGit(repositoryRoot, ["cat-file", "-t", objectId], {
+    encoding: "utf8",
+  }).trim();
+  if (objectType !== "blob") {
+    throw new Error(`${relativePath}: artifact-source object is not a blob`);
+  }
+  return parseJsonStrict(
+    checkedGit(repositoryRoot, ["cat-file", "blob", objectId]),
+    `${revision}:${relativePath}`,
+  );
+}
+
+/**
+ * Resolve the foundation revision from the tracked, digest-bound promotion
+ * catalog and read both coupled foundation documents from that one Git tree.
+ * The working-tree publication copies are deliberately outside this contract.
+ *
+ * @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M18 pins 9/14
+ * authenticate advertisements and attestations at one artifact-source revision.
+ */
+export function readArtifactSourceFoundationDocuments(
+  repositoryRoot = repoRoot,
+) {
+  const currentRevision = checkedGitText(
+    repositoryRoot,
+    ["rev-parse", "--verify", "HEAD^{commit}"],
+    "current revision",
+  );
+  const catalogObjectId = checkedGitText(
+    repositoryRoot,
+    ["rev-parse", "--verify", `${currentRevision}:${PROMOTION_CATALOG_PATH}`],
+    "promotion admission catalog",
+  );
+  const catalogBytes = checkedGit(repositoryRoot, [
+    "cat-file",
+    "blob",
+    catalogObjectId,
+  ]);
+  const catalog = parseJsonStrict(
+    catalogBytes,
+    `${currentRevision}:${PROMOTION_CATALOG_PATH}`,
+  );
+  if (
+    Buffer.compare(
+      Buffer.from(catalogBytes),
+      Buffer.from(`${canonicalJson(catalog)}\n`, "utf8"),
+    ) !== 0
+  ) {
+    throw new Error("promotion admission catalog is not canonical JSON plus one LF");
+  }
+  if (
+    canonicalJson(Object.keys(catalog).sort()) !==
+      canonicalJson(["admissionPath", "admissions", "enabled", "schema"]) ||
+    catalog.admissionPath !== PROMOTION_CATALOG_PATH ||
+    typeof catalog.enabled !== "boolean" ||
+    !Array.isArray(catalog.admissions)
+  ) {
+    throw new Error("promotion admission catalog has the wrong closed shape");
+  }
+  const version = PROMOTION_CATALOG_VERSIONS[catalog.schema];
+  if (!version) {
+    throw new Error("promotion admission catalog has an unsupported schema");
+  }
+
+  let sourceRevision = currentRevision;
+  if (!catalog.enabled) {
+    if (catalog.admissions.length !== 0) {
+      throw new Error("disabled promotion admission catalog must be empty");
+    }
+  } else {
+    if (catalog.admissions.length !== 1) {
+      throw new Error("enabled promotion admission catalog must carry one admission");
+    }
+    const admission = catalog.admissions[0];
+    if (
+      !admission ||
+      typeof admission !== "object" ||
+      Array.isArray(admission) ||
+      admission.schema !== version.admissionSchema ||
+      !GIT_OBJECT_ID_PATTERN.test(admission.sourceRevision) ||
+      !GIT_OBJECT_ID_PATTERN.test(admission.sourceTreeObjectId) ||
+      typeof admission.admissionDigest !== "string"
+    ) {
+      throw new Error("promotion admission has a malformed source identity");
+    }
+    if (
+      computeDomainDigest(version.admissionDomain, admission, [
+        "admissionDigest",
+      ]) !== admission.admissionDigest
+    ) {
+      throw new Error("promotion admission digest does not bind its exact fields");
+    }
+    try {
+      checkedGit(repositoryRoot, [
+        "merge-base",
+        "--is-ancestor",
+        admission.sourceRevision,
+        currentRevision,
+      ]);
+    } catch {
+      throw new Error(
+        "promotion artifact-source revision is not an ancestor of the current revision",
+      );
+    }
+    const sourceTreeObjectId = checkedGitText(
+      repositoryRoot,
+      ["rev-parse", "--verify", `${admission.sourceRevision}^{tree}`],
+      "promotion artifact-source tree",
+    );
+    if (sourceTreeObjectId !== admission.sourceTreeObjectId) {
+      throw new Error(
+        "promotion admission source tree differs from the authenticated Git revision",
+      );
+    }
+    sourceRevision = admission.sourceRevision;
+  }
+
+  return Object.freeze({
+    sourceRevision,
+    targetAdvertisements: readTrackedJsonAtRevision(
+      repositoryRoot,
+      sourceRevision,
+      FOUNDATION_DOCUMENT_PATHS.targetAdvertisements,
+    ),
+    targetAttestations: readTrackedJsonAtRevision(
+      repositoryRoot,
+      sourceRevision,
+      FOUNDATION_DOCUMENT_PATHS.targetAttestations,
+    ),
+  });
+}
+
 const VOCABULARY_MEMBER_PATHS = {
   "coverage-edges": "registry/coverage-edges.json",
   "examples/authority-containment":
@@ -500,7 +701,7 @@ const EXPECTED_DIGEST_PROJECTIONS = {
   },
   conformance: {
     status: "unavailable-until-wp10",
-    inputSchema: "ibex/capsec-conformance/1",
+    inputSchema: "ibex/capsec-conformance/3",
     memberOrder: "not-applicable",
     members: ["conformance-report-object"],
     omitFields: ["conformanceDigest"],
@@ -3511,13 +3712,10 @@ export function loadAndValidateContract() {
     ),
     "generated root-global disposition manifest",
   );
-  const targetAdvertisements = readConfinedGeneratedJson(
-    path.join(capsecRoot, "generated/target-advertisements.json"),
-    "generated capsec target advertisements",
-  );
-  const targetAttestations = readJsonStrict(
-    path.join(capsecRoot, "conformance/target-attestations.json"),
-  );
+  const {
+    targetAdvertisements,
+    targetAttestations,
+  } = readArtifactSourceFoundationDocuments();
   validateWith(
     ajv,
     SCHEMA_IDS.definitions,

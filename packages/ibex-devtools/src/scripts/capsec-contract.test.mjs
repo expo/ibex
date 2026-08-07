@@ -6,7 +6,9 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   armedTargetPathEntries,
   assertCanonicalKeyedSets,
@@ -27,6 +29,7 @@ import {
   loadAndValidateContract as loadAndValidateContractUncached,
   parseJsonStrict,
   portableDiagnosticPath,
+  readArtifactSourceFoundationDocuments,
   renderLegacyReconciliation,
   runContractCheck,
   validateArmedSnapshotSemantics,
@@ -50,6 +53,31 @@ function validateImplementationMutation(
   });
 }
 
+function git(repositoryRoot, ...args) {
+  return execFileSync("/usr/bin/git", args, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    env: {
+      PATH: "/usr/bin:/bin",
+      LC_ALL: "C",
+      LANG: "C",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_TERMINAL_PROMPT: "0",
+    },
+  }).trim();
+}
+
+function writeJson(filePath, value, { canonical = false } = {}) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(
+    filePath,
+    canonical
+      ? `${canonicalJson(value)}\n`
+      : `${JSON.stringify(value, null, 2)}\n`,
+  );
+}
+
 let invalidFixtureContract;
 let validatedContract;
 
@@ -67,6 +95,161 @@ afterAll(() => {
 });
 
 describe("LLP 0021 capsec contract", () => {
+  test("report v3 schemas require one scope binding and explicit uncertified accounting", () => {
+    const schemas = [
+      fs.readFileSync(
+        path.join(capsecRoot, "schema/conformance-report.schema.json"),
+      ),
+      fs.readFileSync(
+        path.join(capsecRoot, "../schemas/capsec-conformance-report-v2.schema.json"),
+      ),
+    ].map((bytes, index) => parseJsonStrict(bytes, `report schema ${index}`));
+    for (const schema of schemas) {
+      expect(schema.properties.conformanceSchema.const).toBe(
+        "ibex/capsec-conformance/3",
+      );
+      expect(schema.properties.bindings.required).toContain("scopeDigest");
+      expect(schema.properties.bindings.properties.scopeDigest).toBeDefined();
+      expect(schema.properties.bindings.additionalProperties).toBe(false);
+      const summary = schema.properties.summary.$ref
+        ? schema.$defs.summary
+        : schema.properties.summary;
+      expect(summary.required).toContain("uncertifiedCells");
+      expect(summary.properties.uncertifiedCells).toEqual({
+        type: "integer",
+        minimum: 0,
+      });
+      const cell = schema.properties.cells.items.$ref
+        ? schema.$defs.cell
+        : schema.properties.cells.items;
+      expect(cell.properties.status.enum).toContain("uncertified");
+    }
+  });
+
+  test("reads both foundation documents from one authenticated artifact-source revision", () => {
+    const repositoryRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "ibex-capsec-foundation-"),
+    );
+    try {
+      git(repositoryRoot, "init", "-b", "main");
+      git(repositoryRoot, "config", "user.name", "CapSec Test");
+      git(repositoryRoot, "config", "user.email", "capsec@example.invalid");
+
+      const catalogPath = path.join(
+        repositoryRoot,
+        "schemas/portable-engine-promotion-admission-catalog-v1.json",
+      );
+      const advertisementsPath = path.join(
+        repositoryRoot,
+        "capsec/generated/target-advertisements.json",
+      );
+      const attestationsPath = path.join(
+        repositoryRoot,
+        "capsec/conformance/target-attestations.json",
+      );
+      const disabledCatalog = {
+        admissionPath:
+          "schemas/portable-engine-promotion-admission-catalog-v1.json",
+        admissions: [],
+        enabled: false,
+        schema: "ibex/portable-engine-promotion-admission-catalog/2",
+      };
+      const sourceAdvertisements = {
+        targetAdvertisementSchema: "ibex/capsec-target-advertisements/1",
+        profile: "ibex/capsec/1",
+        targetCellsRawContentDigest: `sha256-${"A".repeat(43)}`,
+        advertisements: [],
+      };
+      const sourceAttestations = {
+        targetAttestationSchema: "ibex/capsec-target-attestations/1",
+        profile: "ibex/capsec/1",
+        attestations: [],
+      };
+      writeJson(catalogPath, disabledCatalog, { canonical: true });
+      writeJson(advertisementsPath, sourceAdvertisements);
+      writeJson(attestationsPath, sourceAttestations);
+      git(repositoryRoot, "add", ".");
+      git(repositoryRoot, "commit", "-m", "artifact source");
+      const sourceRevision = git(repositoryRoot, "rev-parse", "HEAD");
+      const sourceTreeObjectId = git(
+        repositoryRoot,
+        "rev-parse",
+        "HEAD^{tree}",
+      );
+
+      const admission = {
+        schema: "ibex/portable-engine-promotion-admission/2",
+        sourceRevision,
+        sourceTreeObjectId,
+        topology: "github-pull-request-merge/direct-single-commit-topic/1",
+        target: {
+          triple: "aarch64-apple-darwin",
+          features: ["native-lockdown"],
+        },
+        portableArtifactId: computeDomainDigest("test:artifact", {
+          id: "portable",
+        }),
+        admittedScopeDigest: computeDomainDigest("test:scope", {
+          id: "scope",
+        }),
+        artifacts: [],
+        admissionDigest: "",
+      };
+      admission.admissionDigest = computeDomainDigest(
+        "ibex.portable-engine-promotion-admission.v2",
+        admission,
+        ["admissionDigest"],
+      );
+      writeJson(
+        catalogPath,
+        {
+          ...disabledCatalog,
+          admissions: [admission],
+          enabled: true,
+        },
+        { canonical: true },
+      );
+      writeJson(advertisementsPath, {
+        targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
+        profile: "ibex/capsec/1",
+        advertisements: [{ scopeDigest: admission.admittedScopeDigest }],
+      });
+      writeJson(attestationsPath, {
+        targetAttestationSchema: "ibex/capsec-target-attestations/3",
+        profile: "ibex/capsec/1",
+        attestations: [{ scopeDigest: admission.admittedScopeDigest }],
+      });
+      git(repositoryRoot, "add", ".");
+      git(repositoryRoot, "commit", "-m", "publish scoped documents");
+
+      expect(readArtifactSourceFoundationDocuments(repositoryRoot)).toEqual({
+        sourceRevision,
+        targetAdvertisements: sourceAdvertisements,
+        targetAttestations: sourceAttestations,
+      });
+
+      admission.admissionDigest = computeDomainDigest("test:tampered", {
+        id: "admission",
+      });
+      writeJson(
+        catalogPath,
+        {
+          ...disabledCatalog,
+          admissions: [admission],
+          enabled: true,
+        },
+        { canonical: true },
+      );
+      git(repositoryRoot, "add", catalogPath);
+      git(repositoryRoot, "commit", "-m", "tamper admission digest");
+      expect(() =>
+        readArtifactSourceFoundationDocuments(repositoryRoot),
+      ).toThrow(/admission digest does not bind/);
+    } finally {
+      fs.rmSync(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
   test("all schemas, registries, examples, and generated output validate", () => {
     const contract = loadAndValidateContract();
     const counts = runContractCheck();

@@ -163,7 +163,9 @@ fn validate_frozen_projection(
         ),
         DigestKind::Conformance => (
             CONFORMANCE_DOMAIN,
-            "ibex/capsec-conformance/1",
+            // @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix —
+            // M30 revs the rich report schema while preserving its digest domain.
+            "ibex/capsec-conformance/3",
             &["conformanceDigest"],
         ),
     };

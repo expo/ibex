@@ -61,11 +61,6 @@ const __filename = fileURLToPath(import.meta.url);
 export const generatedRegistryPaths = Object.freeze({
   coverage: path.join(capsecRoot, "registry", "coverage-edges.json"),
   targetCells: path.join(capsecRoot, "registry", "target-cells.json"),
-  targetAdvertisements: path.join(
-    capsecRoot,
-    "generated",
-    "target-advertisements.json",
-  ),
   implementationManifest: path.join(
     capsecRoot,
     "generated",
@@ -152,11 +147,6 @@ export const generatedRegistryOutputCatalog = Object.freeze([
     digestBound: false,
   }),
   Object.freeze({
-    path: "capsec/generated/target-advertisements.json",
-    kind: "target-advertisements",
-    digestBound: false,
-  }),
-  Object.freeze({
     path: "capsec/registry/coverage-edges.json",
     kind: "registry",
     digestBound: true,
@@ -187,6 +177,12 @@ export const generatedRegistryOutputCatalog = Object.freeze([
     digestBound: true,
   }),
 ]);
+
+const targetAdvertisementPublicationPath = path.join(
+  capsecRoot,
+  "generated",
+  "target-advertisements.json",
+);
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -652,6 +648,51 @@ function buildSchemaValidator() {
   return ajv;
 }
 
+/**
+ * The registry generator carries promotion-owned v2/v3 bytes transparently.
+ * Only the closed foundation v1 shape is interpreted here, so attempting to
+ * smuggle a scope binding into v1 still fails its original closed schema.
+ *
+ * @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M18 pins 1/8/10
+ * retire v1 publication emission without weakening v1 non-carriage.
+ */
+export function validateTargetAdvertisementPublication(
+  publication,
+  ajv = buildSchemaValidator(),
+) {
+  if (
+    !publication ||
+    typeof publication !== "object" ||
+    Array.isArray(publication) ||
+    typeof publication.targetAdvertisementSchema !== "string"
+  ) {
+    throw new Error("target advertisement publication has no schema identity");
+  }
+  if (
+    publication.targetAdvertisementSchema ===
+    "ibex/capsec-target-advertisements/1"
+  ) {
+    const validate = ajv.getSchema(
+      "https://ibex.dev/capsec/schema/target-advertisements.schema.json",
+    );
+    if (!validate?.(publication)) {
+      throw new Error(
+        `invalid closed v1 target advertisement foundation: ${ajv.errorsText(validate?.errors)}`,
+      );
+    }
+    return publication;
+  }
+  if (
+    publication.targetAdvertisementSchema ===
+      "ibex/capsec-target-advertisements/2" ||
+    publication.targetAdvertisementSchema ===
+      "ibex/capsec-target-advertisements/3"
+  ) {
+    return publication;
+  }
+  throw new Error("target advertisement publication has an unsupported schema");
+}
+
 function validateSchemaDocument(ajv, schemaId, value, label) {
   const validate = ajv.getSchema(schemaId);
   if (!validate) throw new Error(`${label}: schema is not loaded: ${schemaId}`);
@@ -1053,7 +1094,20 @@ export function assertOutputDispositionEvidenceMatchesReport(
   }
 }
 
-function buildTargetAdvertisements(promotions, targetCellsText) {
+// @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M18/F12 keeps
+// the retired diagnostic v1 constructor incapable of scope carriage.
+export function buildLegacyTargetAdvertisements(promotions, targetCellsText) {
+  if (
+    promotions.some(
+      ({ attestation, report }) =>
+        attestation?.scopeDigest !== undefined ||
+        report?.bindings?.scopeDigest !== undefined,
+    )
+  ) {
+    throw new Error(
+      "scoped certification cannot be carried by target advertisements v1",
+    );
+  }
   return {
     targetAdvertisementSchema: "ibex/capsec-target-advertisements/1",
     profile: "ibex/capsec/1",
@@ -1258,7 +1312,7 @@ export async function renderCapsecRegistry() {
   const candidateTargets = structuredClone(
     rules.initialProfile.candidateTargets,
   );
-  let targetCells = buildTargetCells(
+  const targetCells = buildTargetCells(
     coverage,
     candidateTargets,
     implementationRows,
@@ -1286,13 +1340,8 @@ export async function renderCapsecRegistry() {
     generatedRegistryPaths.outputDispositionDocs,
     renderOutputDispositionMarkdown(outputDispositionDataset),
   );
-  let targetAdvertisements = buildTargetAdvertisements(
-    [],
-    rendered.get(generatedRegistryPaths.targetCells),
-  );
-  rendered.set(
-    generatedRegistryPaths.targetAdvertisements,
-    prettyJson(targetAdvertisements),
+  const targetAdvertisements = validateTargetAdvertisementPublication(
+    readJsonStrict(targetAdvertisementPublicationPath),
   );
   rendered.set(generatedRegistryPaths.rust, renderRustBinding(binding));
   rendered.set(generatedRegistryPaths.cxx, renderCxxBinding(binding));
@@ -1354,35 +1403,12 @@ export async function renderCapsecRegistry() {
     },
   };
 
-  // The source-derived implementation manifest is intentionally complete
-  // before report verification. Target cells, advertisements, and their docs
-  // are excluded from its output digest family, so promoting a report cannot
-  // mutate the implementationManifestDigest that the report itself binds.
-  const promotions = loadTargetPromotions({
-    coverage,
-    implementation: implementationManifest,
-    inventory,
-    outputShapeCatalog,
-    outputDispositionRows: outputDispositionDataset.rows,
-    rules,
-  });
-  targetCells = buildTargetCells(
-    coverage,
-    candidateTargets,
-    implementationRows,
-    promotions,
-  );
-  const targetCellsText = prettyJson(targetCells);
-  targetAdvertisements = buildTargetAdvertisements(promotions, targetCellsText);
-  rendered.set(generatedRegistryPaths.targetCells, targetCellsText);
-  rendered.set(
-    generatedRegistryPaths.targetAdvertisements,
-    prettyJson(targetAdvertisements),
-  );
-  rendered.set(
-    generatedRegistryPaths.targetDocs,
-    renderTargetDocs(targetCells, coverage, targetAdvertisements),
-  );
+  // Promotion owns the publication bytes and derives its target-cell candidate
+  // in the physical ceremony. The source registry remains the closed,
+  // unsupported foundation and must never reconstruct or overwrite either.
+  // @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M18 pin 1
+  // keeps scoped publication outside the legacy v1 registry generator.
+  const promotions = [];
   rendered.set(
     generatedRegistryPaths.implementationManifest,
     prettyJson(implementationManifest),

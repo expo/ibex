@@ -18,6 +18,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import {
+  readArtifactSourceFoundationDocuments,
+} from "../packages/ibex-devtools/src/scripts/capsec-contract.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workflowPath = join(repoRoot, ".github/workflows/hermes-artifacts.yml");
@@ -372,15 +375,23 @@ for (const [label, mutate] of [
   });
 }
 
-test("portable acceptance and target advertisements remain closed", () => {
+test("portable acceptance and the artifact-source foundation remain closed", () => {
   const policy = JSON.parse(
     readFileSync(join(repoRoot, "schemas/portable-engine-provenance-trust-policy-v1.json"), "utf8"),
   );
-  const advertisements = JSON.parse(
-    readFileSync(join(repoRoot, "capsec/generated/target-advertisements.json"), "utf8"),
-  );
+  const { targetAdvertisements, targetAttestations } =
+    readArtifactSourceFoundationDocuments(repoRoot);
   assert.equal(policy.portableArtifactAcceptanceEnabled, false);
-  assert.deepEqual(advertisements.advertisements, []);
+  assert.equal(
+    targetAdvertisements.targetAdvertisementSchema,
+    "ibex/capsec-target-advertisements/1",
+  );
+  assert.deepEqual(targetAdvertisements.advertisements, []);
+  assert.equal(
+    targetAttestations.targetAttestationSchema,
+    "ibex/capsec-target-attestations/1",
+  );
+  assert.deepEqual(targetAttestations.attestations, []);
 });
 
 test("one exclusive lease encloses every stable-name legacy release mutation", () => {

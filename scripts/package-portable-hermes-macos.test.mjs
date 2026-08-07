@@ -23,6 +23,9 @@ import {
   derivePinnedHermesSource,
   deriveReviewedSourceAuthorities,
 } from "./package-portable-hermes-macos.mjs";
+import {
+  readArtifactSourceFoundationDocuments,
+} from "../packages/ibex-devtools/src/scripts/capsec-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = [];
@@ -770,14 +773,22 @@ describe("diagnostic macOS portable package", () => {
     );
   });
 
-  test("does not enable portable acceptance or target advertisements", () => {
+  test("does not enable portable acceptance or the artifact-source foundation", () => {
     const policy = JSON.parse(
       fs.readFileSync(path.join(repoRoot, "schemas/portable-engine-provenance-trust-policy-v1.json"), "utf8"),
     );
-    const advertisements = JSON.parse(
-      fs.readFileSync(path.join(repoRoot, "capsec/generated/target-advertisements.json"), "utf8"),
-    );
+    const { targetAdvertisements, targetAttestations } =
+      readArtifactSourceFoundationDocuments(repoRoot);
     assert.equal(policy.portableArtifactAcceptanceEnabled, false);
-    assert.deepEqual(advertisements.advertisements, []);
+    assert.equal(
+      targetAdvertisements.targetAdvertisementSchema,
+      "ibex/capsec-target-advertisements/1",
+    );
+    assert.deepEqual(targetAdvertisements.advertisements, []);
+    assert.equal(
+      targetAttestations.targetAttestationSchema,
+      "ibex/capsec-target-attestations/1",
+    );
+    assert.deepEqual(targetAttestations.attestations, []);
   });
 });
