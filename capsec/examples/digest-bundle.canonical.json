@@ -269013,7 +269013,7 @@
             },
             "conformance": {
               "status": "unavailable-until-wp10",
-              "inputSchema": "ibex/capsec-conformance/1",
+              "inputSchema": "ibex/capsec-conformance/3",
               "memberOrder": "not-applicable",
               "members": [
                 "conformance-report-object"

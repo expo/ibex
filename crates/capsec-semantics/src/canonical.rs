@@ -275,7 +275,9 @@ impl DigestContract {
                 self.domains.conformance.as_str(),
                 "ibex:capsec:conformance:1",
                 &self.projections.conformance,
-                "ibex/capsec-conformance/1",
+                // @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix —
+                // M30 revs the rich report schema while preserving its digest domain.
+                "ibex/capsec-conformance/3",
                 "unavailable-until-wp10",
                 "not-applicable",
                 &["conformance-report-object"][..],

@@ -10,12 +10,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   assertOutputDispositionEvidenceMatchesReport,
+  buildLegacyTargetAdvertisements,
   buildTargetCells,
   generatedRegistryPaths,
   generatedRegistryOutputCatalog,
   readImmutablePromotionArtifact,
   renderCapsecRegistry,
   runCapsecRegistryGenerator,
+  validateTargetAdvertisementPublication,
 } from "./generate-capsec-registry.mjs";
 import {
   OUTPUT_DISPOSITIONS,
@@ -53,8 +55,14 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         row.path.startsWith("capsec/conformance/"),
       ),
     ).toBe(false);
+    expect(
+      generatedRegistryOutputCatalog.some(
+        (row) =>
+          row.path === "capsec/generated/target-advertisements.json",
+      ),
+    ).toBe(false);
+    expect(generatedRegistryPaths.targetAdvertisements).toBeUndefined();
     for (const publicationPath of [
-      "capsec/generated/target-advertisements.json",
       "capsec/generated/target-matrix.md",
       "capsec/registry/target-cells.json",
     ]) {
@@ -64,6 +72,49 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         )?.digestBound,
       ).toBe(false);
     }
+  });
+
+  test("refuses scope carriage in v1 and carries scoped publication schemas transparently", () => {
+    const legacy = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          path.dirname(generatedRegistryPaths.coverage),
+          "../generated/target-advertisements.json",
+        ),
+        "utf8",
+      ),
+    );
+    const forcedScopedV1 = {
+      ...legacy,
+      scopeDigest: `sha256-${"S".repeat(43)}`,
+    };
+    expect(() =>
+      validateTargetAdvertisementPublication(forcedScopedV1),
+    ).toThrow(/invalid closed v1 target advertisement foundation/);
+    expect(() =>
+      buildLegacyTargetAdvertisements(
+        [
+          {
+            attestation: {},
+            report: {
+              bindings: { scopeDigest: `sha256-${"S".repeat(43)}` },
+            },
+          },
+        ],
+        "{}\n",
+      ),
+    ).toThrow(/scoped certification cannot be carried/);
+
+    const scopedV3 = {
+      targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
+      profile: "ibex/capsec/1",
+      advertisements: [
+        {
+          scopeDigest: `sha256-${"S".repeat(43)}`,
+        },
+      ],
+    };
+    expect(validateTargetAdvertisementPublication(scopedV3)).toBe(scopedV3);
   });
 
   test("binds each promoted report to its own output evidence bytes and exact execution identity", () => {
@@ -479,6 +530,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           row.path.startsWith("capsec/conformance/"),
         ),
       ).toBe(false);
+      expect(result.rendered.get(generatedRegistryPaths.rust)).toContain(
+        'include_str!("../capsec/generated/target-advertisements.json")',
+      );
       expect(
         result.implementationManifest.sourceDatasets.some((source) =>
           source.startsWith("conformance/"),
