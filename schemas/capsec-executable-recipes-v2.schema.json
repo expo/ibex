@@ -27,7 +27,7 @@
     "summary": { "$ref": "#/$defs/summary" },
     "recipeCatalogDigest": {
       "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
-      "$comment": "SHA-256 over JCS(catalog without recipeCatalogDigest), domain ibex:capsec:executable-recipes:2 followed by one NUL byte."
+      "$comment": "SHA-256 over JCS({scopeDigest, recipeCatalog: catalog without recipeCatalogDigest}), domain ibex:capsec:executable-recipes:2 followed by one NUL byte."
     }
   },
   "$defs": {

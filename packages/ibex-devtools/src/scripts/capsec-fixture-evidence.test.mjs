@@ -156,6 +156,10 @@ describe("Exact fixture-evidence pilot", () => {
       implementation,
       target,
     });
+    const scopeDigest = `sha256-${"S".repeat(43)}`;
+    const expandedEdgeIds = fixtureCatalog
+      .map((cell) => cell.edgeId)
+      .sort();
     const recipeCatalog = buildConformanceRecipeCatalog({
       catalog: fixtureCatalog,
       coverage,
@@ -171,6 +175,7 @@ describe("Exact fixture-evidence pilot", () => {
         "capsec/registry/capability-definitions.json",
       ),
       target,
+      scope: { scopeDigest, expandedEdgeIds },
     });
     const fixtureCatalogDigest = digest(fixtureCatalog);
     const bindings = {
@@ -187,6 +192,7 @@ describe("Exact fixture-evidence pilot", () => {
       vocabularyDigest: `sha256-${"D".repeat(43)}`,
       registryDigest: `sha256-${"E".repeat(43)}`,
       implementationManifestDigest: digest(implementation),
+      scopeDigest,
       recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
       publicSurfaceExecutionDigest: `sha256-${"F".repeat(43)}`,
     };
@@ -276,11 +282,12 @@ describe("Exact fixture-evidence pilot", () => {
       // llp/evidence/0049-allow-list-phase0-seeding.json.
       requiredFixtures: 22_505,
       passedFixtures: 9,
-      missingFixtures: 23_144,
+      missingFixtures: 22_496,
       failedFixtures: 0,
+      uncertifiedCells: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(
-      /cannot advertise without recipe, public-surface, and output-disposition evidence bindings/u,
+      /cannot advertise without schema-v3 scope, recipe, public-surface, and output-disposition evidence bindings/u,
     );
   });
 

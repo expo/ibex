@@ -47,7 +47,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 179609,
+          "sourceOffset": 184997,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#::environ:dynamic:read",
           "stage": "post-arm-host-read"
@@ -94,7 +94,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 178247,
+          "sourceOffset": 183635,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentStringsW:dynamic:read",
           "stage": "post-arm-host-read"
@@ -168,7 +168,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 179568,
+          "sourceOffset": 184956,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1152,7 +1152,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "git",
-          "sourceOffset": 6340,
+          "sourceOffset": 6652,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1718,7 +1718,7 @@
             "summary": "The sole runtime caller returns an armed principal-overlay value or undefined before getEnvValue can call this unarmed Host ABI fallback."
           },
           "scope": "ex_host_env_get",
-          "sourceOffset": 362681,
+          "sourceOffset": 362981,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var_os:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1733,7 +1733,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "reject_closed_startup_environment",
-          "sourceOffset": 3326,
+          "sourceOffset": 3294,
           "sourcePath": "src/host/mod.rs",
           "sourceRef": "src/host/mod.rs#env::var_os:dynamic:read",
           "stage": "launcher-pre-arm-read"
@@ -3250,7 +3250,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "security_log_enabled",
-          "sourceOffset": 166289,
+          "sourceOffset": 166589,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var:EXACT_SECURITY_LOG:read",
           "stage": "armed-bootstrap-host-read"
@@ -4331,7 +4331,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installGlobals",
-          "sourceOffset": 180987,
+          "sourceOffset": 186375,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_SKIP_STARTUP_HOST_FUNCTIONS:read",
           "stage": "armed-bootstrap-host-read"
@@ -4713,7 +4713,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "ex_hermes_create_impl",
-          "sourceOffset": 413710,
+          "sourceOffset": 419240,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -4728,7 +4728,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "rootGlobalActivationApplies",
-          "sourceOffset": 335943,
+          "sourceOffset": 341473,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -5039,7 +5039,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_executable_recipe_adapter_batch",
-          "sourceOffset": 24672,
+          "sourceOffset": 25724,
           "sourcePath": "src/bin/ibex/engine/capsec_conformance_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5095,7 +5095,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 21893,
+          "sourceOffset": 22359,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read",
           "stage": "armed-bootstrap-host-read"
@@ -5123,7 +5123,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 22051,
+          "sourceOffset": 22517,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5207,7 +5207,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 26640,
+          "sourceOffset": 27106,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5222,7 +5222,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "load_plan",
-          "sourceOffset": 10127,
+          "sourceOffset": 10746,
           "sourcePath": "src/bin/ibex/engine/capsec_portable_public_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5250,7 +5250,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 22139,
+          "sourceOffset": 22605,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
           "stage": "armed-bootstrap-host-read"
@@ -5265,7 +5265,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "load_plan",
-          "sourceOffset": 5004,
+          "sourceOffset": 5365,
           "sourcePath": "src/bin/ibex/engine/capsec_portable_public_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
           "stage": "armed-bootstrap-host-read"
@@ -5351,7 +5351,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_executable_recipe_adapter_batch",
-          "sourceOffset": 24486,
+          "sourceOffset": 25538,
           "sourcePath": "src/bin/ibex/engine/capsec_conformance_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"
@@ -5366,7 +5366,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 21699,
+          "sourceOffset": 22165,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"
@@ -5454,7 +5454,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 29029,
+          "sourceOffset": 29448,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
           "stage": "armed-bootstrap-host-read"
@@ -5469,7 +5469,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "finish_with_evidence_kind",
-          "sourceOffset": 17891,
+          "sourceOffset": 18510,
           "sourcePath": "src/bin/ibex/engine/capsec_portable_public_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
           "stage": "armed-bootstrap-host-read"
@@ -5531,7 +5531,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 148478,
+          "sourceOffset": 153866,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_COMPARTMENTS:read",
           "stage": "armed-bootstrap-host-read"
@@ -5767,7 +5767,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 148433,
+          "sourceOffset": 153821,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read",
           "stage": "armed-bootstrap-host-read"
@@ -6109,7 +6109,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "begin",
-          "sourceOffset": 22077,
+          "sourceOffset": 24847,
           "sourcePath": "src/host/mod.rs",
           "sourceRef": "src/host/mod.rs#env::var:IBEX_STARTUP_TRACE:read",
           "stage": "armed-bootstrap-host-read"
@@ -6137,7 +6137,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "console_mirror_enabled",
-          "sourceOffset": 166811,
+          "sourceOffset": 167111,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var:IBEX_SUPPRESS_CONSOLE_MIRROR:read",
           "stage": "armed-bootstrap-host-read"

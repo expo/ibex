@@ -32,6 +32,11 @@ import {
 } from "../packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs";
 import { conformanceRunnerBindingDigest } from "../packages/ibex-devtools/src/scripts/capsec-conformance-runner-binding.mjs";
 import {
+  buildScopeArtifact,
+  computeScopeCellMappingDigest,
+  computeScopeExpansionDiffDigest,
+} from "../packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs";
+import {
   portableEnginePromotionLineagePlatformSupported,
   resolvePortableEnginePromotionPredecessor,
   verifyPortableEngineScopePredecessor,
@@ -71,6 +76,7 @@ const target = Object.freeze({
 const portableGraphAuthorityPaths = Object.freeze([
   "packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs",
   "packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs",
+  "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs",
   "capsec/schema/common.schema.json",
   "capsec/schema/target-cell.schema.json",
   "schemas/portable-engine-common-v1.schema.json",
@@ -85,7 +91,7 @@ const portableGraphAuthorityPaths = Object.freeze([
   "schemas/capsec-mapped-engine-execution-evidence-v1.schema.json",
   "schemas/capsec-conformance-report-v2.schema.json",
   "schemas/capsec-target-attestations-v2.schema.json",
-  "schemas/capsec-target-advertisements-v2.schema.json",
+  "schemas/capsec-target-advertisements-v3.schema.json",
   "schemas/capsec-portable-promotion-authority-v1.schema.json",
 ]);
 const gitEnvironment = Object.freeze({
@@ -235,23 +241,6 @@ async function resetHistoryRepository(fixture, { ordinaryCommits = 0 } = {}) {
   return fixture.resetRevision;
 }
 
-function syntheticEvidenceNames() {
-  return [
-    "conformance-report.json",
-    "output-dispositions.json",
-    "portable-promotion-authority.json",
-    "process-0001.command-attempt.json",
-    "process-0001.fixture-000001.json",
-    "process-0001.mapped-evidence.json",
-    "promotion-bundle-manifest.json",
-    "public-surface.json",
-    "recipes.json",
-    "target-advertisements.json",
-    "target-attestations.json",
-    "target-cells.json",
-  ];
-}
-
 async function createHistoryPromotion(fixture, {
   targetOverride = target,
   predecessorScopeDigest = "genesis",
@@ -264,46 +253,99 @@ async function createHistoryPromotion(fixture, {
   const topicBranch = `scope-promotion-${fixture.promotionIndex}`;
   git(repoRoot, ["switch", "--quiet", "--create", topicBranch]);
   const evidenceRoot = `capsec/conformance/portable-promotions/${sourceRevision}/${targetOverride.triple}/${artifactId}`;
-  const scope = {
-    schema: "ibex/capsec-scope/1",
-    profile: "ibex/capsec/1",
-    target: clone(targetOverride),
-    selectors: { capabilityFamilies: ["filesystem"], surfaceKinds: ["host-call"] },
-    expandedCells: ["edge.portable-lineage"],
-    closureEdges: [],
+  const graph = validPortableBundleGraph({
+    sourceRevision,
+    sourceTreeObjectId,
+    targetOverride,
     predecessorScopeDigest,
-    scopeDigest: digest("A"),
-  };
-  scope.scopeDigest = semanticDigest("ibex:capsec:scope:1", scope, ["scopeDigest"]);
-  const declaredScopeDigest = variant === "scope-digest-mismatch" ? digest("Z") : scope.scopeDigest;
-  await writeFile(repoRoot, `${evidenceRoot}/capsec-scope.json`, `${canonicalJson(scope)}\n`);
-  for (const name of syntheticEvidenceNames()) {
-    await writeFile(repoRoot, `${evidenceRoot}/${name}`, `${canonicalJson({ name, promotion: fixture.promotionIndex })}\n`);
+  });
+  if (variant === "unknown-scope-schema") {
+    const scopeMember = graph.members.find(
+      (member) => member.logicalName === "scope-artifact",
+    );
+    assert(scopeMember);
+    const unknownScope = parseJsonStrict(
+      scopeMember.bytes,
+      "history scope artifact",
+    );
+    unknownScope.scopeSchema = "ibex/capsec-scope/999";
+    scopeMember.bytes = canonicalBytes(unknownScope);
   }
-  await writeFile(repoRoot, targetAttestationPath, `${canonicalJson({
-    targetAttestationSchema: "ibex/capsec-target-attestations/3",
-    profile: "ibex/capsec/1",
-    attestations: [{ target: clone(targetOverride), scopeDigest: declaredScopeDigest }],
-  })}\n`);
-  await writeFile(repoRoot, targetAdvertisementPath, `${canonicalJson({
-    targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
-    profile: "ibex/capsec/1",
-    advertisements: [{
-      target: clone(targetOverride),
-      scopeDigest: variant === "advertisement-mismatch" ? digest("Y") : declaredScopeDigest,
-    }],
-  })}\n`);
-  git(repoRoot, ["add", "--all"]);
-  const artifacts = syntheticEvidenceNames().map((name) =>
-    artifactRow(repoRoot, "conformance-evidence", `${evidenceRoot}/${name}`));
-  if (variant !== "missing-scope-row") {
-    const scopeRow = artifactRow(repoRoot, "scope-artifact", `${evidenceRoot}/capsec-scope.json`);
-    if (variant === "scope-row-object-mismatch") scopeRow.blobObjectId = "f".repeat(40);
-    artifacts.push(scopeRow);
+  const memberPath = (logicalName) =>
+    logicalName === "portable-conformance-report"
+      ? `${evidenceRoot}/conformance-report.json`
+      : logicalName === "scope-artifact"
+        ? `${evidenceRoot}/capsec-scope.json`
+        : `${evidenceRoot}/${logicalName}.json`;
+  for (const member of graph.members) {
+    await writeFile(repoRoot, memberPath(member.logicalName), member.bytes);
+  }
+  if (variant === "bundle-digest-mismatch") {
+    const manifest = parseJsonStrict(
+      graph.manifestBytes,
+      "history portable bundle manifest",
+    );
+    manifest.bundleDigest = digest("Z");
+    graph.manifestBytes = exactBytes(manifest);
+  }
+  await writeFile(
+    repoRoot,
+    `${evidenceRoot}/promotion-bundle-manifest.json`,
+    graph.manifestBytes,
+  );
+  const scopeMember = graph.members.find(
+    (member) => member.logicalName === "scope-artifact",
+  );
+  const attestationMember = graph.members.find(
+    (member) => member.logicalName === "target-attestations",
+  );
+  const advertisementMember = graph.members.find(
+    (member) => member.logicalName === "target-advertisements",
+  );
+  assert(scopeMember && attestationMember && advertisementMember);
+  const scope = parseJsonStrict(scopeMember.bytes, "history scope artifact");
+  const declaredScopeDigest =
+    variant === "scope-digest-mismatch" ? digest("Z") : graph.scopeDigest;
+  await writeFile(repoRoot, targetAttestationPath, attestationMember.bytes);
+  if (variant === "advertisement-mismatch") {
+    const advertisements = parseJsonStrict(
+      advertisementMember.bytes,
+      "history target advertisements",
+    );
+    advertisements.advertisements[0].scopeDigest = digest("Y");
+    await writeFile(
+      repoRoot,
+      targetAdvertisementPath,
+      `${canonicalJson(advertisements)}\n`,
+    );
   } else {
-    await writeFile(repoRoot, `${evidenceRoot}/extra-evidence.json`, `${canonicalJson({ replacement: true })}\n`);
-    git(repoRoot, ["add", "--all"]);
-    artifacts.push(artifactRow(repoRoot, "conformance-evidence", `${evidenceRoot}/extra-evidence.json`));
+    await writeFile(
+      repoRoot,
+      targetAdvertisementPath,
+      advertisementMember.bytes,
+    );
+  }
+  git(repoRoot, ["add", "--all"]);
+  const artifacts = [
+    artifactRow(
+      repoRoot,
+      "conformance-evidence",
+      `${evidenceRoot}/promotion-bundle-manifest.json`,
+    ),
+    ...graph.members.map((member) => {
+      const role =
+        member.logicalName === "scope-artifact" &&
+        variant !== "missing-scope-row"
+          ? "scope-artifact"
+          : "conformance-evidence";
+      return artifactRow(repoRoot, role, memberPath(member.logicalName));
+    }),
+  ];
+  const scopeRow = artifacts.find(
+    (row) => row.path === `${evidenceRoot}/capsec-scope.json`,
+  );
+  if (variant === "scope-row-object-mismatch") {
+    scopeRow.blobObjectId = "f".repeat(40);
   }
   artifacts.push(artifactRow(repoRoot, "target-attestation", targetAttestationPath));
   artifacts.push(artifactRow(repoRoot, "target-advertisement", targetAdvertisementPath));
@@ -324,7 +366,10 @@ async function createHistoryPromotion(fixture, {
     admissionPath: catalogPath,
     admissions: [admission],
     enabled: true,
-    schema: "ibex/portable-engine-promotion-admission-catalog/2",
+    schema:
+      variant === "enabled-v1-catalog"
+        ? "ibex/portable-engine-promotion-admission-catalog/1"
+        : "ibex/portable-engine-promotion-admission-catalog/2",
   })}\n`);
   git(repoRoot, ["add", "--all"]);
   git(repoRoot, ["commit", "--quiet", "-m", `scoped promotion topic ${fixture.promotionIndex}`]);
@@ -365,6 +410,62 @@ function roundTwoShapeOnlyAccepts(repoRoot, promotion) {
 const digest = (character) => `sha256-${character.repeat(43)}`;
 const clone = (value) => structuredClone(value);
 const exactBytes = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+const canonicalBytes = (value) => Buffer.from(canonicalJson(value), "utf8");
+
+function canonicalScopeBundle(targetOverride, predecessorScopeDigest = "genesis") {
+  const edgeId = "surface.portable.lineage";
+  const predecessor = predecessorScopeDigest === "genesis"
+    ? { kind: "genesis" }
+    : { kind: "scope", scopeDigest: predecessorScopeDigest };
+  const previousExpandedCellIds = predecessor.kind === "genesis" ? [] : [edgeId];
+  const addedCellIds = predecessor.kind === "genesis" ? [edgeId] : [];
+  const diff = {
+    scopeExpansionDiffSchema: "ibex/capsec-scope-expansion-diff/1",
+    profile: "ibex/capsec/1",
+    target: clone(targetOverride),
+    predecessor,
+    previousExpandedCellIds,
+    currentExpandedCellIds: [edgeId],
+    addedCellIds,
+    retiredCellIds: [],
+    scopeExpansionDiffDigest: digest("A"),
+  };
+  diff.scopeExpansionDiffDigest = computeScopeExpansionDiffDigest(diff);
+  const mapping = {
+    scopeCellMappingSchema: "ibex/capsec-scope-cell-mapping/1",
+    profile: "ibex/capsec/1",
+    target: clone(targetOverride),
+    predecessor,
+    additions: addedCellIds,
+    retirements: [],
+    mappings: [],
+    scopeCellMappingDigest: digest("A"),
+  };
+  mapping.scopeCellMappingDigest = computeScopeCellMappingDigest(mapping);
+  const scope = buildScopeArtifact({
+    target: clone(targetOverride),
+    intensionalDefinition: {
+      capabilityFamilies: ["fs"],
+      surfaceKinds: ["native-op"],
+    },
+    expandedCellIds: [edgeId],
+    closureEdges: [
+      {
+        fromEdgeId: edgeId,
+        toEdgeId: edgeId,
+        dependencyKind: "source-derived-route",
+        implementationBranchId: "branch.portable-lineage",
+        terminalObservedKey: "native-op:portableLineage",
+        proofPaths: ["native-op:portableLineage"],
+        sourceRefs: ["scripts/portable-engine-promotion-lineage.test.mjs#fixture"],
+      },
+    ],
+    predecessor,
+    expansionDiff: diff,
+    cellMapping: mapping,
+  });
+  return { diff, mapping, scope };
+}
 
 function sourceTreeDigest(sourceTreeObjectId) {
   return `sha256-${createHash("sha256")
@@ -382,6 +483,7 @@ function validPortableBundleGraph({
   sourceRevision,
   sourceTreeObjectId,
   targetOverride = null,
+  predecessorScopeDigest = "genesis",
 }) {
   const treeDigest = sourceTreeDigest(sourceTreeObjectId);
   const target = targetOverride ?? {
@@ -392,6 +494,8 @@ function validPortableBundleGraph({
         "native-lockdown",
       ],
     };
+  const scoped = canonicalScopeBundle(target, predecessorScopeDigest);
+  const scopeDigest = scoped.scope.scopeDigest;
   const engine = clone(basePortableEngine);
   const conformanceRunner = {
     sourceRevision,
@@ -409,7 +513,7 @@ function validPortableBundleGraph({
     profile: "ibex/capsec/1",
     cells: [
       {
-        edgeId: "edge.portable-lineage",
+        edgeId: "surface.portable.lineage",
         target: clone(target),
         disposition: "enforced",
         implementationBranchIds: ["branch.portable-lineage"],
@@ -444,7 +548,7 @@ function validPortableBundleGraph({
       recipeCatalogDigest: digest("A"),
     },
     "recipeCatalogDigest",
-    portableRecipeCatalogDigest,
+    (value) => portableRecipeCatalogDigest(value, scopeDigest),
   );
   const recipeCatalogBytes = exactBytes(recipes);
   const publicExecution = withDigest(
@@ -518,6 +622,7 @@ function validPortableBundleGraph({
     registryDigest: digest("U"),
     implementationManifestDigest: digest("Y"),
     fixtureCatalogDigest: digest("c"),
+    scopeDigest,
     targetCellsRawContentDigest: rawContentDigest(targetCellsBytes),
     recipeCatalogDigest: recipes.recipeCatalogDigest,
     recipeCatalogRawContentDigest: rawContentDigest(recipeCatalogBytes),
@@ -632,7 +737,7 @@ function validPortableBundleGraph({
   };
   const report = withDigest(
     {
-      conformanceSchema: "ibex/capsec-conformance/2",
+      conformanceSchema: "ibex/capsec-conformance/3",
       profile: "ibex/capsec/1",
       status: "conformant",
       bindings: {
@@ -643,6 +748,7 @@ function validPortableBundleGraph({
         cells: 1,
         conformantCells: 1,
         incompleteCells: 0,
+        uncertifiedCells: 0,
         requiredFixtures: 1,
         passedFixtures: 1,
         missingFixtures: 0,
@@ -661,7 +767,7 @@ function validPortableBundleGraph({
       ],
       cells: [
         {
-          edgeId: "edge.portable-lineage",
+          edgeId: "surface.portable.lineage",
           implementationBranchIds: ["branch.portable-lineage"],
           enforcementBranchIds: ["branch.portable-lineage"],
           status: "conformant",
@@ -693,6 +799,7 @@ function validPortableBundleGraph({
         registryDigest: bindings.registryDigest,
         implementationManifestDigest: bindings.implementationManifestDigest,
         fixtureCatalogDigest: bindings.fixtureCatalogDigest,
+        scopeDigest,
         targetCellsRawContentDigest: bindings.targetCellsRawContentDigest,
         recipeCatalogDigest: bindings.recipeCatalogDigest,
         recipeCatalogRawContentDigest: bindings.recipeCatalogRawContentDigest,
@@ -705,11 +812,12 @@ function validPortableBundleGraph({
     ],
   });
   const attestationsBytes = exactBytes({
-    targetAttestationSchema: "ibex/capsec-target-attestations/2",
+    targetAttestationSchema: "ibex/capsec-target-attestations/3",
     profile: "ibex/capsec/1",
     attestations: [
       {
         target: clone(target),
+        scopeDigest,
         conformanceDigest: report.conformanceDigest,
         reportRawContentDigest: rawContentDigest(reportBytes),
         sourceRevision,
@@ -727,12 +835,13 @@ function validPortableBundleGraph({
     ],
   });
   const advertisementsBytes = exactBytes({
-    targetAdvertisementSchema: "ibex/capsec-target-advertisements/2",
+    targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
     profile: "ibex/capsec/1",
     targetCellsRawContentDigest: bindings.targetCellsRawContentDigest,
     advertisements: [
       {
         target: clone(target),
+        scopeDigest,
         conformanceDigest: report.conformanceDigest,
         reportRawContentDigest: rawContentDigest(reportBytes),
         sourceRevision,
@@ -755,6 +864,9 @@ function validPortableBundleGraph({
   });
   const members = [
     ["portable-promotion-authority", authorityBytes],
+    ["scope-artifact", canonicalBytes(scoped.scope)],
+    ["scope-expansion-diff", canonicalBytes(scoped.diff)],
+    ["scope-cell-mapping", canonicalBytes(scoped.mapping)],
     ["portable-conformance-report", reportBytes],
     ["target-attestations", attestationsBytes],
     ["target-advertisements", advertisementsBytes],
@@ -784,7 +896,11 @@ function validPortableBundleGraph({
     manifest,
     ["bundleDigest"],
   );
-  return { manifestBytes: exactBytes(manifest), members };
+  return {
+    manifestBytes: exactBytes(manifest),
+    members,
+    scopeDigest,
+  };
 }
 
 async function initializeSourceRepository() {
@@ -866,17 +982,6 @@ async function createPromotionRepository(options = {}) {
   const graph = validPortableBundleGraph({
     sourceRevision,
     sourceTreeObjectId,
-    targetOverride: options.targetMismatch
-      ? {
-          triple: targetTriple,
-          features: [
-            "hermes-frame-attribution",
-            "native-compartments",
-            "native-lockdown",
-            "wrong-self-authored-feature",
-          ],
-        }
-      : null,
   });
   if (options.fabricatedSubset) {
     graph.members = graph.members.slice(0, 8);
@@ -905,9 +1010,24 @@ async function createPromotionRepository(options = {}) {
     );
     graph.manifestBytes = exactBytes(reboundManifest);
   }
+  if (options.targetMismatch) {
+    const reboundManifest = parseJsonStrict(
+      graph.manifestBytes,
+      "portable target mismatch manifest",
+    );
+    reboundManifest.target.features.push("wrong-self-authored-feature");
+    reboundManifest.bundleDigest = semanticDigest(
+      "ibex:capsec:portable-promotion-bundle:1",
+      reboundManifest,
+      ["bundleDigest"],
+    );
+    graph.manifestBytes = exactBytes(reboundManifest);
+  }
   const memberPath = (logicalName) =>
     logicalName === "portable-conformance-report"
       ? evidencePath
+      : logicalName === "scope-artifact"
+        ? `${evidenceRoot}/capsec-scope.json`
       : `${evidenceRoot}/${logicalName}.json`;
   const reportMember = graph.members.find(
     (member) => member.logicalName === "portable-conformance-report",
@@ -918,7 +1038,10 @@ async function createPromotionRepository(options = {}) {
   const advertisementMember = graph.members.find(
     (member) => member.logicalName === "target-advertisements",
   );
-  assert(reportMember && attestationMember && advertisementMember);
+  const scopeMember = graph.members.find(
+    (member) => member.logicalName === "scope-artifact",
+  );
+  assert(reportMember && attestationMember && advertisementMember && scopeMember);
   const evidenceBytes = options.copySourceBlob
     ? await fsp.readFile(path.join(repoRoot, "src/source-authority.json"))
     : options.bundleCoreMismatch
@@ -983,7 +1106,9 @@ async function createPromotionRepository(options = {}) {
       .map((member) =>
         artifactRow(
           repoRoot,
-          "conformance-evidence",
+          member.logicalName === "scope-artifact"
+            ? "scope-artifact"
+            : "conformance-evidence",
           member.logicalName === "portable-conformance-report"
             ? evidenceRowPath
             : memberPath(member.logicalName),
@@ -1002,11 +1127,12 @@ async function createPromotionRepository(options = {}) {
   artifacts.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
 
   const admission = {
-    schema: "ibex/portable-engine-promotion-admission/1",
+    schema: "ibex/portable-engine-promotion-admission/2",
     sourceRevision,
     sourceTreeObjectId,
     topology: "github-pull-request-merge/direct-single-commit-topic/1",
-    targetTriple,
+    target: clone(target),
+    admittedScopeDigest: graph.scopeDigest,
     portableArtifactId: artifactId,
     artifacts,
     admissionDigest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -1018,7 +1144,7 @@ async function createPromotionRepository(options = {}) {
     admissionPath: catalogPath,
     admissions: [admission],
     enabled: true,
-    schema: "ibex/portable-engine-promotion-admission-catalog/1",
+    schema: "ibex/portable-engine-promotion-admission-catalog/2",
   };
   options.mutateCatalog?.(catalog);
   const catalogBytes = `${canonicalJson(catalog)}\n`;
@@ -1260,7 +1386,10 @@ describe("M27 evolvable scoped promotion history", () => {
     });
     const prior = resolveHistory(fixture.repoRoot, promotion2.sourceRevision);
     assert.equal(prior.admittedScopeDigest, promotion1.declaredScopeDigest);
-    assert.equal(promotion2.scope.predecessorScopeDigest, prior.admittedScopeDigest);
+    assert.equal(
+      promotion2.scope.predecessor.scopeDigest,
+      prior.admittedScopeDigest,
+    );
   });
 
   test("F6c and F6d refuse a stale predecessor and false genesis relative to intact history", async () => {
@@ -1360,6 +1489,31 @@ describe("M27 evolvable scoped promotion history", () => {
     assert.equal(scopePath.endsWith("/capsec-scope.json"), true);
   });
 
+  test("current-schema historical hops also run the full portable graph checks", async () => {
+    const fixture = await initializeHistoryRepository();
+    const promotion = await createHistoryPromotion(fixture, {
+      variant: "bundle-digest-mismatch",
+    });
+    assert.throws(
+      () => resolveHistory(fixture.repoRoot, promotion.mergeRevision),
+      /portable bundle manifest digest mismatch/u,
+    );
+  });
+
+  test("historical dispatch refuses unknown scope schemas and enabled v1 catalogs", async () => {
+    for (const [variant, pattern] of [
+      ["unknown-scope-schema", /unsupported scope schema/u],
+      ["enabled-v1-catalog", /enabled v1 catalog cannot anchor scoped lineage/u],
+    ]) {
+      const fixture = await initializeHistoryRepository();
+      const promotion = await createHistoryPromotion(fixture, { variant });
+      assert.throws(
+        () => resolveHistory(fixture.repoRoot, promotion.mergeRevision),
+        pattern,
+      );
+    }
+  });
+
   test("F6g selection is per full tuple even when two scopes share one triple", async () => {
     const fixture = await initializeHistoryRepository();
     const promotion1 = await createHistoryPromotion(fixture);
@@ -1381,7 +1535,7 @@ describe("M27 evolvable scoped promotion history", () => {
         repoRoot: fixture.repoRoot,
         startRevision: promotion2.sourceRevision,
         target: target2,
-        predecessorScopeDigest: promotion2.scope.predecessorScopeDigest,
+        predecessorScopeDigest: promotion2.scope.predecessor.scopeDigest,
       }),
       /genesis scope must carry/u,
       "a T2 scope naming T1's digest is refused rather than creating cross-feature ancestry",
@@ -1415,9 +1569,11 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
       "sourceRevision",
       "promotionTopicRevision",
       "sourceTreeObjectId",
-      "targetTriple",
+      "target",
       "portableArtifactId",
       "admissionDigest",
+      "admittedScopeDigest",
+      "predecessorScopeDigest",
       "verificationDigest",
     ].sort());
     assert.equal(promoted.authorized, true);
@@ -1425,8 +1581,10 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     assert.equal(promoted.sourceRevision, fixture.sourceRevision);
     assert.equal(promoted.promotionTopicRevision, fixture.promotionTopicRevision);
     assert.equal(promoted.sourceTreeObjectId, fixture.sourceTreeObjectId);
-    assert.equal(promoted.targetTriple, targetTriple);
+    assert.deepEqual(promoted.target, target);
     assert.equal(promoted.portableArtifactId, artifactId);
+    assert.match(promoted.admittedScopeDigest, /^sha256-[A-Za-z0-9_-]{43}$/u);
+    assert.equal(promoted.predecessorScopeDigest, "genesis");
     assert.equal(
       promoted.verificationDigest,
       semanticDigest(checkedAdmissionDomain, promoted, ["verificationDigest"]),
@@ -1444,6 +1602,9 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     assert.equal(diagnostic.promotionTopicRevision, null);
     assert.equal(diagnostic.sourceTreeObjectId, null);
     assert.equal(diagnostic.admissionDigest, null);
+    assert.deepEqual(diagnostic.target, { triple: targetTriple, features: [] });
+    assert.equal(diagnostic.admittedScopeDigest, null);
+    assert.equal(diagnostic.predecessorScopeDigest, null);
     assert.equal(
       diagnostic.verificationDigest,
       semanticDigest(checkedAdmissionDomain, diagnostic, ["verificationDigest"]),
