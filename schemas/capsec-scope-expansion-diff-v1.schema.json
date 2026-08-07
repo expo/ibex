@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-scope-expansion-diff-v1.schema.json",
+  "title": "Ibex CapSec scope expansion diff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scopeExpansionDiffSchema",
+    "profile",
+    "target",
+    "predecessor",
+    "previousExpandedCellIds",
+    "currentExpandedCellIds",
+    "addedCellIds",
+    "retiredCellIds",
+    "scopeExpansionDiffDigest"
+  ],
+  "properties": {
+    "scopeExpansionDiffSchema": { "const": "ibex/capsec-scope-expansion-diff/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "target": { "$ref": "capsec-scope-v1.schema.json#/$defs/target" },
+    "predecessor": { "$ref": "capsec-scope-v1.schema.json#/$defs/predecessor" },
+    "previousExpandedCellIds": { "$ref": "#/$defs/cellIdSetAllowEmpty" },
+    "currentExpandedCellIds": { "$ref": "capsec-scope-v1.schema.json#/$defs/cellIdSet" },
+    "addedCellIds": { "$ref": "#/$defs/cellIdSetAllowEmpty" },
+    "retiredCellIds": { "$ref": "#/$defs/cellIdSetAllowEmpty" },
+    "scopeExpansionDiffDigest": {
+      "$ref": "capsec-scope-v1.schema.json#/$defs/digest",
+      "$comment": "SHA-256 over JCS(diff without scopeExpansionDiffDigest), domain ibex:capsec:scope-expansion-diff:1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "cellIdSetAllowEmpty": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^surface\\.[a-z0-9]+(?:[._/-][a-z0-9]+)+$"
+      }
+    }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/capsec-scope-cell-mapping-v1.schema.json",
+  "title": "Ibex CapSec scope cell rename/split/merge mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scopeCellMappingSchema",
+    "profile",
+    "target",
+    "predecessor",
+    "additions",
+    "retirements",
+    "mappings",
+    "scopeCellMappingDigest"
+  ],
+  "properties": {
+    "scopeCellMappingSchema": { "const": "ibex/capsec-scope-cell-mapping/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "target": { "$ref": "capsec-scope-v1.schema.json#/$defs/target" },
+    "predecessor": { "$ref": "capsec-scope-v1.schema.json#/$defs/predecessor" },
+    "additions": { "$ref": "capsec-scope-expansion-diff-v1.schema.json#/$defs/cellIdSetAllowEmpty" },
+    "retirements": { "$ref": "capsec-scope-expansion-diff-v1.schema.json#/$defs/cellIdSetAllowEmpty" },
+    "mappings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/mapping" }
+    },
+    "scopeCellMappingDigest": {
+      "$ref": "capsec-scope-v1.schema.json#/$defs/digest",
+      "$comment": "SHA-256 over JCS(mapping without scopeCellMappingDigest), domain ibex:capsec:scope-cell-mapping:1 followed by one NUL byte."
+    }
+  },
+  "$defs": {
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "predecessorCellIds", "successorCellIds"],
+      "properties": {
+        "kind": { "enum": ["rename", "split", "merge"] },
+        "predecessorCellIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "capsec-scope-v1.schema.json#/$defs/stableId" }
+        },
+        "successorCellIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "capsec-scope-v1.schema.json#/$defs/stableId" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "rename" } } },
+          "then": {
+            "properties": {
+              "predecessorCellIds": { "type": "array", "maxItems": 1 },
+              "successorCellIds": { "type": "array", "maxItems": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "split" } } },
+          "then": {
+            "properties": {
+              "predecessorCellIds": { "type": "array", "maxItems": 1 },
+              "successorCellIds": { "type": "array", "minItems": 2 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "merge" } } },
+          "then": {
+            "properties": {
+              "predecessorCellIds": { "type": "array", "minItems": 2 },
+              "successorCellIds": { "type": "array", "maxItems": 1 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
