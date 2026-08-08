@@ -440,7 +440,7 @@ fn verify_report_advertisement_join(
     let scope_root = scope
         .as_object()
         .ok_or_else(|| "promoted scope artifact is not an object".to_owned())?;
-    if scope_root.get("schema").and_then(Value::as_str) != Some(SCOPE_SCHEMA)
+    if scope_root.get("scopeSchema").and_then(Value::as_str) != Some(SCOPE_SCHEMA)
         || scope_root.get("profile").and_then(Value::as_str) != Some(PROFILE)
         || scope_root.get("target") != checked.get("target")
         || scope_root.get("scopeDigest") != checked.get("admittedScopeDigest")
@@ -655,21 +655,29 @@ mod tests {
         let target_cells_digest = digest("target-cells");
         let scope_digest = digest("scope");
         let scope = serde_json::json!({
-            "schema": SCOPE_SCHEMA,
+            "scopeSchema": SCOPE_SCHEMA,
             "profile": PROFILE,
             "target": target,
             "intensionalDefinition": {
                 "capabilityFamilies": ["fs"],
                 "surfaceKinds": ["native"]
             },
-            "expandedCells": ["surface.native.test"],
-            "closureEdges": [],
-            "predecessorScopeDigest": "genesis",
-            "expansionDiffDigest": digest("scope-diff"),
-            "cellMappingDigest": digest("scope-mapping"),
+            "expandedCellIds": ["surface.native.test"],
+            "closureEdges": [{
+                "fromEdgeId": "surface.native.test",
+                "toEdgeId": "surface.native.test",
+                "dependencyKind": "source-derived-route",
+                "implementationBranchId": "surface.native.test.default",
+                "terminalObservedKey": "native-op:scope-fixture",
+                "proofPaths": ["native-op:scope-fixture"],
+                "sourceRefs": ["build_support/portable_engine_promotion_report.rs#scope-fixture"]
+            }],
+            "predecessor": {"kind": "genesis"},
+            "scopeExpansionDiffDigest": digest("scope-diff"),
+            "scopeCellMappingDigest": digest("scope-mapping"),
             "scopeDigest": scope_digest,
         });
-        let scope_bytes = canonical_line(&scope);
+        let scope_bytes = crate::portable_engine_build_consumption::canonical_json(&scope).unwrap();
         let mut report = serde_json::json!({
             "conformanceSchema": REPORT_SCHEMA,
             "profile": PROFILE,
