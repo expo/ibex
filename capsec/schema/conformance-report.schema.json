@@ -14,7 +14,7 @@
     "conformanceDigest"
   ],
   "properties": {
-    "conformanceSchema": { "const": "ibex/capsec-conformance/3" },
+    "conformanceSchema": { "const": "ibex/capsec-conformance-rich/2" },
     "profile": { "const": "ibex/capsec/1" },
     "status": { "enum": ["conformant", "incomplete"] },
     "bindings": {

@@ -2670,11 +2670,6 @@ pub(crate) unsafe extern "C" fn private_vfs_open_read_typed(
         Ok(vfs) => vfs,
         Err(error) => return vfs_error_result(&error, out_errno),
     };
-    // The public JSON ingress discards and recomputes every scoped target-cell
-    // value before evaluation; the C ABI never authorizes the serialized
-    // disposition supplied by its caller.
-    // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — F1c/F3a ABI
-    // ingress authority.
     let result = with_host(
         |host| {
             let constrained_principals =
@@ -5818,6 +5813,12 @@ pub extern "C" fn ex_host_seal_bootstrap_phase() -> i32 {
 /// input, missing arming, and semantic errors return an `error` envelope and
 /// must be treated as denial by the caller.
 /// @ref LLP 0021#decision-staging-and-principal-semantics
+///
+/// The public JSON ingress discards and recomputes every scoped target-cell
+/// value before evaluation; this C ABI never authorizes the serialized
+/// disposition supplied by its caller.
+/// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — F1c/F3a ABI
+/// ingress authority.
 ///
 /// # Safety
 ///

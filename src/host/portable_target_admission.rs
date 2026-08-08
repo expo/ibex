@@ -221,6 +221,11 @@ impl AdmittedScopedTargetCells {
     }
 
     pub(super) fn is_coherent(&self) -> bool {
+        // This is a deliberately redundant Host-boundary re-derivation of
+        // `new`'s postcondition, not an independent admission source. With the
+        // current private fields and no mutators it cannot fail for a safely
+        // constructed value; keeping that strength explicit avoids crediting
+        // the guard as a second validator.
         let inventory = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS;
         (self.predecessor_scope_digest == SCOPE_GENESIS
             || Digest::new(&self.predecessor_scope_digest).is_ok())
@@ -2718,6 +2723,25 @@ mod tests {
         let fixture = fixture();
         let host = scoped_host(&fixture);
         let introspection = host.capsec_scope_introspection().unwrap();
+        let introspection_json = serde_json::to_value(&introspection).unwrap();
+        assert_eq!(
+            introspection_json
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["schema", "scopeDigest", "uncertifiedRemainder"])
+        );
+        assert_eq!(
+            introspection_json["uncertifiedRemainder"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["count", "edgeIds"])
+        );
         let scope: CapsecScopeArtifact = serde_json::from_str(fixture.scope.trim_end()).unwrap();
         let advertisement = select(&fixture).unwrap();
         let admitted =
@@ -2761,6 +2785,10 @@ mod tests {
 
     #[test]
     fn non_advertisement_constructors_remain_scope_incapable() {
+        // This source scrape is only a formatting-sensitive smoke check. The
+        // actual construction boundary is this private module plus private
+        // `AdmittedScopedTargetCells::new`; this fixture cannot prove that a
+        // future constructor helper stays scope-incapable.
         fn constructor_body<'a>(source: &'a str, name: &str) -> &'a str {
             let marker = format!("fn {name}(");
             let start = source
@@ -3075,6 +3103,16 @@ mod tests {
         assert_eq!(
             diagnostics[0].coverage_edge_id,
             "runtime-extension.invoke.authenticated-v1"
+        );
+        let diagnostic = serde_json::to_value(&diagnostics[0]).unwrap();
+        assert_eq!(
+            diagnostic
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["coverageEdgeId", "diagnosticKind", "schema", "scopeDigest",])
         );
     }
 

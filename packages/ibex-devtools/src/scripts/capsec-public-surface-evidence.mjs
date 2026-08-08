@@ -2258,13 +2258,13 @@ export function buildPublicSurfaceExecutionArtifact({
   executions = [],
   scopeDigest = null,
   expandedEdgeIds = null,
-  closureEdgeIds = null,
+  allowedObservedEdgeIds = null,
 }) {
   if (
-    [scopeDigest, expandedEdgeIds, closureEdgeIds].filter(
+    [scopeDigest, expandedEdgeIds, allowedObservedEdgeIds].filter(
       (value) => value !== null,
     ).length !== 0 &&
-    [scopeDigest, expandedEdgeIds, closureEdgeIds].some(
+    [scopeDigest, expandedEdgeIds, allowedObservedEdgeIds].some(
       (value) => value === null,
     )
   ) {
@@ -2307,7 +2307,7 @@ export function buildPublicSurfaceExecutionArtifact({
     engine,
     coverage,
     expandedEdgeIds,
-    closureEdgeIds,
+    allowedObservedEdgeIds,
   });
 }
 
@@ -9638,7 +9638,7 @@ export function validatePublicSurfaceExecutionArtifact(
     engine = null,
     coverage = null,
     expandedEdgeIds = null,
-    closureEdgeIds = null,
+    allowedObservedEdgeIds = null,
   },
 ) {
   if (artifact?.adapterEvidenceSchema) {
@@ -9741,8 +9741,8 @@ export function validatePublicSurfaceExecutionArtifact(
       "public-surface execution summary disagrees with its evidence",
     );
   }
-  if (closureEdgeIds !== null) {
-    assertObservedScopeClosure(artifact, closureEdgeIds);
+  if (allowedObservedEdgeIds !== null) {
+    assertObservedScopeClosure(artifact, allowedObservedEdgeIds);
   }
   return artifact;
 }
@@ -9754,17 +9754,17 @@ export function validatePublicSurfaceExecutionArtifact(
  * @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — A1/F8 makes an
  * observed closure escape a run failure because it disproves the closure.
  */
-export function assertObservedScopeClosure(artifact, closureEdgeIds) {
+export function assertObservedScopeClosure(artifact, allowedObservedEdgeIds) {
   if (
-    !Array.isArray(closureEdgeIds) ||
-    closureEdgeIds.length === 0 ||
-    closureEdgeIds.some((edgeId) => typeof edgeId !== "string") ||
-    canonicalJson(closureEdgeIds) !==
-      canonicalJson(canonicalSet(closureEdgeIds))
+    !Array.isArray(allowedObservedEdgeIds) ||
+    allowedObservedEdgeIds.length === 0 ||
+    allowedObservedEdgeIds.some((edgeId) => typeof edgeId !== "string") ||
+    canonicalJson(allowedObservedEdgeIds) !==
+      canonicalJson(canonicalSet(allowedObservedEdgeIds))
   ) {
     throw new Error("scope closure edge set is malformed");
   }
-  const closure = new Set(closureEdgeIds);
+  const closure = new Set(allowedObservedEdgeIds);
   for (const execution of artifact.executions ?? []) {
     for (const decision of
       execution.evidence?.runtimeObservation?.typedDecisions ?? []) {
@@ -9802,7 +9802,7 @@ export function assertPublicSurfaceExecutionComplete(
 ) {
   if (
     options.expandedEdgeIds === undefined ||
-    options.closureEdgeIds === undefined ||
+    options.allowedObservedEdgeIds === undefined ||
     artifact.scopeDigest === undefined
   ) {
     throw new Error(

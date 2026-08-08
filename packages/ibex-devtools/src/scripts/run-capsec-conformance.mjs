@@ -950,7 +950,7 @@ const publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
   coverage,
   scopeDigest: scopeArtifact.scopeDigest,
   expandedEdgeIds: scopeArtifact.expandedCellIds,
-  closureEdgeIds: scopeArtifact.expandedCellIds,
+  allowedObservedEdgeIds: scopeArtifact.expandedCellIds,
   executions: publicExecutions,
 });
 commandEvidence.push(...(await runMatrixCommands(CONFORMANCE_PRODUCT_COMMANDS)));
@@ -1050,7 +1050,7 @@ if (publicSurfaceEvidenceInputPath) {
     engine: bindings.engine,
     coverage,
     expandedEdgeIds: scopeArtifact.expandedCellIds,
-    closureEdgeIds: scopeArtifact.expandedCellIds,
+    allowedObservedEdgeIds: scopeArtifact.expandedCellIds,
   });
   if (
     canonicalJson(suppliedEvidence) !== canonicalJson(publicSurfaceEvidence)
@@ -1983,7 +1983,7 @@ checkPromotion("public-surface-execution", () => {
     sourceTreeDigest: bindings.sourceTreeDigest,
     engine: bindings.engine,
     expandedEdgeIds: scopeArtifact.expandedCellIds,
-    closureEdgeIds: scopeArtifact.expandedCellIds,
+    allowedObservedEdgeIds: scopeArtifact.expandedCellIds,
     expectedFixtureIds: catalog
       .filter((cell) => expandedScopeCellIds.has(cell.edgeId))
       .flatMap((cell) => cell.requiredFixtures),

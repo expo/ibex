@@ -93,7 +93,7 @@ const digestContract = {
   domains: { conformance: "ibex:capsec:conformance:1" },
   projections: {
     conformance: {
-      inputSchema: "ibex/capsec-conformance/3",
+      inputSchema: "ibex/capsec-conformance-rich/2",
       status: "available",
       members: ["conformance-report-object"],
       omitFields: ["conformanceDigest"],
@@ -204,13 +204,16 @@ const buildTestReport = (options) =>
   buildConformanceReport({ ...reportValidation, ...options });
 
 describe("capsec target conformance", () => {
-  test("revs both report schemas to the required scoped v3 binding", () => {
+  test("keeps rich and portable report ids distinct with the required scoped binding", () => {
     const rich = readSchema("conformance-report.schema.json");
     const portable = readPortableReportSchema();
+    expect(rich.properties.conformanceSchema.const).toBe(
+      "ibex/capsec-conformance-rich/2",
+    );
+    expect(portable.properties.conformanceSchema.const).toBe(
+      "ibex/capsec-conformance/3",
+    );
     for (const schema of [rich, portable]) {
-      expect(schema.properties.conformanceSchema.const).toBe(
-        "ibex/capsec-conformance/3",
-      );
       expect(schema.properties.bindings.required).toContain("scopeDigest");
       expect(schema.properties.bindings.properties.scopeDigest).toBeObject();
     }
