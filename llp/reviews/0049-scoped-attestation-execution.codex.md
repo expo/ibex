@@ -215,3 +215,261 @@ UNREVIEWED beyond `629599dea0b3`. Terminal verdicts: Fable r2 NOT READY
 was applied in its mechanism-scheduling form), Codex r2 NOT READY (all
 three flip-set items applied). Status remains Draft; acceptance and the
 §10 register are the author's.
+
+## Round 3 (execution-round delta) — 2026-08-07
+
+- **Family:** OpenAI Codex (gpt-5.6-sol)
+- **Provider/runtime:** `codex exec` CLI 0.147.0,
+  `-c model_reasoning_effort="xhigh"`,
+  `--dangerously-bypass-approvals-and-sandbox` on a dedicated build host,
+  brief on stdin
+- **Date:** 2026-08-07
+- **Redacted:** no (public-repo content only)
+- **Method:** delta round on the 2026-08-07 execution-round revision,
+  document `b945bf4dbfa7`, HEAD `f77b30a5f`; verified the executor claims
+  against the emitting code and found an independent counterexample to the
+  one Fable found
+- **Verdict:** NOT READY (0 BLOCKER, 4 MATERIAL, all IN-DELTA).
+  "No BLOCKER was found: the implementation remains explicitly gated
+  rather than falsely declared complete."
+
+### Review body (verbatim excerpt from codex exec stdout)
+
+   101	}
+   102	
+   103	#[test]
+   104	fn every_invalid_vector_is_refused() {
+   105	    let valid = read("diagnostic-audit-v1.valid.json");
+   106	    let mutations = read("diagnostic-audit-v1.invalid.json");
+   107	    let cases = mutations["cases"].as_array().expect("cases array");
+   108	    assert!(!cases.is_empty(), "the mutation corpus must not be empty");
+   109	
+   110	    for case in cases {
+   111	        let id = case["id"].as_str().expect("case id");
+   112	        let document_name = case["document"].as_str().expect("case document");
+   113	        let mut document = valid["documents"][document_name].clone();
+   114	        assert!(
+   115	            !document.is_null(),
+   116	            "{id}: names an unknown document {document_name}"
+   117	        );
+   118	        assert!(
+   119	            accepts(document_name, &document),
+   120	            "{id}: the unmutated document must be accepted, or the case proves nothing"
+   121	        );
+   122	
+   123	        let path = case["mutationPath"].as_str().unwrap_or("");
+   124	        apply_mutation(&mut document, path, &case["mutation"]);
+   125	        assert_eq!(
+   126	            case["expected"].as_str(),
+   127	            Some("invalid"),
+   128	            "{id}: this corpus holds only refusal cases"
+   129	        );
+   130	        assert!(
+   131	            !accepts(document_name, &document),
+   132	            "{id}: mutation was accepted but must be refused ({})",
+   133	            case["why"].as_str().unwrap_or("no rationale recorded")
+   134	        );
+   135	    }
+   136	}
+
+codex
+# Round 3 review — LLP 0049 execution-round delta
+
+## 1. Verified / failed checks
+
+- **VERIFIED — document identity:** on-disk SHA-256 is `b945bf4dbfa7212203dad05b67be7a9c7537e06b00e883b0821e5f82f8f3467d`, and HEAD is `f77b30a5f`; both match the brief. Command: `sha256sum llp/0049-scoped-attestation-execution.plan.md && git rev-parse --short=9 HEAD`.
+- **VERIFIED — review target:** the execution-round delta is the two commits `4e2990432` and `f77b30a5f`; earlier review artifacts are present. Command: `git log --oneline -- llp/0049-scoped-attestation-execution.plan.md`; `llp/reviews/0049-scoped-attestation-execution.{fable,codex}.md`.
+- **VERIFIED — indexed evidence exists:** every concrete artifact named in §11 exists and parses as JSON; `./ref-check` also reports zero errors. `llp/0049-scoped-attestation-execution.plan.md:871-889`; commands: `jq empty llp/evidence/*.json` for the indexed paths and `./ref-check`.
+- **VERIFIED — the incident-specific scope vector is consumed on both sides:** JavaScript validates its canonical form/schema/digest, while Rust parses it through the production parser; both targeted tests pass. `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`; `src/host/portable_target_admission.rs:2159-2177`; commands: `bun test packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs` and `cargo test --lib generated_scope_vector_deserializes_through_the_production_parser`.
+- **VERIFIED — this discipline exists for another cross-language artifact:** diagnostic-audit vectors are consumed by independent JavaScript and Rust tests, including negative mutations. `packages/ibex-devtools/src/scripts/diagnostic-audit-schemas.test.mjs:18-29,56-80`; `crates/capsec-semantics/tests/diagnostic_audit_vectors.rs:71-135`; both targeted suites passed.
+- **FAILED — rule 10 is not a repo-wide invariant:** its opening includes process boundaries, but its named checker covers only different-language producer/consumer pairs; existing Rust-produced/JavaScript-consumed public-batch evidence has no vector under `schemas/vectors/`. `llp/0049-scoped-attestation-execution.plan.md:299-312`; `src/bin/ibex/engine/capsec_conformance_batch.rs:4252-4267`; `packages/ibex-devtools/src/scripts/capsec-public-surface-evidence.mjs:2144-2185`; command: `rg -n 'capsec-public-batch-evidence' schemas/vectors` returns no matches.
+- **FAILED — “generated by the real producer” is not continuously checked:** the scope test reads committed bytes but neither regenerates them nor compares them with real-producer output. `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`; command: `rg -n 'capsec-scope-v1.valid|generate.*scope.*vector' packages src schemas`.
+- **FAILED — rule 11 is not enforced consistently:** §5.3 mentions review and break-tests, but Phase 0, Phase 2, and Phase 3 exit gates omit the supposedly every-phase requirement. `llp/0049-scoped-attestation-execution.plan.md:212-218,313-322,380-395,531-539,692-699,731-739`.
+- **FAILED — the Phase 1 implementation-review discharge is not auditable:** the status records `719/0`, a BLOCKER, a neutered-assertion fixture, and fixes, but §11 contains no implementation-review artifact, reviewed revision, break-test commands/results, or finding disposition. `llp/0049-scoped-attestation-execution.plan.md:563-573,871-889`; command: `rg -n '719|wrong layer|assertion.*deleted|implementation review|break-tested' llp issues`.
+- **FAILED — “only native-op has an effectful executor” is false as written:** the existing startup-environment executor runs loaded-engine sources, collects typed `env:read` decisions, validates them, and emits public-surface evidence. `packages/ibex-devtools/src/scripts/capsec-startup-environment-probe-templates.mjs:1-14,21-25`; `src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs:1072-1153,1285-1399,1737-1749`. The calibration artifact itself acknowledges that effectful path. `llp/evidence/0049-calibration-tranche-report.json:89-94`.
+- **PARTIALLY VERIFIED — the two rejected candidate conclusions are narrower than the false universal claim:** `surface.host.abi × env:read` lacks an effectful executor, although host ABI has both non-capability module-runner and SQLite no-effect paths; the startup-env write candidates resolve to Android/Rust sources without the existing JavaScript read surface. `src/bin/ibex/engine/capsec_conformance_batch.rs:3078-3114,3503-3555`; `src/engine/native_android_networking.cc:344-350`; `issues/20260728-capsec-public-surface-evidence-backlog.md:123-132`.
+- **VERIFIED — the completed calibration classes required executor work:** both retained batch artifacts record executor changes, and one records three generalization corrections. `llp/evidence/0049-batch-native-op-env-read-5EaSZqHyeHyZJ-kTorqcdNdYgBW-3wBtmZBbsIu4aV8.json:46-66`; `llp/evidence/0049-batch-native-op-fs-list-dzsLtlA9UI-XM0XnyrhbqwM-_XefBhoVPmkeqvcXVVg.json:46-66`.
+- **FAILED — §9’s executor-cost kill criterion is not measurable:** no spike estimate, unit, per-kind baseline, or estimate artifact exists; “exceeds its spike estimate by 2x” also lacks the explicit arithmetic used by the corrected net-closure criterion. `llp/0049-scoped-attestation-execution.plan.md:769-781,850-862`; command: `rg -n 'spike estimate|executor-construction cost|per-surface-kind executor' llp issues`.
+- **FAILED — §10(f) is not a coherent fork:** option (i) is an information-gathering precursor to choosing between scaling, narrowing, or a hybrid, yet it is presented as mutually exclusive with those choices and simultaneously described as author-agreed. `llp/0049-scoped-attestation-execution.plan.md:850-862`.
+- **FAILED — the fan-out method is not “measured” in the retained-evidence sense:** §6 gives useful operational advice, but records no sample, branch measurements, comparison, or §11 artifact. `llp/0049-scoped-attestation-execution.plan.md:617-630,871-889`.
+- **VERIFIED — poisoned-cell counts are internally reconciled:** the current plan and execution evidence use 73; the backlog’s earlier 74 is dated and explicitly superseded. `llp/0049-scoped-attestation-execution.plan.md:167-186`; `llp/evidence/0049-calibration-tranche-report.json:13-30`; `issues/20260728-capsec-public-surface-evidence-backlog.md:47-54,81-93`.
+- **FAILED — one same-snapshot class count remains inconsistent:** §2 says 81 classes, while its post-seeding evidence records 80. `llp/0049-scoped-attestation-execution.plan.md:167-170`; `llp/evidence/0049-scope-measurement-postseeding-005189b86117530799564848414872280858a685a5f5dd0adddfe04cc529a238.json:39-44`.
+- **VERIFIED — Phase 1 is not dishonestly marked complete:** the dated status block explicitly leaves report-schema collisions, weak fixtures, unpinned materials, and poisoned cells open. `llp/0049-scoped-attestation-execution.plan.md:563-573`.
+
+## 2. Overall assessment
+
+The delta captures two real failures and makes Phase 1 more candidly fail-closed. The shared-vector repair is also backed by executable tests.
+
+It is not ready as a governing execution plan, however. Rule 10 overstates the scope of the implemented discipline; rule 11 is added only to the gate that suffered the incident and lacks an auditable discharge contract; §6 turns a candidate-specific calibration result into a false executor-wide claim; and the new cost kill criterion has neither a recorded estimate nor defined arithmetic. These are MATERIAL plan defects, not editorial polish.
+
+No BLOCKER was found: the implementation remains explicitly gated rather than falsely declared complete.
+
+## 3. Findings
+
+### MATERIAL — §6 and §10(f): executor conclusion overclaims the evidence — IN-DELTA
+
+“Only `native-op` has an executor capable of producing an effectful, source-bound receipt” is contradicted by the startup-environment batch executor, which executes loaded-engine sources and validates typed `env:read` decisions. `llp/0049-scoped-attestation-execution.plan.md:667-678,850-854`; `src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs:1072-1153,1285-1399`.
+
+The evidence supports a narrower conclusion: neither of the two selected non-native candidate classes was reachable through an existing suitable executor without construction or extension. The host-ABI prose is also incomplete because a SQLite no-effect path exists alongside the non-capability module-runner path. `src/bin/ibex/engine/capsec_conformance_batch.rs:3078-3114,3526-3555`.
+
+**Resolution:** replace the universal assertion with a retained per-surface-kind capability matrix distinguishing no executor, no-effect executor, effectful closed-table executor, and reusable effectful executor. Rewrite §6 and §10(f) from that matrix.
+
+### MATERIAL — §3 rule 10: generalized beyond its checker and current conformance — IN-DELTA
+
+The rule covers artifacts crossing a language **or process** boundary, but its only concrete checker is specified for different-language pairs. Existing public-batch evidence crosses both Rust→JavaScript and a process boundary without a `schemas/vectors/` vector. `llp/0049-scoped-attestation-execution.plan.md:299-312`; `src/bin/ibex/engine/capsec_conformance_batch.rs:4252-4267`; `packages/ibex-devtools/src/scripts/capsec-public-surface-evidence.mjs:2144-2185`.
+
+The repository demonstrates that shared vectors are an effective discipline, but it does not demonstrate that every cross-boundary artifact follows it. Nor does the scope-vector test prove ongoing real-producer generation. `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`.
+
+**Resolution:** either narrow rule 10 to independently implemented, security-relevant wire artifacts, or inventory all applicable boundaries and add vectors/tests for each. Define a checker for process-only boundaries and require regeneration/equality from the real producer, not merely validation of committed bytes.
+
+### MATERIAL — §3 rule 11 and phase exits: process gate is incident-specific and unauditable — IN-DELTA
+
+Rule 11 says every implementation phase receives independent adversarial review, but only Phase 1’s exit gate was amended. Phase 2 explicitly includes new Rust executor construction yet has no corresponding review item. `llp/0049-scoped-attestation-execution.plan.md:313-322,531-539,675-678,692-699`.
+
+The Phase 1 status assertion is retained only as prose. It lacks the reviewed revision, reviewer identity/independence statement, adversarial mutations, commands and outputs, verdict, and disposition of unresolved findings. `llp/0049-scoped-attestation-execution.plan.md:563-573,871-889`.
+
+**Resolution:** add the gate to every implementation-bearing phase—or explicitly scope and justify exemptions—and define discharge as a retained artifact tied to an exact revision, with break-test commands/results and no unresolved BLOCKER/MATERIAL findings unless explicitly dispositioned.
+
+### MATERIAL — §9 and §10(f): kill arithmetic and decision state are undefined — IN-DELTA
+
+The criterion cannot be evaluated because no spike estimate or measurement unit exists. A spike on one surface kind also cannot supply an estimate for “any surface kind” without an extrapolation rule. `llp/0049-scoped-attestation-execution.plan.md:777-781,850-862`.
+
+Option (i) is a measurement step, not an alternative to the eventual campaign decision. “Author indicated agreement” leaves it unclear whether the spike is already authorized or still open.
+
+**Resolution:** define and retain `E_k` and `C_k`, their units and scope, and an unambiguous predicate such as `C_k > 2 × E_k`. Split §10(f) into: (1) authorization and budget for the spike; and (2) a post-spike choice among staged expansion, broad construction, shared-executor investment, hybrid scope, or narrowing.
+
+### MINOR — §6: fan-out method is guidance presented as measurement — IN-DELTA
+
+No retained artifact shows the claimed measurement or compares this method against alternatives. `llp/0049-scoped-attestation-execution.plan.md:617-630,871-889`.
+
+**Resolution:** call it retrospective guidance, or make it enforceable by recording branch, merge base, changed paths, integration owner, and reconciliation results for each tranche. If mandatory, promote those checkable requirements into §3.
+
+### MINOR — §6/§11: calibration source revision is not reproducible — IN-DELTA
+
+The calibration report and batch artifacts identify commit `6416114…` while explicitly saying the measured worktree was uncommitted. `llp/evidence/0049-calibration-tranche-report.json:5`; both `llp/evidence/0049-batch-native-op-*.json:5`.
+
+**Resolution:** add the exact landed commit mapping, tree/patch digest, or rerun and restamp the artifacts against a committed tree.
+
+### MINOR — §2: post-seeding class count is stale — PRE-EXISTING
+
+The prose gives 81 classes for a snapshot whose retained artifact gives 80. `llp/0049-scoped-attestation-execution.plan.md:167-170`; `llp/evidence/0049-scope-measurement-postseeding-005189b86117530799564848414872280858a685a5f5dd0adddfe04cc529a238.json:39-44`.
+
+**Resolution:** change 81 to 80 or identify the distinct snapshot underlying 81.
+
+### MINOR — §5.3: successive “now” status blocks obscure current state — IN-DELTA
+
+The 2026-08-06 block says gate code is still open; the immediately following 2026-08-07 block says it landed. Dates make the history recoverable, but “now” is stale in the earlier block. `llp/0049-scoped-attestation-execution.plan.md:541-573`.
+
+**Resolution:** label the first block “superseded historical status” and keep one explicit current Phase 1 gate ledger.
+
+## 4. Verdict
+
+**NOT READY**
+
+Minimal flip set:
+
+1. Correct the executor claim using a retained per-surface-kind capability matrix.
+2. Narrow or fully mechanize rule 10, including real-producer regeneration and process-only boundaries.
+3. Turn rule 11 into an auditable gate for every implementation-bearing phase and retain the Phase 1 review/break-test artifact.
+4. Record the spike estimate, units, and exact kill arithmetic; separate the agreed spike from the post-spike scope decision.
+tokens used
+330,540
+# Round 3 review — LLP 0049 execution-round delta
+
+## 1. Verified / failed checks
+
+- **VERIFIED — document identity:** on-disk SHA-256 is `b945bf4dbfa7212203dad05b67be7a9c7537e06b00e883b0821e5f82f8f3467d`, and HEAD is `f77b30a5f`; both match the brief. Command: `sha256sum llp/0049-scoped-attestation-execution.plan.md && git rev-parse --short=9 HEAD`.
+- **VERIFIED — review target:** the execution-round delta is the two commits `4e2990432` and `f77b30a5f`; earlier review artifacts are present. Command: `git log --oneline -- llp/0049-scoped-attestation-execution.plan.md`; `llp/reviews/0049-scoped-attestation-execution.{fable,codex}.md`.
+- **VERIFIED — indexed evidence exists:** every concrete artifact named in §11 exists and parses as JSON; `./ref-check` also reports zero errors. `llp/0049-scoped-attestation-execution.plan.md:871-889`; commands: `jq empty llp/evidence/*.json` for the indexed paths and `./ref-check`.
+- **VERIFIED — the incident-specific scope vector is consumed on both sides:** JavaScript validates its canonical form/schema/digest, while Rust parses it through the production parser; both targeted tests pass. `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`; `src/host/portable_target_admission.rs:2159-2177`; commands: `bun test packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs` and `cargo test --lib generated_scope_vector_deserializes_through_the_production_parser`.
+- **VERIFIED — this discipline exists for another cross-language artifact:** diagnostic-audit vectors are consumed by independent JavaScript and Rust tests, including negative mutations. `packages/ibex-devtools/src/scripts/diagnostic-audit-schemas.test.mjs:18-29,56-80`; `crates/capsec-semantics/tests/diagnostic_audit_vectors.rs:71-135`; both targeted suites passed.
+- **FAILED — rule 10 is not a repo-wide invariant:** its opening includes process boundaries, but its named checker covers only different-language producer/consumer pairs; existing Rust-produced/JavaScript-consumed public-batch evidence has no vector under `schemas/vectors/`. `llp/0049-scoped-attestation-execution.plan.md:299-312`; `src/bin/ibex/engine/capsec_conformance_batch.rs:4252-4267`; `packages/ibex-devtools/src/scripts/capsec-public-surface-evidence.mjs:2144-2185`; command: `rg -n 'capsec-public-batch-evidence' schemas/vectors` returns no matches.
+- **FAILED — “generated by the real producer” is not continuously checked:** the scope test reads committed bytes but neither regenerates them nor compares them with real-producer output. `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`; command: `rg -n 'capsec-scope-v1.valid|generate.*scope.*vector' packages src schemas`.
+- **FAILED — rule 11 is not enforced consistently:** §5.3 mentions review and break-tests, but Phase 0, Phase 2, and Phase 3 exit gates omit the supposedly every-phase requirement. `llp/0049-scoped-attestation-execution.plan.md:212-218,313-322,380-395,531-539,692-699,731-739`.
+- **FAILED — the Phase 1 implementation-review discharge is not auditable:** the status records `719/0`, a BLOCKER, a neutered-assertion fixture, and fixes, but §11 contains no implementation-review artifact, reviewed revision, break-test commands/results, or finding disposition. `llp/0049-scoped-attestation-execution.plan.md:563-573,871-889`; command: `rg -n '719|wrong layer|assertion.*deleted|implementation review|break-tested' llp issues`.
+- **FAILED — “only native-op has an effectful executor” is false as written:** the existing startup-environment executor runs loaded-engine sources, collects typed `env:read` decisions, validates them, and emits public-surface evidence. `packages/ibex-devtools/src/scripts/capsec-startup-environment-probe-templates.mjs:1-14,21-25`; `src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs:1072-1153,1285-1399,1737-1749`. The calibration artifact itself acknowledges that effectful path. `llp/evidence/0049-calibration-tranche-report.json:89-94`.
+- **PARTIALLY VERIFIED — the two rejected candidate conclusions are narrower than the false universal claim:** `surface.host.abi × env:read` lacks an effectful executor, although host ABI has both non-capability module-runner and SQLite no-effect paths; the startup-env write candidates resolve to Android/Rust sources without the existing JavaScript read surface. `src/bin/ibex/engine/capsec_conformance_batch.rs:3078-3114,3503-3555`; `src/engine/native_android_networking.cc:344-350`; `issues/20260728-capsec-public-surface-evidence-backlog.md:123-132`.
+- **VERIFIED — the completed calibration classes required executor work:** both retained batch artifacts record executor changes, and one records three generalization corrections. `llp/evidence/0049-batch-native-op-env-read-5EaSZqHyeHyZJ-kTorqcdNdYgBW-3wBtmZBbsIu4aV8.json:46-66`; `llp/evidence/0049-batch-native-op-fs-list-dzsLtlA9UI-XM0XnyrhbqwM-_XefBhoVPmkeqvcXVVg.json:46-66`.
+- **FAILED — §9’s executor-cost kill criterion is not measurable:** no spike estimate, unit, per-kind baseline, or estimate artifact exists; “exceeds its spike estimate by 2x” also lacks the explicit arithmetic used by the corrected net-closure criterion. `llp/0049-scoped-attestation-execution.plan.md:769-781,850-862`; command: `rg -n 'spike estimate|executor-construction cost|per-surface-kind executor' llp issues`.
+- **FAILED — §10(f) is not a coherent fork:** option (i) is an information-gathering precursor to choosing between scaling, narrowing, or a hybrid, yet it is presented as mutually exclusive with those choices and simultaneously described as author-agreed. `llp/0049-scoped-attestation-execution.plan.md:850-862`.
+- **FAILED — the fan-out method is not “measured” in the retained-evidence sense:** §6 gives useful operational advice, but records no sample, branch measurements, comparison, or §11 artifact. `llp/0049-scoped-attestation-execution.plan.md:617-630,871-889`.
+- **VERIFIED — poisoned-cell counts are internally reconciled:** the current plan and execution evidence use 73; the backlog’s earlier 74 is dated and explicitly superseded. `llp/0049-scoped-attestation-execution.plan.md:167-186`; `llp/evidence/0049-calibration-tranche-report.json:13-30`; `issues/20260728-capsec-public-surface-evidence-backlog.md:47-54,81-93`.
+- **FAILED — one same-snapshot class count remains inconsistent:** §2 says 81 classes, while its post-seeding evidence records 80. `llp/0049-scoped-attestation-execution.plan.md:167-170`; `llp/evidence/0049-scope-measurement-postseeding-005189b86117530799564848414872280858a685a5f5dd0adddfe04cc529a238.json:39-44`.
+- **VERIFIED — Phase 1 is not dishonestly marked complete:** the dated status block explicitly leaves report-schema collisions, weak fixtures, unpinned materials, and poisoned cells open. `llp/0049-scoped-attestation-execution.plan.md:563-573`.
+
+## 2. Overall assessment
+
+The delta captures two real failures and makes Phase 1 more candidly fail-closed. The shared-vector repair is also backed by executable tests.
+
+It is not ready as a governing execution plan, however. Rule 10 overstates the scope of the implemented discipline; rule 11 is added only to the gate that suffered the incident and lacks an auditable discharge contract; §6 turns a candidate-specific calibration result into a false executor-wide claim; and the new cost kill criterion has neither a recorded estimate nor defined arithmetic. These are MATERIAL plan defects, not editorial polish.
+
+No BLOCKER was found: the implementation remains explicitly gated rather than falsely declared complete.
+
+## 3. Findings
+
+### MATERIAL — §6 and §10(f): executor conclusion overclaims the evidence — IN-DELTA
+
+“Only `native-op` has an executor capable of producing an effectful, source-bound receipt” is contradicted by the startup-environment batch executor, which executes loaded-engine sources and validates typed `env:read` decisions. `llp/0049-scoped-attestation-execution.plan.md:667-678,850-854`; `src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs:1072-1153,1285-1399`.
+
+The evidence supports a narrower conclusion: neither of the two selected non-native candidate classes was reachable through an existing suitable executor without construction or extension. The host-ABI prose is also incomplete because a SQLite no-effect path exists alongside the non-capability module-runner path. `src/bin/ibex/engine/capsec_conformance_batch.rs:3078-3114,3526-3555`.
+
+**Resolution:** replace the universal assertion with a retained per-surface-kind capability matrix distinguishing no executor, no-effect executor, effectful closed-table executor, and reusable effectful executor. Rewrite §6 and §10(f) from that matrix.
+
+### MATERIAL — §3 rule 10: generalized beyond its checker and current conformance — IN-DELTA
+
+The rule covers artifacts crossing a language **or process** boundary, but its only concrete checker is specified for different-language pairs. Existing public-batch evidence crosses both Rust→JavaScript and a process boundary without a `schemas/vectors/` vector. `llp/0049-scoped-attestation-execution.plan.md:299-312`; `src/bin/ibex/engine/capsec_conformance_batch.rs:4252-4267`; `packages/ibex-devtools/src/scripts/capsec-public-surface-evidence.mjs:2144-2185`.
+
+The repository demonstrates that shared vectors are an effective discipline, but it does not demonstrate that every cross-boundary artifact follows it. Nor does the scope-vector test prove ongoing real-producer generation. `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`.
+
+**Resolution:** either narrow rule 10 to independently implemented, security-relevant wire artifacts, or inventory all applicable boundaries and add vectors/tests for each. Define a checker for process-only boundaries and require regeneration/equality from the real producer, not merely validation of committed bytes.
+
+### MATERIAL — §3 rule 11 and phase exits: process gate is incident-specific and unauditable — IN-DELTA
+
+Rule 11 says every implementation phase receives independent adversarial review, but only Phase 1’s exit gate was amended. Phase 2 explicitly includes new Rust executor construction yet has no corresponding review item. `llp/0049-scoped-attestation-execution.plan.md:313-322,531-539,675-678,692-699`.
+
+The Phase 1 status assertion is retained only as prose. It lacks the reviewed revision, reviewer identity/independence statement, adversarial mutations, commands and outputs, verdict, and disposition of unresolved findings. `llp/0049-scoped-attestation-execution.plan.md:563-573,871-889`.
+
+**Resolution:** add the gate to every implementation-bearing phase—or explicitly scope and justify exemptions—and define discharge as a retained artifact tied to an exact revision, with break-test commands/results and no unresolved BLOCKER/MATERIAL findings unless explicitly dispositioned.
+
+### MATERIAL — §9 and §10(f): kill arithmetic and decision state are undefined — IN-DELTA
+
+The criterion cannot be evaluated because no spike estimate or measurement unit exists. A spike on one surface kind also cannot supply an estimate for “any surface kind” without an extrapolation rule. `llp/0049-scoped-attestation-execution.plan.md:777-781,850-862`.
+
+Option (i) is a measurement step, not an alternative to the eventual campaign decision. “Author indicated agreement” leaves it unclear whether the spike is already authorized or still open.
+
+**Resolution:** define and retain `E_k` and `C_k`, their units and scope, and an unambiguous predicate such as `C_k > 2 × E_k`. Split §10(f) into: (1) authorization and budget for the spike; and (2) a post-spike choice among staged expansion, broad construction, shared-executor investment, hybrid scope, or narrowing.
+
+### MINOR — §6: fan-out method is guidance presented as measurement — IN-DELTA
+
+No retained artifact shows the claimed measurement or compares this method against alternatives. `llp/0049-scoped-attestation-execution.plan.md:617-630,871-889`.
+
+**Resolution:** call it retrospective guidance, or make it enforceable by recording branch, merge base, changed paths, integration owner, and reconciliation results for each tranche. If mandatory, promote those checkable requirements into §3.
+
+### MINOR — §6/§11: calibration source revision is not reproducible — IN-DELTA
+
+The calibration report and batch artifacts identify commit `6416114…` while explicitly saying the measured worktree was uncommitted. `llp/evidence/0049-calibration-tranche-report.json:5`; both `llp/evidence/0049-batch-native-op-*.json:5`.
+
+**Resolution:** add the exact landed commit mapping, tree/patch digest, or rerun and restamp the artifacts against a committed tree.
+
+### MINOR — §2: post-seeding class count is stale — PRE-EXISTING
+
+The prose gives 81 classes for a snapshot whose retained artifact gives 80. `llp/0049-scoped-attestation-execution.plan.md:167-170`; `llp/evidence/0049-scope-measurement-postseeding-005189b86117530799564848414872280858a685a5f5dd0adddfe04cc529a238.json:39-44`.
+
+**Resolution:** change 81 to 80 or identify the distinct snapshot underlying 81.
+
+### MINOR — §5.3: successive “now” status blocks obscure current state — IN-DELTA
+
+The 2026-08-06 block says gate code is still open; the immediately following 2026-08-07 block says it landed. Dates make the history recoverable, but “now” is stale in the earlier block. `llp/0049-scoped-attestation-execution.plan.md:541-573`.
+
+**Resolution:** label the first block “superseded historical status” and keep one explicit current Phase 1 gate ledger.
+
+## 4. Verdict
+
+**NOT READY**
+
+Minimal flip set:
+
+1. Correct the executor claim using a retained per-surface-kind capability matrix.
+2. Narrow or fully mechanize rule 10, including real-producer regeneration and process-only boundaries.
+3. Turn rule 11 into an auditable gate for every implementation-bearing phase and retain the Phase 1 review/break-test artifact.
+4. Record the spike estimate, units, and exact kill arithmetic; separate the agreed spike from the post-spike scope decision.

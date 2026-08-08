@@ -167,3 +167,195 @@ UNREVIEWED beyond `629599dea0b3`. Terminal verdicts: Fable r2 NOT READY
 was applied in its mechanism-scheduling form), Codex r2 NOT READY (all
 three flip-set items applied). Status remains Draft; acceptance and the
 §10 register are the author's.
+
+## Round 3 (execution-round delta) — 2026-08-07
+
+- **Family:** Claude (Fable 5)
+- **Provider/runtime:** fresh general-purpose subagent via Claude Code Agent
+  tool (independent context; authored neither the plan nor any revision)
+- **Date:** 2026-08-07
+- **Redacted:** no (public-repo content only)
+- **Method:** delta round on the 2026-08-07 execution-round revision
+  (`4e2990432` + `f77b30a5f`), document revision `b945bf4dbfa7`, HEAD
+  `f77b30a5f`; verified claims against the emitting code rather than the
+  calibration summary, including a direct survey of every
+  `classification == "effects"` executor in `src/bin/ibex/engine/`
+- **Verdict:** NOT READY (1 BLOCKER, 5 MATERIAL, 6 MINOR)
+
+### Review body (verbatim)
+
+# Review — LLP 0049, round 3 (execution-round delta)
+
+**Document:** `/Users/ccheever/projects/ibex/llp/0049-scoped-attestation-execution.plan.md`
+**Revision on disk:** `b945bf4dbfa7` (`shasum -a 256 llp/0049-scoped-attestation-execution.plan.md | cut -c1-12`) — matches the brief.
+**Repo HEAD:** `f77b30a5f` (`git rev-parse --short=9 HEAD`) — matches the brief. Working tree clean.
+**Delta scope confirmed:** `git show --stat f77b30a5f` (72+/2−, plan file only) plus `4e2990432` (both dated 2026-08-07) together contain exactly the six items the brief lists. Reviewed as one delta.
+
+---
+
+## 1. Checks
+
+**Verified**
+
+- Doc revision and HEAD match the brief; the delta is `4e2990432` + `f77b30a5f`, both 2026-08-07 (`git log -1 --format=%ci 4e2990432`).
+- Rule 10's checker discipline **genuinely exists in this repo for other artifacts**: `schemas/vectors/portable-engine-provenance-v1.valid.json` is consumed from JS (`packages/ibex-devtools/src/scripts/capsec-live-portable-engine-evidence.test.mjs:26`, `packages/ibex-devtools/src/scripts/capsec-portable-promotion-bundle.test.mjs:53`, `scripts/portable-engine-promotion-lineage.test.mjs:57`) and from Rust (`src/engine/portable_identity.rs:1328`, `src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs:331`, `src/host/portable_target_admission.rs:2149`).
+- The rule-10 BLOCKER fix actually landed and is discharged in code: `e11071717 fix(capsec): unify the scope artifact's canonical form across languages (review BLOCKER-1)`; the shared vector `schemas/vectors/capsec-scope-v1.valid.json` is now consumed by JS (`packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-65`) **and** by Rust through the production parser (`src/host/portable_target_admission.rs:2159-2176`, `generated_scope_vector_deserializes_through_the_production_parser`).
+- Rule 11 is **enforced, not merely mentioned**, in §5.3: the exit-gate sentence at line 534 was edited by the delta to add "an independent review of the merged implementation, with break-tests (§3 rule 11)" (`git show f77b30a5f`, hunk at §5.3).
+- §6's "closed table of eleven reviewed `process.env` read sources" is accurate: `src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs:176` — `const EXPECTED_SOURCES: [ExpectedSource; 11]`.
+- §6's "largest in-scope class is 454 rows across 77 surfaces" is accurate: `surface.loader.route × [fs:list, fs:read]` = 454 rows / 77 surfaces in `llp/evidence/0049-scope-measurement-phase2-calibration-close.json`.
+- §6's host-abi conclusion (no effectful receipt) holds, though for a reason the text states incorrectly — see MINOR 12. Both host-abi executors hard-assert zero typed decisions: `src/bin/ibex/engine/capsec_conformance_batch.rs:3111` and `:3552`.
+- The module-loader executor cannot produce an effectful receipt: `src/bin/ibex/engine/capsec_conformance_batch.rs:3867` (`classification == "non-capability"`), `:3868`, `:3884` (`expected_typed_decision_count == 0`).
+- §6's exit-gate command is real: `scripts/capsec-scope-measurement.mjs:39,49,67,218` supports `--assert clean-unresolved=0`. `scripts/capsec-terminal-evidence-diff.mjs` exists.
+- Poisoned-cell count is internally consistent at **73**; the only three "74" occurrences (lines 40, 175, 180) are explicitly labeled historical.
+- §5.3's "LLP 0021 §A9 matrix unchanged at 33 rows" checks out (`grep -c '^| M[0-9]' llp/0021-…plan.md` = 33), and M11/M26 exist as scope-transparent rows (`llp/0021-…plan.md:4541,4556`).
+- The `ex_host_env_ambient_set` ruling is recorded in the backlog ticket (`issues/20260728-capsec-public-surface-evidence-backlog.md:73-74,123-126`).
+
+**Failed**
+
+- **§6's headline calibration claim is false against the code** — an effectful, source-bound executor exists for a second surface kind. See BLOCKER 1.
+- **The calibration's surface-kind survey omits the loader family**, 56.8% of the worklist. See MATERIAL 2.
+- **§9's new kill criterion has no operand** — no spike estimate exists, is required, or is retained. See MATERIAL 3.
+- **Rule 11's own checker is unsatisfied by the review that produced it** — no implementation-review artifact exists in the repo. See MATERIAL 5.
+- **§2's "81 template classes" contradicts its own retained artifact** (80). See MINOR 7.
+
+**Could not verify**
+
+- "`surface.startup.env`'s `env:write` cells are Android/Rust startup sources with no JS-invocable surface at all" — targeted greps over `packages/ibex-devtools/src/scripts/capsec-coverage-model.mjs` did not confirm or refute the source attribution.
+- "`cargo test --lib` 719/0", "Rust scoped fixtures 14/0", "`check:secure-mode` green", "the fix is break-tested" — not re-run (another session may be on this machine) and no retained artifact exists to check them against.
+- "Five of ten names differed" in the rule-10 incident — the fix commits exist (`e11071717`, `caac9ecd5`); I did not reconstruct the pre-fix field lists.
+- The round-4 dual-READY claim and LLP 0044 register item 5 acceptance beyond the 33-row matrix and M11/M26 existence.
+
+---
+
+## 2. Overall assessment
+
+The two new rules are the strongest part of the delta. Rule 10 is correctly generalized, not a war story: it names a checker that this repo already practices for `portable-engine-provenance-v1` across three JS test files and three Rust sites, and the scope artifact's incident was genuinely the *absence* of that practice, now remedied. Rule 11 is likewise a real gate, wired into §5.3's exit-gate sentence rather than merely asserted.
+
+The problem is the other half of the delta. §6's calibration result — the finding the delta exists to record, and the sole premise under §9's new kill criterion and §10 item (f) — does not survive contact with the code. `src/bin/ibex/engine/capsec_public_builtin_batch.rs` is a complete effectful executor for `surface.builtin.export` with 205 recipes already authored on the advertised tuple over exactly the in-scope fs and env families, and `surface.builtin.export` is 10 in-scope classes and 673 authorable rows. The claim also contradicts itself two sentences later, where it concedes that `surface.startup.env` "has an effectful probe path." Meanwhile the surface family that genuinely has no effectful executor — the loader kinds, 31 classes and 2,220 rows, 56.8% of the worklist, including the plan's own "largest in-scope class" — is not mentioned in the calibration at all, and is what §10(f)'s recommended spike would silently land on.
+
+This is precisely the failure mode §3 rule 2 exists to prevent, one level up: a section-defining conclusion inherited from a session summary rather than derived from the emitting code. It is worth noting that the calibration artifact itself (`llp/evidence/0049-calibration-tranche-report.json`, `costModelFindings[3]`) is scrupulously scoped — it says only native-op *had* an executor among **the classes examined**, and names only host.abi and startup.env. The plan promoted that bounded observation into an unbounded one. The honesty defect is in the document, not the evidence.
+
+Secondary: §9's new criterion measures against a number that nothing produces; the gate-code status block's figures have no retained artifact and no §11 row, which is the compliance condition §11 states about itself; and §6 now contains a calibration result ("security-sensitive Rust, not template text") that flatly contradicts the section's own opening premise ("Authoring needs no gate code") while §6's exit gate carries no rule-11 review.
+
+---
+
+## 3. Findings
+
+### BLOCKER 1 — §6 (calibration result), §10 item (f) — IN-DELTA
+
+**"Only `native-op` has an executor that can produce an effectful source-bound receipt today" is false.**
+
+`src/bin/ibex/engine/capsec_public_builtin_batch.rs` is an effectful, source-bound executor for `surface.builtin.export`:
+
+- admits `classification == "effects"` — `:432` (selector), `:1042` (assertion);
+- runs the full effect scenario matrix `"allow" | "deny" | "malformed" | "missing-attribution" | "wrong-principal"` — `:1043-1046`;
+- asserts **observed** typed decisions against the pinned count — `:1078` (`typed_decisions.len() == invocation.expected_typed_decision_count`), with `:1076` rejecting legacy checks as typed evidence and `:1227` pinning each decision's evidence identity;
+- is **source-bound** — `:1071` (source-descriptor JCS digest) plus per-export `sourceKey` pinning to `node_fs` (`:641`, `:790`, `:856`, `:905`) and `node_os` (`:629`);
+- drives **real** filesystem effects with fixture setup (`prepare_invocation`, `:604-970`) and verifies physical postconditions (`verify_postcondition`, `:517-530`, e.g. `mkdirSync` directory existence per scenario);
+- has **205 recipes already authored** for `aarch64-apple-darwin` (`:448-461`), whose own comment enumerates them as `fs:list` accessSync/existsSync/realpathSync/statfsSync, `fs:read` readFileSync/readlinkSync, `fs:write` appendFileSync/mkdirSync/truncateSync/writeFileSync, openSync's three branches, and opendirSync — all inside the fs+env+process scope;
+- the invocation machinery is explicitly generic, per its own comment at `:641-647`: "All are driven by the generic export invocation script."
+
+`surface.builtin.export` is **10 in-scope template classes / 673 authorable rows** (17.2% of 3,911), computed from `llp/evidence/0049-scope-measurement-phase2-calibration-close.json`. Extending it to new exports needs a reviewed-table edit (`:685` panics on an unreviewed fs export) — which is exactly the "small executor edit per family" cost §6 already reports for native-op, not new executor construction.
+
+The claim is also self-contradicting: the very next bullet concedes `surface.startup.env` "has an effectful probe path" (verified: `capsec_public_startup_environment_batch.test.rs:703`, `:881` assert `classification == "effects"` with nonzero decision counts).
+
+Downstream, §10(f) states "the ~79 remaining template classes are gated on Rust executor work of unmeasured size." Of those 79, the 10 native-op classes (200 rows) are not gated at all and the 10 builtin-export classes (673 rows) are gated only on table extension. The item's scale is overstated by roughly 873 rows and 20 classes.
+
+**Resolves it:** replace the headline with what the code supports — *three* surface kinds have effectful executors today (native-op, general; builtin-export, general invocation machinery with a reviewed per-export validation table and 205 recipes landed; startup-env read, closed 11-source table) — cite `capsec_public_builtin_batch.rs:432,1042,1078,1071` and `capsec_public_startup_environment_batch.test.rs:176,703`; then re-derive §10(f)'s scale from a per-surface-kind breakdown of the retained measurement rather than from the exclusivity claim.
+
+### MATERIAL 2 — §6 (calibration result), §10 item (f) — IN-DELTA
+
+**The calibration's surface-kind survey omits the loader family, which is the majority of the worklist and the actual gating risk.**
+
+From `llp/evidence/0049-scope-measurement-phase2-calibration-close.json`: `surface.loader.*` is **31 of 79 classes and 2,220 of 3,911 rows (56.8%)**, and contains §6's own cited "largest in-scope class" (`surface.loader.route × [fs:list, fs:read]`, 454 rows / 77 surfaces). The only loader executor in the tree hard-asserts non-capability and zero typed decisions (`capsec_conformance_batch.rs:3867,3868,3884`), and a grep for `classification == "effects"` across `src/bin/ibex/engine/*.rs` returns only three files (`capsec_conformance_batch.rs`, `capsec_public_builtin_batch.rs`, `capsec_public_startup_environment_batch.test.rs`) — none of which serves loader surfaces. So the loader family has no effectful path at all: the strongest available form of the plan's thesis, and it goes unrecorded.
+
+This matters operationally: §10(f)(i)'s "highest-row non-`native-op` surface kind, chosen from a fresh per-surface-kind row distribution" resolves to `surface.loader.route` (1,195 rows) — the kind the calibration never examined — yet neither §6 nor §10 says so, and the option text reads as though the kinds were surveyed.
+
+**Resolves it:** add the per-surface-kind row/class distribution (it is already computable from the retained artifact) to §6, name the loader family as the kind with no effectful executor and cite `capsec_conformance_batch.rs:3884`, and say in §10(f) which kind the spike resolves to under the current measurement.
+
+### MATERIAL 3 — §9 (executor-cost kill criterion) — IN-DELTA
+
+**"Exceeds its spike estimate by 2x" has no operand.**
+
+`grep -n "estimate\|spike" llp/0049-…plan.md` returns the criterion at line 777 and §10(f)(i) at line 854. §10(f)(i) defines the spike as running "purely to measure the multiplier before committing" — a measurement, not an estimate. Consequences: (a) for the spike kind itself there is no prior estimate to exceed by 2x, so the criterion cannot fire where it most matters; (b) for every other kind, nothing states that the spike's measurement becomes their estimate; (c) no unit is named — engineer-hours, wall-clock, rows/day, and correction-loop iterations would each give a different verdict; (d) §11 carries no row for such an estimate, so §3 rule 1 does not bind it and no artifact will exist to check against.
+
+Round 2 corrected the net-closure criterion for firing on any positive growth. This is the same class of defect reached by a different route: there, a wrong inequality; here, a missing operand. Applying the same arithmetic scrutiny, the criterion as written is unevaluable.
+
+**Resolves it:** name the unit and the artifact — e.g. "engineer-hours of Rust executor work per surface kind, recorded at spike close as an `llp/evidence/` row and indexed in §11; that measurement is the estimate for every subsequent kind; a kind exceeding it by 2x stops scaling." Or withdraw the criterion until §10(f) is discharged.
+
+### MATERIAL 4 — §6 (opening premise and exit gate) — IN-DELTA
+
+**§6 now contradicts itself on whether Phase 2 produces gate code, and its exit gate omits rule 11 for work the same section calls security-sensitive Rust.**
+
+Line 577: "Authoring needs no gate code, so this phase starts once Phase 0 completes and runs concurrently with Phase 1." Lines 677-678, added by the delta: "LLP 0036's 'small executor edit per family' is confirmed as the real unit of work, and it is **security-sensitive Rust, not template text**." Both stand in the same section.
+
+Rule 11's motivating case is exactly this: 719 self-verified green Rust tests that still shipped a BLOCKER. If Phase 2's dominant work product is security-sensitive Rust executors, rule 11 applies to Phase 2 at least as strongly as to Phase 1 — yet §6's exit gate (lines 692-699) contains only the scope-measurement assert, envelope retention, and delta cleanliness. Rule 11 is therefore not over-fitted to its incident; it is *under-applied* relative to what the delta itself now knows.
+
+**Resolves it:** correct §6's opening premise, and add rule 11 to §6's exit gate for every batch that lands an executor change (the batch-only, template-only path can stay exempt).
+
+### MATERIAL 5 — §3 rule 11 checker, §5.3 gate-code status block, §11 — IN-DELTA (honesty)
+
+**The rule-11 checker is unsatisfied by the very review that produced rule 11.**
+
+Rule 11's checker (lines 320-322) says "the review artifact and the break-test results are part of the exit gate." `ls llp/reviews/` (45 files) contains no implementation-review artifact — only `0021-scoped-advertisement-amendment.{fable,codex}.md` (the *design package* review) and `0049-scoped-attestation-execution.{fable,codex}.md` (reviews of this plan). Greps for "break-test" across `llp/` and `issues/` return only this plan itself.
+
+Separately, the 2026-08-07 status block's figures — "`cargo test --lib` 719/0", "the Rust scoped fixtures 14/0", "`check:secure-mode` green with `SECURE_SMOKE` reporting real enforcement", "the fix is break-tested" — carry no retained artifact and no §11 row, while §11's own preamble states "the plan is out of compliance if a §3 rule 1 figure lacks a row." The 719 figure is load-bearing: it is rule 11's entire justification.
+
+To be fair to the delta: the *substance* is verifiable in code. The BLOCKER fix landed (`e11071717`) and the cross-language vector is consumed from both sides (`capsec-scope-artifact.test.mjs:53-65`; `portable_target_admission.rs:2159-2176`). What is missing is the record, in a delta whose whole thesis is that self-verified green is not evidence.
+
+**Resolves it:** retain the implementation review under `llp/reviews/0049-phase1-implementation.<family>.md` with its break-test results, and add §11 rows for it and for the 719/14/`check:secure-mode` run. Alternatively drop the unretained figures from the status block and cite the review artifact alone.
+
+### MATERIAL 6 — §10 item (f) — IN-DELTA
+
+**Item (f) is simultaneously "the one genuinely open" trade and a decision already taken, its option set is incomplete, and it is out of order in the register.**
+
+Line 850 calls (f) "the one genuinely open scope/budget trade"; line 858 records "author indicated agreement 2026-08-07" with option (i). The ledger block at lines 818-827 is dated 2026-08-06 and does not mention (f), so the register's own status-of-record contradicts the item body. A reader cannot tell whether (f) needs a decision.
+
+The option set is also incomplete, and incomplete *because of* BLOCKER 1. Given that builtin-export already has a general effectful executor and native-op is unblocked, there is a fourth option the plan never considers: **exhaust the classes reachable through the executors that already exist before funding any new executor construction** — ~873 rows (10 builtin-export classes + 10 native-op classes) with no new executor at all, which would also produce a far better-grounded cost model than a single spike.
+
+Finally, item (f) is printed between (d) and (e) (lines 850 and 864) — the register reads d, f, e.
+
+**Resolves it:** record the (f) decision in the ledger with its date and resulting status; add the fourth option; move (f) after (e).
+
+### MINOR 7 — §2 — PRE-EXISTING
+
+§2 states "3,927 clean authorable rows across 491 surfaces in **81** template classes" (lines 169-170) and repeats 81 at line 184. The retained artifact it cites reports `templateClasses: 80` (`llp/evidence/0049-scope-measurement-postseeding-df1da4b5….json`), and §11's own calibration-close row says "80 → 79" (line 887). A §3 rule 1 figure disagreeing with the artifact it inherits from. **Resolves it:** correct both to 80.
+
+### MINOR 8 — §6 (worklist) — PRE-EXISTING, aggravated by the delta
+
+Line 604-605 still reads "the ~3,922 clean authorable rows across ~80 template classes" — the 2026-08-05 figure §2's own denominator note (lines 181-185) declares superseded. Current retained figure: 3,911 rows / 488 surfaces / 79 classes. The delta added a calibration result to this same section without restating its worklist. **Resolves it:** restate as 3,911/79 with the calibration-close artifact cited, keeping the rule-5 re-derivation caveat.
+
+### MINOR 9 — §5.3 gate-code status block — IN-DELTA
+
+The block says "the report-schema version seam closed repo-wide" and then lists "two report schemas colliding on id `/3`" as still open. A reader cannot tell whether the seam is closed. `schemas/capsec-conformance-report-v2.schema.json:3` is the only conformance-report schema on disk carrying a `$id`, so the "/3" collision is not locatable from the repo. **Resolves it:** name the two colliding files and scope the "closed repo-wide" claim to what it actually covers.
+
+### MINOR 10 — §6 (fan-out method) — IN-DELTA
+
+Most of the fan-out method is legitimately advice, but two parts are mechanically checkable and would be worth more as rules with commands than as prose: "verify each branch's true diff from its **merge base**" (`git diff $(git merge-base origin/main HEAD)..HEAD`) and one-worktree-per-agent (`git worktree list`). As written, a Phase 2 lead cannot tell whether these bind. **Resolves it:** either promote those two into §3 with the command as checker, or state explicitly that §6's fan-out method is non-binding operational advice.
+
+### MINOR 11 — §6, §11 (calibration record) — IN-DELTA
+
+The enforcement-defect stop is now discharged: `issues/20260806-exactwhich-declares-typed-effects-it-never-emits.md` is in `issues/closed/`, fixed by `54f69d0df feat(capsec): typed enforcement for __exactWhich`. §6 and §11 still present that class as stopped. Accurate as history, stale as status. **Resolves it:** one line noting the defect is fixed and the class re-authorable.
+
+### MINOR 12 — §6 (host-abi characterization) — IN-DELTA
+
+"`surface.host.abi`'s probe path admits only non-capability module-runner ABIs with zero expected decisions" is wrong about the mechanism though right about the conclusion. There are two host-abi executors: `execute_module_runner_host_abi_public_recipe` asserts `classification == "non-capability"` (`capsec_conformance_batch.rs:3539`), but `execute_host_abi_public_recipe` admits `classification == "effects"` with scenario `"branch-selection" | "no-effect"` (`:3091,3093`). What actually blocks an effectful receipt in both is the zero-decision assertion (`:3111`, `:3552`), not non-capability admission. Under §3 rule 2, a mechanism claim should name the emitting code. **Resolves it:** restate as "both host-abi executors pin `expected_typed_decision_count == 0` (`capsec_conformance_batch.rs:3111`, `:3552`)."
+
+---
+
+## 4. Verdict
+
+**NOT READY.**
+
+Rules 10 and 11 are sound, correctly generalized, and backed by a checker discipline this repo demonstrably practices — that part of the delta should stand. But §6's calibration section, which the delta exists to record and on which §9's new criterion and §10's new register item both depend, asserts an exclusivity about the executor landscape that the code contradicts, while omitting the surface family that carries the majority of the worklist and no effectful executor at all. A plan whose §3 rule 2 forbids sizing work from anything but the emitting code cannot size its own dominant unknown from an inherited summary.
+
+**Minimal flip set:**
+
+1. **BLOCKER 1** — correct §6's executor claim to the three-kind reality with `file:line` citations, and re-derive §10(f)'s scale from the per-surface-kind distribution instead of the exclusivity premise.
+2. **MATERIAL 2** — record the loader family's 31 classes / 2,220 rows and its zero-decision-only executor in §6, and name which kind §10(f)(i)'s spike resolves to.
+3. **MATERIAL 3** — give §9's executor criterion a named unit, a retained artifact, and an explicit statement that the spike measurement is the estimate for subsequent kinds; or withdraw it until (f) is discharged.
+4. **MATERIAL 4** — fix §6's "Authoring needs no gate code" premise and add rule 11 to §6's exit gate for executor-changing batches.
+5. **MATERIAL 5** — retain the Phase 1 implementation review artifact under `llp/reviews/` with its break-test results and add §11 rows for it and the 719/14/`check:secure-mode` figures, or drop those figures.
+6. **MATERIAL 6** — reconcile item (f)'s open-vs-decided status in the ledger and add the fourth option (exhaust the ~873 rows reachable through existing executors first).
+
+The MINORs are worth folding into the same pass but do not gate the flip.
