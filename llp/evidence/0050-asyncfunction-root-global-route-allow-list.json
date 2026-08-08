@@ -1,0 +1,9 @@
+{
+ "measurement": "llp-0045-route-evidence-allow-list",
+ "step": "llp-0050-asyncfunction-evaluator-identity-restamp",
+ "gate": "issues/closed/20260806-llp0050-asyncfunction-root-global-unclassified.md — paired route-evidence gate over d604d116b",
+ "baselineDigest": "sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs",
+ "candidateDigest": "declared-before-candidate-generation (strict mode: the candidate embeds this file's content digest via --declared-allow-list)",
+ "note": "Intentionally empty after reviewing the exact 1c3806832..d604d116b restamp. The change rotates the shared four-evaluator identity and lockdown taming digest but changes no recipe, route-evidence field, lane assignment, or residual reason; baseline and undeclared survey candidate are byte-identical at 22,505 recipes. Strict mode still binds this explicit zero-delta declaration before the final candidate is generated.",
+ "entries": []
+}

@@ -1,5 +1,7 @@
 # `__exactWhich` declares typed env:read + fs:list effects the armed runtime never emits
 
+**Status:** Closed
+
 **Opened:** 2026-08-06 · **Priority:** P1 (draft — see Evidence status) · **Owner:**
 the CapSec coverage-model / runtime-enforcement workstream (filed by the
 LLP 0049 Phase 2 calibration tranche, which stopped the
@@ -90,3 +92,47 @@ the entire `surface.native.op × [env:read, fs:list]` template class, so that
 class cannot reach `unresolved-in-scope === 0` until this is resolved.
 `Exact.which` and `Bun.which` alias the same global
 (`src/bin/ibex/runtime.rs:4238-4240`).
+
+## Resolution (2026-08-07)
+
+Resolved on `main` by `54f69d0df` (`feat(capsec): typed enforcement for
+__exactWhich; close legacy numeric bearers at the typed-arm boundary`). The
+physical answer to the ticket's severity question is **deny**: an armed Host
+hard-denies the legacy capability shim for the root principal, so the old
+`checkCapability("process:spawn")` path made the host-PATH disclosure
+unreachable. The original defect was therefore a certification-integrity
+mis-declaration, not a live secure-runtime disclosure.
+
+The implementation was nevertheless brought onto the typed path so the model
+and runtime now agree deliberately rather than by legacy-shim coincidence:
+
+- a bare command authorizes exact `env:read(PATH)` at requested+commit against
+  the current principal overlay before any lookup, then probes candidates
+  through staged `fs:list` in the armed VFS;
+- a slash-containing command skips PATH and performs only the staged `fs:list`
+  branch;
+- successful lookup returns the virtual `/project/...` spelling, never a host
+  `realpath`; ambient `getenv`/`access`/`realpath` lookup exists only in the
+  explicit insecure build;
+- `__exactHandleReadFileSync` now carries the deny-only `fs:unbound-read`
+  classification, and both possession and re-attenuation of a legacy numeric
+  bearer fail closed after the typed-arm boundary.
+
+Physical verification used the exact LLP 0039 secure vector
+`--no-default-features --features
+standard,capsec-conformance-observer,openssl-crypto`:
+
+- `armed_which_` runtime tests — 2 pass / 0 fail. Allowed bare lookup observed
+  typed env requested+commit before filesystem decisions; the direct branch
+  observed only typed `fs:list`; both denied branches crossed zero path lookup
+  syscalls; neither consulted the legacy oracle.
+- `armed_host_evaluates_typed_authority_and_records_structured_evidence` —
+  PASS, physically confirming the armed root legacy shim denies.
+- `armed_host_refuses_seeded_legacy_bearer_at_use_time` — PASS, including
+  possession and re-attenuation refusal for a valid bearer minted before host
+  installation.
+
+A fresh `aarch64-apple-darwin` recipe catalog now derives two exact logical
+branches for `surface.native.op.exactwhich.0it66ce`. Their Phase 2 public
+invocation templates remain unauthored; that is ordinary authoring backlog,
+not the enforcement defect that stopped the family.

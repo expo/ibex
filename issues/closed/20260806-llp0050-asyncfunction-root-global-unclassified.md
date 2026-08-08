@@ -1,5 +1,7 @@
 # LLP 0050 landing left `native-op:global:AsyncFunction` unclassified — root-global chain red on main
 
+**Status:** Closed
+
 **Opened:** 2026-08-06 · **Priority:** P1 · **Owner:** the ENG-25093 / LLP 0050
 workstream (this ticket filed by the LLP 0049 Phase 0 session during
 integration)
@@ -56,3 +58,44 @@ disposition chain is regenerated (not hand-edited), `check:drift` is green
 on main, and the 0050 surface delta passes the route-evidence gate
 (`scripts/llp0045-route-evidence-diff.mjs --scope all`) with an authored
 allow-list.
+
+## Resolution (2026-08-07)
+
+Resolved on `main` by `d604d116b` (`fix(capsec): restamp four-evaluator
+identity after LLP 0050 lockdown delta`). The failure was not a missing or
+new disposition for `AsyncFunction`. LLP 0050 added `WeakRef` and
+`FinalizationRegistry` to the lockdown hardening roots, which rotated the
+content-addressed lockdown taming digest and therefore the review identity
+shared by all four reachable evaluator surfaces. The stale identity pin made
+the classifier fail closed, and `AsyncFunction` happened to be the first
+observed surface reported.
+
+The sibling precedent determines the ruling without widening the armed
+surface: `AsyncFunction`, `Function`, `GeneratorFunction`, and `eval` all
+remain closed as `vm:evaluate`. `AsyncFunction` and `GeneratorFunction` are
+`intrinsic-reference-only` roots reached through lockdown's prototype
+reflection; neither is a capture-then-delete global, so the
+`PRIVATE_CONSUMERS` rule does not apply. The reviewed restamp moved the shared
+review ID and taming digest together, then regenerated the complete chain; it
+did not change capability definitions, coverage semantics, target cells,
+dispositions, or runtime code.
+
+Verification on integrated `origin/main` (`e11071717`):
+
+- `bun run check:drift` — PASS, including 2,811 root-global install branches
+  and all generated artifacts current.
+- `bun test packages/ibex-devtools/src/scripts/generate-capsec-registry.test.mjs`
+  — 12 pass / 0 fail, including byte-identical rendering and committed-output
+  currency.
+- `scripts/llp0045-route-evidence-diff.mjs --scope all` — PASS in strict
+  declared-allow-list mode against the exact `1c3806832..d604d116b` restamp:
+  22,505 recipes on both sides, zero route changes, zero residual delta, and
+  zero stale entries. The intentionally empty advance declaration is
+  `llp/evidence/0050-asyncfunction-root-global-route-allow-list.json`.
+- `bun test packages/ibex-devtools/src/scripts/capsec-coverage-model.test.mjs`
+  — the evaluator-identity/classification regression passes. The suite is
+  142/143 overall because the separate `fs:unbound-read` definition added by
+  the `__exactWhich` remediation left a frozen total at 41 instead of 42; that
+  unrelated red is tracked by
+  `issues/20260807-capsec-definition-coverage-count-stale.md` and was not
+  papered over across the Phase 1 script seam.
