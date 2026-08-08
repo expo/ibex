@@ -333,11 +333,9 @@ async function createHistoryPromotion(fixture, {
       `${evidenceRoot}/promotion-bundle-manifest.json`,
     ),
     ...graph.members.map((member) => {
-      const role =
-        member.logicalName === "scope-artifact" &&
-        variant !== "missing-scope-row"
-          ? "scope-artifact"
-          : "conformance-evidence";
+      const role = member.logicalName === "scope-artifact"
+        ? "scope-artifact"
+        : "conformance-evidence";
       return artifactRow(repoRoot, role, memberPath(member.logicalName));
     }),
   ];
@@ -346,6 +344,12 @@ async function createHistoryPromotion(fixture, {
   );
   if (variant === "scope-row-object-mismatch") {
     scopeRow.blobObjectId = "f".repeat(40);
+  } else if (variant === "scope-row-size-mismatch") {
+    scopeRow.size += 1;
+  } else if (variant === "scope-row-digest-mismatch") {
+    scopeRow.digest = `sha256-${"f".repeat(64)}`;
+  } else if (variant === "missing-scope-row") {
+    await fsp.rm(path.join(repoRoot, scopeRow.path));
   }
   artifacts.push(artifactRow(repoRoot, "target-attestation", targetAttestationPath));
   artifacts.push(artifactRow(repoRoot, "target-advertisement", targetAdvertisementPath));
@@ -907,11 +911,11 @@ async function initializeSourceRepository() {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ibex-promotion-lineage-"));
   temporaryRoots.add(root);
   const repoRoot = path.join(root, "checkout");
-  await fsp.mkdir(repoRoot);
-  git(repoRoot, ["init", "--quiet", "--initial-branch=main"]);
+  git(root, ["clone", "--quiet", "--no-checkout", sourceRoot, repoRoot]);
   git(repoRoot, ["config", "user.name", "Ibex promotion test"]);
   git(repoRoot, ["config", "user.email", "ibex-promotion@example.invalid"]);
   git(repoRoot, ["config", "advice.addEmbeddedRepo", "false"]);
+  git(repoRoot, ["switch", "--quiet", "--force-create", "main", lineageFloor]);
 
   for (const relativePath of [
     "scripts/portable-engine-promotion-lineage.mjs",
@@ -1442,14 +1446,36 @@ describe("M27 evolvable scoped promotion history", () => {
     assert.throws(() => resolveHistory(fixture.repoRoot, head), /replace refs/u);
   });
 
-  test("F6f all three tree-unbacked variants defeat the round-2 shape-only predicate", async () => {
+  test("F6f tree-unbacked variants pass admission shape and fail the M27(i) joins", async () => {
     for (const [variant, pattern] of [
-      ["missing-scope-row", /exactly one scope-artifact/u],
+      ["missing-scope-row", /changed-path set mismatch/u],
       ["scope-row-object-mismatch", /checked blob object ID mismatch/u],
+      ["scope-row-size-mismatch", /checked blob size mismatch/u],
+      ["scope-row-digest-mismatch", /checked blob raw digest mismatch/u],
       ["scope-digest-mismatch", /admittedScopeDigest is not backed/u],
     ]) {
       const fixture = await initializeHistoryRepository();
       const promotion = await createHistoryPromotion(fixture, { variant });
+      assert.equal(
+        promotion.admission.artifacts.filter((row) => row.role === "scope-artifact").length,
+        1,
+        `${variant} must reach M27(i) with the required scope-artifact role`,
+      );
+      if (variant === "missing-scope-row") {
+        const scopePath = promotion.admission.artifacts.find(
+          (row) => row.role === "scope-artifact",
+        ).path;
+        const trackedScope = spawnSync(
+          "/usr/bin/git",
+          ["cat-file", "-e", `${promotion.mergeRevision}:${scopePath}`],
+          { cwd: fixture.repoRoot, env: gitEnvironment, encoding: "utf8" },
+        );
+        assert.notEqual(
+          trackedScope.status,
+          0,
+          "missing-scope-row must retain the canonical row while omitting its blob from the merge tree",
+        );
+      }
       // This is the executable round-2 negative control: merge topology and
       // the unkeyed admission self-digest are both valid for every variant.
       assert.equal(roundTwoShapeOnlyAccepts(fixture.repoRoot, promotion), true);
@@ -1639,6 +1665,11 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     const linkedFixture = await createPromotionRepository();
     const linkedRoot = path.join(linkedFixture.root, "linked-checkout");
     git(linkedFixture.repoRoot, ["worktree", "add", "--quiet", "--detach", linkedRoot, "HEAD"]);
+    await fsp.symlink(
+      path.join(sourceRoot, "node_modules"),
+      path.join(linkedRoot, "node_modules"),
+      "dir",
+    );
     const linkedResult = verifiedResult(linkedRoot);
     assert.equal(linkedResult.authorized, true);
     assert.equal(linkedResult.currentRevision, linkedFixture.promotionMergeRevision);
@@ -1653,6 +1684,11 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     const linkedFixture = await createPromotionRepository();
     const linkedRoot = path.join(linkedFixture.root, "linked-checkout");
     git(linkedFixture.repoRoot, ["worktree", "add", "--quiet", "--detach", linkedRoot, "HEAD"]);
+    await fsp.symlink(
+      path.join(sourceRoot, "node_modules"),
+      path.join(linkedRoot, "node_modules"),
+      "dir",
+    );
     await fsp.link(path.join(linkedRoot, ".git"), path.join(linkedFixture.root, "gitfile-hardlink"));
     assertVerifierRefuses(linkedRoot, /trusted regular files must have one filesystem link/u);
 
@@ -1721,7 +1757,7 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     });
     assertVerifierRefuses(
       fixture.repoRoot,
-      /expected 14\.\.100003 rows|manifest member count is outside the bound|no detached process/u,
+      /expected 15\.\.100003 rows|manifest member count is outside the bound|no detached process/u,
     );
   });
 
@@ -1729,7 +1765,7 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     const fixture = await createPromotionRepository({ missingProcess: true });
     assertVerifierRefuses(
       fixture.repoRoot,
-      /expected 14\.\.100003 rows|omits portable bundle member process-0001\.command-attempt/u,
+      /expected 15\.\.100003 rows|omits portable bundle member process-0001\.command-attempt/u,
     );
   });
 
@@ -1770,11 +1806,11 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
 
   test("executable, symlink, and submodule promotion artifacts are refused", async () => {
     const executable = await createPromotionRepository({ executableEvidence: true });
-    assertVerifierRefuses(executable.repoRoot, /symlinks, submodules, executables/u);
+    assertVerifierRefuses(executable.repoRoot, /expected one checked regular blob/u);
     const symlink = await createPromotionRepository({ symlinkEvidence: true });
-    assertVerifierRefuses(symlink.repoRoot, /symlinks, submodules, executables/u);
+    assertVerifierRefuses(symlink.repoRoot, /expected one checked regular blob/u);
     const submodule = await createPromotionRepository({ submoduleEvidence: true });
-    assertVerifierRefuses(submodule.repoRoot, /symlinks, submodules, executables/u);
+    assertVerifierRefuses(submodule.repoRoot, /expected one checked regular blob/u);
   });
 
   test("the checked catalog itself cannot be a symlink or submodule", async () => {

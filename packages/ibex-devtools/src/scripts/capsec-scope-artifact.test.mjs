@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 
 import Ajv2020 from "ajv/dist/2020.js";
 
-import { semanticDigest } from "../../../../scripts/portable-engine-contract.mjs";
+import {
+  canonicalJson,
+  semanticDigest,
+} from "../../../../scripts/portable-engine-contract.mjs";
 import {
   SCOPE_CELL_MAPPING_DOMAIN,
   SCOPE_DOMAIN,
@@ -45,6 +48,21 @@ test("scope schemas are strict JSON Schema 2020-12 documents", () => {
     ),
   );
   assert.doesNotThrow(() => ajv.compile(mapping));
+});
+
+test("the generated scope vector is canonical and schema-valid", () => {
+  const vectorBytes = fs.readFileSync(
+    path.join(repoRoot, "schemas/vectors/capsec-scope-v1.valid.json"),
+  );
+  const vector = JSON.parse(vectorBytes);
+  assert.equal(vectorBytes.toString("utf8"), canonicalJson(vector));
+
+  const schema = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "schemas/capsec-scope-v1.schema.json")),
+  );
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+  assert.equal(validate(vector), true, JSON.stringify(validate.errors));
+  assert.equal(vector.scopeDigest, computeScopeDigest(vector));
 });
 
 test("scope digest uses the v1 domain and excludes only its self digest", () => {

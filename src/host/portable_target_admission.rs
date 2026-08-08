@@ -56,25 +56,74 @@ struct ScopeIntensionalDefinition {
     surface_kinds: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ScopeClosureEdge {
     from_edge_id: String,
     to_edge_id: String,
+    dependency_kind: ScopeDependencyKind,
+    implementation_branch_id: String,
+    terminal_observed_key: String,
+    proof_paths: Vec<String>,
+    source_refs: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+enum ScopeDependencyKind {
+    #[serde(rename = "source-derived-route")]
+    SourceDerivedRoute,
+    #[serde(rename = "argument-selected-branch-alternative")]
+    ArgumentSelectedBranchAlternative,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ScopeClosureEdgeIdentity {
+    from_edge_id: String,
+    to_edge_id: String,
+}
+
+impl ScopeClosureEdge {
+    fn identity(&self) -> ScopeClosureEdgeIdentity {
+        ScopeClosureEdgeIdentity {
+            from_edge_id: self.from_edge_id.clone(),
+            to_edge_id: self.to_edge_id.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum ScopePredecessor {
+    #[serde(rename = "genesis")]
+    Genesis,
+    #[serde(rename = "scope")]
+    Scope {
+        #[serde(rename = "scopeDigest")]
+        scope_digest: Digest,
+    },
+}
+
+impl ScopePredecessor {
+    fn digest(&self) -> &str {
+        match self {
+            Self::Genesis => SCOPE_GENESIS,
+            Self::Scope { scope_digest } => scope_digest.as_str(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CapsecScopeArtifact {
-    schema: String,
+    scope_schema: String,
     profile: String,
     target: AdvertisementTarget,
     intensional_definition: ScopeIntensionalDefinition,
-    expanded_cells: Vec<String>,
+    expanded_cell_ids: Vec<String>,
     closure_edges: Vec<ScopeClosureEdge>,
-    predecessor_scope_digest: String,
-    expansion_diff_digest: Digest,
-    cell_mapping_digest: Digest,
+    predecessor: ScopePredecessor,
+    scope_expansion_diff_digest: Digest,
+    scope_cell_mapping_digest: Digest,
     scope_digest: Digest,
 }
 
@@ -1515,7 +1564,6 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
                     .into_iter()
                     .flatten()
             })
-            .filter(|dependency| dependency.as_str() != *edge_id)
             .cloned()
             .collect::<BTreeSet<_>>();
         fixture_catalog.push(serde_json::json!({
@@ -1547,24 +1595,16 @@ fn checked_report_authority(target: &AdvertisementTarget) -> Result<CheckedRepor
 }
 
 fn parse_scope_artifact(scope_text: &str) -> Result<(Value, CapsecScopeArtifact)> {
-    if scope_text == "null\n" {
+    if scope_text == "null" || scope_text == "null\n" {
         return Err(refused(
             "promoted CapSec scope artifact is absent from this build",
         ));
     }
-    let canonical = scope_text
-        .strip_suffix('\n')
-        .ok_or_else(|| invalid("promoted scope artifact must end in exactly one line feed"))?;
-    if canonical.ends_with('\n') {
-        return Err(invalid(
-            "promoted scope artifact has more than one trailing line feed",
-        ));
-    }
-    let value = capsec_semantics::strict_json::parse_strict(canonical)
+    let value = capsec_semantics::strict_json::parse_strict(scope_text)
         .map_err(|error| invalid(format!("invalid promoted scope artifact: {error}")))?;
     let expected = capsec_semantics::canonical::to_jcs(&value)
         .map_err(|error| invalid(format!("promoted scope artifact is not I-JSON: {error}")))?;
-    if expected != canonical {
+    if expected != scope_text {
         return Err(invalid(
             "promoted scope artifact bytes are not exact RFC 8785 JCS",
         ));
@@ -1597,7 +1637,7 @@ fn validate_scope_selector(selector: &ScopeIntensionalDefinition) -> Result<()> 
 fn derive_scope_expansion(
     authority: &CheckedReportAuthority,
     selector: &ScopeIntensionalDefinition,
-) -> Result<(BTreeSet<String>, BTreeSet<ScopeClosureEdge>)> {
+) -> Result<(BTreeSet<String>, BTreeSet<ScopeClosureEdgeIdentity>)> {
     validate_scope_selector(selector)?;
     let families = selector
         .capability_families
@@ -1641,7 +1681,7 @@ fn derive_scope_expansion(
             ))
         })?;
         for to_edge_id in &cell.closure_dependencies {
-            closure.insert(ScopeClosureEdge {
+            closure.insert(ScopeClosureEdgeIdentity {
                 from_edge_id: from_edge_id.clone(),
                 to_edge_id: to_edge_id.clone(),
             });
@@ -1660,7 +1700,7 @@ fn admit_scope_artifact(
     anchor: &CheckedPromotionScopeAnchor,
 ) -> Result<(CapsecScopeArtifact, BTreeSet<String>)> {
     let (value, scope) = parse_scope_artifact(scope_text)?;
-    if scope.schema != SCOPE_SCHEMA_V1 || scope.profile != CAPSEC_PROFILE {
+    if scope.scope_schema != SCOPE_SCHEMA_V1 || scope.profile != CAPSEC_PROFILE {
         return Err(invalid(
             "promoted scope artifact has the wrong schema or profile",
         ));
@@ -1685,26 +1725,53 @@ fn admit_scope_artifact(
             "promoted scope digest does not rejoin its advertisement and lineage anchor",
         ));
     }
-    if scope.predecessor_scope_digest != anchor.predecessor_scope_digest
-        || (scope.predecessor_scope_digest != SCOPE_GENESIS
-            && Digest::new(&scope.predecessor_scope_digest).is_err())
-    {
+    if scope.predecessor.digest() != anchor.predecessor_scope_digest {
         return Err(refused(
             "promoted scope predecessor differs from the lineage-resolved anchor",
         ));
     }
+    let closure_order = scope
+        .closure_edges
+        .iter()
+        .map(|edge| {
+            serde_json::to_value(edge)
+                .map_err(|error| invalid(format!("cannot project promoted scope closure: {error}")))
+                .and_then(|edge| {
+                    capsec_semantics::canonical::to_jcs(&edge).map_err(|error| {
+                        invalid(format!("promoted scope closure is not I-JSON: {error}"))
+                    })
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let expanded_cell_ids = scope.expanded_cell_ids.iter().collect::<BTreeSet<_>>();
     if scope
-        .expanded_cells
+        .expanded_cell_ids
         .windows(2)
         .any(|pair| pair[0].as_bytes() >= pair[1].as_bytes())
         || scope
-            .expanded_cells
+            .expanded_cell_ids
             .iter()
             .any(|edge| !valid_capsec_stable_id(edge) || !authority.cells.contains_key(edge))
-        || scope
-            .closure_edges
-            .windows(2)
-            .any(|pair| pair[0] >= pair[1])
+        || scope.closure_edges.is_empty()
+        || closure_order.windows(2).any(|pair| pair[0] >= pair[1])
+        || scope.closure_edges.iter().any(|edge| {
+            !valid_capsec_stable_id(&edge.from_edge_id)
+                || !valid_capsec_stable_id(&edge.to_edge_id)
+                || !valid_capsec_stable_id(&edge.implementation_branch_id)
+                || edge.terminal_observed_key.is_empty()
+                || edge.proof_paths.is_empty()
+                || edge.source_refs.is_empty()
+                || edge
+                    .proof_paths
+                    .windows(2)
+                    .any(|pair| pair[0].as_bytes() >= pair[1].as_bytes())
+                || edge
+                    .source_refs
+                    .windows(2)
+                    .any(|pair| pair[0].as_bytes() >= pair[1].as_bytes())
+                || !expanded_cell_ids.contains(&edge.from_edge_id)
+                || !expanded_cell_ids.contains(&edge.to_edge_id)
+        })
     {
         return Err(invalid(
             "promoted scope expansion or closure is not canonical over the checked inventory",
@@ -1712,12 +1779,17 @@ fn admit_scope_artifact(
     }
     let (expanded, closure) = derive_scope_expansion(authority, &scope.intensional_definition)?;
     if scope
-        .expanded_cells
+        .expanded_cell_ids
         .iter()
         .cloned()
         .collect::<BTreeSet<_>>()
         != expanded
-        || scope.closure_edges.iter().cloned().collect::<BTreeSet<_>>() != closure
+        || scope
+            .closure_edges
+            .iter()
+            .map(ScopeClosureEdge::identity)
+            .collect::<BTreeSet<_>>()
+            != closure
     {
         return Err(refused(
             "promoted scope expansion or closure differs from source-derived recomputation",
@@ -1993,7 +2065,7 @@ fn authenticated_report_target_cells_with_authority(
     }
     AdmittedScopedTargetCells::new(
         scope.scope_digest,
-        scope.predecessor_scope_digest,
+        scope.predecessor.digest().to_owned(),
         expanded_cells,
         result,
     )
@@ -2084,6 +2156,26 @@ mod tests {
         (portable, mapped)
     }
 
+    #[test]
+    fn generated_scope_vector_deserializes_through_the_production_parser() {
+        let vector = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/schemas/vectors/capsec-scope-v1.valid.json"
+        ));
+        let (_, scope) = parse_scope_artifact(vector).unwrap();
+        assert_eq!(scope.scope_schema, SCOPE_SCHEMA_V1);
+        assert_eq!(scope.predecessor, ScopePredecessor::Genesis);
+        assert!(!scope.expanded_cell_ids.is_empty());
+        assert!(!scope.closure_edges.is_empty());
+        assert!(scope.closure_edges.iter().all(|edge| {
+            edge.dependency_kind == ScopeDependencyKind::SourceDerivedRoute
+                && !edge.implementation_branch_id.is_empty()
+                && !edge.terminal_observed_key.is_empty()
+                && !edge.proof_paths.is_empty()
+                && !edge.source_refs.is_empty()
+        }));
+    }
+
     fn test_authority(advertisement: &Value) -> CheckedReportAuthority {
         let cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
             .iter()
@@ -2133,7 +2225,11 @@ mod tests {
                         } else {
                             "other.test".to_owned()
                         },
-                        closure_dependencies: BTreeSet::new(),
+                        closure_dependencies: if index == 0 {
+                            BTreeSet::from([(*edge).to_owned()])
+                        } else {
+                            BTreeSet::new()
+                        },
                     },
                 )
             })
@@ -2157,16 +2253,30 @@ mod tests {
             surface_kinds: vec!["native.test".to_owned()],
         };
         let (expanded, closure) = derive_scope_expansion(authority, &selector).unwrap();
+        let closure = closure
+            .into_iter()
+            .map(|edge| ScopeClosureEdge {
+                implementation_branch_id: authority.cells[&edge.from_edge_id]
+                    .implementation_branch_ids[0]
+                    .clone(),
+                terminal_observed_key: "native-op:scope-fixture".to_owned(),
+                proof_paths: vec!["native-op:scope-fixture".to_owned()],
+                source_refs: vec!["src/host/portable_target_admission.rs#scope-fixture".to_owned()],
+                dependency_kind: ScopeDependencyKind::SourceDerivedRoute,
+                from_edge_id: edge.from_edge_id,
+                to_edge_id: edge.to_edge_id,
+            })
+            .collect::<Vec<_>>();
         let mut scope = serde_json::json!({
-            "schema": SCOPE_SCHEMA_V1,
+            "scopeSchema": SCOPE_SCHEMA_V1,
             "profile": CAPSEC_PROFILE,
             "target": advertisement["target"],
             "intensionalDefinition": selector,
-            "expandedCells": expanded,
+            "expandedCellIds": expanded,
             "closureEdges": closure,
-            "predecessorScopeDigest": SCOPE_GENESIS,
-            "expansionDiffDigest": digest("expansion-diff"),
-            "cellMappingDigest": digest("cell-mapping"),
+            "predecessor": {"kind": "genesis"},
+            "scopeExpansionDiffDigest": digest("expansion-diff"),
+            "scopeCellMappingDigest": digest("cell-mapping"),
             "scopeDigest": digest("placeholder-scope"),
         });
         scope["scopeDigest"] = Value::String(
@@ -2177,7 +2287,7 @@ mod tests {
             )
             .unwrap(),
         );
-        let text = format!("{}\n", capsec_semantics::canonical::to_jcs(&scope).unwrap());
+        let text = capsec_semantics::canonical::to_jcs(&scope).unwrap();
         (scope, text)
     }
 
@@ -2321,7 +2431,7 @@ mod tests {
         let authority = test_authority(&advertisement);
         let (scope_value, scope) = scope_for(&advertisement, &authority);
         advertisement["scopeDigest"] = scope_value["scopeDigest"].clone();
-        let expanded = scope_value["expandedCells"]
+        let expanded = scope_value["expandedCellIds"]
             .as_array()
             .unwrap()
             .iter()
@@ -2528,7 +2638,17 @@ mod tests {
         assert!(error.to_string().contains("RFC 8785 JCS"), "{error}");
 
         let mut scope: Value = serde_json::from_str(fixture.scope.trim_end()).unwrap();
-        scope["expandedCells"] = Value::Array(Vec::new());
+        let mut expanded = scope["expandedCellIds"].as_array().unwrap().clone();
+        expanded.push(Value::String(
+            crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS[1].to_owned(),
+        ));
+        expanded.sort_by(|left, right| {
+            left.as_str()
+                .unwrap()
+                .as_bytes()
+                .cmp(right.as_str().unwrap().as_bytes())
+        });
+        scope["expandedCellIds"] = Value::Array(expanded);
         scope["scopeDigest"] = Value::String(
             capsec_semantics::digest::compute_domain_digest(
                 SCOPE_DOMAIN_V1,
@@ -2537,7 +2657,7 @@ mod tests {
             )
             .unwrap(),
         );
-        let scope_text = format!("{}\n", capsec_semantics::canonical::to_jcs(&scope).unwrap());
+        let scope_text = capsec_semantics::canonical::to_jcs(&scope).unwrap();
         let scope_digest: Digest = serde_json::from_value(scope["scopeDigest"].clone()).unwrap();
         let mut rebound = advertisement.clone();
         rebound.advertisement.scope_digest = scope_digest.clone();
@@ -2606,7 +2726,7 @@ mod tests {
         assert_eq!(
             introspection.uncertified_remainder.count,
             crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS.len()
-                - scope.expanded_cells.len()
+                - scope.expanded_cell_ids.len()
         );
         let remainder = introspection
             .uncertified_remainder
@@ -2731,7 +2851,7 @@ mod tests {
 
         let in_scope = serde_json::from_str::<CapsecScopeArtifact>(fixture.scope.trim_end())
             .unwrap()
-            .expanded_cells[0]
+            .expanded_cell_ids[0]
             .clone();
         let defect = host
             .evaluate_typed_decision_inner(
@@ -2820,7 +2940,7 @@ mod tests {
 
         let in_scope = serde_json::from_str::<CapsecScopeArtifact>(fixture.scope.trim_end())
             .unwrap()
-            .expanded_cells[0]
+            .expanded_cell_ids[0]
             .clone();
         let recomputed = host
             .evaluate_typed_decision(&set, &[gate(&in_scope, TargetCellDisposition::Incomplete)])
