@@ -3027,14 +3027,13 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  // Restamped 2026-08-03: the source-patched profile's Apple build authority
-  // now normalizes static-archive metadata before cache publication. The
-  // pinned source, patch stack, lockdown taming, and evaluator reachability
-  // are unchanged; the builder change makes identical object members converge
-  // across physical Macs (LLP 0047's 2026-08-03 checkpoint).
-  "hermes-evaluators.f45bd9b434a88fe9e6821086ffe7987230b73db5bde2898e4dd728f477cd62b0";
+  // Restamped 2026-08-07 after reviewing commit 8256639b's LLP 0050 delta:
+  // WeakRef and FinalizationRegistry joined the lockdown hardening roots.
+  // Evaluator reachability, taming calls, and engine profiles are unchanged;
+  // all four reachable evaluator identities rotate together (LLP 0050 §6/T6).
+  "hermes-evaluators.6c8039ff897c98632c2ece2a5571d354dfac3a94d90b99f0859cfbe5e7d87acb";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-17da17dbe9239bda0640545bfc0fd669f4127b920148c66076bec63d1c8d0ec1";
+  "sha256-0afd8daf12332552b079a9416d3cd7200bf871192a8df7934fa10f3473b52437";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
