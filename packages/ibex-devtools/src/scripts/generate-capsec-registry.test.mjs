@@ -17,8 +17,10 @@ import {
   readImmutablePromotionArtifact,
   renderCapsecRegistry,
   runCapsecRegistryGenerator,
+  prepareTargetAdvertisementPublication,
   validateTargetAdvertisementPublication,
 } from "./generate-capsec-registry.mjs";
+import { rawContentDigest } from "./capsec-portable-engine-evidence-contract.mjs";
 import {
   OUTPUT_DISPOSITIONS,
   OUTPUT_KEY_FIELDS,
@@ -72,6 +74,68 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         )?.digestBound,
       ).toBe(false);
     }
+  });
+
+  test("restamps changed target-cell bytes while advertisements are empty", () => {
+    const targetCellsBytes = Buffer.from('{"changed":true}\n', "utf8");
+    const publication = {
+      targetAdvertisementSchema: "ibex/capsec-target-advertisements/1",
+      profile: "ibex/capsec/1",
+      targetCellsRawContentDigest: `sha256-${"A".repeat(43)}`,
+      advertisements: [],
+    };
+
+    const prepared = prepareTargetAdvertisementPublication(
+      publication,
+      targetCellsBytes,
+    );
+
+    expect(prepared.publication.targetCellsRawContentDigest).toBe(
+      rawContentDigest(targetCellsBytes),
+    );
+    expect(JSON.parse(prepared.restampContent)).toEqual(prepared.publication);
+    expect(publication.targetCellsRawContentDigest).toBe(
+      `sha256-${"A".repeat(43)}`,
+    );
+  });
+
+  test("refuses to restamp changed target-cell bytes once anything is advertised", () => {
+    const originalDigest = rawContentDigest(
+      Buffer.from('{"before":true}\n', "utf8"),
+    );
+    const publication = {
+      targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
+      profile: "ibex/capsec/1",
+      targetCellsRawContentDigest: originalDigest,
+      advertisements: [{ scopeDigest: `sha256-${"S".repeat(43)}` }],
+    };
+    const before = structuredClone(publication);
+
+    expect(() =>
+      prepareTargetAdvertisementPublication(
+        publication,
+        Buffer.from('{"after":true}\n', "utf8"),
+      ),
+    ).toThrow(/refusing to restamp the frozen digest/u);
+    expect(publication).toEqual(before);
+  });
+
+  test("leaves a matching non-empty advertisement publication untouched", () => {
+    const targetCellsBytes = Buffer.from('{"unchanged":true}\n', "utf8");
+    const publication = {
+      targetAdvertisementSchema: "ibex/capsec-target-advertisements/3",
+      profile: "ibex/capsec/1",
+      targetCellsRawContentDigest: rawContentDigest(targetCellsBytes),
+      advertisements: [{ scopeDigest: `sha256-${"S".repeat(43)}` }],
+    };
+
+    const prepared = prepareTargetAdvertisementPublication(
+      publication,
+      targetCellsBytes,
+    );
+
+    expect(prepared).toEqual({ publication, restampContent: null });
+    expect(prepared.publication).toBe(publication);
   });
 
   test("refuses scope carriage in v1 and carries scoped publication schemas transparently", () => {

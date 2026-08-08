@@ -1,8 +1,8 @@
 # `targetCellsRawContentDigest` has no non-ceremony restamp path — any coverage-model correction reds `check:capsec-contract`
 
-**Opened:** 2026-08-08 · **Priority:** P2 · **Owner:** CapSec conformance /
-promotion chain (found while landing the host-ABI + startup seeding
-correction for LLP 0049)
+**Opened:** 2026-08-08 · **Resolved:** 2026-08-08 · **Priority:** P2 ·
+**Owner:** CapSec conformance / promotion chain (found while landing the
+host-ABI + startup seeding correction for LLP 0049)
 
 ## Symptom
 
@@ -78,3 +78,22 @@ Option 1 or 3 should be checked against A10 #2's settled disposition
 A coverage-model correction can complete the regen chain to a green
 `check:drift` without a promotion ceremony, and the chosen mechanism is
 consistent with M18 pin 9 / pin 14.
+
+## Resolution
+
+The author-approved option 1 is implemented. The ordinary registry generator
+recomputes `targetCellsRawContentDigest` from the exact freshly rendered
+`target-cells.json` bytes only while `advertisements` is explicitly empty.
+Once any advertisement exists, the generator emits no publication write and
+requires the frozen digest to match; a mismatch is a hard error. The generator
+and promotion path now import the same raw-content digest function.
+
+The generator test file covers the empty restamp, non-empty mismatch refusal,
+and non-empty unchanged cases. The unchanged contract check accepts the
+restamped digest, and the corrected Apple scope remains 519 cells / 446 clean /
+73 poisoned / 3,260 authorable rows / 66 template classes.
+
+The full drift chain now passes the CapSec registry and contract stages, then
+stops at separate pre-existing runtime-projection drift. That same
+runtime-projection failure reproduces at the baseline commit, so it is not
+part of this ticket and was not restamped here.

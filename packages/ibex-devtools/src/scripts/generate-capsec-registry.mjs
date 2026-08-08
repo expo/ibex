@@ -10,7 +10,6 @@
  * non-writing CI drift gate.
  */
 
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -51,6 +50,7 @@ import {
 } from "./capsec-output-dispositions.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
+import { rawContentDigest } from "./capsec-portable-engine-evidence-contract.mjs";
 import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
@@ -190,10 +190,6 @@ function compareText(left, right) {
 
 function prettyJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function rawContentDigest(content) {
-  return `sha256-${crypto.createHash("sha256").update(content, "utf8").digest("base64url")}`;
 }
 
 const ownedByCurrentUser = (metadata) =>
@@ -691,6 +687,38 @@ export function validateTargetAdvertisementPublication(
     return publication;
   }
   throw new Error("target advertisement publication has an unsupported schema");
+}
+
+/**
+ * Restamp only the closed, pre-publication foundation. Once any advertisement
+ * exists, this generator has no write authority and the exact target-cell
+ * binding remains frozen under the promotion path.
+ *
+ * @ref issues/closed/20260808-target-cells-digest-has-no-restamp-path.md
+ */
+export function prepareTargetAdvertisementPublication(
+  publication,
+  targetCellsBytes,
+  ajv = buildSchemaValidator(),
+) {
+  const validated = validateTargetAdvertisementPublication(publication, ajv);
+  if (!Array.isArray(validated.advertisements)) {
+    throw new Error("target advertisement publication has no advertisement set");
+  }
+  const targetCellsRawContentDigest = rawContentDigest(targetCellsBytes);
+  if (validated.advertisements.length > 0) {
+    if (
+      validated.targetCellsRawContentDigest !== targetCellsRawContentDigest
+    ) {
+      throw new Error(
+        "published target advertisements do not bind the exact freshly generated target-cell bytes; refusing to restamp the frozen digest",
+      );
+    }
+    return { publication: validated, restampContent: null };
+  }
+  const restamped = structuredClone(validated);
+  restamped.targetCellsRawContentDigest = targetCellsRawContentDigest;
+  return { publication: restamped, restampContent: prettyJson(restamped) };
 }
 
 function validateSchemaDocument(ajv, schemaId, value, label) {
@@ -1327,7 +1355,8 @@ export async function renderCapsecRegistry() {
 
   const rendered = new Map();
   rendered.set(generatedRegistryPaths.coverage, prettyJson(coverage));
-  rendered.set(generatedRegistryPaths.targetCells, prettyJson(targetCells));
+  const targetCellsContent = prettyJson(targetCells);
+  rendered.set(generatedRegistryPaths.targetCells, targetCellsContent);
   rendered.set(
     generatedRegistryPaths.outputShapeCatalog,
     prettyJson(outputShapeCatalog),
@@ -1340,8 +1369,12 @@ export async function renderCapsecRegistry() {
     generatedRegistryPaths.outputDispositionDocs,
     renderOutputDispositionMarkdown(outputDispositionDataset),
   );
-  const targetAdvertisements = validateTargetAdvertisementPublication(
+  const {
+    publication: targetAdvertisements,
+    restampContent: targetAdvertisementRestampContent,
+  } = prepareTargetAdvertisementPublication(
     readJsonStrict(targetAdvertisementPublicationPath),
+    Buffer.from(targetCellsContent, "utf8"),
   );
   rendered.set(generatedRegistryPaths.rust, renderRustBinding(binding));
   rendered.set(generatedRegistryPaths.cxx, renderCxxBinding(binding));
@@ -1403,9 +1436,10 @@ export async function renderCapsecRegistry() {
     },
   };
 
-  // Promotion owns the publication bytes and derives its target-cell candidate
-  // in the physical ceremony. The source registry remains the closed,
-  // unsupported foundation and must never reconstruct or overwrite either.
+  // Promotion owns every non-empty publication and derives its target-cell
+  // candidate in the physical ceremony. Before the first advertisement, the
+  // source registry owns only the publication's target-cell raw digest; the
+  // prepare step above makes that narrow exception explicit and fail-closed.
   // @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M18 pin 1
   // keeps scoped publication outside the legacy v1 registry generator.
   const promotions = [];
@@ -1424,6 +1458,7 @@ export async function renderCapsecRegistry() {
     targetCells,
     implementationManifest,
     targetAdvertisements,
+    targetAdvertisementRestampContent,
     promotions,
     binding,
     inventory,
@@ -1438,13 +1473,21 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
   const result = await renderCapsecRegistry();
   const stale = [];
   if (write) {
+    const entries = [...result.rendered].map(([filePath, content]) => ({
+      path: filePath,
+      content,
+      label: `generated capsec registry output ${relativeOutputPath(filePath)}`,
+    }));
+    if (result.targetAdvertisementRestampContent !== null) {
+      entries.push({
+        path: targetAdvertisementPublicationPath,
+        content: result.targetAdvertisementRestampContent,
+        label: "pre-publication target advertisement digest",
+      });
+    }
     writeGeneratedFilesTransactionally(
       repoRoot,
-      [...result.rendered].map(([filePath, content]) => ({
-        path: filePath,
-        content,
-        label: `generated capsec registry output ${relativeOutputPath(filePath)}`,
-      })),
+      entries,
     );
   } else {
     for (const [filePath, content] of result.rendered) {
@@ -1460,6 +1503,19 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
       );
       if (fs.readFileSync(filePath, "utf8") !== content) {
         stale.push(relative);
+      }
+    }
+    if (result.targetAdvertisementRestampContent !== null) {
+      assertConfinedGeneratedFile(
+        repoRoot,
+        targetAdvertisementPublicationPath,
+        "pre-publication target advertisement digest",
+      );
+      if (
+        fs.readFileSync(targetAdvertisementPublicationPath, "utf8") !==
+        result.targetAdvertisementRestampContent
+      ) {
+        stale.push(relativeOutputPath(targetAdvertisementPublicationPath));
       }
     }
   }
