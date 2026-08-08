@@ -1,0 +1,4236 @@
+{
+ "schema": "ibex/llp-evidence/scope-recut-candidates/1",
+ "llp": "LLP 0049",
+ "measurement": "capsec-scope-recut-candidates",
+ "gate": "LLP 0049 §10 item (f) option (ii) — re-cut the v1.1 scope on the executor-reachability axis; LLP 0044 §2 closed-selector-grammar expressibility verified against the landed generator",
+ "purpose": "Measure candidate v1.1 scopes on BOTH selection axes (Lane B/C/D poisoning and executor reachability) using only definitions expressible in the landed closed selector grammar, and answer whether surface-kind-constrained scopes are expressible today.",
+ "generatedDate": "2026-08-08",
+ "revision": {
+  "repository": "ibex",
+  "head": "b497bd4db5d6a9dce0f8d7c916a5e726e6562bb7",
+  "branch": "main",
+  "workingTreeClean": true
+ },
+ "tool": {
+  "scopeArtifactGenerator": "packages/ibex-devtools/src/scripts/generate-capsec-scope-artifact.mjs (run with --write --families … --surface-kinds … --target aarch64-apple-darwin)",
+  "scopeExpansionLibrary": "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs (expandScope / deriveScopeExpansion / generateScopeArtifacts driven directly)",
+  "scopeMeasurement": "scripts/capsec-scope-measurement.mjs",
+  "catalogCommand": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --output <path>",
+  "executorTierSource": "llp/evidence/0049-executor-capability-matrix-ff9b303171350b36604359a8eb026d88a32d3248703d004c62b712a46623acd7.json",
+  "joinMethod": "Measurement definitions replicated exactly from scripts/capsec-scope-measurement.mjs:102-170 and RECONCILED against the landed tool: for --families fs,env,process with no surface-kind restriction this instrument reproduces the tool's cells=609 cleanCells=536 poisonedCells=73 authorableRows=3913 surfaces=487 templateClasses=79 on the same fresh catalog. Cell selection under a surface-kind restriction uses the landed generator's own predicate (capsec-scope-artifact.mjs:195-201) and was cross-checked against real generator runs: the generator's seed cell count equals this instrument's in-scope cell count for every generatable candidate (e.g. native-op 70/70, startup 73/73, host-abi 45/45, loader 252/252, and the unrestricted v1.1 selector 609/609)."
+ },
+ "catalog": {
+  "path": "<scratch>/catalog.json",
+  "digest": "sha256-AymFfo2L6Yoq4UebsQTFlIJ0SOn3uwYR06SrfpUGGaA",
+  "requiredFixtures": 22522,
+  "target": {
+   "triple": "aarch64-apple-darwin",
+   "features": [
+    "hermes-frame-attribution",
+    "native-compartments",
+    "native-lockdown"
+   ]
+  },
+  "denominatorDrift": {
+   "note": "Re-derived per LLP 0049 §3 rule 5. The §6.1 executor-capability matrix was measured at HEAD 322b4260d on catalog sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs (22,505 required fixtures, 3,911 authorable rows / 488 surfaces / 79 classes). At this HEAD the catalog is 22,522 required fixtures and the same scope measures 3,913 authorable rows / 487 surfaces / 79 classes; surface.native.op moves from 200 rows / 31 surfaces to 202 rows / 30 surfaces. Every figure in this artifact is from the fresh catalog; none is inherited."
+  }
+ },
+ "grammarExpressibility": {
+  "question": "Is a surface-kind-constrained scope expressible in the landed closed selector grammar (LLP 0044 §2 / LLP 0049 §10 item f)?",
+  "answer": "YES — but not in the surface-kind vocabulary LLP 0049 §6.1 uses.",
+  "evidence": [
+   {
+    "claim": "The scope schema REQUIRES a surfaceKinds set alongside capabilityFamilies; it is not optional.",
+    "ref": "schemas/capsec-scope-v1.schema.json:79-97"
+   },
+   {
+    "claim": "validateIntensionalDefinition accepts exactly the two keys capabilityFamilies and surfaceKinds and requires both to be non-empty canonical sorted sets of stable ids.",
+    "ref": "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:134-146 (STABLE_ID :23, canonicalStringSet :43-59)"
+   },
+   {
+    "claim": "expandScope enforces the surface-kind constraint: a cell is selected only when its surfaceKind is in the named set AND some fixture-binding family set is non-empty and wholly contained by the named families.",
+    "ref": "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:190-206 (the conjunct is :196)"
+   },
+   {
+    "claim": "The CLI already exposes --surface-kinds as a first-class valued option, defaulting to every kind in the live coverage inventory.",
+    "ref": "packages/ibex-devtools/src/scripts/generate-capsec-scope-artifact.mjs:47-53 (:49), :64-66, :117-123"
+   },
+   {
+    "claim": "THE VOCABULARY MISMATCH: the generator's surfaceKind values come from coverage-edges.json edge.surface.kind, a 7-value coarse field (builtin, callback, cli, host-abi, loader, native-op, startup) — NOT the surface.<group>.<kind> triple taxonomy (surface.native.op, surface.builtin.export, surface.loader.route, …) in which LLP 0049 §6.1 states its executor tiers. The triple taxonomy is derived by the MEASUREMENT tool as the first three dot-segments of the edgeId and exists nowhere in the selector grammar.",
+    "ref": "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:288 (surfaceKind: edge.surface.kind) vs scripts/capsec-scope-measurement.mjs:116-118 (kindOf)"
+   },
+   {
+    "claim": "Confirmed by execution: --surface-kinds native-op generates a 70-cell scope; --surface-kinds surface.native.op and --surface-kinds surface.startup.env both fail the generator with 'scope selector expands to no complete cells'.",
+    "ref": "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:220"
+   },
+   {
+    "claim": "The selector is a PRODUCT (families x kinds), not an enumerated set of (family, kind) pairs. A scope of the form 'fs on native-op plus env on startup' is NOT expressible; the nearest expressible definition is {env,fs} x {native-op,startup}, which also admits env-on-native-op and fs-on-startup cells.",
+    "ref": "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:190-206"
+   }
+  ],
+  "consequencesForTheRecut": [
+   "Candidate A (the whole T3 surface kind) IS expressible: native-op maps 1:1 onto surface.native.op — 202 of 202 authorable rows in the coarse native-op bucket sit on surface.native.op triples.",
+   "host-abi maps 1:1 onto surface.host.abi (270/270); builtin maps 1:1 onto surface.builtin.export (673/673) within the in-scope authorable set.",
+   "surface.startup.env (T2, 498 rows) is NOT separable from surface.startup.supervisor (T0, 50 rows): both live in the coarse startup bucket, so any startup scope drags in 50 rows with no executor at all.",
+   "The twelve loader triples (route T0 1195, function T1 487, operation T0 310, entry T0 132, plus eight leaf kinds at 12 each) are NOT separable: the coarse loader bucket is all-or-nothing at 2,220 authorable rows.",
+   "NO grammar amendment is required to cut a surface-kind-constrained v1.1 scope — but any scope that needs to separate startup.env from startup.supervisor, or one loader triple from the other eleven, DOES require an LLP 0044 §2 grammar amendment with its own review."
+  ]
+ },
+ "blockingFinding": {
+  "title": "The LLP 0044 v1.1 scope (fs+env+process, all surface kinds) cannot be generated as a scope artifact today.",
+  "detail": "generate-capsec-scope-artifact.mjs --families env,fs,process (default: all surface kinds) aborts with 'surface.builtin.export.exact.process.execve.1hinwsf: source route retains ambiguous callees'. This is LLP 0044 §2's conservative-pre-execution-closure MUST implemented as a hard failure. 150 of the 169 in-scope coarse-builtin cells are closure-blocked (131 for ambiguous callees, 19 for no terminal alternatives), so EVERY candidate containing the coarse builtin kind fails generation regardless of family set — verified for env, fs, network, path, process, stdio and sys individually.",
+  "refs": [
+   "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:341-344 (ambiguous callees)",
+   "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:345-348 (no terminal alternatives)",
+   "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:370-386 (non-call-graph route must be conservatively resolvable)"
+  ],
+  "consequence": "Executor reachability is not the only unmeasured axis. Closure-resolvability is a THIRD axis, it is a hard generator gate rather than a cost, and it eliminates the single largest T2 block (surface.builtin.export, 673 rows) from any near-term scope."
+ },
+ "closureFinding": {
+  "title": "The dependency closure is currently a no-op on every generatable scope.",
+  "detail": "For every generatable candidate measured here, closureAddedCells === 0 and every closure edge is a self-loop (fromEdgeId === toEdgeId): 70/70 for native-op, 252/252 for loader, 45/45 for host-abi, 73/73 for startup. Only the static-builtin-call-graph route evidence produces cross-cell closure edges, and that evidence belongs to the coarse builtin kind — the one kind that cannot be generated. So no candidate pulls in a single cell beyond its selector seed.",
+  "refs": [
+   "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:336-386 (routeDependencies)",
+   "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs:454-458 (closure additions)"
+  ]
+ },
+ "completeCellFinding": {
+  "title": "Under LLP 0044 §2's complete-cell rule the authorable-row count is NOT the work; the unresolved-row count on the expanded cells is.",
+  "detail": "scripts/capsec-scope-measurement.mjs counts authorable rows as unresolved IN-FAMILY rows on CLEAN cells (:149-170). But a scope commits to every cell indivisibly, so unresolved-in-scope === 0 requires clearing every unresolved row on every expanded cell — including rows on poisoned cells and rows whose capability families are OUTSIDE the advertised family set. Candidate A advertises 202 authorable rows but owes 555 unresolved rows (452 in-family, 103 out-of-family). Candidate C advertises 406 but owes 610 (406 in-family, 204 out-of-family).",
+  "ref": "llp/0044-scoped-advertisement-and-evidence-cost-collapse.rfc.md:215-221 (scope unit MUST); scripts/capsec-scope-measurement.mjs:149-170"
+ },
+ "instrumentGap": {
+  "title": "The Phase 2 exit gate command in LLP 0049 §6.3 cannot express a surface-kind-constrained scope.",
+  "detail": "scripts/capsec-scope-measurement.mjs takes only --catalog/--families/--output/--assert and throws on any other flag (:54-68). The §6.3 exit gate 'node scripts/capsec-scope-measurement.mjs --families fs,env,process --catalog <fresh> --assert clean-unresolved=0' therefore cannot be restated for any re-cut scope. A --surface-kinds flag joined to the generator's own predicate (capsec-scope-artifact.mjs:195-201) is a prerequisite instrument for the re-cut, alongside the executor-tier column LLP 0049 §6.2 already recommends. This artifact's figures were produced by a scratch instrument reconciled against the landed tool because the landed tool cannot express them.",
+  "ref": "scripts/capsec-scope-measurement.mjs:54-68; llp/0049-scoped-attestation-execution.plan.md:1098-1100"
+ },
+ "executorTierTaxonomy": {
+  "source": "Codex round-3 review of LLP 0049",
+  "T0": "no executor: no batch executor serves this surface kind at all",
+  "T1": "no-effect executor only: an executor exists but structurally cannot produce an effectful source-bound receipt (hard-asserts non-capability classification and/or pins expected_typed_decision_count == 0 and/or pins empty action ids)",
+  "T2": "effectful, closed-table: produces effectful source-bound receipts but only for an enumerated/reviewed set of sources; a new surface needs a reviewed-table edit",
+  "T3": "reusable effectful: produces effectful source-bound receipts through generic invocation machinery; a new surface needs arguments/setup but no structural change",
+  "effectfulReceiptDefinition": "a fully-executable recipe whose public-surface invocation carries expectedTypedDecisionCount > 0 AND non-empty capability action ids, validated against decisions harvested from the loaded engine"
+ },
+ "perCoarseSurfaceKind": [
+  {
+   "coarseSurfaceKind": "builtin",
+   "generatable": false,
+   "generatorError": "surface.builtin.export.exact.process.execve.1hinwsf: source route retains ambiguous callees",
+   "inScopeCells": 169,
+   "cleanCells": 118,
+   "poisonedCells": 51,
+   "authorableRows": 673,
+   "authorableRowsByExecutorTier": {
+    "T0": 0,
+    "T1": 0,
+    "T2": 673,
+    "T3": 0
+   },
+   "closureBlockedCells": 150,
+   "closureBlockReasons": {
+    "ambiguous-callees": 131,
+    "no-terminal-alternatives": 19
+   },
+   "matrixTripleTaxonomyCovered": [
+    "surface.builtin.export"
+   ]
+  },
+  {
+   "coarseSurfaceKind": "callback",
+   "generatable": false,
+   "generatorError": "scope selector expands to no complete cells",
+   "inScopeCells": 0,
+   "cleanCells": 0,
+   "poisonedCells": 0,
+   "authorableRows": 0,
+   "authorableRowsByExecutorTier": {
+    "T0": 0,
+    "T1": 0,
+    "T2": 0,
+    "T3": 0
+   },
+   "closureBlockedCells": 0,
+   "closureBlockReasons": {},
+   "matrixTripleTaxonomyCovered": []
+  },
+  {
+   "coarseSurfaceKind": "cli",
+   "generatable": false,
+   "generatorError": "scope selector expands to no complete cells",
+   "inScopeCells": 0,
+   "cleanCells": 0,
+   "poisonedCells": 0,
+   "authorableRows": 0,
+   "authorableRowsByExecutorTier": {
+    "T0": 0,
+    "T1": 0,
+    "T2": 0,
+    "T3": 0
+   },
+   "closureBlockedCells": 0,
+   "closureBlockReasons": {},
+   "matrixTripleTaxonomyCovered": []
+  },
+  {
+   "coarseSurfaceKind": "host-abi",
+   "generatable": true,
+   "generatorError": null,
+   "inScopeCells": 45,
+   "cleanCells": 45,
+   "poisonedCells": 0,
+   "authorableRows": 270,
+   "authorableRowsByExecutorTier": {
+    "T0": 0,
+    "T1": 270,
+    "T2": 0,
+    "T3": 0
+   },
+   "closureBlockedCells": 0,
+   "closureBlockReasons": {},
+   "matrixTripleTaxonomyCovered": [
+    "surface.host.abi"
+   ]
+  },
+  {
+   "coarseSurfaceKind": "loader",
+   "generatable": true,
+   "generatorError": null,
+   "inScopeCells": 252,
+   "cleanCells": 252,
+   "poisonedCells": 0,
+   "authorableRows": 2220,
+   "authorableRowsByExecutorTier": {
+    "T0": 1733,
+    "T1": 487,
+    "T2": 0,
+    "T3": 0
+   },
+   "closureBlockedCells": 0,
+   "closureBlockReasons": {},
+   "matrixTripleTaxonomyCovered": [
+    "surface.loader.route",
+    "surface.loader.function",
+    "surface.loader.operation",
+    "surface.loader.entry",
+    "surface.loader.require",
+    "surface.loader.dynamic",
+    "surface.loader.native",
+    "surface.loader.json",
+    "surface.loader.commonjs",
+    "surface.loader.private",
+    "surface.loader.esm",
+    "surface.loader.oxc"
+   ]
+  },
+  {
+   "coarseSurfaceKind": "native-op",
+   "generatable": true,
+   "generatorError": null,
+   "inScopeCells": 70,
+   "cleanCells": 48,
+   "poisonedCells": 22,
+   "authorableRows": 202,
+   "authorableRowsByExecutorTier": {
+    "T0": 0,
+    "T1": 0,
+    "T2": 0,
+    "T3": 202
+   },
+   "closureBlockedCells": 0,
+   "closureBlockReasons": {},
+   "matrixTripleTaxonomyCovered": [
+    "surface.native.op"
+   ]
+  },
+  {
+   "coarseSurfaceKind": "startup",
+   "generatable": true,
+   "generatorError": null,
+   "inScopeCells": 73,
+   "cleanCells": 73,
+   "poisonedCells": 0,
+   "authorableRows": 548,
+   "authorableRowsByExecutorTier": {
+    "T0": 50,
+    "T1": 0,
+    "T2": 498,
+    "T3": 0
+   },
+   "closureBlockedCells": 0,
+   "closureBlockReasons": {},
+   "matrixTripleTaxonomyCovered": [
+    "surface.startup.env",
+    "surface.startup.supervisor"
+   ]
+  }
+ ],
+ "candidates": [
+  {
+   "id": "v1.1-as-selected",
+   "gloss": "LLP 0044 v1.1 scope as selected (control)",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env",
+     "fs",
+     "process"
+    ],
+    "surfaceKinds": [
+     "builtin",
+     "callback",
+     "cli",
+     "host-abi",
+     "loader",
+     "native-op",
+     "startup"
+    ]
+   },
+   "generatable": false,
+   "generatorError": "surface.builtin.export.exact.process.execve.1hinwsf: source route retains ambiguous callees",
+   "scopeDigest": null,
+   "measured": {
+    "cells": 609,
+    "cleanCells": 536,
+    "poisonedCells": 73,
+    "authorableRows": 3913,
+    "surfaces": 487,
+    "templateClasses": 79,
+    "authorableRowsByExecutorTier": {
+     "T0": 1783,
+     "T1": 757,
+     "T2": 1171,
+     "T3": 202
+    },
+    "processTouchingAuthorableRows": 197,
+    "perSurfaceKindTriple": {
+     "surface.loader.route": {
+      "tier": "T0",
+      "rows": 1195,
+      "cells": 131,
+      "templateClasses": 9
+     },
+     "surface.builtin.export": {
+      "tier": "T2",
+      "rows": 673,
+      "cells": 98,
+      "templateClasses": 10
+     },
+     "surface.startup.env": {
+      "tier": "T2",
+      "rows": 498,
+      "cells": 52,
+      "templateClasses": 8
+     },
+     "surface.loader.function": {
+      "tier": "T1",
+      "rows": 487,
+      "cells": 47,
+      "templateClasses": 5
+     },
+     "surface.loader.operation": {
+      "tier": "T0",
+      "rows": 310,
+      "cells": 55,
+      "templateClasses": 5
+     },
+     "surface.host.abi": {
+      "tier": "T1",
+      "rows": 270,
+      "cells": 45,
+      "templateClasses": 9
+     },
+     "surface.native.op": {
+      "tier": "T3",
+      "rows": 202,
+      "cells": 30,
+      "templateClasses": 10
+     },
+     "surface.loader.entry": {
+      "tier": "T0",
+      "rows": 132,
+      "cells": 11,
+      "templateClasses": 3
+     },
+     "surface.startup.supervisor": {
+      "tier": "T0",
+      "rows": 50,
+      "cells": 10,
+      "templateClasses": 4
+     },
+     "surface.loader.require": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.dynamic": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.native": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.json": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.commonjs": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.private": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.esm": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     },
+     "surface.loader.oxc": {
+      "tier": "T0",
+      "rows": 12,
+      "cells": 1,
+      "templateClasses": 2
+     }
+    }
+   },
+   "completeCellAccounting": null,
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": {
+    "distinctAuthorableSources": 487,
+    "provenEffectfulSources": 14,
+    "rowsOnProvenEffectfulSources": 37,
+    "unprovenSources": 473,
+    "rowsOnUnprovenSources": 3876,
+    "proven": [
+     {
+      "source": "native-op:__exactFsPathAsync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactFsFdAsync",
+      "rows": 7
+     },
+     {
+      "source": "native-op:__exactFsFdatasyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFstatSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFsyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFtruncateSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsRead",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadFileAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadv",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadvAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWrite",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWriteAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWritevAsync",
+      "rows": 1
+     }
+    ],
+    "unproven": [
+     {
+      "source": "startup:env:EXACT_ANDROID_CACHE_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:HOME",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TEMP",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TMP",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TMPDIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:USERPROFILE",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_COMPAT_EXEC_ARGV",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_EXECUTABLE",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_RAW_ARGV0",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:node_child_process:ChildProcess.spawn",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:node_child_process:exec",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:node_child_process:execFile",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:node_child_process:fork",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:node_child_process:spawn",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:node_fs:open",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactExecSync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawn",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawnSync",
+      "rows": 18
+     },
+     {
+      "source": "host-abi:ex_host_fs_open",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_FILES_DIR",
+      "rows": 18
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.run",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.fileControl",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.applyChanges",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_HERMES_TOOL_DIR",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_HERMES_TOOL_DIR",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.run",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_from_authenticated_bound_package",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_meta_from_authenticated_bound_package",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.applyChanges",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.markAsCrr",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.fileControl",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Statement.run",
+      "rows": 12
+     },
+     {
+      "source": "loader:operation:load:status",
+      "rows": 12
+     },
+     {
+      "source": "loader:operation:resolution:status",
+      "rows": 12
+     },
+     {
+      "source": "loader:operation:transform:status",
+      "rows": 12
+     },
+     {
+      "source": "loader:operation:cache:status",
+      "rows": 12
+     },
+     {
+      "source": "loader:operation:subprocess:status",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:NODE_EXTRA_CA_CERTS",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_meta_from_authenticated_bound_package_typed",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_from_authenticated_bound_package_typed",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Statement",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.markAsCrr",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_REPO_ROOT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_REPO_ROOT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:PATH",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_COMPAT_EXECUTABLE",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_POLICY",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_POLICY",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:COMSPEC",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:__exactResolvePath",
+      "rows": 12
+     },
+     {
+      "source": "loader:require-resolve",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:resolve-path",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:exact-require",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:global-import",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:import-module",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:global-require",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:require-resolve",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:dynamic-import",
+      "rows": 12
+     },
+     {
+      "source": "loader:dynamic-import",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:importImpl",
+      "rows": 12
+     },
+     {
+      "source": "loader:native-resolve",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:load",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:load",
+      "rows": 12
+     },
+     {
+      "source": "loader:json-module",
+      "rows": 12
+     },
+     {
+      "source": "loader:commonjs-module",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:local-require",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:module-dynamic-import",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:moduleDynamicImport",
+      "rows": 12
+     },
+     {
+      "source": "loader:entry:module-static-import",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:moduleStaticImport",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:publicImport",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:resolveModulePath",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:javascript:__sessionStaticImport",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsStatAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsWriteFileAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactWhich",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteExec",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteOpen",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteRun",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_exec",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_open",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_open_checked_fd",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_run",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:authenticated_resolver_base_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:authenticated_resolver_base_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:bounded_unix_parent",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:bounded_unix_read_link",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:bounded_unix_symlink_metadata",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:bounded_windows_parent",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:bounded_windows_read_link",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:bounded_windows_symlink_metadata",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:canonicalize",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:compute_transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:compute_transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:compute_transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:compute_transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_TRANSPILE_SCRIPT",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:load_module_source",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:load_module_source",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:load_module_source",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:load_source",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:load_source",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:load_source",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:load_source_bytes",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:load_source_bytes",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:metadata",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:module_cache_key",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:module_cache_key",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:module_cache_key",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:module_cache_key",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:module_cache_key",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:package_name_and_root_in_node_modules",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:package_root_in_node_modules",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:package_version_for",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:pick_package_import_path",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:read_link",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:read_package_manifest",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_bounded_unix_path",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_bounded_unix_path",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_bounded_windows_path",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_bounded_windows_path",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_direct_file_meta",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_direct_file_meta_authenticated",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_direct_file_meta_authenticated",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_meta",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_meta_authenticated",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_authenticated",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_authenticated_typed",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_meta_authenticated_typed",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_from_bound_package",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_from_bound_package_typed",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_meta_typed",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_meta_typed",
+      "rows": 12
+     },
+     {
+      "source": "loader:private-package-import",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_package_import",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_package_import",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_package_import_target",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_package_import_target",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:resolve_transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:resolve_transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:resolve_transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_with_oxc",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_with_oxc",
+      "rows": 12
+     },
+     {
+      "source": "loader:esm-module",
+      "rows": 12
+     },
+     {
+      "source": "loader:oxc-on-disk-resolution",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_with_oxc_at",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_with_oxc_at",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:resolve_with_resolver_at",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:resolve_with_resolver_at",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:run_transpile_command",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:run_transpile_command",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:run_transpile_command",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:run_transpile_command",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:run_transpile_override",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:run_transpile_override",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:run_transpile_override",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:run_transpile_override",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:run_transpile_subprocess",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:run_transpile_subprocess",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:run_transpile_subprocess",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:subprocess:rust:run_transpile_subprocess",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:run_transpile_subprocess",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:symlink_metadata",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:transpile_cache_dir",
+      "rows": 12
+     },
+     {
+      "source": "loader:function:rust:transpile_module",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:transpile_module",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:transpile_module",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:transpile_module",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:transpile_tooling_hash",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:cache:rust:verify_transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:resolution:rust:verify_transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:transform:rust:verify_transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "loader:route:load:rust:verify_transpile_override_identity",
+      "rows": 12
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.close",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.query",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.getDbVersion",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.prepare",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Statement.values",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.getDbVersion",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.prepare",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.getChanges",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.getSiteId",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Database.serialize",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.getChanges",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.close",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.query",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Statement.all",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:Statement.get",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.getSiteId",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:exact_sqlite:default.serialize",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:EXACT_QUIET",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:CLICOLOR_FORCE",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:node_dns:getServers",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:node_dns:Resolver",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:node_fs:createReadStream",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:node_fs:createWriteStream",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:node_fs:ReadStream",
+      "rows": 6
+     },
+     {
+      "source": "builtin:export:node_fs:WriteStream",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteAll",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteGet",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqlitePrepare",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteValues",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:EXACT_SECURITY_LOG",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_all",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_get",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_prepare",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_values",
+      "rows": 6
+     },
+     {
+      "source": "loader:route:resolution:rust:new",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:NODE_PENDING_DEPRECATION",
+      "rows": 6
+     },
+     {
+      "source": "loader:operation:resolution:open",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:remove_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:remove_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:remove_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:remove_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.project-platform-data-root",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.authenticated-project-scope",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_BYTECODE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process.env",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:write",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:write",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:write",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:write",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:_dupenv_s",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:NODE_ENV",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process.env[]",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:read_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:read_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:read_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:read_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:canonicalize",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:canonicalize",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:canonicalize",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:canonicalize",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:read_link",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:USERNAME",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:remove_file",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:remove_file",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:remove_file",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:remove_file",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:read",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:read",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:read",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:read",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.global-platform-data-root",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:create_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:create_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:create_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:create_dir_all",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:read_to_string",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:read_to_string",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:rename",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:rename",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:rename",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:rename",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:create_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:create_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:create_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:create_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:symlink_metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:symlink_metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:resolution:symlink_metadata",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:load:symlink_metadata",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:Command::env_clear",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.sidecar-lock-acquire",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-append",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-compact",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.legacy-probe",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.user-key-read-create",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.store-open",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-recover",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::var",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_BUNDLE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:access",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:appendFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:Dir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:exists",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:fdatasync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:fdatasyncSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:fstat",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:fstatSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:fsync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:fsyncSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:ftruncate",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:ftruncateSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:glob",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:globSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:lstat",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:mkdir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:opendir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:read",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:readdir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:readFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:readlink",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:readSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:readv",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:readvSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:realpath",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:stat",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:statfs",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:truncate",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:write",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:writeFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:writeSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:writev",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:writevSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:access",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:appendFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.read",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.readFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.readv",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.stat",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.truncate",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.writeFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:FileHandle.writev",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:lstat",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:mkdir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:opendir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:readdir",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:readFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:readFileSync",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:readlink",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:readv",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:realpath",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:stat",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:statfs",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:truncate",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:writeFile",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs_promises:writev",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process[]",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:javascript:__exactResolveSessionPath",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:::environ",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:getenv",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:_NSGetEnviron",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactFsWritev",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactReadlink",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:environ",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactSpawnPoll",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::var_os",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_get",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_key_at",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_key_count",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_set",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_compiled_key_at",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_compiled_key_count",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_get",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_access",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_append",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_chmod",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_copy",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_copy_exclusive",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_fstat",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_lstat",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_mkdir",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_mkdir_recursive_result",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_mkdtemp",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_pread",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_pwrite",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_read",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_read_file",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_readdir",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_realpath",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_rename",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_rmdir",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_stat",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_statfs",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_sync",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_truncate",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_unlink",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_utimes",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_write",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_module_resolve",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_module_resolve_meta",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_session_static_import_resolve",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_session_static_import_resolve_meta",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::vars_os",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:capture_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:capture_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:capture_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:capture_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:directory_size",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:directory_size",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:directory_size",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:directory_size",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:enforce_transpile_cache_quota",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:enforce_transpile_cache_quota",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:enforce_transpile_cache_quota",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:enforce_transpile_cache_quota",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:ensure_transpile_cache_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:ensure_transpile_cache_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:ensure_transpile_cache_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:ensure_transpile_cache_dir",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:find_package_root",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:load_runner_source",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:normalize_import_target",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:normalize_import_target",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:open_resolver_boundary",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:open_resolver_boundary",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:open_resolver_boundary_windows",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:open_resolver_boundary_windows",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:prune_transpile_cache_to_limit",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:prune_transpile_cache_to_limit",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:prune_transpile_cache_to_limit",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:prune_transpile_cache_to_limit",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:publish_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:publish_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:publish_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:publish_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:read_transpile_cache",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:read_transpile_cache",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:read_transpile_cache",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:read_transpile_cache",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:resolve_package_link",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:resolver_fstat",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:resolver_fstat",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:resolver_fstatat_nofollow",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:resolver_fstatat_nofollow",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:resolver_open_directory_at",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:resolver_open_directory_at",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:resolver_read_link_at",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:resolver_read_link_at",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:resolver_windows_object",
+      "rows": 5
+     },
+     {
+      "source": "loader:function:rust:resolver_windows_object",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:touch_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:touch_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:touch_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:touch_transpile_artifact",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:transpile_cache_is_valid",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:transpile_cache_is_valid",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:transpile_cache_is_valid",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:transpile_cache_is_valid",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:wait_for_transpile_test_barrier",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:wait_for_transpile_test_barrier",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:wait_for_transpile_test_barrier",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:wait_for_transpile_test_barrier",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:transform:rust:walk_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:resolution:rust:walk_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:cache:rust:walk_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:route:load:rust:walk_transpile_tool_directory",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:transform:read_to_string",
+      "rows": 5
+     },
+     {
+      "source": "loader:operation:cache:read_to_string",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process-binding-flow",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:Command::default_env",
+      "rows": 5
+     },
+     {
+      "source": "builtin:export:node_fs:openSync",
+      "rows": 3
+     }
+    ]
+   }
+  },
+  {
+   "id": "A2",
+   "gloss": "single-family reachability-maximal: fs on native-op",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "fs"
+    ],
+    "surfaceKinds": [
+     "native-op"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-tZse2zrhPuCMopuvIIGPQW2XZur2kGpr3MLjEpgSjGc",
+   "measured": {
+    "cells": 54,
+    "cleanCells": 40,
+    "poisonedCells": 14,
+    "authorableRows": 137,
+    "surfaces": 26,
+    "templateClasses": 6,
+    "authorableRowsByExecutorTier": {
+     "T0": 0,
+     "T1": 0,
+     "T2": 0,
+     "T3": 137
+    },
+    "processTouchingAuthorableRows": 0,
+    "perSurfaceKindTriple": {
+     "surface.native.op": {
+      "tier": "T3",
+      "rows": 137,
+      "cells": 26,
+      "templateClasses": 6
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 54,
+    "seedCells": 54,
+    "closureAddedCells": 0,
+    "closureEdges": 54,
+    "allRowsOnInScopeCells": 528,
+    "unresolvedOnInScopeCells": 298,
+    "unresolvedInFamily": 219,
+    "unresolvedOutOfFamily": 79,
+    "poisonedCells": 14,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 14,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 138,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 138
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": {
+    "distinctAuthorableSources": 26,
+    "provenEffectfulSources": 14,
+    "rowsOnProvenEffectfulSources": 37,
+    "unprovenSources": 12,
+    "rowsOnUnprovenSources": 100,
+    "proven": [
+     {
+      "source": "native-op:__exactFsPathAsync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactFsFdAsync",
+      "rows": 7
+     },
+     {
+      "source": "native-op:__exactFsFdatasyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFstatSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFsyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFtruncateSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsRead",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadFileAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadv",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadvAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWrite",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWriteAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWritevAsync",
+      "rows": 1
+     }
+    ],
+    "unproven": [
+     {
+      "source": "native-op:__exactFsStatAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsWriteFileAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteExec",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteOpen",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteRun",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactWhich",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteAll",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteGet",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqlitePrepare",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteValues",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactFsWritev",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactReadlink",
+      "rows": 5
+     }
+    ]
+   }
+  },
+  {
+   "id": "A",
+   "gloss": "reachability-maximal: the whole T3 surface kind",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env",
+     "fs",
+     "process"
+    ],
+    "surfaceKinds": [
+     "native-op"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-zBNkTKgHNDJNYo7IkBCe7GCm9L__6FFo--9dnaGwYXg",
+   "measured": {
+    "cells": 70,
+    "cleanCells": 48,
+    "poisonedCells": 22,
+    "authorableRows": 202,
+    "surfaces": 30,
+    "templateClasses": 10,
+    "authorableRowsByExecutorTier": {
+     "T0": 0,
+     "T1": 0,
+     "T2": 0,
+     "T3": 202
+    },
+    "processTouchingAuthorableRows": 59,
+    "perSurfaceKindTriple": {
+     "surface.native.op": {
+      "tier": "T3",
+      "rows": 202,
+      "cells": 30,
+      "templateClasses": 10
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 70,
+    "seedCells": 70,
+    "closureAddedCells": 0,
+    "closureEdges": 70,
+    "allRowsOnInScopeCells": 815,
+    "unresolvedOnInScopeCells": 555,
+    "unresolvedInFamily": 452,
+    "unresolvedOutOfFamily": 103,
+    "poisonedCells": 22,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 22,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 318,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 318
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": {
+    "distinctAuthorableSources": 30,
+    "provenEffectfulSources": 14,
+    "rowsOnProvenEffectfulSources": 37,
+    "unprovenSources": 16,
+    "rowsOnUnprovenSources": 165,
+    "proven": [
+     {
+      "source": "native-op:__exactFsPathAsync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactFsFdAsync",
+      "rows": 7
+     },
+     {
+      "source": "native-op:__exactFsFdatasyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFstatSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFsyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFtruncateSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsRead",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadFileAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadv",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadvAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWrite",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWriteAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWritevAsync",
+      "rows": 1
+     }
+    ],
+    "unproven": [
+     {
+      "source": "native-op:__exactExecSync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawn",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawnSync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactFsStatAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsWriteFileAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactWhich",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteExec",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteOpen",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteRun",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteAll",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteGet",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqlitePrepare",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteValues",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactFsWritev",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactReadlink",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactSpawnPoll",
+      "rows": 5
+     }
+    ]
+   }
+  },
+  {
+   "id": "B",
+   "gloss": "A plus the cheapest T2 kind (startup)",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env",
+     "fs",
+     "process"
+    ],
+    "surfaceKinds": [
+     "native-op",
+     "startup"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-TLSBnbf67Fdp4UM09CbMWWrPTPAN1UVTC1190jXaWsU",
+   "measured": {
+    "cells": 143,
+    "cleanCells": 121,
+    "poisonedCells": 22,
+    "authorableRows": 750,
+    "surfaces": 92,
+    "templateClasses": 22,
+    "authorableRowsByExecutorTier": {
+     "T0": 50,
+     "T1": 0,
+     "T2": 498,
+     "T3": 202
+    },
+    "processTouchingAuthorableRows": 107,
+    "perSurfaceKindTriple": {
+     "surface.startup.env": {
+      "tier": "T2",
+      "rows": 498,
+      "cells": 52,
+      "templateClasses": 8
+     },
+     "surface.native.op": {
+      "tier": "T3",
+      "rows": 202,
+      "cells": 30,
+      "templateClasses": 10
+     },
+     "surface.startup.supervisor": {
+      "tier": "T0",
+      "rows": 50,
+      "cells": 10,
+      "templateClasses": 4
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 143,
+    "seedCells": 143,
+    "closureAddedCells": 0,
+    "closureEdges": 143,
+    "allRowsOnInScopeCells": 1531,
+    "unresolvedOnInScopeCells": 1205,
+    "unresolvedInFamily": 1000,
+    "unresolvedOutOfFamily": 205,
+    "poisonedCells": 22,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 22,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 318,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 318
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": {
+    "distinctAuthorableSources": 92,
+    "provenEffectfulSources": 14,
+    "rowsOnProvenEffectfulSources": 37,
+    "unprovenSources": 78,
+    "rowsOnUnprovenSources": 713,
+    "proven": [
+     {
+      "source": "native-op:__exactFsPathAsync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactFsFdAsync",
+      "rows": 7
+     },
+     {
+      "source": "native-op:__exactFsFdatasyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFstatSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFsyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFtruncateSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsRead",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadFileAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadv",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadvAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWrite",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWriteAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWritevAsync",
+      "rows": 1
+     }
+    ],
+    "unproven": [
+     {
+      "source": "startup:env:EXACT_ANDROID_CACHE_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:HOME",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TEMP",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TMP",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TMPDIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:USERPROFILE",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_COMPAT_EXEC_ARGV",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_EXECUTABLE",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_RAW_ARGV0",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactExecSync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawn",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawnSync",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_FILES_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_HERMES_TOOL_DIR",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_HERMES_TOOL_DIR",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:NODE_EXTRA_CA_CERTS",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_REPO_ROOT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_REPO_ROOT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:PATH",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_COMPAT_EXECUTABLE",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_POLICY",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_POLICY",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:COMSPEC",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsStatAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsWriteFileAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactWhich",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteExec",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteOpen",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteRun",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_TRANSPILE_SCRIPT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_QUIET",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:CLICOLOR_FORCE",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteAll",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteGet",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqlitePrepare",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteValues",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:EXACT_SECURITY_LOG",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:NODE_PENDING_DEPRECATION",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.project-platform-data-root",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.authenticated-project-scope",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_BYTECODE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process.env",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:_dupenv_s",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:NODE_ENV",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process.env[]",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:USERNAME",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.global-platform-data-root",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:Command::env_clear",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.sidecar-lock-acquire",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-append",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-compact",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.legacy-probe",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.user-key-read-create",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.store-open",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-recover",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::var",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_BUNDLE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process[]",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:::environ",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:getenv",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:_NSGetEnviron",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactFsWritev",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactReadlink",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:environ",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactSpawnPoll",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::var_os",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::vars_os",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process-binding-flow",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:Command::default_env",
+      "rows": 5
+     }
+    ]
+   }
+  },
+  {
+   "id": "C",
+   "gloss": "single-family T2: env on startup",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env"
+    ],
+    "surfaceKinds": [
+     "startup"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-HRHwcnq3OkgaorLIMdMLuLo21ttdZz-NULaX9f9Y7GI",
+   "measured": {
+    "cells": 65,
+    "cleanCells": 65,
+    "poisonedCells": 0,
+    "authorableRows": 406,
+    "surfaces": 54,
+    "templateClasses": 4,
+    "authorableRowsByExecutorTier": {
+     "T0": 10,
+     "T1": 0,
+     "T2": 396,
+     "T3": 0
+    },
+    "processTouchingAuthorableRows": 0,
+    "perSurfaceKindTriple": {
+     "surface.startup.env": {
+      "tier": "T2",
+      "rows": 396,
+      "cells": 52,
+      "templateClasses": 3
+     },
+     "surface.startup.supervisor": {
+      "tier": "T0",
+      "rows": 10,
+      "cells": 2,
+      "templateClasses": 1
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 65,
+    "seedCells": 65,
+    "closureAddedCells": 0,
+    "closureEdges": 65,
+    "allRowsOnInScopeCells": 676,
+    "unresolvedOnInScopeCells": 610,
+    "unresolvedInFamily": 406,
+    "unresolvedOutOfFamily": 204,
+    "poisonedCells": 0,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 0
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": null
+  },
+  {
+   "id": "C2",
+   "gloss": "all three families on startup",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env",
+     "fs",
+     "process"
+    ],
+    "surfaceKinds": [
+     "startup"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-tyFWTPxcMoXGyAimm-RpGWD9nT8uTJmhzkNYSLDWCS4",
+   "measured": {
+    "cells": 73,
+    "cleanCells": 73,
+    "poisonedCells": 0,
+    "authorableRows": 548,
+    "surfaces": 62,
+    "templateClasses": 12,
+    "authorableRowsByExecutorTier": {
+     "T0": 50,
+     "T1": 0,
+     "T2": 498,
+     "T3": 0
+    },
+    "processTouchingAuthorableRows": 48,
+    "perSurfaceKindTriple": {
+     "surface.startup.env": {
+      "tier": "T2",
+      "rows": 498,
+      "cells": 52,
+      "templateClasses": 8
+     },
+     "surface.startup.supervisor": {
+      "tier": "T0",
+      "rows": 50,
+      "cells": 10,
+      "templateClasses": 4
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 73,
+    "seedCells": 73,
+    "closureAddedCells": 0,
+    "closureEdges": 73,
+    "allRowsOnInScopeCells": 716,
+    "unresolvedOnInScopeCells": 650,
+    "unresolvedInFamily": 548,
+    "unresolvedOutOfFamily": 102,
+    "poisonedCells": 0,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 0
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": null
+  },
+  {
+   "id": "D",
+   "gloss": "env on startup + host-abi",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env"
+    ],
+    "surfaceKinds": [
+     "host-abi",
+     "startup"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-TNeA8yIBzkDJdY8dG731f2hBnT1N6Uab1ZmFk2BCLUY",
+   "measured": {
+    "cells": 72,
+    "cleanCells": 72,
+    "poisonedCells": 0,
+    "authorableRows": 441,
+    "surfaces": 61,
+    "templateClasses": 6,
+    "authorableRowsByExecutorTier": {
+     "T0": 10,
+     "T1": 35,
+     "T2": 396,
+     "T3": 0
+    },
+    "processTouchingAuthorableRows": 0,
+    "perSurfaceKindTriple": {
+     "surface.startup.env": {
+      "tier": "T2",
+      "rows": 396,
+      "cells": 52,
+      "templateClasses": 3
+     },
+     "surface.host.abi": {
+      "tier": "T1",
+      "rows": 35,
+      "cells": 7,
+      "templateClasses": 2
+     },
+     "surface.startup.supervisor": {
+      "tier": "T0",
+      "rows": 10,
+      "cells": 2,
+      "templateClasses": 1
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 72,
+    "seedCells": 72,
+    "closureAddedCells": 0,
+    "closureEdges": 72,
+    "allRowsOnInScopeCells": 711,
+    "unresolvedOnInScopeCells": 645,
+    "unresolvedInFamily": 441,
+    "unresolvedOutOfFamily": 204,
+    "poisonedCells": 0,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 0
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": null
+  },
+  {
+   "id": "E",
+   "gloss": "fs on host-abi (smallest zero-poison denominator)",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "fs"
+    ],
+    "surfaceKinds": [
+     "host-abi"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-tOahWleV2TR8v0OaFZEMvejrIu8RTt-XtxAArR5AxX4",
+   "measured": {
+    "cells": 38,
+    "cleanCells": 38,
+    "poisonedCells": 0,
+    "authorableRows": 235,
+    "surfaces": 38,
+    "templateClasses": 7,
+    "authorableRowsByExecutorTier": {
+     "T0": 0,
+     "T1": 235,
+     "T2": 0,
+     "T3": 0
+    },
+    "processTouchingAuthorableRows": 0,
+    "perSurfaceKindTriple": {
+     "surface.host.abi": {
+      "tier": "T1",
+      "rows": 235,
+      "cells": 38,
+      "templateClasses": 7
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 38,
+    "seedCells": 38,
+    "closureAddedCells": 0,
+    "closureEdges": 38,
+    "allRowsOnInScopeCells": 249,
+    "unresolvedOnInScopeCells": 235,
+    "unresolvedInFamily": 235,
+    "unresolvedOutOfFamily": 0,
+    "poisonedCells": 0,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 0,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 0
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": null
+  },
+  {
+   "id": "F",
+   "gloss": "every generatable non-loader kind",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env",
+     "fs",
+     "process"
+    ],
+    "surfaceKinds": [
+     "host-abi",
+     "native-op",
+     "startup"
+    ]
+   },
+   "generatable": true,
+   "generatorError": null,
+   "scopeDigest": "sha256-LNQdhTrqXbARqhLbbaZRJjx2aMMAQX_IoyrgZpsBhQc",
+   "measured": {
+    "cells": 188,
+    "cleanCells": 166,
+    "poisonedCells": 22,
+    "authorableRows": 1020,
+    "surfaces": 137,
+    "templateClasses": 31,
+    "authorableRowsByExecutorTier": {
+     "T0": 50,
+     "T1": 270,
+     "T2": 498,
+     "T3": 202
+    },
+    "processTouchingAuthorableRows": 107,
+    "perSurfaceKindTriple": {
+     "surface.startup.env": {
+      "tier": "T2",
+      "rows": 498,
+      "cells": 52,
+      "templateClasses": 8
+     },
+     "surface.host.abi": {
+      "tier": "T1",
+      "rows": 270,
+      "cells": 45,
+      "templateClasses": 9
+     },
+     "surface.native.op": {
+      "tier": "T3",
+      "rows": 202,
+      "cells": 30,
+      "templateClasses": 10
+     },
+     "surface.startup.supervisor": {
+      "tier": "T0",
+      "rows": 50,
+      "cells": 10,
+      "templateClasses": 4
+     }
+    }
+   },
+   "completeCellAccounting": {
+    "expandedCells": 188,
+    "seedCells": 188,
+    "closureAddedCells": 0,
+    "closureEdges": 188,
+    "allRowsOnInScopeCells": 1815,
+    "unresolvedOnInScopeCells": 1475,
+    "unresolvedInFamily": 1270,
+    "unresolvedOutOfFamily": 205,
+    "poisonedCells": 22,
+    "poisonedCellsByLane": {
+     "B": 0,
+     "C": 22,
+     "D": 0
+    },
+    "rowsByLane": {
+     "B": 0,
+     "C": 318,
+     "D": 0
+    },
+    "unclearableLaneBRows": 0,
+    "auditClearableLaneCDRows": 318
+   },
+   "monotoneLineage": {
+    "intensionalSubsetOfV11": true,
+    "cellSubsetOfV11": true,
+    "cellsOutsideV11": 0,
+    "note": "fs+env+process (all surface kinds) is a valid monotone successor: both selector axes are supersets and the expanded cell set contains this candidate's exactly."
+   },
+   "nativeOpSourceSplit": {
+    "distinctAuthorableSources": 137,
+    "provenEffectfulSources": 14,
+    "rowsOnProvenEffectfulSources": 37,
+    "unprovenSources": 123,
+    "rowsOnUnprovenSources": 983,
+    "proven": [
+     {
+      "source": "native-op:__exactFsPathAsync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactFsFdAsync",
+      "rows": 7
+     },
+     {
+      "source": "native-op:__exactFsFdatasyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFstatSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFsyncSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsFtruncateSync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsRead",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadFileAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadv",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsReadvAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWrite",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWriteAsync",
+      "rows": 1
+     },
+     {
+      "source": "native-op:__exactFsWritevAsync",
+      "rows": 1
+     }
+    ],
+    "unproven": [
+     {
+      "source": "startup:env:EXACT_ANDROID_CACHE_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:HOME",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TEMP",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TMP",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:TMPDIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:USERPROFILE",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_COMPAT_EXEC_ARGV",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_EXECUTABLE",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_RAW_ARGV0",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactExecSync",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawn",
+      "rows": 18
+     },
+     {
+      "source": "native-op:__exactSpawnSync",
+      "rows": 18
+     },
+     {
+      "source": "host-abi:ex_host_fs_open",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_FILES_DIR",
+      "rows": 18
+     },
+     {
+      "source": "startup:env:EXACT_HERMES_TOOL_DIR",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_HERMES_TOOL_DIR",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:NODE_EXTRA_CA_CERTS",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_REPO_ROOT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_REPO_ROOT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:PATH",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_COMPAT_EXECUTABLE",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_POLICY",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:IBEX_POLICY",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:COMSPEC",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsStatAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactFsWriteFileAsync",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactWhich",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteExec",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteOpen",
+      "rows": 12
+     },
+     {
+      "source": "native-op:__exactSqliteRun",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_exec",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_open",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_open_checked_fd",
+      "rows": 12
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_run",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_TRANSPILE_SCRIPT",
+      "rows": 12
+     },
+     {
+      "source": "startup:env:EXACT_QUIET",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:CLICOLOR_FORCE",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteAll",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteGet",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqlitePrepare",
+      "rows": 6
+     },
+     {
+      "source": "native-op:__exactSqliteValues",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:EXACT_SECURITY_LOG",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_all",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_get",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_prepare",
+      "rows": 6
+     },
+     {
+      "source": "host-abi:ex_host_sqlite_values",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:NODE_PENDING_DEPRECATION",
+      "rows": 6
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.project-platform-data-root",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.authenticated-project-scope",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_BYTECODE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process.env",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:_dupenv_s",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:NODE_ENV",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process.env[]",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:USERNAME",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.global-platform-data-root",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:Command::env_clear",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.sidecar-lock-acquire",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-append",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-compact",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.legacy-probe",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.user-key-read-create",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.store-open",
+      "rows": 5
+     },
+     {
+      "source": "startup:supervisor-history.journal-recover",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::var",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:IBEX_BUNDLE_CACHE_MAX_BYTES",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process[]",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:::environ",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:getenv",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:_NSGetEnviron",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactFsWritev",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactReadlink",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:cpp:environ",
+      "rows": 5
+     },
+     {
+      "source": "native-op:__exactSpawnPoll",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::var_os",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_get",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_key_at",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_key_count",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_ambient_set",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_compiled_key_at",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_compiled_key_count",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_env_get",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_access",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_append",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_chmod",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_copy",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_copy_exclusive",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_fstat",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_lstat",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_mkdir",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_mkdir_recursive_result",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_mkdtemp",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_pread",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_pwrite",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_read",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_read_file",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_readdir",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_realpath",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_rename",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_rmdir",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_stat",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_statfs",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_sync",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_truncate",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_unlink",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_utimes",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_fs_write",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_module_resolve",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_module_resolve_meta",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_session_static_import_resolve",
+      "rows": 5
+     },
+     {
+      "source": "host-abi:ex_host_session_static_import_resolve_meta",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:env::vars_os",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:javascript:process-binding-flow",
+      "rows": 5
+     },
+     {
+      "source": "startup:env:<dynamic>:rust:Command::default_env",
+      "rows": 5
+     }
+    ]
+   }
+  }
+ ],
+ "recommendation": {
+  "candidate": "A2",
+  "intensionalDefinition": {
+   "capabilityFamilies": [
+    "fs"
+   ],
+   "surfaceKinds": [
+    "native-op"
+   ]
+  },
+  "scopeDigest": "sha256-tZse2zrhPuCMopuvIIGPQW2XZur2kGpr3MLjEpgSjGc",
+  "why": [
+   "It is the only family x kind product that is generatable today AND carries any T3 row: all 137 of its authorable rows are on surface.native.op, the single reusable-effectful executor tier.",
+   "37 of those 137 rows sit on the 14 native globals already proven effectful through the generic executor — genuinely zero executor work, the only rows anywhere in the worklist for which that is true.",
+   "It carries ZERO process-touching rows, so the matrix's largest undetermined item (the 59 process:spawn rows with no NativeProbeSetup variant and no effectful precedent) is entirely outside the scope rather than inside it at unknown cost.",
+   "Its poison is 14 cells / 138 rows of Lane C only, with zero Lane B. Lane C is audit-clearable under LLP 0049 §5.2 (closed-world source join plus loaded-target absence evidence); Lane B is not clearable at all, so a Lane-B-free scope is the precondition for unresolved-in-scope === 0 ever being reachable.",
+   "It is the smallest complete-cell obligation of any T3-bearing candidate: 298 unresolved rows on 54 cells versus 555 on 70 for candidate A.",
+   "Monotone lineage is clean and multi-step: A2 (54 cells) subset A (70) subset F (188) subset v1.1 (609), each an intensional superset on both axes — verified by cell-set inclusion."
+  ],
+  "honestFloor": {
+   "unresolvedRowsToClear": 298,
+   "inFamilyRows": 219,
+   "outOfFamilyRows": 79,
+   "authorableRowsAsMeasuredByTheLandedTool": 137,
+   "rowsNeedingNoExecutorWork": 37,
+   "rowsNeedingArgumentsAndSetupOnTheExistingGenericExecutor": 100,
+   "rowsRequiringALaneCAudit": 138,
+   "laneBRowsThatCanNeverClear": 0,
+   "executorWork": "No new executor and no structural change: native-public (capsec_conformance_batch.rs:4091) is T3 with generic invocation machinery (setup_script :1018, materialize_native_arguments :1394, native_invocation_script :1543) and no _ => panic! catch-all on a global name. The 100 unproven rows need arguments plus setup for 12 sources: __exactSqlite{Exec,Open,Run,All,Get,Prepare,Values} (60 rows), __exactFsStatAsync (12), __exactFsWriteFileAsync (12), __exactWhich (6), __exactFsWritev (5), __exactReadlink (5).",
+   "residualRisks": [
+    "The 12 unproven sources' argument/setup cost is asserted structural-free from the executor's shape, not from an authoring attempt. The sqlite family (60 of the 100 rows) needs on-disk database setup that no existing NativeProbeSetup variant provides; whether it fits the existing variants was NOT determined here and is the same class of unknown the matrix flagged for process:spawn.",
+    "The Lane C audit over 14 cells / 138 rows is a reviewed deliverable in its own right (LLP 0049 §5.2) and its cost is not measured by any instrument in this repository.",
+    "The 79 out-of-family unresolved rows on in-scope cells carry capability families outside the advertised fs scope; they must still be cleared for unresolved-in-scope === 0, and the release notes must not imply they are certified as fs.",
+    "Advertising a single family on a single surface kind is a very narrow first claim. It is defensible precisely because it is small, but the uncertified remainder enumerated in the release notes will be 7,526 of 7,580 cells."
+   ]
+  },
+  "alternativeIfLaneCAuditIsJudgedTooExpensive": {
+   "candidate": "C",
+   "intensionalDefinition": {
+    "capabilityFamilies": [
+     "env"
+    ],
+    "surfaceKinds": [
+     "startup"
+    ]
+   },
+   "tradeoff": "C is the largest zero-poison scope with a T2 executor: 65 cells, 0 poisoned, 406 authorable rows, no audit of any kind required. But it buys that by taking on more executor work, not less: 396 of its 406 rows are T2 on surface.startup.env where ZERO of the 52 authorable environment names overlap the executor's 11-entry EXPECTED_SOURCES table (capsec_public_startup_environment_batch.test.rs:176-306), so per §6.1 qualification 1 most rows need new mechanism JS on both sides — nominally a table edit, structurally closer to construction. It also inherits 10 T0 surface.startup.supervisor rows that no executor serves and that the grammar cannot exclude, and its complete-cell obligation is 610 rows of which 204 are out-of-family."
+  }
+ },
+ "undetermined": [
+  {
+   "item": "argument/setup cost for the 12 unproven native-op sources in the recommended scope",
+   "why": "The T3 tier says only that no STRUCTURAL executor change is needed. The sqlite family (60 of 100 rows) requires an on-disk database precondition and the existing NativeProbeSetup variants (capsec_conformance_batch.rs:302-350) were not shown to cover it. Settling this needs an authoring attempt, not more reading — the same disposition the matrix gave process:spawn."
+  },
+  {
+   "item": "cost of the Lane C audit that the recommended scope requires",
+   "why": "LLP 0049 §5.2 sanctions the audit route (closed-world source join plus loaded-target absence evidence mapped to every credited row) but no instrument in this repository measures its cost, and no precedent audit of this shape has been executed for native-op cells."
+  },
+  {
+   "item": "whether the 150 closure-blocked builtin cells are fixable or are a permanent exclusion",
+   "why": "131 cells retain ambiguous callees and 19 have no terminal alternatives. Whether the static-builtin-call-graph route evidence can be disambiguated by better analysis, or whether these cells are structurally unresolvable, was not determined here. It governs whether surface.builtin.export (673 rows, the largest T2 block) can ever join a generated scope."
+  },
+  {
+   "item": "whether poisoned cells may legitimately sit inside an advertised scope at all",
+   "why": "The complete-cell rule (LLP 0044 §2) admits them into the expanded cell set, and the generator does not exclude them, but unresolved-in-scope === 0 cannot be reached until their rows clear. LLP 0049 §5.2 offers audits and a grammar extension but does not say which applies to a re-cut scope. Whether a first scope MUST be zero-poison, or may carry Lane C cells pending audit, is an author decision this measurement cannot make."
+  }
+ ],
+ "result": "MEASURED"
+}
