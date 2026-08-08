@@ -45,3 +45,19 @@ Re-derive the frozen-definition total from the reviewed registry change,
 update the exact assertion/title in
 `packages/ibex-devtools/src/scripts/capsec-coverage-model.test.mjs`, and confirm
 the full file passes without weakening the fail-closed coverage checks.
+
+## Resolution — 2026-08-07 (LLP 0049 Phase 1 orchestration session)
+
+Fixed in `1eb7a78dc`: `capsec-coverage-model.test.mjs` restamped 41 -> 42.
+Verified the registry actually holds 42 definitions; the suite is now
+143 pass / 0 fail.
+
+**Attribution correction.** This ticket recorded the fix as blocked on a
+protected LLP 0049 Phase 1 seam. It was not. Phase 1 never touched
+`capsec/registry/capability-definitions.json` or
+`capsec-coverage-model.test.mjs` — zero commits against either across
+`5e41aca0..1c3806832`. The definition count moved because
+`54f69d0df` ("typed enforcement for `__exactWhich`") added the
+`fs:unbound-read` definition (+15 lines in capability-definitions.json).
+The stale assertion was a direct consequence of that change, so no seam
+was in the way.
