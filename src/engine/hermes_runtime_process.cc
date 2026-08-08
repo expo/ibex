@@ -3327,20 +3327,21 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactWhich"),
       1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
         if (count == 0 || !args[0].isString()) {
           return facebook::jsi::Value::null();
         }
-        if (!checkCapability("process:spawn")) {
-          throw facebook::jsi::JSError(
-              runtime,
-              "Permission denied: process:spawn capability required");
-        }
         auto command = args[0].asString(runtime).utf8(runtime);
 
+#if defined(IBEX_INSECURE_BUILD)
+        (void)handle;
+        // The ambient host lookup exists only in the explicit no-sandbox
+        // build. Secure binaries have no runtime-selectable fallback to it.
+        // @ref LLP 0038#fully-open-mode-insecure
+        // @ref LLP 0039#the-default-is-secure-and-fail-closed
         // If command contains a slash, check it directly
         if (command.find('/') != std::string::npos) {
           if (access(command.c_str(), X_OK) == 0) {
@@ -3378,6 +3379,52 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         return facebook::jsi::Value::null();
+#else
+        if (!handle->armed) {
+          return facebook::jsi::Value::null();
+        }
+
+        // Direct spellings do not consult PATH. Their sole effect branch is
+        // the staged fs:list walk performed by exactWhichArmed.
+        // @ref LLP 0021#effects-and-decision-sets
+        if (command.find('/') != std::string::npos) {
+          auto result = exactWhichArmed(runtime, command);
+          return result.has_value()
+              ? facebook::jsi::Value(
+                    facebook::jsi::String::createFromUtf8(runtime, *result))
+              : facebook::jsi::Value::null();
+        }
+
+        const std::string pathName = "PATH";
+        authorizeTypedWhichPathEnvironmentRead(runtime, pathName);
+        const auto principal = currentPrincipalId();
+        const auto principalOverlay =
+            handle->environment_principal_overlays.find(principal);
+        if (principalOverlay == handle->environment_principal_overlays.end()) {
+          return facebook::jsi::Value::null();
+        }
+        const auto pathValue = principalOverlay->second.find(pathName);
+        if (pathValue == principalOverlay->second.end()) {
+          return facebook::jsi::Value::null();
+        }
+
+        const std::string& path = pathValue->second;
+        std::string::size_type start = 0;
+        while (start < path.size()) {
+          auto end = path.find(':', start);
+          if (end == std::string::npos) end = path.size();
+          const std::string directory = path.substr(start, end - start);
+          if (!directory.empty()) {
+            auto result = exactWhichArmed(
+                runtime, directory + "/" + command);
+            if (result.has_value()) {
+              return facebook::jsi::String::createFromUtf8(runtime, *result);
+            }
+          }
+          start = end + 1;
+        }
+        return facebook::jsi::Value::null();
+#endif
       });
   rt.global().setProperty(rt, "__exactWhich", std::move(whichFn));
 

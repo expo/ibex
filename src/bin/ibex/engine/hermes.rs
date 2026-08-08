@@ -16905,8 +16905,7 @@ module.exports = JSON.stringify({
         let project = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(project.path()).unwrap();
         std::fs::write(root.join("existing.txt"), b"payload").unwrap();
-        let (_reset, digest) =
-            install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         engine
@@ -17009,8 +17008,7 @@ module.exports = JSON.stringify({
         let project = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(project.path()).unwrap();
         std::fs::write(root.join("existing.txt"), b"payload").unwrap();
-        let (_reset, digest) =
-            install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         engine
@@ -17094,8 +17092,7 @@ module.exports = JSON.stringify({
         let _guard = hermes_engine_test_lock().lock().await;
         let project = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(project.path()).unwrap();
-        let (_reset, digest) =
-            install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         engine
             .eval("globalThis.__exactDispatchEvent = function() {}; 'installed'")
@@ -17116,6 +17113,264 @@ module.exports = JSON.stringify({
         assert_eq!(
             refused, -1,
             "input dispatch admitted a destroyed runtime generation"
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn armed_which_uses_overlay_then_vfs_and_preserves_logical_spelling() {
+        use capsec_semantics::model::Stage;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let bin = project.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let tool = bin.join("ibex-which-fixture");
+        std::fs::write(&tool, b"#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&tool).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&tool, permissions).unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let environment_floors = vec![
+            serde_json::json!({
+                "cap": "env:read",
+                "resource": {
+                    "kind": "environment-name",
+                    "target": "principal-overlay",
+                    "name": "PATH"
+                }
+            }),
+            serde_json::json!({
+                "cap": "env:write",
+                "resource": {
+                    "kind": "environment-name",
+                    "target": "principal-overlay",
+                    "name": "PATH"
+                }
+            }),
+        ];
+        let (_reset, digest) =
+            install_armed_test_host_at(Some(&root), false, false, true, environment_floors);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "__exactSetEnv('PATH', '/project/bin'); \
+                     if (typeof __exactWhich !== 'function' && \
+                         typeof __exactEnsureChildProcess === 'function') { \
+                       __exactEnsureChildProcess(); \
+                     } \
+                     if (typeof __exactWhich !== 'function') throw new Error('which missing'); \
+                     'ready'",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("ready")
+        );
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.exactwhich.0it66ce"
+        ));
+        let bare = engine
+            .eval_immediate("__exactWhich('ibex-which-fixture')")
+            .await
+            .unwrap();
+        assert_eq!(bare.as_deref(), Some("/project/bin/ibex-which-fixture"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "typed which must not consult the legacy oracle"
+        );
+        assert!(
+            typed.len() >= 4,
+            "PATH plus retained VFS stages must be observed"
+        );
+        assert_eq!(
+            typed[..2]
+                .iter()
+                .map(|row| (
+                    row.decision_set.context.stage,
+                    row.decision_set.effects[0].action.as_str(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![(Stage::Requested, "env:read"), (Stage::Commit, "env:read")],
+            "PATH must authorize before candidate discovery"
+        );
+        assert_eq!(typed[2].decision_set.context.stage, Stage::Requested);
+        assert!(typed[2..]
+            .iter()
+            .all(|row| row.decision_set.effects[0].action.as_str() == "fs:list"));
+        assert!(typed[2..]
+            .iter()
+            .any(|row| row.decision_set.context.stage == Stage::Discovery));
+        assert!(typed.iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactwhich.0it66ce"
+        })));
+        assert!(unsafe { ibex_private_test_armed_path_lookup_count() } > 0);
+        assert_eq!(
+            unsafe { ibex_private_test_armed_path_lookup_after_refusal_count() },
+            0
+        );
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.exactwhich.0it66ce"
+        ));
+        let direct = engine
+            .eval_immediate("__exactWhich('/project/bin/ibex-which-fixture')")
+            .await
+            .unwrap();
+        assert_eq!(direct.as_deref(), Some("/project/bin/ibex-which-fixture"));
+        let (legacy, direct_typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert!(!direct_typed.is_empty());
+        assert!(direct_typed
+            .iter()
+            .all(|row| row.decision_set.effects[0].action.as_str() == "fs:list"));
+        assert!(direct_typed.iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactwhich.0it66ce"
+        })));
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
+    async fn armed_which_refuses_each_branch_before_discovery_without_grants() {
+        use capsec_semantics::model::Stage;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir(project.path().join("bin")).unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let write_path = serde_json::json!({
+            "cap": "env:write",
+            "resource": {
+                "kind": "environment-name",
+                "target": "principal-overlay",
+                "name": "PATH"
+            }
+        });
+        let (host, digest) = build_armed_test_host_custom(
+            Some(&root),
+            false,
+            false,
+            false,
+            vec![write_path],
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["denials"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({
+                        "cap": "env:read",
+                        "resource": {
+                            "kind": "environment-name",
+                            "target": "principal-overlay",
+                            "name": "PATH"
+                        }
+                    }));
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval_immediate(
+                "__exactSetEnv('PATH', '/project/bin'); \
+                 if (typeof __exactWhich !== 'function' && \
+                     typeof __exactEnsureChildProcess === 'function') { \
+                   __exactEnsureChildProcess(); \
+                 } \
+                 if (typeof __exactWhich !== 'function') throw new Error('which missing'); \
+                 'ready'",
+            )
+            .await
+            .unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.exactwhich.0it66ce"
+        ));
+        let bare = engine
+            .eval_immediate(
+                "try { __exactWhich('missing-tool'); 'allowed' } \
+                 catch (_) { 'denied' }",
+            )
+            .await
+            .unwrap();
+        assert_eq!(bare.as_deref(), Some("denied"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "env:read");
+        assert_eq!(unsafe { ibex_private_test_armed_path_lookup_count() }, 0);
+        assert_eq!(
+            unsafe { ibex_private_test_armed_path_lookup_after_refusal_count() },
+            0
+        );
+
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.exactwhich.0it66ce"
+        ));
+        let direct = engine
+            .eval_immediate(
+                "try { __exactWhich('/project/bin/missing-tool'); 'allowed' } \
+                 catch (_) { 'denied' }",
+            )
+            .await
+            .unwrap();
+        assert_eq!(direct.as_deref(), Some("denied"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "fs:list");
+        assert_eq!(unsafe { ibex_private_test_armed_path_lookup_count() }, 0);
+        assert_eq!(
+            unsafe { ibex_private_test_armed_path_lookup_after_refusal_count() },
+            0
+        );
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+    }
+
+    #[cfg(all(unix, feature = "insecure"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn insecure_which_keeps_ambient_host_path_lookup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let tool = directory.path().join("ibex-insecure-which-fixture");
+        std::fs::write(&tool, b"#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&tool).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&tool, permissions).unwrap();
+        let _path = TestEnvVar::set("PATH", directory.path().to_str().unwrap());
+        crate::host::abi::install_host(crate::host::Host::default_legacy());
+        let engine = HermesEngine::new().unwrap();
+        let actual = engine
+            .eval_immediate(
+                "if (typeof __exactWhich !== 'function' && \
+                     typeof __exactEnsureChildProcess === 'function') { \
+                   __exactEnsureChildProcess(); \
+                 } \
+                 __exactWhich('ibex-insecure-which-fixture')",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            actual.as_deref(),
+            Some(std::fs::canonicalize(tool).unwrap().to_str().unwrap())
         );
     }
 

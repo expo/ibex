@@ -1022,6 +1022,10 @@ pub enum ClosedSurfaceClass {
     Ffi,
     // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — unbound mutations are a deny-only semantic surface, not ordinary fs:write authority.
     FilesystemUnboundMutation,
+    // Legacy numeric-handle readers have no typed retained-object protocol and
+    // remain a distinct deny-only surface after arming.
+    // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+    FilesystemUnboundRead,
     Inspector,
     Ipc,
     ProcessCwd,

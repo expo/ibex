@@ -202960,52 +202960,13 @@
           },
           {
             "id": "surface.native.op.exacthandlereadfilesync.0i8wzb6",
-            "classification": "effects",
+            "classification": "closed",
             "surface": {
               "kind": "native-op",
               "name": "__exactHandleReadFileSync"
             },
-            "effects": [
-              {
-                "cap": "fs:read",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              }
-            ],
-            "principalSources": [
-              "frame-set",
-              "schedule-time"
-            ],
-            "effectOwnerSource": "innermost-nontransparent-frame",
-            "gate": "reclassifies",
-            "effectMode": "conjunctive",
-            "atomicityGroup": "surface.native.op.exacthandlereadfilesync.0i8wzb6.decision",
-            "lifetimeContract": "operation",
-            "barriers": {
-              "authorizeBefore": [
-                "path-discovery",
-                "object-open",
-                "first-use"
-              ],
-              "recheckAt": [
-                "object-use"
-              ],
-              "cancelAt": [
-                "negative-generation-change",
-                "object-identity-mismatch"
-              ]
-            }
+            "cap": "fs:unbound-read",
+            "rationale": "The legacy numeric-handle raw-path reader is closed after typed arming; secure reads use __exactReadFile."
           },
           {
             "id": "surface.native.op.exacthandlescoped.109n957",
@@ -211207,7 +211168,117 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conjunctive",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "bare-command",
+                "when": [
+                  {
+                    "fact": "process.which.command-form",
+                    "equals": "bare"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "path-discovery",
+                    "object-open",
+                    "first-use"
+                  ],
+                  "recheckAt": [
+                    "object-use"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "slash-containing-command",
+                "when": [
+                  {
+                    "fact": "process.which.command-form",
+                    "equals": "slash-containing"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "path-discovery",
+                    "object-open",
+                    "first-use"
+                  ],
+                  "recheckAt": [
+                    "object-use"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
             "atomicityGroup": "surface.native.op.exactwhich.0it66ce.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -217129,7 +217200,117 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conjunctive",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "bare-command",
+                "when": [
+                  {
+                    "fact": "process.which.command-form",
+                    "equals": "bare"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "path-discovery",
+                    "object-open",
+                    "first-use"
+                  ],
+                  "recheckAt": [
+                    "object-use"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "slash-containing-command",
+                "when": [
+                  {
+                    "fact": "process.which.command-form",
+                    "equals": "slash-containing"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "path-discovery",
+                    "object-open",
+                    "first-use"
+                  ],
+                  "recheckAt": [
+                    "object-use"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
             "atomicityGroup": "surface.native.op.global.bun.which.030qwlb.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -224081,7 +224262,117 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conjunctive",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "bare-command",
+                "when": [
+                  {
+                    "fact": "process.which.command-form",
+                    "equals": "bare"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "path-discovery",
+                    "object-open",
+                    "first-use"
+                  ],
+                  "recheckAt": [
+                    "object-use"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "slash-containing-command",
+                "when": [
+                  {
+                    "fact": "process.which.command-form",
+                    "equals": "slash-containing"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "path-discovery",
+                    "object-open",
+                    "first-use"
+                  ],
+                  "recheckAt": [
+                    "object-use"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
             "atomicityGroup": "surface.native.op.global.exact.which.123uwlt.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -267872,6 +268163,36 @@
               ]
             },
             "description": "Filesystem mutations without a completely specified object-bound protocol remain closed."
+          },
+          {
+            "id": "fs:unbound-read",
+            "lifecycle": "deny-only",
+            "stability": "stable",
+            "globality": "terminal",
+            "resourceKinds": [
+              "closed-surface"
+            ],
+            "selectorSchema": "ibex/capsec-selector/1",
+            "occurrenceSchema": "ibex/capsec-occurrence/1",
+            "normalizationProfile": "closed.surface.v1",
+            "channels": {
+              "dynamic": false,
+              "handle": false,
+              "synthesis": false
+            },
+            "staticOnly": true,
+            "selectorConstraints": {
+              "closedSurfaceClasses": [
+                "filesystem-unbound-read"
+              ]
+            },
+            "risk": {
+              "baseTier": 4,
+              "reasons": [
+                "filesystem.unbound-read"
+              ]
+            },
+            "description": "Filesystem reads without a typed retained-object protocol remain closed."
           },
           {
             "id": "fs:watch",

@@ -5401,7 +5401,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto id = static_cast<uint64_t>(args[0].asNumber());
         auto path = args[1].asString(runtime).utf8(runtime);
         std::string cap = "fs:read:" + path;
-        // Possession-based: check the handle's grant, not the calling frame.
+        // Legacy unarmed/insecure possession checks the bearer rather than the
+        // frame. The Host hard-closes this use before the raw path open once a
+        // secure typed decision context exists.
+        // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
         if (!ex_host_handle_check(id, cap.c_str())) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: handle does not grant " + cap);
@@ -5431,6 +5434,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         }
         auto parent = static_cast<uint64_t>(args[0].asNumber());
         auto narrower = args[1].asString(runtime).utf8(runtime);
+        // Re-attenuation is also positive use of a legacy bearer and shares
+        // the Host's secure armed closure; revocation remains available.
+        // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
         auto id = ex_host_handle_scoped(parent, narrower.c_str());
         return facebook::jsi::Value(static_cast<double>(id));
       });

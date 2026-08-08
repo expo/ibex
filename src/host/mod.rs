@@ -3438,6 +3438,8 @@ impl Host {
             "__exactSetEnv"
         } else if coverage_surface_name == "__exactGetAllEnv" {
             "__exactGetAllEnv"
+        } else if coverage_surface_name == "__exactWhich" {
+            "__exactWhich"
         } else {
             "__exactGetEnv"
         };
@@ -3454,10 +3456,12 @@ impl Host {
             })?;
         let operation_variant = if write {
             "write"
-        } else if coverage_surface_name == "__exactGetAllEnv" {
-            "enumerate"
         } else {
-            "read"
+            match coverage_surface_name {
+                "__exactGetAllEnv" => "enumerate",
+                "__exactWhich" => "which-path",
+                _ => "read",
+            }
         };
         let set = DecisionSet {
             decision_set_schema: DecisionSetSchema::V1,
@@ -3534,6 +3538,26 @@ impl Host {
             stage,
             false,
             "__exactGetAllEnv",
+        )
+    }
+
+    /// Authorize the exact PATH overlay read used by `__exactWhich`. Candidate
+    /// path discovery is deliberately a later filesystem decision.
+    // @ref LLP 0021#effects-and-decision-sets
+    pub fn authorize_typed_environment_which_stage(
+        &self,
+        module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        name: capsec_semantics::model::EnvironmentName,
+        stage: capsec_semantics::model::Stage,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        self.authorize_typed_environment_overlay_stage(
+            module_id,
+            constrained_principals,
+            name,
+            stage,
+            false,
+            "__exactWhich",
         )
     }
 
@@ -4811,6 +4835,31 @@ impl Host {
     /// The authority-bearing handle registry. @ref LLP 0013#delegation-and-authority-flow
     pub fn handles(&self) -> &handles::HandleRegistry {
         &self.handles
+    }
+
+    /// Check one legacy numeric bearer without letting it cross the typed-arm
+    /// boundary. The registry remains available to unarmed diagnostics and to
+    /// the explicitly no-sandbox build; secure armed callers must use typed
+    /// opaque handles instead.
+    // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+    // @ref LLP 0038#fully-open-mode-insecure
+    pub fn check_legacy_handle_possession(&self, id: u64, capability: &str) -> bool {
+        if !cfg!(feature = "insecure") && (self.unarmed_closed || self.decision_context.is_some()) {
+            return false;
+        }
+        self.handles.check(id, capability)
+    }
+
+    /// Re-attenuation is also a positive use of a legacy numeric bearer, so it
+    /// shares the armed closure. Revocation remains available as authority
+    /// release.
+    // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+    // @ref LLP 0038#fully-open-mode-insecure
+    pub fn scope_legacy_handle(&self, parent: u64, narrower: &str) -> u64 {
+        if !cfg!(feature = "insecure") && (self.unarmed_closed || self.decision_context.is_some()) {
+            return 0;
+        }
+        self.handles.scoped(parent, narrower)
     }
 
     /// Runtime-grant a capability to the root principal, bounded by the static

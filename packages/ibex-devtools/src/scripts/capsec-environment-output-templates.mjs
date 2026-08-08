@@ -441,15 +441,16 @@ export function auditCanonicalEnvironmentOutputSources({
     [
       "read_surface: u32",
       "stage > 1",
-      "read_surface > 1",
+      "read_surface > 2",
       "let stage = if stage == 0",
       "Stage::Requested",
       "Stage::Commit",
-      "if read_surface == 0",
-      "host.authorize_typed_environment_read_stage(",
-      "host.authorize_typed_environment_enumeration_stage(",
+      "match read_surface",
+      "0 => host.authorize_typed_environment_read_stage(",
+      "1 => host.authorize_typed_environment_enumeration_stage(",
+      "2 => host.authorize_typed_environment_which_stage(",
     ],
-    "host read ABI must distinguish scalar and nonempty-enumeration edges",
+    "host read ABI must distinguish scalar, nonempty-enumeration, and PATH-search edges",
   );
   const writeAbi = sourceRegion(
     hostEnvironmentAbi,
@@ -476,8 +477,8 @@ export function auditCanonicalEnvironmentOutputSources({
   );
   requireMatch(
     nativeAuthorization,
-    /enum class ExactEnvironmentOverlayAccess : uint32_t \{\s*ScalarRead = 0,\s*EnumerationRead = 1,\s*Write = 2,\s*\};/u,
-    "native environment access must distinguish scalar, enumeration, and write terminals",
+    /enum class ExactEnvironmentOverlayAccess : uint32_t \{\s*ScalarRead = 0,\s*EnumerationRead = 1,\s*WhichPathRead = 2,\s*Write = 3,\s*\};/u,
+    "native environment access must distinguish scalar, enumeration, PATH-search, and write terminals",
   );
   const typedAccess = sourceRegion(
     nativeAuthorization,
@@ -491,12 +492,17 @@ export function auditCanonicalEnvironmentOutputSources({
       "auto principal = currentPrincipalId();",
       "auto principals = exactCollectTypedPrincipalStack();",
       "for (uint32_t stage = 0; stage <= 1; ++stage)",
+      "uint32_t readSurface = 0;",
+      "access == ExactEnvironmentOverlayAccess::EnumerationRead",
+      "readSurface = 1;",
+      "access == ExactEnvironmentOverlayAccess::WhichPathRead",
+      "readSurface = 2;",
       "access == ExactEnvironmentOverlayAccess::Write",
       "ex_host_authorize_typed_environment_write_stack(",
       "reinterpret_cast<const uint8_t*>(name.data())",
       "name.size()",
       "ex_host_authorize_typed_environment_read_stack(",
-      "access == ExactEnvironmentOverlayAccess::EnumerationRead ? 1u : 0u",
+      "readSurface,",
       "reinterpret_cast<const uint8_t*>(name.data())",
       "name.size()",
     ],
@@ -506,6 +512,11 @@ export function auditCanonicalEnvironmentOutputSources({
     nativeAuthorization,
     /authorizeTypedEnvironmentRead\([\s\S]*?ExactEnvironmentOverlayAccess::ScalarRead[\s\S]*?authorizeTypedEnvironmentWrite\([\s\S]*?ExactEnvironmentOverlayAccess::Write/u,
     "native scalar reads and writes must select their distinct terminal routes",
+  );
+  requireMatch(
+    nativeAuthorization,
+    /authorizeTypedWhichPathEnvironmentRead\([\s\S]*?ExactEnvironmentOverlayAccess::WhichPathRead/u,
+    "native PATH search must select its closed environment-read route",
   );
 
   const scalarRead = sourceRegion(

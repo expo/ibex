@@ -27,6 +27,7 @@ const SURFACE_KINDS = new Set([
   "startup",
 ]);
 const CLOSED_FS_MUTATION_ACTION = "fs:unbound-mutation";
+const CLOSED_FS_UNBOUND_READ_ACTION = "fs:unbound-read";
 const CLOSED_FS_BUILTIN_MUTATION_EXPORTS = new Set([
   "node_fs\0chmod",
   "node_fs\0chmodsync",
@@ -8794,6 +8795,31 @@ function loaderExecutableRouteEffectSpec(options) {
   );
 }
 
+function whichEffectSpec() {
+  // The direct-command branch never reads PATH. Bare commands authorize the
+  // exact PATH overlay first, then re-enter fs:list authorization for each
+  // candidate as it becomes known.
+  // @ref LLP 0021#effects-and-decision-sets
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "slash-containing-command",
+        when: [
+          { fact: "process.which.command-form", equals: "slash-containing" },
+        ],
+        actions: ["fs:list"],
+      },
+      {
+        id: "bare-command",
+        when: [{ fact: "process.which.command-form", equals: "bare" }],
+        actions: ["env:read", "fs:list"],
+      },
+    ],
+    "filesystem",
+    "WP7",
+  );
+}
+
 function closedSpec(action, implementationOwner, rationale) {
   return { classification: "closed", action, implementationOwner, rationale };
 }
@@ -12516,7 +12542,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return effectSpec(["fs:list", "fs:write"], "filesystem", "WP5");
     }
     if (member === "which") {
-      return effectSpec(["env:read", "fs:list"], "filesystem", "WP7");
+      return whichEffectSpec();
     }
     if (/^(?:resolve|resolvesync)$/u.test(member)) {
       return cwdDependentPathEffectSpec();
@@ -14463,6 +14489,17 @@ function classifyConcreteSurface(surface) {
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");
     }
+    if (surface.name === "__exactHandleReadFileSync") {
+      // A numeric legacy bearer can never authorize a secure armed read. The
+      // typed retained-object route is __exactReadFile; this surface is a
+      // deny-only compatibility edge, not an fs:read decision producer.
+      // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+      return closedSpec(
+        CLOSED_FS_UNBOUND_READ_ACTION,
+        "WP8",
+        "The legacy numeric-handle raw-path reader is closed after typed arming; secure reads use __exactReadFile.",
+      );
+    }
     // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — direct native mutation terminals fail before path or descriptor lookup.
     if (CLOSED_FS_NATIVE_MUTATION_OPERATIONS.has(surface.name)) {
       return closedSpec(
@@ -14983,7 +15020,7 @@ function classifyConcreteSurface(surface) {
   }
 
   if (/which$/u.test(name)) {
-    return effectSpec(["env:read", "fs:list"], "filesystem", "WP7");
+    return whichEffectSpec();
   }
 
   // SQLite decomposes into filesystem authority; no sqlite:* positive action

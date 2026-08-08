@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-08-07 (the closed-branch discipline now names the read side explicitly: legacy numeric-bearer readers (`__exactHandleReadFileSync`) carry the deny-only `fs:unbound-read` disposition, the legacy handle possession/re-attenuation ABI fails closed once a typed decision context is armed, and `__exactWhich` moved off the legacy `process:spawn` shim onto exact `env:read(PATH)` + staged `fs:list` branches through the armed VFS)
 **Revised:** 2026-07-26 (armed POSIX and Windows async scalar/vector descriptor reads now validate their retained owner and bounded output shapes on the runtime thread, carry the exact principal operation lease to the worker, authorize one exact-object `fs:read` Repeat immediately before the sole scalar/aggregate acquisition, and publish only the successful owned result; positioned reads preserve the cursor and denial cannot mutate caller buffers or cross the legacy oracle)
 **Revised:** 2026-07-26 (armed Windows worker-backed whole-file reads now carry one schedule-time runtime/principal operation lease into typed VFS execution: paths authorize requested/discovery list plus commit/per-chunk read entirely on the worker, retained descriptors serialize their cursor and submit a fresh exact-object read Repeat for every 64 KiB chunk plus EOF, and denial cannot reach lookup, byte disclosure, or the legacy oracle)
 **Revised:** 2026-07-25 (armed Windows exact-string `"a"` open now retains an existing regular file through an append-only OS handle after write-requested and list-requested/discovery checks, binds the exact object/generation at write Commit, and scalar write authorizes one write Repeat immediately before append; absent paths are never created, denial leaves bytes unchanged, authenticated package-source hard-link aliases refuse at Commit, and other writable/async/durability branches remain unpromoted)
@@ -1417,6 +1418,15 @@ must refuse before resolving any path or descriptor. Immutable target facts may
 select a platform-specific branch (for example, worker-backed path `chmod` on Apple
 versus closure on Windows), but they come from the bound target profile and are not
 caller-controlled.
+
+The same discipline covers **reads with no typed retained-object protocol**: a
+reader whose authority is a legacy numeric bearer rather than a staged, retained
+object (`__exactHandleReadFileSync`) carries the deny-only `fs:unbound-read`
+disposition, mirroring `fs:unbound-mutation` on the write side. The legacy numeric
+handle registry additionally fails closed at use time (possession and
+re-attenuation) once a typed decision context is armed, so a bearer seeded by
+trusted native code cannot cross the typed-arm boundary; typed opaque handles are
+the only armed read route.
 
 **Open in v1, and specified completely** — each is a single object reached under a
 retained parent:

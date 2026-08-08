@@ -28,6 +28,9 @@
 #include <sys/poll.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#if defined(__APPLE__)
+#include <sys/acl.h>
+#endif
 #if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
 #include <sys/statfs.h>
 #endif
@@ -99,6 +102,7 @@ constexpr uint32_t kFsSurfaceWriteAsync = 28;
 constexpr uint32_t kFsSurfaceWritevAsync = 29;
 constexpr uint32_t kFsSurfaceFsyncSync = 30;
 constexpr uint32_t kFsSurfaceFdatasyncSync = 31;
+constexpr uint32_t kFsSurfaceWhich = 32;
 constexpr size_t kMaxArmedSymlinkHops = 32;
 
 struct IoVecMetadata {
@@ -2061,6 +2065,99 @@ static ArmedResolvedPath walkArmedPath(
   return ArmedResolvedPath{
       std::move(rootParent), finalDirectory.fd, finalDirectory.backingPath,
       std::move(rootParentAndName.second), true};
+}
+
+static bool retainedDescriptorIsExecutable(int fd) {
+#if defined(AT_EMPTY_PATH)
+  // Probe the retained object, never a replaceable pathname. This is the same
+  // descriptor-bound primitive used by armed fs.access.
+  return ::faccessat(fd, "", X_OK, AT_EMPTY_PATH) == 0;
+#elif defined(__APPLE__)
+  // Darwin has no AT_EMPTY_PATH. Fail closed for extended ACLs, then evaluate
+  // the ordinary Unix mode bits against the real credentials used by access().
+  // This preserves descriptor identity while refusing permission models this
+  // narrow adapter cannot answer from fstat alone.
+  errno = 0;
+  acl_t acl = ::acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
+  if (acl == nullptr) {
+    if (errno != ENOENT && errno != 0) return false;
+  } else {
+    acl_entry_t entry = nullptr;
+    const int entryResult = ::acl_get_entry(acl, ACL_FIRST_ENTRY, &entry);
+    ::acl_free(acl);
+    if (entryResult == 1) {
+      errno = EACCES;
+      return false;
+    }
+    if (entryResult < 0) return false;
+  }
+
+  struct stat metadata = {};
+  if (::fstat(fd, &metadata) != 0) return false;
+  const mode_t executeBits = metadata.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH);
+  const uid_t uid = ::getuid();
+  if (uid == 0) return executeBits != 0;
+  if (uid == metadata.st_uid) return (metadata.st_mode & S_IXUSR) != 0;
+
+  bool inGroup = ::getgid() == metadata.st_gid;
+  if (!inGroup) {
+    const int groupCount = ::getgroups(0, nullptr);
+    if (groupCount < 0) return false;
+    std::vector<gid_t> groups(static_cast<size_t>(groupCount));
+    if (groupCount > 0 && ::getgroups(groupCount, groups.data()) != groupCount) {
+      return false;
+    }
+    inGroup = std::find(groups.begin(), groups.end(), metadata.st_gid) !=
+        groups.end();
+  }
+  return inGroup ? (metadata.st_mode & S_IXGRP) != 0
+                 : (metadata.st_mode & S_IXOTH) != 0;
+#else
+  errno = EACCES;
+  return false;
+#endif
+}
+
+std::optional<std::string> exactWhichArmed(
+    facebook::jsi::Runtime& runtime,
+    const std::string& input) {
+  auto path = exactResolveVfsPath(runtime, input);
+  // A requested fs:list decision precedes every metadata open. The walk keeps
+  // the final object retained, including across symlink traversal, and never
+  // exposes the backing spelling to JavaScript.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+  auto resolved = walkArmedPath(
+      runtime, path.backing, path.virtualPath, kFsSurfaceWhich, "", true,
+      true, false, false, true);
+  const int32_t targetFd = resolved.exists ? *resolved.target : -1;
+  if (ex_host_authorize_typed_fs_open(
+          currentPrincipalId(), resolved.backingPath.c_str(), 3,
+          kFsSurfaceWhich, *resolved.parent, targetFd, 0, 0, nullptr) != 1) {
+    throwTypedFsAuthorizationError(runtime, "which", path.virtualPath);
+  }
+  if (!resolved.exists) {
+    return std::nullopt;
+  }
+  const auto parentPath = splitParentAndName(resolved.backingPath).first;
+  auto identityIsStable = [&]() {
+    return sameObjectAt(*resolved.parent, resolved.name, *resolved.target) &&
+        fdResolvesToPath(*resolved.parent, parentPath) &&
+        fdResolvesToPath(*resolved.target, resolved.backingPath);
+  };
+  if (!identityIsStable()) {
+    throwFsTypedError(
+        runtime, "ERR_IBEX_STALE_IDENTITY",
+        "retained executable identity changed", "which", path.virtualPath);
+  }
+  const bool executable = retainedDescriptorIsExecutable(*resolved.target);
+  if (!identityIsStable()) {
+    throwFsTypedError(
+        runtime, "ERR_IBEX_STALE_IDENTITY",
+        "retained executable identity changed", "which", path.virtualPath);
+  }
+  if (!executable) return std::nullopt;
+  return path.virtualPath;
 }
 
 struct ArmedOpenedPath {

@@ -6274,6 +6274,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
             "fs-fdatasync-sync",
             "surface.native.op.exactfsfdatasyncsync.1p6q71s",
         ),
+        32 => ("fs-which", "surface.native.op.exactwhich.0it66ce"),
         _ => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
     };
     let follow_mode = if matches!(surface, 10 | 11 | 15) {
@@ -6672,7 +6673,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_environment_read_stack(
         || name_len == 0
         || name_len > 32_768
         || stage > 1
-        || read_surface > 1
+        || read_surface > 2
     {
         return -1;
     }
@@ -6705,20 +6706,26 @@ pub unsafe extern "C" fn ex_host_authorize_typed_environment_read_stack(
                     Ok(principals) => principals,
                     Err(_) => return -1,
                 };
-            let decision = if read_surface == 0 {
-                host.authorize_typed_environment_read_stage(
+            let decision = match read_surface {
+                0 => host.authorize_typed_environment_read_stage(
                     &module_id.to_string(),
                     constrained_principals,
                     name,
                     stage,
-                )
-            } else {
-                host.authorize_typed_environment_enumeration_stage(
+                ),
+                1 => host.authorize_typed_environment_enumeration_stage(
                     &module_id.to_string(),
                     constrained_principals,
                     name,
                     stage,
-                )
+                ),
+                2 => host.authorize_typed_environment_which_stage(
+                    &module_id.to_string(),
+                    constrained_principals,
+                    name,
+                    stage,
+                ),
+                _ => unreachable!("read_surface was validated above"),
             };
             match decision {
                 Ok(decision)
@@ -8157,7 +8164,8 @@ pub extern "C" fn ex_host_handle_create(capability: *const c_char) -> u64 {
 
 /// Re-attenuate handle `parent` to a narrower grant (a full capability that must
 /// be within the parent, or a bare sub-path appended to the parent's resource).
-/// Returns 0 if the parent is missing/dead or the request would widen it.
+/// Returns 0 if the parent is missing/dead, the request would widen it, or the
+/// secure Host has crossed the typed-arm boundary.
 #[no_mangle]
 pub extern "C" fn ex_host_handle_scoped(parent: u64, narrower: *const c_char) -> u64 {
     if narrower.is_null() {
@@ -8166,12 +8174,13 @@ pub extern "C" fn ex_host_handle_scoped(parent: u64, narrower: *const c_char) ->
     let n = unsafe { CStr::from_ptr(narrower) }
         .to_string_lossy()
         .to_string();
-    with_host(|host| host.handles().scoped(parent, &n), 0)
+    with_host(|host| host.scope_legacy_handle(parent, &n), 0)
 }
 
-/// Possession check: is the handle live (no revoked ancestor) and does its grant
-/// cover `capability`? This does NOT consult the calling frame — a handle is
-/// authority-bearing.
+/// Possession check: in an unarmed or explicitly insecure Host, is the handle
+/// live (no revoked ancestor) and does its grant cover `capability`? Secure
+/// armed Hosts reject this legacy numeric bearer family at use time; typed
+/// opaque handles carry armed authority.
 #[no_mangle]
 pub extern "C" fn ex_host_handle_check(id: u64, capability: *const c_char) -> i32 {
     if capability.is_null() {
@@ -8180,7 +8189,7 @@ pub extern "C" fn ex_host_handle_check(id: u64, capability: *const c_char) -> i3
     let cap = unsafe { CStr::from_ptr(capability) }
         .to_string_lossy()
         .to_string();
-    if with_host(|host| host.handles().check(id, &cap), false) {
+    if with_host(|host| host.check_legacy_handle_possession(id, &cap), false) {
         1
     } else {
         0
@@ -12712,6 +12721,47 @@ mod tests {
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));
+    }
+
+    // A valid numeric bearer seeded before injection must not survive the
+    // typed-arm boundary. This covers the use-time check and its only sibling
+    // positive possession route; revocation intentionally remains available.
+    // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+    #[cfg(not(feature = "insecure"))]
+    #[test]
+    fn armed_host_refuses_seeded_legacy_bearer_at_use_time() {
+        let _guard = host_test_lock();
+        struct ResetHost;
+        impl Drop for ResetHost {
+            fn drop(&mut self) {
+                install_host(Host::default_legacy());
+            }
+        }
+        let _reset = ResetHost;
+
+        let host = crate::host::tests::example_armed_host();
+        let capability = "fs:read:/project/seeded.txt";
+        let bearer = host.handles().create(capability);
+        assert_ne!(bearer, 0, "the legacy bearer fixture must be valid");
+        assert!(
+            host.handles().check(bearer, capability),
+            "the raw registry must prove this is a valid injected bearer"
+        );
+
+        install_host(host);
+        assert_eq!(ex_host_is_armed(), 1);
+        let capability = CString::new(capability).unwrap();
+        assert_eq!(
+            ex_host_handle_check(bearer, capability.as_ptr()),
+            0,
+            "armed use-time possession must fail closed"
+        );
+        let narrower = CString::new("fs:read:/project/seeded.txt").unwrap();
+        assert_eq!(
+            ex_host_handle_scoped(bearer, narrower.as_ptr()),
+            0,
+            "armed re-attenuation must not use a legacy bearer"
+        );
     }
 
     #[test]

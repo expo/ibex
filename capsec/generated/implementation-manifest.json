@@ -170068,9 +170068,9 @@
       "edgeId": "surface.native.op.exacthandlereadfilesync.0i8wzb6",
       "observedKey": "native-op:__exactHandleReadFileSync",
       "branchId": "surface.native.op.exacthandlereadfilesync.0i8wzb6.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.exacthandlereadfilesync.0stphrt",
+      "enforcementBranchId": "surface.native.op.exacthandlereadfilesync.0i8wzb6.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactHandleReadFileSync"
         ],
@@ -170093,13 +170093,9 @@
         "src/engine/hermes_runtime.cc#__exactHandleReadFileSync",
         "src/engine/hermes_runtime.cc#jsi-global:__exactHandleReadFileSync"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.exacthandlereadfilesync.0stphrt.allow",
-        "enforcement.src.engine.hermes.runtime.cc.exacthandlereadfilesync.0stphrt.deny",
-        "enforcement.src.engine.hermes.runtime.cc.exacthandlereadfilesync.0stphrt.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.exacthandlereadfilesync.0stphrt.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.exacthandlereadfilesync.0stphrt.wrong-principal"
+        "surface.native.op.exacthandlereadfilesync.0i8wzb6.default.closed"
       ]
     },
     {
@@ -180560,7 +180556,7 @@
       "edgeId": "surface.native.op.exactwhich.0it66ce",
       "observedKey": "native-op:__exactWhich",
       "branchId": "surface.native.op.exactwhich.0it66ce.posix",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.0auyz7l",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -180588,11 +180584,18 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.0auyz7l.allow",
-        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.0auyz7l.deny",
-        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.0auyz7l.malformed",
-        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.0auyz7l.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.0auyz7l.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.bare-command.allow",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.bare-command.branch-selection",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.bare-command.deny",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.bare-command.malformed",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.bare-command.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.bare-command.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.slash-containing-command.allow",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.slash-containing-command.branch-selection",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.slash-containing-command.deny",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.slash-containing-command.malformed",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.slash-containing-command.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.process.cc.exactwhich.15y11vy.logical.slash-containing-command.wrong-principal"
       ]
     },
     {
@@ -191515,7 +191518,7 @@
       "edgeId": "surface.native.op.global.bun.which.030qwlb",
       "observedKey": "native-op:global:Bun.which",
       "branchId": "surface.native.op.global.bun.which.030qwlb.default",
-      "enforcementBranchId": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.11oddp3",
+      "enforcementBranchId": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -191545,11 +191548,18 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.11oddp3.allow",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.11oddp3.deny",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.11oddp3.malformed",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.11oddp3.missing-attribution",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.11oddp3.wrong-principal"
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.allow",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.branch-selection",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.deny",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.malformed",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.missing-attribution",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.wrong-principal",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.allow",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.branch-selection",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.deny",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.malformed",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.missing-attribution",
+        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.wrong-principal"
       ]
     },
     {
@@ -206444,7 +206454,7 @@
       "edgeId": "surface.native.op.global.exact.which.123uwlt",
       "observedKey": "native-op:global:Exact.which",
       "branchId": "surface.native.op.global.exact.which.123uwlt.default",
-      "enforcementBranchId": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.14zt3ta",
+      "enforcementBranchId": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -206471,11 +206481,18 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.14zt3ta.allow",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.14zt3ta.deny",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.14zt3ta.malformed",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.14zt3ta.missing-attribution",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.14zt3ta.wrong-principal"
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.allow",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.branch-selection",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.deny",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.malformed",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.missing-attribution",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.wrong-principal",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.allow",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.branch-selection",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.deny",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.malformed",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.missing-attribution",
+        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.wrong-principal"
       ]
     },
     {
@@ -280181,7 +280198,6 @@
         "surface.native.op.exactfsreadfileasync.0fw3fo0",
         "surface.native.op.exactfsreadv.11moytw",
         "surface.native.op.exactfsreadvasync.0bn4x60",
-        "surface.native.op.exacthandlereadfilesync.0i8wzb6",
         "surface.native.op.exactmoduleresolve.14a0zlj",
         "surface.native.op.exactnativemoduleresolve.0lt1gr6",
         "surface.native.op.exactreadfile.1cmzco7",
@@ -280211,7 +280227,7 @@
         "surface.startup.supervisor.history.journal.recover.1tl92hf",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 292 observed effect edges."
+      "rationale": "Covered by 291 observed effect edges."
     },
     {
       "definitionId": "fs:unbound-mutation",
@@ -280295,6 +280311,14 @@
         "surface.native.op.exactutimes.19tvh2i"
       ],
       "rationale": "Closed by 76 observed surface edges."
+    },
+    {
+      "definitionId": "fs:unbound-read",
+      "disposition": "closed",
+      "edgeIds": [
+        "surface.native.op.exacthandlereadfilesync.0i8wzb6"
+      ],
+      "rationale": "Closed by 1 observed surface edge."
     },
     {
       "definitionId": "fs:watch",
@@ -283443,7 +283467,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-SedDB4RkDjCuv5SUAHEaSiVgF7e7l4bE4zso5-ptbKo"
+      "rawContentDigest": "sha256-_QR6pH9kri-Z-h7GUugHHgo2DgqiusJw4YZzhk7LKko"
     },
     {
       "kind": "output-disposition-dataset",
@@ -283463,32 +283487,32 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-cPfmqAThVZqdMVuhrtaicIQpwfRKM5Sg-L8Rdwal_MU"
+      "rawContentDigest": "sha256-Z_dfnq3NNoSaD_ftvIceNKAaFDh6tkHnSLgj1DYPE5A"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-OIxGXY1UKqdC7ykfx4_1aICWHaepw2gAX4evvObz7sw"
+      "rawContentDigest": "sha256-_WroVVv8VBLPsWGmyN_WZP46NVjIGMGQ2fgl0rRyRW4"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-Qtlao908ah8ntY76JwDh2cpqHB3NYW7HPUcSBBhVaCg"
+      "rawContentDigest": "sha256-EHPNbYOzqtsmEBGQ3YM_6Rckubg4fyTouASP53xoHC0"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-Rflzj35qYa1hMa-P9I-5NbDD33_H0kiXJoZ-M1Tu9Jw"
+      "rawContentDigest": "sha256-qVhC7KwRdDPoMOt3bo8UFC8jyAeR_z5jDzoUlScb-Vo"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-uuEIEBYf8_FxvIMPFHciU4v2togRCRLcRcfeReUmMBU"
+      "rawContentDigest": "sha256-Sh9pwdgYgqdY_kIo8MuyqhA2sQbhtEwDWT-FbUKLcO0"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-lVw3q15GfLeYDIJ1AWwGGzwi3LQ1EhuJ6rYqdJhvvcQ"
+      "rawContentDigest": "sha256-UjbYn6zAWeIX2j-0ilLL9wUDYv8vKILzpDq4AHnZ8ZY"
     }
   ],
   "counts": {

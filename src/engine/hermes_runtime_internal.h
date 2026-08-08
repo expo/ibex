@@ -1541,6 +1541,8 @@ struct ExactArmedSqliteFile {
 // diagnostic runtimes retain their historical host-path behavior.
 ExactResolvedVfsPath exactResolveVfsPath(
     facebook::jsi::Runtime& runtime, const std::string& input);
+std::optional<std::string> exactWhichArmed(
+    facebook::jsi::Runtime& runtime, const std::string& input);
 ExactArmedSqliteFile exactOpenArmedSqliteFile(
     facebook::jsi::Runtime& runtime,
     const ExactResolvedVfsPath& path,
@@ -1994,7 +1996,8 @@ inline void exactRequireTypedSystemInfo(
 enum class ExactEnvironmentOverlayAccess : uint32_t {
   ScalarRead = 0,
   EnumerationRead = 1,
-  Write = 2,
+  WhichPathRead = 2,
+  Write = 3,
 };
 
 inline bool typedEnvironmentOverlayAccessAllowed(
@@ -2004,6 +2007,12 @@ inline bool typedEnvironmentOverlayAccessAllowed(
   auto principal = currentPrincipalId();
   auto principals = exactCollectTypedPrincipalStack();
   for (uint32_t stage = 0; stage <= 1; ++stage) {
+    uint32_t readSurface = 0;
+    if (access == ExactEnvironmentOverlayAccess::EnumerationRead) {
+      readSurface = 1;
+    } else if (access == ExactEnvironmentOverlayAccess::WhichPathRead) {
+      readSurface = 2;
+    }
     auto result = access == ExactEnvironmentOverlayAccess::Write
         ? ex_host_authorize_typed_environment_write_stack(
               principal,
@@ -2017,7 +2026,7 @@ inline bool typedEnvironmentOverlayAccessAllowed(
               principals.data(),
               principals.size(),
               stage,
-              access == ExactEnvironmentOverlayAccess::EnumerationRead ? 1u : 0u,
+              readSurface,
               reinterpret_cast<const uint8_t*>(name.data()),
               name.size());
     if (result != 1) return false;
@@ -2033,6 +2042,20 @@ inline void authorizeTypedEnvironmentRead(
     const std::string& name) {
   if (!typedEnvironmentOverlayAccessAllowed(
           name, ExactEnvironmentOverlayAccess::ScalarRead)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: env:read authority required");
+  }
+}
+
+// PATH search is a distinct closed coverage surface even though it reads the
+// same exact principal-overlay resource as process.env.PATH.
+// @ref LLP 0021#effects-and-decision-sets — later filesystem candidates are
+// unknown at the environment stage and re-enter authorization as discovered.
+inline void authorizeTypedWhichPathEnvironmentRead(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (!typedEnvironmentOverlayAccessAllowed(
+          name, ExactEnvironmentOverlayAccess::WhichPathRead)) {
     throw facebook::jsi::JSError(
         runtime, "Permission denied: env:read authority required");
   }

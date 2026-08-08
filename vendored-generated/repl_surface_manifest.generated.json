@@ -16,7 +16,7 @@
   "registry": [
     {
       "path": "capsec/registry/capability-definitions.json",
-      "sha256": "493b915aec2048efb549d35d4056c6e247aeeb6ad2eb6fc1db677a64e0c9dea6"
+      "sha256": "d5421fe1f1d1a402a1e60b0b36c16da76e5f53ed49b1d9a317ca3fb376b91274"
     },
     {
       "path": "capsec/registry/policy-rules.json",
@@ -27,7 +27,7 @@
     {
       "name": "rust",
       "path": "vendored-generated/repl_surface.generated.rs",
-      "sha256": "f79ff03d9753462a36ca8f0c7736ec0586c8c4dc48d35294c11b8694d9c850b9"
+      "sha256": "02824c207a0a3d8a31491279f7e2f44c93576edd3922bc964951a693703134a4"
     },
     {
       "name": "help",

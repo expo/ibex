@@ -1718,7 +1718,7 @@
             "summary": "The sole runtime caller returns an armed principal-overlay value or undefined before getEnvValue can call this unarmed Host ABI fallback."
           },
           "scope": "ex_host_env_get",
-          "sourceOffset": 362981,
+          "sourceOffset": 363502,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var_os:dynamic:read",
           "stage": "post-arm-host-read"
@@ -4713,7 +4713,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "ex_hermes_create_impl",
-          "sourceOffset": 419240,
+          "sourceOffset": 419682,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -4728,7 +4728,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "rootGlobalActivationApplies",
-          "sourceOffset": 341473,
+          "sourceOffset": 341915,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -6171,7 +6171,7 @@
             "summary": "Deterministic race injection runs only within an already typed-authorized armed filesystem create trajectory."
           },
           "scope": "pauseBeforeArmedExclusiveCreateForTest",
-          "sourceOffset": 50800,
+          "sourceOffset": 50892,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_ARMED_CREATE_PAUSE_MS:read",
           "stage": "post-arm-host-read"
@@ -6205,7 +6205,7 @@
             "summary": "Commit-denial injection is reachable only inside the typed armed filesystem open/create decision trajectory."
           },
           "scope": "denyArmedOpenCommitForTest",
-          "sourceOffset": 51255,
+          "sourceOffset": 51347,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_ARMED_DENY_OPEN_COMMIT:read",
           "stage": "post-arm-host-read"
@@ -6295,7 +6295,7 @@
             "summary": "Queue-capacity injection is consumed only after an exact typed filesystem operation reaches the native worker pool."
           },
           "scope": "maxQueue",
-          "sourceOffset": 113158,
+          "sourceOffset": 116972,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
           "stage": "post-arm-host-read"
@@ -6329,7 +6329,7 @@
             "summary": "Enqueue-failure injection is consumed only after an exact typed filesystem operation reaches the native worker pool."
           },
           "scope": "maybeThrowInjectedEnqueueFailure",
-          "sourceOffset": 112799,
+          "sourceOffset": 116613,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
           "stage": "post-arm-host-read"
@@ -7202,7 +7202,7 @@
             "summary": "The native which lookup checks process:spawn before consulting parent PATH."
           },
           "scope": "installChildProcessHostFunctions",
-          "sourceOffset": 137970,
+          "sourceOffset": 138120,
           "sourcePath": "src/engine/hermes_runtime_process.cc",
           "sourceRef": "src/engine/hermes_runtime_process.cc#getenv:PATH:read",
           "stage": "post-arm-host-read"
