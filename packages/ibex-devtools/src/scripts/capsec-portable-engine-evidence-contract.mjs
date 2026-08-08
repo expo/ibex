@@ -42,8 +42,10 @@ const PORTABLE_PUBLIC_SURFACE_EXECUTION_EVIDENCE_DOMAIN =
   "ibex:capsec:public-surface-execution-evidence:1";
 const PORTABLE_OUTPUT_DISPOSITION_OBSERVATION_DOMAIN =
   "ibex:capsec:output-disposition-observation:1";
-const PORTABLE_CONFORMANCE_SCHEMA = "ibex/capsec-conformance/2";
-const PORTABLE_CONFORMANCE_DOMAIN = "ibex:capsec:conformance:2";
+// @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M4/M30 rev the
+// scoped portable report and its digest domain together.
+const PORTABLE_CONFORMANCE_SCHEMA = "ibex/capsec-conformance/3";
+const PORTABLE_CONFORMANCE_DOMAIN = "ibex:capsec:conformance:3";
 const PORTABLE_TARGET_ATTESTATIONS_SCHEMA = "ibex/capsec-target-attestations/3";
 // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — publication v3 names scoped certification and binds
 // scopeDigest without changing tuple-keyed catalog selection.
@@ -216,22 +218,10 @@ function parseScopedSchemaExtension(bytes, name, label) {
 }
 
 function parseScopedReport(bytes, label) {
-  assertBytes(bytes, label);
-  const value = parseJsonStrict(bytes, label);
+  const value = parseValidated(bytes, "report", label);
   assertScopeDigest(
     value?.bindings?.scopeDigest,
     `${label}.bindings.scopeDigest`,
-  );
-  const projection = structuredClone(value);
-  delete projection.bindings.scopeDigest;
-  delete projection.summary.uncertifiedCells;
-  for (const cell of projection.cells ?? []) {
-    if (cell.status === "uncertified") cell.status = "incomplete";
-  }
-  const { ajv, validate } = validators().report;
-  invariant(
-    validate(projection),
-    `${label} schema invalid: ${ajv.errorsText(validate.errors)}`,
   );
   return value;
 }

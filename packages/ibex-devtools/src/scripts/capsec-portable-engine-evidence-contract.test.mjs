@@ -435,7 +435,7 @@ function buildFixture({
 
   const report = withSelfDigest(
     {
-      conformanceSchema: "ibex/capsec-conformance/2",
+      conformanceSchema: "ibex/capsec-conformance/3",
       profile: "ibex/capsec/1",
       status: "conformant",
       bindings: {
@@ -813,6 +813,19 @@ function expectRefused(input, pattern = undefined) {
 }
 
 describe("additive Phase-2 portable-engine promotion contract", () => {
+  test("admits a scoped conformance/3 report through the complete portable validator", () => {
+    const fixture = buildFixture();
+    const result = validatePortablePromotionV2(fixture.input);
+    expect(result.report.conformanceSchema).toBe("ibex/capsec-conformance/3");
+    expect(result.report.bindings.scopeDigest).toBe(
+      fixture.scopeArtifact.scopeDigest,
+    );
+    expect(result.report.summary.uncertifiedCells).toBe(0);
+    expect(result.report.conformanceDigest).toBe(
+      portableConformanceDigest(result.report),
+    );
+  });
+
   test("strict-validates and joins the complete future promotion input", () => {
     const fixture = buildFixture();
     const result = validatePortablePromotionV2(fixture.input);
@@ -854,7 +867,7 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
       "sha256-Pt4YFCrriWoi6N5StbXKFMZSv9izmcq4lmyyzMwjzsU",
     );
     expect(fixture.report.conformanceDigest).toBe(
-      "sha256-HESgyJtZs6vOb84KJClVZc3yq2SNI8XOPdWOd4509vI",
+      "sha256-E5wnjK44yRRmEuqxrLMFmvyF28r_P53nAUsvFoA6f_c",
     );
     expect(fixture.evidence.outputDigests).toEqual([
       fixture.report.executions[0].rawContentDigest,

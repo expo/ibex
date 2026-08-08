@@ -1167,7 +1167,7 @@ export function buildPortablePromotionBundleV2({ preparation, processes }) {
     (cell) => cell.status === "conformant",
   ).length;
   const report = {
-    conformanceSchema: "ibex/capsec-conformance/2",
+    conformanceSchema: "ibex/capsec-conformance/3",
     profile: PROFILE,
     status: "conformant",
     bindings,

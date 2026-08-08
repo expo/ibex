@@ -95,7 +95,7 @@ pub const REPL_SURFACE_GENERATOR_SHA256: &str =
 pub const CAPABILITY_DEFINITIONS_SHA256: &str =
     "493b915aec2048efb549d35d4056c6e247aeeb6ad2eb6fc1db677a64e0c9dea6";
 pub const POLICY_RULES_SHA256: &str =
-    "e5ec3f0556b813c0eaf059da9783175be18b52d1fe805e4a6521796a99a4e5e7";
+    "7274868262f28dff973328cde4d9de5508cd85d1c449e21355a9c2d40c328ed7";
 pub const REPL_SURFACE_VERSION: u32 = 1;
 pub const KEYBINDING_SURFACE_VERSION: u32 = 1;
 pub const REPL_HELP_TEXT: &str = "REPL Commands:\n  .help (.h)         Show every command, alias, and published keybinding\n  .exit (.quit, .q)  End the session through orderly shutdown\n  .clear (.cls)      Clear an interactive display without resetting session state\n  .load <path>       Read a virtual path through typed authority and evaluate its supported contents\n  .time <input>      Evaluate input with prompt semantics and report elapsed time\n  .break             Abandon a pending multiline continuation\n  .mounts            Show the virtual mount table and virtual current directory\n\nKeybindings:\n  Tab     Complete without authorizing effects or evaluating user code\n  Ctrl+C  Cancel, discard, or escalate according to session state\n  Ctrl+D  Exit at an empty prompt; otherwise delete forward\n  Ctrl+R  Search session history in reverse\n  Ctrl+Z  Restore the terminal, suspend, and recapture on resume\n";

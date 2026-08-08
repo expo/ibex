@@ -33,6 +33,10 @@ import {
 import {
   validatePortablePromotionBundleGraph,
 } from "../packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs";
+import {
+  SCOPE_SCHEMA,
+  computeScopeDigest,
+} from "../packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs";
 
 const CATALOG_SCHEMA_V1 = "ibex/portable-engine-promotion-admission-catalog/1";
 const CATALOG_SCHEMA = "ibex/portable-engine-promotion-admission-catalog/2";
@@ -55,6 +59,8 @@ const BUNDLE_VERIFIER_PATH =
   "packages/ibex-devtools/src/scripts/verify-capsec-portable-promotion-bundle.mjs";
 const PORTABLE_EVIDENCE_CONTRACT_PATH =
   "packages/ibex-devtools/src/scripts/capsec-portable-engine-evidence-contract.mjs";
+const CAPSEC_SCOPE_ARTIFACT_PATH =
+  "packages/ibex-devtools/src/scripts/capsec-scope-artifact.mjs";
 const PORTABLE_EVIDENCE_SCHEMA_PATHS = Object.freeze([
   "capsec/schema/common.schema.json",
   "capsec/schema/target-cell.schema.json",
@@ -70,7 +76,7 @@ const PORTABLE_EVIDENCE_SCHEMA_PATHS = Object.freeze([
   "schemas/capsec-mapped-engine-execution-evidence-v1.schema.json",
   "schemas/capsec-conformance-report-v2.schema.json",
   "schemas/capsec-target-attestations-v2.schema.json",
-  "schemas/capsec-target-advertisements-v2.schema.json",
+  "schemas/capsec-target-advertisements-v3.schema.json",
   "schemas/capsec-portable-promotion-authority-v1.schema.json",
 ]);
 const SCOPE_ROLE = "scope-artifact";
@@ -81,7 +87,7 @@ const LINEAGE_FLOOR = "afad4af9f4257eb8262cf8348e5fbb0a3c082ecf";
 // table is part of the published lineage contract; removing an old row would
 // make an otherwise valid historical hop unverifiable.
 const SCOPE_DIGEST_FORMATS = Object.freeze({
-  "ibex/capsec-scope/1": Object.freeze({ domain: "ibex:capsec:scope:1" }),
+  [SCOPE_SCHEMA]: Object.freeze({ computeDigest: computeScopeDigest }),
 });
 const SYSTEM_GIT = "/usr/bin/git";
 const MAX_GIT_OBJECT_BYTES = 72 * 1024 * 1024;
@@ -814,11 +820,15 @@ function promotionBundleMemberPath(admission, logicalName) {
       /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(logicalName),
     "portable bundle logical member name is malformed",
   );
-  return `${evidencePrefix(admission)}${
+  const prefix = evidencePrefix(admission);
+  if (logicalName === "scope-artifact") {
+    return `${prefix}${SCOPE_PATH_BASENAME}`;
+  }
+  const basename =
     logicalName === "portable-conformance-report"
       ? "conformance-report"
-      : logicalName
-  }.json`;
+      : logicalName;
+  return `${prefix}${basename}.json`;
 }
 
 function promotionSourceTreeDigest(sourceTreeObjectId) {
@@ -920,23 +930,30 @@ function changedLeaves(sourceLeaves, currentLeaves) {
 
 function parseScopeArtifact(bytes, label) {
   const scope = parseJsonStrict(bytes, label);
-  const expectedBytes = Buffer.from(`${canonicalJson(scope)}\n`, "utf8");
-  assert(Buffer.from(bytes).equals(expectedBytes), `${label}: bytes are not the canonical encoding plus one LF`);
+  const expectedBytes = Buffer.from(canonicalJson(scope), "utf8");
+  assert(Buffer.from(bytes).equals(expectedBytes), `${label}: bytes are not the canonical JCS encoding`);
   assert(scope && typeof scope === "object" && !Array.isArray(scope), `${label}: expected an object`);
-  const format = SCOPE_DIGEST_FORMATS[scope.schema];
+  const format = SCOPE_DIGEST_FORMATS[scope.scopeSchema];
   assert(format, `${label}: unsupported scope schema`);
   validateCanonicalTarget(scope.target, `${label}.target`);
   assertSemanticDigest(scope.scopeDigest, `${label}.scopeDigest`);
   assert(
-    semanticDigest(format.domain, scope, ["scopeDigest"]) === scope.scopeDigest,
+    format.computeDigest(scope) === scope.scopeDigest,
     `${label}: scopeDigest mismatch`,
   );
-  const predecessor = scope.predecessorScopeDigest;
-  assert(
-    predecessor === SCOPE_GENESIS_MARKER
-      || (typeof predecessor === "string" && /^sha256-[A-Za-z0-9_-]{43}$/u.test(predecessor)),
-    `${label}.predecessorScopeDigest: expected a scope digest or the explicit genesis marker`,
-  );
+  assert(scope.predecessor && typeof scope.predecessor === "object" && !Array.isArray(scope.predecessor), `${label}.predecessor: expected an object`);
+  let predecessor;
+  if (scope.predecessor.kind === "genesis") {
+    assertExactKeys(scope.predecessor, ["kind"], `${label}.predecessor`);
+    predecessor = SCOPE_GENESIS_MARKER;
+  } else {
+    assertExactKeys(scope.predecessor, ["kind", "scopeDigest"], `${label}.predecessor`);
+    assert(scope.predecessor.kind === "scope", `${label}.predecessor: unsupported kind`);
+    predecessor = assertSemanticDigest(
+      scope.predecessor.scopeDigest,
+      `${label}.predecessor.scopeDigest`,
+    );
+  }
   return { scope, predecessor };
 }
 
@@ -1110,7 +1127,40 @@ export function resolvePortableEnginePromotionPredecessor(options) {
         leaves,
         admission,
       );
-      if (hop !== null && sameTarget(admission.target, target)) return hop;
+      if (hop !== null && sameTarget(admission.target, target)) {
+        // The scope-critical subset above remains the version-dispatched
+        // historical floor. While a hop's complete portable graph uses the
+        // schemas understood by HEAD, also run the stronger full ceremony
+        // checks; future schema revisions may fall back to the floor.
+        // @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M27(iii)
+        // makes the reduced historical predicate a floor, not a ceiling.
+        if (
+          historicalPromotionUsesHeadPortableGraphSchemas(
+            repoRoot,
+            leaves,
+            admission,
+          )
+        ) {
+          const sourceCommit = parseCommit(
+            readGitObject(repoRoot, "commit", admission.sourceRevision),
+            `historical source commit ${admission.sourceRevision}`,
+          );
+          const sourceLeaves = collectTreeLeaves(repoRoot, sourceCommit.tree);
+          const expectedTarget = assertSourceAuthorityClosed(
+            repoRoot,
+            sourceLeaves,
+            admission,
+          );
+          verifyChangedArtifacts(
+            repoRoot,
+            sourceLeaves,
+            leaves,
+            admission,
+            expectedTarget,
+          );
+        }
+        return hop;
+      }
     }
     assert(commit.parents.length >= 1, `promotion lineage ended before the pinned floor ${LINEAGE_FLOOR}`);
     revision = commit.parents[0];
@@ -1205,6 +1255,119 @@ function verifyPromotionBundleGraph(admission, promotedBytes, expectedTarget) {
   );
 }
 
+const HEAD_PORTABLE_GRAPH_SCHEMAS = Object.freeze({
+  "portable-promotion-authority": Object.freeze([
+    "portablePromotionAuthoritySchema",
+    "ibex/capsec-portable-promotion-authority/1",
+  ]),
+  "scope-artifact": Object.freeze(["scopeSchema", SCOPE_SCHEMA]),
+  "scope-expansion-diff": Object.freeze([
+    "scopeExpansionDiffSchema",
+    "ibex/capsec-scope-expansion-diff/1",
+  ]),
+  "scope-cell-mapping": Object.freeze([
+    "scopeCellMappingSchema",
+    "ibex/capsec-scope-cell-mapping/1",
+  ]),
+  "portable-conformance-report": Object.freeze([
+    "conformanceSchema",
+    "ibex/capsec-conformance/3",
+  ]),
+  "target-attestations": Object.freeze([
+    "targetAttestationSchema",
+    "ibex/capsec-target-attestations/3",
+  ]),
+  "target-advertisements": Object.freeze([
+    "targetAdvertisementSchema",
+    "ibex/capsec-target-advertisements/3",
+  ]),
+  "target-cells": Object.freeze([
+    "targetCellSchema",
+    "ibex/capsec-target-cells/1",
+  ]),
+  recipes: Object.freeze([
+    "recipeCatalogSchema",
+    "ibex/capsec-executable-recipes/2",
+  ]),
+  "public-surface": Object.freeze([
+    "publicSurfaceExecutionSchema",
+    "ibex/capsec-public-surface-executions/2",
+  ]),
+  "output-dispositions": Object.freeze([
+    "outputDispositionEvidenceSchema",
+    "ibex/capsec-output-disposition-evidence/4",
+  ]),
+});
+
+function historicalPromotionUsesHeadPortableGraphSchemas(
+  repoRoot,
+  currentLeaves,
+  admission,
+) {
+  const manifestPath = `${evidencePrefix(admission)}promotion-bundle-manifest.json`;
+  const manifest = parseJsonStrict(
+    readTrackedBlob(
+      repoRoot,
+      currentLeaves,
+      manifestPath,
+      "historical portable bundle manifest",
+    ).bytes,
+    "historical portable bundle manifest",
+  );
+  if (
+    manifest?.portablePromotionBundleSchema !==
+      "ibex/capsec-portable-promotion-bundle/1" ||
+    !Array.isArray(manifest.files)
+  ) {
+    return false;
+  }
+  for (const [logicalName, [field, schema]] of Object.entries(
+    HEAD_PORTABLE_GRAPH_SCHEMAS,
+  )) {
+    if (!manifest.files.some((file) => file?.logicalName === logicalName)) {
+      return false;
+    }
+    const document = parseJsonStrict(
+      readTrackedBlob(
+        repoRoot,
+        currentLeaves,
+        promotionBundleMemberPath(admission, logicalName),
+        `historical portable bundle member ${logicalName}`,
+      ).bytes,
+      `historical portable bundle member ${logicalName}`,
+    );
+    if (document?.[field] !== schema) return false;
+  }
+  for (const file of manifest.files) {
+    const processSchema =
+      /^process-[0-9]{4}\.mapped-evidence$/u.test(file?.logicalName)
+        ? [
+            "mappedEngineExecutionEvidenceSchema",
+            "ibex/capsec-mapped-engine-execution-evidence/1",
+          ]
+        : /^process-[0-9]{4}\.command-attempt$/u.test(file?.logicalName)
+          ? ["schema", "ibex/capsec-command-attempt/1"]
+          : /^process-[0-9]{4}\.fixture-[0-9]{6}$/u.test(file?.logicalName)
+            ? [
+                "fixtureEvidenceSchema",
+                "ibex/capsec-portable-fixture-evidence/1",
+              ]
+            : null;
+    if (processSchema === null) continue;
+    const document = parseJsonStrict(
+      readTrackedBlob(
+        repoRoot,
+        currentLeaves,
+        promotionBundleMemberPath(admission, file.logicalName),
+        `historical portable bundle member ${file.logicalName}`,
+      ).bytes,
+      `historical portable bundle member ${file.logicalName}`,
+    );
+    if (document?.[processSchema[0]] !== processSchema[1]) return false;
+  }
+  return true;
+}
+
 function verifyChangedArtifacts(
   repoRoot,
   sourceLeaves,
@@ -1293,6 +1456,7 @@ function pinRunningAuthority(repoRoot, currentLeaves, authorityPlane) {
     CONTRACT_PATH,
     BUNDLE_VERIFIER_PATH,
     PORTABLE_EVIDENCE_CONTRACT_PATH,
+    CAPSEC_SCOPE_ARTIFACT_PATH,
     ...PORTABLE_EVIDENCE_SCHEMA_PATHS,
     CATALOG_SCHEMA_PATH,
     CHECKED_ADMISSION_SCHEMA_PATH,
