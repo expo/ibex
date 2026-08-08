@@ -1,6 +1,6 @@
 # CapSec coverage-model definition total is stale after `fs:unbound-read`
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2 (suite hygiene; blocks a required focused check)
 **Systems:** CapSec, Testing
 **Found by:** 2026-08-07 two-P1 remediation verification
