@@ -832,6 +832,11 @@
         "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."
       },
       {
+        "id": "preauthorized-host-primitive",
+        "predicate": "native-only-host-abi-primitive-unreachable-from-javascript-and-invoked-only-after-caller-side-typed-authorization-or-from-an-explicit-unarmed-or-diagnostic-route",
+        "rationale": "This Host ABI primitive is deliberately below the package authorization boundary. Its reachable secure caller performs the exact typed decision before invoking it; the primitive is not independently reachable from JavaScript and therefore must not assert a second typed decision it cannot emit."
+      },
+      {
         "id": "pure-in-memory-compute",
         "predicate": "deterministic-or-keyless-computation-over-values-already-held-by-the-caller",
         "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
@@ -847,6 +852,11 @@
         "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
       },
       {
+        "id": "supervisor-private-effect",
+        "predicate": "native-supervisor-only-operation-over-an-already-authenticated-project-root-or-platform-owned-private-root-with-no-javascript-callable-or-package-selected-host-path",
+        "rationale": "This external operation belongs to the trusted terminal supervisor, not to a package principal. JavaScript cannot invoke it or select its host path, and the supervisor binds project history to the already-authenticated project object before engine construction."
+      },
+      {
         "id": "terminal-session-control",
         "predicate": "native-session-layer-command-help-editor-or-parity-safe-virtual-namespace-control-unreachable-from-javascript-with-every-external-effect-classified-at-its-own-route",
         "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
@@ -855,6 +865,11 @@
         "id": "trusted-loader-source-acquisition",
         "predicate": "source-cache-or-carrier-access-after-an-exact-immutable-generation-bound-module-edge-authorization",
         "rationale": "The trusted loader may acquire only the source, cache entry, or prepared carrier named by a previously authorized exact module edge; the receipt is non-delegable and conveys no filesystem authority."
+      },
+      {
+        "id": "trusted-startup-environment",
+        "predicate": "launcher-bootstrap-or-child-construction-environment-access-with-no-javascript-source-binding-and-no-package-callable-at-that-occurrence",
+        "rationale": "This environment access is trusted launcher, bootstrap, or child-construction state rather than a package environment API. It has no JavaScript binding at the inventoried occurrence and therefore cannot honestly assert a package-principal typed environment decision."
       },
       {
         "id": "unbound-owned-resource",

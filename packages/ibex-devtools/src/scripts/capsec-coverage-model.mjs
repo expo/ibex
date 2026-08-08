@@ -11546,7 +11546,81 @@ const RUNTIME_TRANSFORM_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_RUNTIME_TRANSFORM",
 ]);
 
+// These exact inventory members are native launcher/bootstrap/child-builder
+// occurrences, not JavaScript environment APIs. The language guard makes the
+// carve-out self-retiring: if source discovery ever adds a JavaScript binding,
+// the member falls through to the ordinary effect classification and remains
+// an obligation.
+// @ref LLP 0049#3-construction-rules — withdraw only an exact, source-proven
+// false effect assertion; never use a class regex to reduce the denominator.
+const TRUSTED_INTERNAL_STARTUP_ENVIRONMENT_SURFACES = new Set([
+  "env:<dynamic>:cpp:::environ",
+  "env:<dynamic>:cpp:GetEnvironmentStringsW",
+  "env:<dynamic>:cpp:GetEnvironmentVariableA",
+  "env:<dynamic>:cpp:_NSGetEnviron",
+  "env:<dynamic>:cpp:_dupenv_s",
+  "env:<dynamic>:cpp:environ",
+  "env:<dynamic>:cpp:getenv",
+  "env:<dynamic>:rust:Command::default_env",
+  "env:<dynamic>:rust:Command::env_clear",
+  "env:<dynamic>:rust:env::var",
+  "env:<dynamic>:rust:env::var_os",
+  "env:<dynamic>:rust:env::vars_os",
+  "env:CLICOLOR_FORCE",
+  "env:EXACT_ANDROID_CACHE_DIR",
+  "env:EXACT_ANDROID_CODE_CACHE_DIR",
+  "env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+  "env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+  "env:EXACT_COMPAT_EXECUTABLE",
+  "env:EXACT_HERMES_TOOL_DIR",
+  "env:EXACT_POLICY",
+  "env:EXACT_QUIET",
+  "env:EXACT_REPO_ROOT",
+  "env:EXACT_SECURITY_LOG",
+  "env:EXACT_TRANSPILE_SCRIPT",
+  "env:IBEX_BUNDLE_CACHE_MAX_BYTES",
+  "env:IBEX_BYTECODE_CACHE_MAX_BYTES",
+  "env:IBEX_HERMES_TOOL_DIR",
+  "env:IBEX_POLICY",
+  "env:IBEX_REPO_ROOT",
+  "env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+  "env:IBEX_TEST_BUNDLE_BARRIER_DIR",
+  "env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+  "env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
+  "env:PATH",
+  "env:TEMP",
+  "env:TMP",
+  "env:TMPDIR",
+  "env:USERNAME",
+  "env:USERPROFILE",
+]);
+
+function isTrustedInternalStartupEnvironmentSurface(surface) {
+  if (!TRUSTED_INTERNAL_STARTUP_ENVIRONMENT_SURFACES.has(surface.name)) {
+    return false;
+  }
+  const metadata = surface.metadata ?? {};
+  if (
+    !Array.isArray(metadata.languages) ||
+    metadata.languages.length === 0 ||
+    metadata.languages.includes("javascript")
+  ) {
+    return false;
+  }
+  const dynamic = surface.name.startsWith("env:<dynamic>:");
+  return (
+    metadata.dynamic === dynamic &&
+    metadata.evidenceType ===
+      (dynamic
+        ? "dynamic-runtime-environment-sentinel"
+        : "static-runtime-environment-control")
+  );
+}
+
 function startupEnvironmentClassification(surface) {
+  if (isTrustedInternalStartupEnvironmentSurface(surface)) {
+    return nonCapabilitySpec("trusted-startup-environment", "WP7");
+  }
   if (surface.name.startsWith("env:<dynamic>:")) {
     if (
       surface.metadata?.evidenceType !==
@@ -11825,58 +11899,23 @@ function startupClassification(surface) {
     return null;
   }
 
-  // REPL history is supervisor-owned and has no JavaScript callable, but its
-  // platform locator and hardened journal still exercise explicit root-owned
-  // effects. Project scope derivation is tied to the armed project object;
-  // global scope is the separately reviewed platform-data-root route.
-  const supervisorHistoryEffects = {
-    "supervisor-history.authenticated-project-scope": {
-      actions: ["fs:list"],
-      family: "filesystem",
-    },
-    "supervisor-history.global-platform-data-root": {
-      actions: ["env:read"],
-      family: "environment",
-    },
-    "supervisor-history.journal-append": {
-      actions: ["fs:list", "fs:write"],
-      family: "filesystem",
-    },
-    "supervisor-history.journal-compact": {
-      actions: ["fs:list", "fs:write"],
-      family: "filesystem",
-    },
-    "supervisor-history.journal-recover": {
-      actions: ["fs:list", "fs:read", "fs:write"],
-      family: "filesystem",
-    },
-    "supervisor-history.legacy-probe": {
-      actions: ["fs:list"],
-      family: "filesystem",
-    },
-    "supervisor-history.project-platform-data-root": {
-      actions: ["env:read"],
-      family: "environment",
-    },
-    "supervisor-history.sidecar-lock-acquire": {
-      actions: ["fs:list", "fs:write"],
-      family: "filesystem",
-    },
-    "supervisor-history.store-open": {
-      actions: ["fs:list", "fs:write"],
-      family: "filesystem",
-    },
-    "supervisor-history.user-key-read-create": {
-      actions: ["fs:list", "fs:read", "fs:write"],
-      family: "filesystem",
-    },
-  };
-  const historyEffect = supervisorHistoryEffects[name];
-  if (historyEffect) {
-    return effectSpec(historyEffect.actions, historyEffect.family, "WP7", {
-      principalSources: ["root"],
-      effectOwnerSource: "root",
-    });
+  // Exact supervisor-private routes operate only on the platform data root or
+  // the already-authenticated project object captured before engine creation.
+  // None has a JavaScript callable or a typed Host decision site.
+  const supervisorPrivateHistoryRoutes = new Set([
+    "supervisor-history.authenticated-project-scope",
+    "supervisor-history.global-platform-data-root",
+    "supervisor-history.journal-append",
+    "supervisor-history.journal-compact",
+    "supervisor-history.journal-recover",
+    "supervisor-history.legacy-probe",
+    "supervisor-history.project-platform-data-root",
+    "supervisor-history.sidecar-lock-acquire",
+    "supervisor-history.store-open",
+    "supervisor-history.user-key-read-create",
+  ]);
+  if (supervisorPrivateHistoryRoutes.has(name)) {
+    return nonCapabilitySpec("supervisor-private-effect", "WP7");
   }
 
   if (surface.metadata?.evidenceType === "startup-evaluation-route") {
@@ -13828,8 +13867,68 @@ function embedderAbiClassification(name) {
   return null;
 }
 
+const PREAUTHORIZED_HOST_ABI_PRIMITIVES = new Set([
+  "exhostenvambientget",
+  "exhostenvambientkeyat",
+  "exhostenvambientkeycount",
+  "exhostenvambientset",
+  "exhostenvcompiledkeyat",
+  "exhostenvcompiledkeycount",
+  "exhostenvget",
+  "exhostfsaccess",
+  "exhostfsappend",
+  "exhostfschmod",
+  "exhostfscopy",
+  "exhostfscopyexclusive",
+  "exhostfsfstat",
+  "exhostfslstat",
+  "exhostfsmkdir",
+  "exhostfsmkdirrecursiveresult",
+  "exhostfsmkdtemp",
+  "exhostfsopen",
+  "exhostfspread",
+  "exhostfspwrite",
+  "exhostfsread",
+  "exhostfsreadfile",
+  "exhostfsreaddir",
+  "exhostfsrealpath",
+  "exhostfsrename",
+  "exhostfsrmdir",
+  "exhostfsstat",
+  "exhostfsstatfs",
+  "exhostfssync",
+  "exhostfstruncate",
+  "exhostfsunlink",
+  "exhostfsutimes",
+  "exhostfswrite",
+  "exhostsqliteall",
+  "exhostsqliteexec",
+  "exhostsqliteget",
+  "exhostsqliteopen",
+  "exhostsqliteopencheckedfd",
+  "exhostsqliteprepare",
+  "exhostsqliterun",
+  "exhostsqlitevalues",
+]);
+
+function preauthorizedHostAbiPrimitiveSpec(name) {
+  if (PREAUTHORIZED_HOST_ABI_PRIMITIVES.has(name)) {
+    return nonCapabilitySpec("preauthorized-host-primitive", "WP7");
+  }
+  return null;
+}
+
 function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
+
+  // These exact native-only primitives are below their caller's typed gate.
+  // Keep them before the environment exact set and the filesystem/SQLite class
+  // prefixes: the primitives perform raw I/O and cannot emit the typed decision
+  // that the previous effect classification asserted.
+  // @ref LLP 0049#3-construction-rules — exact-string seeding correction with
+  // source evidence; no prefix-level withdrawal is permitted.
+  const preauthorizedPrimitive = preauthorizedHostAbiPrimitiveSpec(name);
+  if (preauthorizedPrimitive) return preauthorizedPrimitive;
 
   if (
     /^(?:exhostauthorizetypedlifecycleexitstack|exhostlifecycleexitcodegetstack|exhostlifecycleexitcodesetstack)$/u.test(
@@ -14441,6 +14540,10 @@ function classifyConcreteSurface(surface) {
     if (surface.name === "ex_host_revoke_runtime_extension_lease_v1") {
       return nonCapabilitySpec("authority-release", "WP8");
     }
+    // Exact primitive carve-outs must precede the generic public-ABI escape
+    // matcher (`*_read_file`, `*_write_file`) as well as Host family prefixes.
+    const preauthorizedPrimitive = preauthorizedHostAbiPrimitiveSpec(name);
+    if (preauthorizedPrimitive) return preauthorizedPrimitive;
     const android = androidHostAbiClassification(surface.name);
     if (android) return android;
     const escape = abiEscapeClassification(surface.name);

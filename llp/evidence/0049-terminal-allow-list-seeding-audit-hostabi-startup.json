@@ -1,0 +1,170 @@
+{
+  "measurement": "llp-0049-terminal-evidence-allow-list",
+  "step": "llp-0049-seeding-audit-hostabi-startup",
+  "gate": "LLP 0049 §3 rule 7 — per-edgeId unioned terminal sets, checked by scripts/capsec-terminal-evidence-diff.mjs",
+  "baselineDigest": "sha256-AymFfo2L6Yoq4UebsQTFlIJ0SOn3uwYR06SrfpUGGaA",
+  "candidateDigest": "sha256-3SuOeDeHLEzaPWLaQ4n93XJzrmF4j5K4DJ6YDjBfPCM",
+  "note": "The ten changed Apple terminal sets are target-applicability corrections only: Windows-only, Android-only, or Linux/Android-only startup environment accesses were previously bound as target all. No typed-authorization terminal is credited or reclassified by this list.",
+  "entries": [
+    {
+      "edgeId": "surface.startup.env.exact.android.code.cache.dir.1pu6n7j",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+      "sourceSpan": "src/engine/native_android_networking.cc:347",
+      "proof": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR has emitting inventory occurrences only in cpp (representative src/engine/native_android_networking.cc:347) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.android.code.cache.dir.1pu6n7j",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+      "sourceSpan": "src/engine/native_android_networking.cc:347",
+      "proof": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR has emitting inventory occurrences only in cpp (representative src/engine/native_android_networking.cc:347) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:_dupenv_s",
+      "sourceSpan": "src/engine/hermes_runtime_platform_windows.cc:60",
+      "proof": "startup:env:<dynamic>:cpp:_dupenv_s has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime_platform_windows.cc:60) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:_dupenv_s",
+      "sourceSpan": "src/engine/hermes_runtime_platform_windows.cc:60",
+      "proof": "startup:env:<dynamic>:cpp:_dupenv_s has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime_platform_windows.cc:60) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.winhttp.enable.http2.0pqreb6",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2",
+      "sourceSpan": "src/engine/native_fetch_windows.cc:59",
+      "proof": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2 is referenced only by the Windows fetch implementation at src/engine/native_fetch_windows.cc:59; correcting target applicability from all to windows removes its impossible Apple recipe without changing its capability classification."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.winhttp.enable.http2.0pqreb6",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2",
+      "sourceSpan": "src/engine/native_fetch_windows.cc:59",
+      "proof": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2 is referenced only by the Windows fetch implementation at src/engine/native_fetch_windows.cc:59; correcting target applicability from all to windows removes its impossible Apple recipe without changing its capability classification."
+    },
+    {
+      "edgeId": "surface.startup.env.username.1b3s1pj",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:USERNAME",
+      "sourceSpan": "src/engine/hermes_runtime_platform_windows.cc:2267",
+      "proof": "startup:env:USERNAME has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime_platform_windows.cc:2267) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.username.1b3s1pj",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:USERNAME",
+      "sourceSpan": "src/engine/hermes_runtime_platform_windows.cc:2267",
+      "proof": "startup:env:USERNAME has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime_platform_windows.cc:2267) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+      "sourceSpan": "src/engine/native_android_networking.cc:344",
+      "proof": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR has emitting inventory occurrences only in cpp (representative src/engine/native_android_networking.cc:344) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+      "sourceSpan": "src/engine/native_android_networking.cc:344",
+      "proof": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR has emitting inventory occurrences only in cpp (representative src/engine/native_android_networking.cc:344) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "sourceSpan": "src/engine/hermes_runtime.cc:284",
+      "proof": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime.cc:284) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "sourceSpan": "src/engine/hermes_runtime.cc:284",
+      "proof": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime.cc:284) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.android.external.files.dir.0btv52w",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+      "sourceSpan": "src/engine/native_android_networking.cc:350",
+      "proof": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR has emitting inventory occurrences only in cpp (representative src/engine/native_android_networking.cc:350) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.exact.android.external.files.dir.0btv52w",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+      "sourceSpan": "src/engine/native_android_networking.cc:350",
+      "proof": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR has emitting inventory occurrences only in cpp (representative src/engine/native_android_networking.cc:350) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:::environ",
+      "sourceSpan": "src/engine/hermes_runtime.cc:4811",
+      "proof": "startup:env:<dynamic>:cpp:::environ has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime.cc:4811) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:::environ",
+      "sourceSpan": "src/engine/hermes_runtime.cc:4811",
+      "proof": "startup:env:<dynamic>:cpp:::environ has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime.cc:4811) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "sourceSpan": "src/engine/hermes_runtime.cc:4779",
+      "proof": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime.cc:4779) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "sourceSpan": "src/engine/hermes_runtime.cc:4779",
+      "proof": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime.cc:4779) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc",
+      "field": "route.surfaceObservedKeys",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:environ",
+      "sourceSpan": "src/engine/hermes_runtime_process.cc:622",
+      "proof": "startup:env:<dynamic>:cpp:environ has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime_process.cc:622) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc",
+      "field": "route.alternatives.terminalObservedKey",
+      "direction": "removed",
+      "value": "startup:env:<dynamic>:cpp:environ",
+      "sourceSpan": "src/engine/hermes_runtime_process.cc:622",
+      "proof": "startup:env:<dynamic>:cpp:environ has emitting inventory occurrences only in cpp (representative src/engine/hermes_runtime_process.cc:622) and no JavaScript source binding, so it cannot traverse __exactGetEnv/__exactGetAllEnv and their typed decision (src/engine/hermes_runtime.cc:4945-5141). Its former staged typed-effect recipes asserted an authorization shape the direct startup access cannot emit; the exact member is replaced by a no-decision trusted-startup-environment recipe."
+    }
+  ]
+}
