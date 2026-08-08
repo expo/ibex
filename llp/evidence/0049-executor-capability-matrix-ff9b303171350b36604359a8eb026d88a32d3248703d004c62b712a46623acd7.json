@@ -1,0 +1,1014 @@
+{
+ "schema": "ibex/llp-evidence/executor-capability-matrix/1",
+ "llp": "0049",
+ "measurement": "capsec-executor-capability-matrix",
+ "gate": "LLP 0049 \u00a76 \u2014 per-surface-kind executor capability, replacing the falsified single-executor claim",
+ "purpose": "Per-surface-kind classification of the CapSec batch executors serving the LLP 0049 fs+env+process worklist, joined to the retained scope measurement. Supersedes the LLP 0049 \u00a76 claim that \"only native-op has an executor that can produce an effectful source-bound receipt\"; that claim is FALSIFIED by two independent effectful executors recorded below.",
+ "generatedAtHead": "322b4260d",
+ "generatedDate": "2026-08-07",
+ "sourceRevision": {
+  "repository": "ibex",
+  "head": "322b4260d",
+  "branch": "main",
+  "workingTreeClean": true
+ },
+ "tool": {
+  "scopeMeasurement": "scripts/capsec-scope-measurement.mjs",
+  "scopeArtifact": "llp/evidence/0049-scope-measurement-phase2-calibration-close.json",
+  "catalogCommand": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --output <path>",
+  "joinMethod": "Scope logic replicated exactly from scripts/capsec-scope-measurement.mjs:102-168 (LANE_REASONS :102-106, rowInScope :112-116, kindOf :118, cells :128-130, poisoned :132-143, authorable rows/surfaces/template classes :148-170) over the same catalog; executor tiers derived by reading the emitting Rust and confirmed against the catalog probe/typed-decision distribution."
+ },
+ "catalog": {
+  "path": "calib-final.json",
+  "digest": "sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs",
+  "target": {
+   "triple": "aarch64-apple-darwin",
+   "features": [
+    "hermes-frame-attribution",
+    "native-compartments",
+    "native-lockdown"
+   ]
+  },
+  "requiredFixtures": 22505,
+  "matchesRetainedScopeArtifact": true
+ },
+ "families": [
+  "env",
+  "fs",
+  "process"
+ ],
+ "taxonomy": {
+  "source": "Codex round-3 review of LLP 0049",
+  "T0": "no executor: no batch executor serves this surface kind at all",
+  "T1": "no-effect executor only: an executor exists but structurally cannot produce an effectful source-bound receipt (hard-asserts non-capability classification and/or pins expected_typed_decision_count == 0 and/or pins empty action ids)",
+  "T2": "effectful, closed-table: produces effectful source-bound receipts but only for an enumerated/reviewed set of sources; a new surface needs a reviewed-table edit",
+  "T3": "reusable effectful: produces effectful source-bound receipts through generic invocation machinery; a new surface needs arguments/setup but no structural change",
+  "effectfulReceiptDefinition": "a fully-executable recipe whose public-surface invocation carries expectedTypedDecisionCount > 0 AND non-empty capability action ids, validated against decisions harvested from the loaded engine"
+ },
+ "executors": [
+  {
+   "id": "native-public",
+   "tier": "T3",
+   "file": "src/bin/ibex/engine/capsec_conformance_batch.rs",
+   "entryPoints": [
+    "capsec_conformance_batch.rs:4275 capsec_public_native_primary_batch",
+    "capsec_conformance_batch.rs:4291 capsec_public_native_secondary_batch"
+   ],
+   "driver": "capsec_conformance_batch.rs:4091 run_capsec_public_native_recipe_batch",
+   "selection": "capsec_conformance_batch.rs:4079-4089 is_native_public_batch_probe (invocation schema is native | host_abi | module_loader AND probe.command equals the batch command) combined with the catalog filter at :4101-4113 (recipe.status == \"fully-executable\"); dispatch to the three sub-executors is by invocation schema at :4144 (native), :4180 (host_abi), :4213 (module_loader) \u2014 NOT by surface kind or edgeId prefix",
+   "servesSurfaceKinds": [
+    "surface.native.op"
+   ],
+   "effectful": true,
+   "tierDeterminingLines": [
+    "capsec_conformance_batch.rs:2577 execute_native_public_recipe \u2014 the effectful executor body",
+    "capsec_conformance_batch.rs:1927 validate_native_runtime_observation \u2014 receipt validation",
+    "capsec_conformance_batch.rs:2320-2332 observed typed stages must equal invocation.expected_typed_stages",
+    "capsec_conformance_batch.rs:2336-2340 assert_eq!(typed_decisions.len(), invocation.expected_typed_decision_count) \u2014 NOT pinned to 0",
+    "capsec_conformance_batch.rs:2105-2110 typed expectation > 0 requires non-empty expected_action_ids",
+    "capsec_conformance_batch.rs:2348-2360 per-decision atomicity group / effects / cap harvesting",
+    "capsec_conformance_batch.rs:2488-2496 a ZERO-decision invocation must select a reviewed zero-effect branch \u2014 the executor treats no-effect as the exception, not the rule"
+   ],
+   "genericMachinery": [
+    "capsec_conformance_batch.rs:1018 setup_script \u2014 builds the setup call from an arbitrary global name + arguments",
+    "capsec_conformance_batch.rs:1160 run_native_setup",
+    "capsec_conformance_batch.rs:1394 materialize_native_arguments \u2014 data-driven argument materialization",
+    "capsec_conformance_batch.rs:1543 native_invocation_script; :1616 native_async_invocation_script"
+   ],
+   "closedVocabularies": [
+    "capsec_conformance_batch.rs:302-350 enum NativeProbeSetup \u2014 7 setup variants (FsReadFile :303, FsWriteFile :311, InvokeNativeGlobal :320 [fully generic over global name + arguments], TcpLoopbackClient :325, SqliteMemoryDatabase :333, SqliteMemoryStatement :341, TcpLoopbackListener :349). A genuinely new SETUP SHAPE needs a new variant; a new global reusing an existing shape does not.",
+    "capsec_conformance_batch.rs:1403-1528 NativeProbeArgument materialization \u2014 JsonLiteral :1412 is generic"
+   ],
+   "reviewedGlobalNameListsThatAreNotGates": [
+    "capsec_conformance_batch.rs:1975-2001 expected_deny_message_fragment allow-list (only constrains recipes that pin the fragment)",
+    "capsec_conformance_batch.rs:2018-2033 and :2043-2058 auxiliary-terminal admission lists (permissive widening)",
+    "capsec_conformance_batch.rs:2614-2760 per-global on-disk fixture setup branches (mkdir/write/append/truncate/readdir/fs-open)",
+    "capsec_conformance_batch.rs:2831-2846 retained-descriptor cleanup list; :2866-2876 expected-bytes match"
+   ],
+   "noCatchAllGlobalNameGate": "the panic inventory for this file is capsec_conformance_batch.rs:655, :661, :693, :756, :763, :2190, :2315, :2387, :2437, :3181, :3203, :3473, :3476, :3479, :3910, :3978 \u2014 none of them is a `_ => panic!` on a native global name (:2315 is on expected_result, :3203 on the host-ABI SQLite name, :3910 on the module-loader surface name). A new native global with an existing setup shape therefore executes with no Rust change.",
+   "catalogCorroboration": "423 fully-executable native-global-function probes exist on surface.native.op, of which 275 carry expectedTypedDecisionCount > 0 across fs:list, fs:read, fs:write, env:read, env:write, sys:read, stdio:write, network:connect; plus 2 private-native-facade-function effectful probes (path:cwd-observe)"
+  },
+  {
+   "id": "builtin-public",
+   "tier": "T2",
+   "file": "src/bin/ibex/engine/capsec_public_builtin_batch.rs",
+   "entryPoints": [
+    "capsec_public_builtin_batch.rs:1683 capsec_public_builtin_recipe_batch"
+   ],
+   "selection": "capsec_public_builtin_batch.rs:427-447 builtin_recipes \u2014 classification == \"effects\" (:432), status == \"fully-executable\" (:433), probe enum variant EffectBuiltin with invocation schema in {ibex/capsec-builtin-export-invocation/1, ibex/capsec-builtin-module-import-invocation/1} (:434-444). No edgeId-prefix match and no probe.command match (command only checked non-empty at :1048).",
+   "servesSurfaceKinds": [
+    "surface.builtin.export",
+    "surface.builtin.<module> (builtin-module-import; out of the fs+env+process worklist)"
+   ],
+   "effectful": true,
+   "tierDeterminingLines": [
+    "capsec_public_builtin_batch.rs:1042 assert_eq!(recipe.classification, \"effects\") \u2014 the string \"non-capability\" does not occur anywhere in this file",
+    "capsec_public_builtin_batch.rs:1077-1084 assert_eq!(typed_decisions.len(), invocation.expected_typed_decision_count) \u2014 the count is validated against observation, never pinned to 0",
+    "capsec_public_builtin_batch.rs:1076 the only == 0 assertion pins LEGACY (untyped) observations to zero, i.e. the opposite of a no-effect claim",
+    "capsec_public_builtin_batch.rs:1225-1443 typed effectful decision validation (identity :1226-1230, stage sequence :1164-1173, per-effect cap + coverage-edge gating :1255-1290, allow/deny outcome :1310-1318, decisive-authority stratum :1355-1408, declared-actions-observed :1427-1435)",
+    "capsec_public_builtin_batch.rs:517-601 verify_postcondition \u2014 real on-disk side effects verified (called :1674)",
+    "capsec_public_builtin_batch.rs:1599-1679 execute_isolated_recipe \u2014 real armed Host + real Hermes engine per recipe"
+   ],
+   "closedTable": {
+    "whereItLives": [
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:626-971 prepare_invocation setup dispatch \u2014 5 arms (\"none\", \"filesystem-file\", \"filesystem-directory\", \"filesystem-absent-directory\", \"filesystem-symlink\") with `other => panic!` at :970",
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:656-686 expected_caps \u2014 11 named node:fs exports + 3 openSync flag branches (:667-684), `other => panic!(\"unsupported filesystem-file fs export {other}\")` at :685",
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:628 the \"none\" arm asserts module_specifier == \"node:os\"; :640-641 and :788-789 the filesystem arms assert module_specifier == \"node:fs\" / sourceKey == \"node_fs\"",
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:996-1030 reviewed_open_traversal_prefix \u2014 8 arms",
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:330-341 module_alias_source \u2014 3 arms covering 6 specifiers; unreviewed aliases rejected at :349-354",
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:1060-1069 validate_observation restricts setup[\"kind\"] to the same 5 literals",
+     "src/bin/ibex/engine/capsec_public_builtin_batch.rs:1613-1621 authority-selector cardinality limited to 1, or 2 only for openSync with exactly [\"fs:list\",\"fs:read\",\"fs:write\"]",
+     "packages/ibex-devtools/src/scripts/capsec-public-probe-templates.mjs:280 authoredBuiltinPublicProbe \u2014 the generator-side authoring table: OS_SYSTEM_INFO_EXPORTS :25-46 (18 entries), FS_LIST_EXPORTS :56-65 (8), FS_READ_EXPORTS :72 (1), FS_READLINK_EXPORTS :73 (1), FS_WRITE_EXPORTS :80 (2), FS_MKDIR_EXPORTS :81 (1), FS_TRUNCATE_EXPORTS :82 (1), FS_OPEN_SYNC_BRANCHES :84-97 (3), BUILTIN_MODULE_ALIAS_SOURCES :126-138 (6), REALPATH_AUXILIARY_DECISIONS :150-153 (2); node_fs prefix gate :423-424, node_os prefix gate :375-382"
+    ],
+    "authoredRecipeCount": {
+     "pinnedConstant": "src/bin/ibex/engine/capsec_public_builtin_batch.rs:449-463 expected_authored_builtin_recipe_count \u2014 205 for aarch64-apple-darwin (:459), 120 for x86_64-pc-windows-msvc (:460), panic on any other target (:461); pinned by test :465-475 and enforced at :1696-1701",
+     "arithmetic": "18 node:os exports x 5 scenarios = 90; 6 module aliases x 5 = 30 -> 120 (Windows). Apple adds 17 node:fs probe shapes x 5 = 85 -> 205.",
+     "catalogCorroboration": "175 effectful builtin-export-call fixtures over 33 distinct export names + 30 effectful builtin-module-import fixtures = 205, matching the pin"
+    },
+    "costToExtend": {
+     "newNodeOsSystemInfoExport": "generator table entry (capsec-public-probe-templates.mjs:25-46) + count bump (capsec_public_builtin_batch.rs:459-460 and its test :467-474). NO Rust structural change \u2014 the \"none\" arm :627-638 names no export and the invocation script :484-500 is data-driven.",
+     "newNodeFsExport": "structural Rust change: a new expected_caps arm (:656-686, else panic :685), possibly a new argument-marshaling branch (:751-775), possibly a reviewed_open_traversal_prefix arm (:996-1030) and a verify_postcondition branch (:517-601), plus the generator branch and both count constants.",
+     "newModule (node:child_process, node:fs/promises, exact_sqlite, node:dns)": "HARD structural change: prepare_invocation panics \u2014 the \"none\" arm asserts module_specifier == \"node:os\" (:628) and the filesystem arms assert \"node:fs\" (:640, :788); unmatched setup kinds hit `other => panic!` (:970) and validate_observation (:1060-1069)."
+    }
+   },
+   "familiesCoveredToday": {
+    "sys:read": "node:os, 18 exports \u2014 capsec-public-probe-templates.mjs:377, :410",
+    "fs:list": "capsec_public_builtin_batch.rs:662, :815",
+    "fs:read": "capsec_public_builtin_batch.rs:663, :670, :681, :934",
+    "fs:write": "capsec_public_builtin_batch.rs:665, :674, :681, :868",
+    "env:read": "capsec_public_builtin_batch.rs:335, :337, :338, :396-403",
+    "path:cwd-observe": "auxiliary only \u2014 capsec_public_builtin_batch.rs:694, :1353",
+    "process:spawn": "NOT COVERED \u2014 no process:* action appears anywhere in this executor"
+   }
+  },
+  {
+   "id": "startup-environment-public",
+   "tier": "T2",
+   "file": "src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs",
+   "entryPoints": [
+    "capsec_public_startup_environment_batch.test.rs:1627 capsec_public_startup_environment_batch"
+   ],
+   "selection": "capsec_public_startup_environment_batch.test.rs:1636-1645 filters on startup_environment_probe / principal_environment_probe, then closes the set with hard counts at :1646-1650 (66 startup-environment recipes) and :1651-1655 (12 principal-environment recipes) plus a frozen BTreeSet of the eleven startup:env:* terminal keys at :1687-1705. An unlisted variable dies at :308-313 (\"unreviewed startup environment source {environment_name}\").",
+   "servesSurfaceKinds": [
+    "surface.startup.env",
+    "surface.native.op (the principal-environment overlay property only)"
+   ],
+   "effectful": true,
+   "executesLoadedEngine": [
+    "capsec_public_startup_environment_batch.test.rs:2015-2121 authenticated evaluator over the mapped Hermes engine; engine call at :2055-2056",
+    "capsec_public_startup_environment_batch.test.rs:1157 invoke_source; observer opened :1197-1200; real public source evaluated :1256-1259; decisions harvested :1262",
+    "capsec_public_startup_environment_batch.test.rs:1414 invoke_principal_environment_property; eval :1470-1473",
+    "capsec_public_startup_environment_batch.test.rs:438-511 prepare_package_fixture \u2014 real on-disk package fixtures; :1350-1351 asserts project code actually ran",
+    "capsec_public_startup_environment_batch.test.rs:1708-1709, :1728-1732 engine binary identity bracketed"
+   ],
+   "tierDeterminingLines": [
+    "capsec_public_startup_environment_batch.test.rs:703 assert_eq!(recipe.classification, \"effects\")",
+    "capsec_public_startup_environment_batch.test.rs:881 assert_eq!(recipe.classification, \"effects\")",
+    "capsec_public_startup_environment_batch.test.rs:838-845 expected_typed_decision_count derived from the reviewed access list, NOT pinned to 0",
+    "capsec_public_startup_environment_batch.test.rs:1072-1155 validate_typed_decisions; :1122 assert_eq!(set[\"effects\"][0][\"cap\"], \"env:read\"); :1123-1136 environment-occurrence resource with valueOrigin principal-overlay; :1137-1143 coverage-edge gate; :1144-1152 outcome + actor-bound reason",
+    "capsec_public_startup_environment_batch.test.rs:745, :828 recipe.action_ids == [\"env:read\"]; :631-632 read -> env:read, write -> env:write (:867, :873)",
+    "capsec_public_startup_environment_batch.test.rs:725-729 surface_kind is the literal \"startup\"; :1571-1572 the native-op overlay surface, pinned to a single constant at :15-18"
+   ],
+   "closedTable": {
+    "whereItLives": "src/bin/ibex/engine/capsec_public_startup_environment_batch.test.rs:176-306 const EXPECTED_SOURCES: [ExpectedSource; 11] (struct :166-174)",
+    "entryCount": 11,
+    "entries": [
+     "NODE_DEBUG :178",
+     "EXACT_DEBUG_EMIT_LISTENER :187",
+     "TZ :196",
+     "EXACT_PIPELINE_DEBUG :205",
+     "EXACT_PIPELINE_STATE_DEBUG :217",
+     "COLUMNS :229",
+     "LINES :238",
+     "FORCE_COLOR :247",
+     "COLORTERM :262",
+     "NO_COLOR :277",
+     "TERM :292"
+    ],
+    "entryFields": "environment_name, source_ref, mechanism, module_specifier, preload_module_specifiers, observed_environment_names, observed_environment_accesses",
+    "secondClosedTable": "capsec_public_startup_environment_batch.test.rs:1199-1246 the JS mechanism dispatch \u2014 exactly 5 arms (builtin-module-load, event-emitter-emit, date-to-string, tty-refresh-size, tty-color-depth) with `other => panic!` at :1245; mirrored for packages at :449-491 (panic :491) and for the principal path at :1437-1458",
+    "costToExtend": "reviewed table edit: a new ExpectedSource in :176-306, the terminal key added to the frozen BTreeSet at :1692-1704, and the recipes.len() == 66 pin at :1648 bumped. If the source is reached by a mechanism outside the 5-arm match, NEW JS must also be written in BOTH :1199-1246 and :449-491. A different surface kind is a full rewrite \u2014 surface_kind is the literal \"startup\" at :725."
+   },
+   "familiesCoveredToday": {
+    "env:read": ":1122",
+    "env:write": ":631-632, :867, :873",
+    "fs:*": "NOT COVERED",
+    "process:*": "NOT COVERED"
+   }
+  },
+  {
+   "id": "host-abi-public",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_conformance_batch.rs",
+   "executorBody": "capsec_conformance_batch.rs:3078 execute_host_abi_public_recipe",
+   "servesSurfaceKinds": [
+    "surface.host.abi"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_conformance_batch.rs:3091 assert_eq!(recipe.classification, \"effects\") \u2014 it DOES admit the effects classification",
+    "capsec_conformance_batch.rs:3092-3095 assert!(matches!(recipe.scenario.as_str(), \"branch-selection\" | \"no-effect\")) \u2014 but only for zero-effect scenarios",
+    "capsec_conformance_batch.rs:3096 assert!(recipe.action_ids.is_empty())",
+    "capsec_conformance_batch.rs:3111 assert_eq!(invocation.expected_typed_decision_count, 0) \u2014 the structural pin",
+    "capsec_conformance_batch.rs:3112 assert!(invocation.expected_typed_stages.is_empty())",
+    "capsec_conformance_batch.rs:3113 assert!(invocation.expected_action_ids.is_empty())",
+    "capsec_conformance_batch.rs:3209-3211 the SQLite conditional path asserts BOTH legacy and typed observations are empty"
+   ],
+   "note": "This is the case the LLP 0049 \u00a76 rewrite must state carefully: the host-abi executor admits classification == \"effects\" for branch-selection/no-effect scenarios while still pinning expected_typed_decision_count == 0 and empty action ids. Admitting the effects CLASSIFICATION is not the same as producing an effectful RECEIPT.",
+   "closedSubTable": "capsec_conformance_batch.rs:3140-3203 a conditional host-ABI SQLite table over 6 function names (ex_host_sqlite_prepare, _all, _get, _values, _run, _exec) with `other => panic!` at :3203 \u2014 closed, but irrelevant to tiering because the whole path is pinned to zero typed decisions",
+   "catalogCorroboration": "33 fully-executable host-abi-function probes on surface.host.abi; ZERO with expectedTypedDecisionCount > 0"
+  },
+  {
+   "id": "module-runner-host-abi",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_conformance_batch.rs",
+   "executorBody": "capsec_conformance_batch.rs:3526 execute_module_runner_host_abi_public_recipe",
+   "servesSurfaceKinds": [
+    "surface.host.abi (module-runner-source-graph operations)"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_conformance_batch.rs:3539 assert_eq!(recipe.classification, \"non-capability\")",
+    "capsec_conformance_batch.rs:3540 assert_eq!(recipe.scenario, \"non-capability\")",
+    "capsec_conformance_batch.rs:3541 assert!(recipe.action_ids.is_empty())",
+    "capsec_conformance_batch.rs:3552 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ]
+  },
+  {
+   "id": "module-loader-authority",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_conformance_batch.rs",
+   "executorBody": "capsec_conformance_batch.rs:3845 execute_module_loader_public_recipe",
+   "servesSurfaceKinds": [
+    "surface.loader.module (out of the fs+env+process worklist)"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_conformance_batch.rs:3867 assert_eq!(recipe.classification, \"non-capability\")",
+    "capsec_conformance_batch.rs:3868 assert_eq!(recipe.scenario, \"non-capability\")",
+    "capsec_conformance_batch.rs:3869 assert!(recipe.action_ids.is_empty())",
+    "capsec_conformance_batch.rs:3884 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ],
+   "closedTable": "capsec_conformance_batch.rs:3901-3910 \u2014 4 reviewed loader surface names with `other => panic!` at :3910",
+   "relevanceToWorklist": "this is the nearest-neighbour executor for the loader: observed-key namespace that ALL in-scope surface.loader.* rows live in, and it is structurally non-effectful"
+  },
+  {
+   "id": "module-loader-captured-route",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs",
+   "entryPoints": [
+    "capsec_public_noncap_builtin_batch.rs:4998 capsec_public_loader_recipe_batch"
+   ],
+   "validator": "capsec_public_noncap_builtin_batch.rs:3825 validate_loader_probe",
+   "servesSurfaceKinds": [
+    "surface.loader.function",
+    "surface.loader.import",
+    "surface.loader.internal",
+    "surface.loader.kind"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_noncap_builtin_batch.rs:3837 assert_eq!(invocation.coverage_classification, \"non-capability\")",
+    "capsec_public_noncap_builtin_batch.rs:3842 assert!(invocation.required_authority.is_empty())",
+    "capsec_public_noncap_builtin_batch.rs:3843 assert!(invocation.expected_action_ids.is_empty())",
+    "capsec_public_noncap_builtin_batch.rs:3844 assert!(invocation.expected_typed_stages.is_empty())",
+    "capsec_public_noncap_builtin_batch.rs:3845 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ],
+   "catalogCorroboration": "13 fully-executable module-loader-captured-route probes (8 on surface.loader.function); ZERO effectful"
+  },
+  {
+   "id": "noncap-builtin-public",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs",
+   "entryPoints": [
+    "capsec_public_noncap_builtin_batch.rs:4603 capsec_public_noncap_builtin_recipe_batch"
+   ],
+   "servesSurfaceKinds": [
+    "surface.builtin.export (non-capability exports only)",
+    "surface.builtin.<module>"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_noncap_builtin_batch.rs:3334 assert_eq!(recipe.classification, \"non-capability\")",
+    "capsec_public_noncap_builtin_batch.rs:3353 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ],
+   "catalogCorroboration": "902 builtin-export-call + 439 builtin-export-read + 122 builtin-noncap-captured-call + 34 builtin-module-import probes, ALL with expectedTypedDecisionCount == 0"
+  },
+  {
+   "id": "closed-surface-public",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_closed_batch.rs",
+   "entryPoints": [
+    "capsec_public_closed_batch.rs:6285 capsec_public_closed_recipe_batch"
+   ],
+   "servesSurfaceKinds": [
+    "surface.native.op",
+    "surface.builtin.export",
+    "surface.cli.option",
+    "surface.startup.env",
+    "surface.host.abi",
+    "surface.builtin.node"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_closed_batch.rs:1256-1258 assert_eq!(recipe.classification, \"closed\"); assert_eq!(recipe.scenario, \"closed\"); assert!(recipe.action_ids.is_empty())",
+    "capsec_public_closed_batch.rs:1274 assert_eq!(invocation.expected_typed_decision_count, 0)",
+    "capsec_public_closed_batch.rs:720, :881, :1894, :2141, :2363, :2719, :2989, :3495, :3844, :4163 \u2014 the same pin repeated across every closed-surface validator in the file"
+   ],
+   "catalogCorroboration": "845 closed-surface probes, ALL with expectedTypedDecisionCount == 0"
+  },
+  {
+   "id": "global-callable-public",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_global_callable_batch.test.rs",
+   "entryPoints": [
+    "capsec_public_global_callable_batch.test.rs:455 capsec_public_global_callable_batch"
+   ],
+   "servesSurfaceKinds": [
+    "surface.native.op"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_global_callable_batch.test.rs:87 assert_eq!(invocation.coverage_classification, \"non-capability\")",
+    "capsec_public_global_callable_batch.test.rs:173 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ],
+   "catalogCorroboration": "579 global-callable-invocation probes on surface.native.op, ALL with expectedTypedDecisionCount == 0"
+  },
+  {
+   "id": "target-absence-public",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_target_absence_batch.rs",
+   "entryPoints": [
+    "capsec_public_target_absence_batch.rs:533 capsec_public_target_absence_batch"
+   ],
+   "servesSurfaceKinds": [
+    "surface.host.abi",
+    "surface.native.op"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_target_absence_batch.rs:321 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ],
+   "catalogCorroboration": "92 target-absence probes, ALL with expectedTypedDecisionCount == 0"
+  },
+  {
+   "id": "callback-security-invariant",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
+   "entryPoints": [
+    "capsec_public_callback_invariant_batch.rs:2948 capsec_public_callback_invariant_batch",
+    "capsec_public_callback_invariant_batch.rs:2806 internal invariant evidence batch"
+   ],
+   "servesSurfaceKinds": [
+    "surface.host.abi",
+    "surface.callback.exact",
+    "surface.callback.producer"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_callback_invariant_batch.rs:502 assert_eq!(recipe.classification, \"non-capability\")",
+    "capsec_public_callback_invariant_batch.rs:503 assert!(recipe.action_ids.is_empty())",
+    "capsec_public_callback_invariant_batch.rs:522 assert_eq!(invocation.expected_typed_decision_count, outcomes.len()) \u2014 NOT pinned to zero",
+    "capsec_public_callback_invariant_batch.rs:2449 assert_eq!(recipe.scenario, \"non-capability\")",
+    "capsec_public_callback_invariant_batch.rs:2459-2464 closed 4-arm mechanism whitelist"
+   ],
+   "note": "This is the one T1 executor that does NOT pin expected_typed_decision_count to zero (:522). It is still T1 because :502-503 pin classification == \"non-capability\" and empty capability action ids: the typed decisions it validates are security-invariant decisions, not capability effects, so it cannot emit an effectful source-bound receipt. Flagged explicitly so the tier is not read as resting on the == 0 test alone.",
+   "catalogCorroboration": "8 callback-security-invariant probes, all with expectedTypedDecisionCount == 0 in this catalog"
+  },
+  {
+   "id": "startup-public",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_public_startup_batch.rs",
+   "entryPoints": [
+    "capsec_public_startup_batch.rs:766 capsec_public_startup_batch"
+   ],
+   "servesSurfaceKinds": [
+    "surface.startup.capability",
+    "surface.startup.compartment",
+    "surface.startup.eager",
+    "surface.startup.freeze",
+    "surface.startup.globals",
+    "surface.startup.lockdown"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_public_startup_batch.rs:603 assert_eq!(recipe.classification, \"non-capability\")",
+    "capsec_public_startup_batch.rs:623 assert_eq!(invocation.expected_typed_decision_count, 0)"
+   ],
+   "relevanceToWorklist": "serves six startup.* surface kinds, NONE of which is surface.startup.env or surface.startup.supervisor \u2014 it does not reach the worklist"
+  },
+  {
+   "id": "exact-fixture-evidence",
+   "tier": "T1",
+   "file": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
+   "entryPoints": [
+    "capsec_exact_fixture_evidence_batch.rs:636"
+   ],
+   "selection": "capsec_exact_fixture_evidence_batch.rs:230-277 exact_recipes \u2014 a 4-way exact-match join (:248-257) against the hardcoded table, pinned to its cardinality at :261-265",
+   "servesSurfaceKinds": [
+    "surface.host.abi (6 rows)",
+    "surface.callback.* (2 rows)",
+    "surface.native.op (1 row)"
+   ],
+   "effectful": false,
+   "tierDeterminingLines": [
+    "capsec_exact_fixture_evidence_batch.rs:49-95 const EXACT_PILOT_EXPECTATIONS: [(&str, &str, &str); 9] \u2014 8 rows pinned scenario \"non-capability\" (:52, :57, :62, :67, :72, :77, :82, :87), 1 row \"closed\" (:92)",
+    "capsec_exact_fixture_evidence_batch.rs:626 assert_eq!(*scenario, \"non-capability\") \u2014 invariant test re-pinning the table",
+    "capsec_exact_fixture_evidence_batch.rs:617 assert_eq!(EXACT_PILOT_EXPECTATIONS.len(), 9)",
+    "delegates enforce it: capsec_public_callback_invariant_batch.rs:2449 non-capability; capsec_public_closed_batch.rs:1274 expected_typed_decision_count == 0"
+   ],
+   "note": "an executor-shaped DRIVER: it contains no eval/spawn of its own and delegates the small amount of real execution it needs at :686-697; its own work is manifest/binding validation (:380-459, :463-613) and evidence emission (:707-728, :762-835)"
+  },
+  {
+   "id": "diagnostic-adapter",
+   "tier": "not-source-bound",
+   "file": "src/bin/ibex/engine/capsec_conformance_batch.rs",
+   "entryPoints": [
+    "capsec_conformance_batch.rs:774 capsec_executable_recipe_adapter_batch"
+   ],
+   "body": "capsec_conformance_batch.rs:738 execute_adapter_chunk; validation :651 validate_response",
+   "effectful": "evaluates authored decision sets, but does NOT invoke any source",
+   "tierDeterminingLines": [
+    "capsec_conformance_batch.rs:740-743 the only operation admitted is \"capsec.conformance.evaluate\"",
+    "capsec_conformance_batch.rs:754-757 the request is built from the recipe's AUTHORED decisionSetJson/gatesJson, not from a runtime observation",
+    "capsec_conformance_batch.rs:706-726 the observed decision set is compared to the authored JSON"
+   ],
+   "note": "deliberately left OUTSIDE the T0-T3 taxonomy: it does produce typed decision evaluations, but they are not source-bound \u2014 no surface is invoked \u2014 so it cannot discharge a source-bound receipt obligation for any worklist row. Recorded here so the inventory is complete and so it is not mistaken for an effectful executor."
+  }
+ ],
+ "matrix": [
+  {
+   "surfaceKind": "surface.loader.route",
+   "tier": "T0",
+   "authorableRows": 1195,
+   "surfaces": 131,
+   "templateClasses": 9,
+   "templateClassRows": {
+    "fs:list,fs:read": 454,
+    "fs:list": 228,
+    "env:read,fs:list,fs:read,fs:write": 152,
+    "env:read,fs:list,fs:read": 120,
+    "fs:list,fs:read,fs:write": 80,
+    "fs:list,fs:write": 68,
+    "env:read,fs:list,fs:write": 48,
+    "fs:read": 25,
+    "fs:write": 20
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.builtin.export",
+   "tier": "T2",
+   "authorableRows": 673,
+   "surfaces": 98,
+   "templateClasses": 10,
+   "templateClassRows": {
+    "fs:read": 215,
+    "fs:write": 122,
+    "fs:list": 105,
+    "fs:read,fs:write": 60,
+    "fs:list,fs:read": 43,
+    "process:spawn": 30,
+    "env:read,env:write,fs:list,process:spawn": 30,
+    "fs:list,process:spawn": 30,
+    "fs:list,fs:write": 19,
+    "fs:list,fs:read,fs:write": 19
+   },
+   "processTouchingRows": 90,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 3,
+   "distinctAuthorableSources": 5,
+   "authorableSourcesTop": {
+    "exact_sqlite": 246,
+    "node_fs": 210,
+    "node_fs_promises": 115,
+    "node_child_process": 90,
+    "node_dns": 12
+   },
+   "existingProbesOnThisSurfaceKind": {
+    "builtin-export-call": 1082,
+    "builtin-export-read": 439,
+    "closed-surface": 185,
+    "builtin-noncap-captured-call": 122
+   },
+   "existingEffectfulProbesOnThisSurfaceKind": {
+    "builtin-export-call": 175
+   },
+   "executors": [
+    "builtin-public (T2, effectful)",
+    "noncap-builtin-public (T1)",
+    "closed-surface-public (T1)"
+   ],
+   "costToAuthor": "reviewed-table edit ONLY for node:os-shaped exports. The in-scope worklist is NOT node:os: its 673 authorable rows are exact_sqlite (246), node_fs (210), node_fs_promises (115), node_child_process (90), node_dns (12). node_fs rows need per-export Rust arms (capsec_public_builtin_batch.rs:656-686, panic :685); the other 463 rows are in modules the executor structurally rejects (module_specifier asserted \"node:os\" at :628 and \"node:fs\" at :640/:788, `other => panic!` at :970), i.e. new-executor-scale work despite the T2 tier."
+  },
+  {
+   "surfaceKind": "surface.startup.env",
+   "tier": "T2",
+   "authorableRows": 498,
+   "surfaces": 52,
+   "templateClasses": 8,
+   "templateClassRows": {
+    "env:read": 263,
+    "env:read,env:write": 108,
+    "env:read,fs:list,fs:read": 30,
+    "env:read,fs:list,process:spawn": 30,
+    "env:write": 25,
+    "env:read,env:write,fs:list,fs:read,fs:write": 24,
+    "env:read,env:write,fs:list,process:spawn": 12,
+    "env:read,fs:list,fs:read,process:spawn": 6
+   },
+   "processTouchingRows": 48,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 52,
+   "authorableSourcesTop": {
+    "TMP": 18,
+    "HOME": 18,
+    "TEMP": 18,
+    "EXACT_ANDROID_FILES_DIR": 18,
+    "IBEX_TEST_BUNDLE_BARRIER_ENTRY": 18,
+    "TMPDIR": 18,
+    "EXACT_EXECUTABLE": 18,
+    "EXACT_ANDROID_CACHE_DIR": 18,
+    "EXACT_COMPAT_EXEC_ARGV": 18,
+    "IBEX_TEST_BUNDLE_BARRIER_DIR": 18,
+    "USERPROFILE": 18,
+    "EXACT_RAW_ARGV0": 18
+   },
+   "existingProbesOnThisSurfaceKind": {
+    "startup-environment-source": 66,
+    "closed-surface": 20
+   },
+   "existingEffectfulProbesOnThisSurfaceKind": {
+    "startup-environment-source": 66
+   },
+   "executors": [
+    "startup-environment-public (T2, effectful)",
+    "closed-surface-public (T1)"
+   ],
+   "costToAuthor": "reviewed-table edit, but ZERO of the 52 authorable environment names overlap the 11-entry EXPECTED_SOURCES table (:176-306), so all 498 rows need new entries; and the worklist names are startup/bootstrap path-resolution reads (HOME, TMPDIR, EXACT_*, IBEX_*), not the tty/date/emitter mechanisms the 5-arm dispatch (:1199-1246) implements, so most also need new mechanism JS in both :1199-1246 and :449-491. Additionally 102 of the 498 rows carry fs:* or process:* actions the executor has never validated (it validates env:read/env:write only)."
+  },
+  {
+   "surfaceKind": "surface.loader.function",
+   "tier": "T1",
+   "authorableRows": 487,
+   "surfaces": 47,
+   "templateClasses": 5,
+   "templateClassRows": {
+    "fs:list,fs:read": 209,
+    "fs:list": 154,
+    "env:read,fs:list,fs:read,fs:write": 102,
+    "fs:list,fs:read,fs:write": 12,
+    "fs:read": 10
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {
+    "module-loader-captured-route": 8
+   },
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [
+    "module-loader-captured-route (T1)"
+   ],
+   "costToAuthor": "new executor construction: the existing executor structurally cannot emit an effectful receipt, so an effectful path must be built"
+  },
+  {
+   "surfaceKind": "surface.loader.operation",
+   "tier": "T0",
+   "authorableRows": 310,
+   "surfaces": 55,
+   "templateClasses": 5,
+   "templateClassRows": {
+    "fs:list,fs:write": 120,
+    "fs:list": 85,
+    "fs:read": 45,
+    "env:read,fs:list,fs:read,fs:write": 30,
+    "fs:list,fs:read": 30
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.host.abi",
+   "tier": "T1",
+   "authorableRows": 270,
+   "surfaces": 45,
+   "templateClasses": 9,
+   "templateClassRows": {
+    "fs:list,fs:write": 56,
+    "fs:read": 51,
+    "fs:list": 45,
+    "env:read": 30,
+    "fs:list,fs:read": 28,
+    "fs:read,fs:write": 22,
+    "fs:list,fs:read,fs:write": 18,
+    "fs:write": 15,
+    "env:write": 5
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {
+    "host-abi-function": 33,
+    "target-absence": 58,
+    "closed-surface": 10,
+    "callback-security-invariant": 6
+   },
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [
+    "host-abi-public (T1)",
+    "module-runner-host-abi (T1)",
+    "target-absence-public (T1)",
+    "closed-surface-public (T1)",
+    "callback-security-invariant (T1)",
+    "exact-fixture-evidence (T1)"
+   ],
+   "costToAuthor": "new executor construction: the existing executor structurally cannot emit an effectful receipt, so an effectful path must be built"
+  },
+  {
+   "surfaceKind": "surface.native.op",
+   "tier": "T3",
+   "authorableRows": 200,
+   "surfaces": 31,
+   "templateClasses": 10,
+   "templateClassRows": {
+    "fs:read": 57,
+    "fs:write": 36,
+    "process:spawn": 23,
+    "fs:list": 19,
+    "env:read,env:write,fs:list,process:spawn": 18,
+    "fs:list,process:spawn": 18,
+    "fs:read,fs:write": 12,
+    "fs:list,fs:read,fs:write": 6,
+    "fs:list,fs:read": 6,
+    "env:read,fs:list": 5
+   },
+   "processTouchingRows": 59,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 37,
+   "distinctAuthorableSources": 31,
+   "authorableSourcesTop": {
+    "native-op:__exactFsPathAsync": 18,
+    "native-op:__exactSpawnSync": 18,
+    "native-op:__exactSpawn": 18,
+    "native-op:__exactExecSync": 18,
+    "native-op:__exactSqliteExec": 12,
+    "native-op:__exactSqliteOpen": 12,
+    "native-op:__exactFsWriteFileAsync": 12,
+    "native-op:__exactFsStatAsync": 12,
+    "native-op:__exactSqliteRun": 12,
+    "native-op:__exactFsFdAsync": 7,
+    "native-op:__exactSqliteValues": 6,
+    "native-op:__exactSqliteAll": 6
+   },
+   "existingProbesOnThisSurfaceKind": {
+    "principal-environment-property": 12,
+    "native-global-function": 423,
+    "private-native-facade-function": 2,
+    "closed-surface": 500,
+    "global-callable-invocation": 579,
+    "target-absence": 34,
+    "global-property-read": 153
+   },
+   "existingEffectfulProbesOnThisSurfaceKind": {
+    "principal-environment-property": 12,
+    "native-global-function": 275,
+    "private-native-facade-function": 2
+   },
+   "executors": [
+    "native-public (T3, effectful)",
+    "closed-surface-public (T1)",
+    "global-callable-public (T1)",
+    "target-absence-public (T1)",
+    "startup-environment-public (T2, principal-environment overlay property only)",
+    "exact-fixture-evidence (T1, 1 row)"
+   ],
+   "costToAuthor": "nothing new for the 14 of 31 authorable globals already proven effectful through the generic machinery; the remaining 17 (spawn/exec/sqlite/which/readlink families) need arguments+setup, and the process:spawn family has no NativeProbeSetup variant and no precedent anywhere in the catalog (see findings)."
+  },
+  {
+   "surfaceKind": "surface.loader.entry",
+   "tier": "T0",
+   "authorableRows": 132,
+   "surfaces": 11,
+   "templateClasses": 3,
+   "templateClassRows": {
+    "fs:list,fs:read": 66,
+    "env:read,fs:list,fs:read,fs:write": 54,
+    "fs:list": 12
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.startup.supervisor",
+   "tier": "T0",
+   "authorableRows": 50,
+   "surfaces": 10,
+   "templateClasses": 4,
+   "templateClassRows": {
+    "fs:list,fs:write": 20,
+    "fs:list": 10,
+    "fs:list,fs:read,fs:write": 10,
+    "env:read": 10
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.require",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.json",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.commonjs",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.dynamic",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.native",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.esm",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.private",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  },
+  {
+   "surfaceKind": "surface.loader.oxc",
+   "tier": "T0",
+   "authorableRows": 12,
+   "surfaces": 1,
+   "templateClasses": 2,
+   "templateClassRows": {
+    "fs:list": 6,
+    "fs:list,fs:read": 6
+   },
+   "processTouchingRows": 0,
+   "rowsOnCellsWithAnExistingEffectfulFixture": 0,
+   "distinctAuthorableSources": 0,
+   "authorableSourcesTop": {},
+   "existingProbesOnThisSurfaceKind": {},
+   "existingEffectfulProbesOnThisSurfaceKind": {},
+   "executors": [],
+   "costToAuthor": "new executor construction: no executor serves this surface kind at all"
+  }
+ ],
+ "totals": {
+  "authorableRowsInScope": 3911,
+  "rowsByTier": {
+   "T2": 1171,
+   "T0": 1783,
+   "T1": 757,
+   "T3": 200
+  },
+  "rowsReachableWithNoExecutorWork": 200,
+  "rowsNeedingOnlyAReviewedTableEdit": 1171,
+  "rowsNeedingNewExecutorConstruction": 2540,
+  "rowsOnCellsAlreadyCarryingAnEffectfulFixture": 40,
+  "processTouchingRowsInScope": 197
+ },
+ "findings": [
+  {
+   "id": "F1",
+   "severity": "falsifies-LLP-0049-\u00a76",
+   "claim": "LLP 0049 \u00a76: \"only native-op has an executor that can produce an effectful source-bound receipt\"",
+   "verdict": "FALSE",
+   "counterexamples": [
+    "capsec_public_builtin_batch.rs serves surface.builtin.export effectfully: classification pinned to \"effects\" (:1042), typed decision count validated against observation (:1077-1084), full effect/authority validation (:1225-1443), real on-disk postconditions (:517-601). Catalog: 175 effectful builtin-export-call fixtures over 33 export names.",
+    "capsec_public_startup_environment_batch.test.rs serves surface.startup.env effectfully: classification pinned to \"effects\" (:703, :881), env:read effects validated against decisions harvested from a real loaded-engine evaluation (:1122-1152, engine call :2055-2056). Catalog: 66 effectful startup-environment-source fixtures + 12 effectful principal-environment-property fixtures."
+   ]
+  },
+  {
+   "id": "F2",
+   "severity": "important-nuance",
+   "claim": "the host-abi executor admits classification == \"effects\"",
+   "verdict": "TRUE but it is still T1",
+   "detail": "capsec_conformance_batch.rs:3091 admits classification == \"effects\", yet :3092-3095 restricts the scenario to branch-selection|no-effect, :3096 requires empty action ids, and :3111 pins expected_typed_decision_count == 0. Zero of the 33 fully-executable host-abi-function probes in the catalog carry a typed decision. Any LLP 0049 rewrite must distinguish \"admits the effects classification\" from \"produces an effectful receipt\"."
+  },
+  {
+   "id": "F3",
+   "severity": "blocking-for-the-process-family",
+   "claim": "the process capability family is executable somewhere today",
+   "verdict": "FALSE",
+   "detail": "ZERO recipes in the whole 22505-row catalog with status \"fully-executable\" carry any process:* action id. process:spawn is therefore unproven through every executor, including the T3 native executor. 197 of the 3911 authorable in-scope rows touch process:* (surface.builtin.export 90, surface.native.op 59, surface.startup.env 48). The T2/T3 tiers of those surface kinds do NOT imply the process rows are reachable."
+  },
+  {
+   "id": "F4",
+   "severity": "important-nuance",
+   "claim": "T2 tiers imply the worklist rows are near-reachable",
+   "verdict": "FALSE for both T2 surface kinds",
+   "detail": "only 3 of the 673 authorable surface.builtin.export rows and 0 of the 498 authorable surface.startup.env rows sit on a cell that already carries an effectful fixture; 0 of the 52 authorable env names overlap the 11-source table. Authorable rows are by construction the rows whose sources are NOT yet exercised, so a T2 tier always means at least one reviewed-table edit per source, and for the specific modules/mechanisms in this worklist frequently a structural one."
+  },
+  {
+   "id": "F5",
+   "severity": "largest-single-block",
+   "claim": "the loader family is served",
+   "verdict": "FALSE",
+   "detail": "1783 of the 3911 authorable rows (45.6%) are on surface kinds with ZERO public-surface probes of any invocation schema in the catalog: surface.loader.route (1195), surface.loader.operation (310), surface.loader.entry (132), surface.startup.supervisor (50), and the eight leaf loader kinds (12 each = 96). All in-scope surface.loader.* rows live in the loader: observed-key namespace, whose only two executors \u2014 module-loader-authority (capsec_conformance_batch.rs:3845, pinned non-capability :3867 / zero decisions :3884) and module-loader-captured-route (capsec_public_noncap_builtin_batch.rs:3825, pinned :3837/:3845) \u2014 are both structurally non-effectful. Even reusing the nearest-neighbour executor cannot discharge these rows."
+  },
+  {
+   "id": "F6",
+   "severity": "positive",
+   "claim": "the native executor is genuinely reusable",
+   "verdict": "TRUE",
+   "detail": "setup_script (:1018), materialize_native_arguments (:1394) and native_invocation_script (:1543) are fully data-driven over an arbitrary global name and argument list; the file has no `_ => panic!` catch-all on a global name. The per-global name matches at :1975-2001, :2018-2033, :2043-2058, :2614-2760, :2831-2876 are permissive widenings and fixture helpers, not admission gates. 14 of the 31 authorable in-scope globals already have an effectful fixture."
+  }
+ ],
+ "nativeOpSourceCoverage": {
+  "authorableNativeGlobals": 31,
+  "alreadyProvenEffectfulThroughTheGenericExecutor": [
+   "native-op:__exactFsFdAsync",
+   "native-op:__exactFsFdatasyncSync",
+   "native-op:__exactFsFstatSync",
+   "native-op:__exactFsFsyncSync",
+   "native-op:__exactFsFtruncateSync",
+   "native-op:__exactFsPathAsync",
+   "native-op:__exactFsRead",
+   "native-op:__exactFsReadAsync",
+   "native-op:__exactFsReadFileAsync",
+   "native-op:__exactFsReadv",
+   "native-op:__exactFsReadvAsync",
+   "native-op:__exactFsWrite",
+   "native-op:__exactFsWriteAsync",
+   "native-op:__exactFsWritevAsync"
+  ],
+  "notYetProvenEffectful": [
+   "native-op:__exactExecSync",
+   "native-op:__exactFsStatAsync",
+   "native-op:__exactFsWriteFileAsync",
+   "native-op:__exactFsWritev",
+   "native-op:__exactHandleReadFileSync",
+   "native-op:__exactReadlink",
+   "native-op:__exactSpawn",
+   "native-op:__exactSpawnPoll",
+   "native-op:__exactSpawnSync",
+   "native-op:__exactSqliteAll",
+   "native-op:__exactSqliteExec",
+   "native-op:__exactSqliteGet",
+   "native-op:__exactSqliteOpen",
+   "native-op:__exactSqlitePrepare",
+   "native-op:__exactSqliteRun",
+   "native-op:__exactSqliteValues",
+   "native-op:__exactWhich"
+  ],
+  "derivation": "a global counts as proven when the catalog carries a fully-executable native-global-function probe for it with expectedTypedDecisionCount > 0"
+ },
+ "undetermined": [
+  {
+   "item": "exact labor cost of a new NativeProbeSetup variant for the process:spawn family",
+   "why": "the taxonomy asks only whether a STRUCTURAL change is needed. surface.native.op process:spawn rows (__exactSpawn, __exactSpawnSync, __exactExecSync, __exactSpawnPoll, __exactWhich) have no existing setup variant and no effectful precedent anywhere; whether they fit InvokeNativeGlobal (capsec_conformance_batch.rs:320) with literal arguments, or need a new variant plus process reaping/cleanup, was not determined from the code alone and would need an authoring attempt to settle."
+  },
+  {
+   "item": "whether the loader: executors could be EXTENDED rather than replaced for surface.loader.route/operation/entry",
+   "why": "both loader executors are T1 by assertion, so an effectful path must be built either way; whether that build is a new executor or a major surgery on capsec_public_noncap_builtin_batch.rs:3825-4998 is an authoring decision, not a fact readable from the current code. Reported as T0 because no executor serves those surface kinds today."
+  },
+  {
+   "item": "surface.startup.supervisor tier is T0 by the strict definition but its observed-key namespace (startup:supervisor-history.*) is adjacent to the T2 startup-environment executor",
+   "why": "capsec_public_startup_environment_batch.test.rs:725 pins surface_kind to the literal \"startup\" and :1687-1705 freezes an 11-key startup:env:* set; the supervisor keys are not in it and the executor has no branch for them. Whether the supervisor rows could ride that executor after a rewrite was not determinable from the code."
+  },
+  {
+   "item": "the diagnostic-adapter batch (capsec_conformance_batch.rs:774) is deliberately untiered",
+   "why": "it validates typed decision evaluation but invokes no source, so it is neither effectful-source-bound nor \"no executor\". Forcing it into T0-T3 would misrepresent it. Flagged rather than assigned, per the instruction to report genuine ambiguity."
+  }
+ ],
+ "result": "PASS"
+}
