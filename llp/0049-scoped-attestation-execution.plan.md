@@ -1381,6 +1381,24 @@ f. **The v1.1 scope, re-opened on the executor-reachability axis.**
    8-week line has nothing to measure against, and §9's executor-cost
    criterion is explicitly unarmed.
 
+> **Author ruling — 2026-08-08: the first advertised scope MUST contain
+> zero poisoned cells.** Asked whether a first advertised scope may carry
+> poisoned cells at all (the question the re-cut measurement could not
+> answer, because it is not measurable), the author ruled **no**, and
+> explicitly accepted more executor work as the price. This eliminates
+> candidates A2, A, B and F — every scope carrying native-op's 14 Lane C
+> cells — including the re-cut's own recommendation. The surviving
+> zero-poison candidates are **C** `{env}×{startup}` (65 cells, 406
+> authorable rows, floor 610, T0 10 · T2 396), **C2**
+> `{env,fs,process}×{startup}` (73 / 548 / 650, T0 50 · T2 498), **D**
+> `{env}×{host-abi,startup}` (72 / 441 / 645, T0 10 · T1 35 · T2 396) and
+> **E** `{fs}×{host-abi}` (38 / 235 / 235, T1 235). Evidence:
+> `llp/evidence/0049-scope-recut-candidates-ae3fcc4f….json`. The choice
+> among them turns on executor-construction cost, which is being priced
+> against the code rather than estimated; note E is the only candidate
+> whose floor equals its authorable rows, i.e. carrying no out-of-family
+> debt.
+
 ## 11. Evidence index
 
 Every phase adds its artifacts here as it closes; the plan is out of
