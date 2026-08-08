@@ -1,0 +1,298 @@
+{
+  "schema": "ibex/llp-evidence/host-abi-resolver-observation/1",
+  "measurement": "llp-0049-candidate-e-host-abi-resolver-observation-spike",
+  "generatedDate": "2026-08-08",
+  "sourceRevision": "9633556d96a95b9afa6dbb82a99cc991901a40b5 (temporary observation-only test in the working tree; removed after capture)",
+  "target": "aarch64-apple-darwin",
+  "scope": {
+    "digest": "sha256-wHA9qKcMPXyJrIAsaKt7mfHzhP6htBbOjzfM5UD2_Qk",
+    "intensionalDefinition": {
+      "capabilityFamilies": [
+        "fs"
+      ],
+      "surfaceKinds": [
+        "host-abi"
+      ]
+    },
+    "cellCount": 4
+  },
+  "result": "STOP-NOT-HONESTLY-ATTRIBUTABLE-AS-DECLARED",
+  "command": "PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:$PATH\" cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto spike_e_observes_host_abi_resolver_decisions -- --nocapture --test-threads=1",
+  "commandResult": {
+    "exitCode": 0,
+    "tests": "1 passed; 0 failed; 0 ignored; 0 measured; 649 filtered out",
+    "rawOutputDigest": "sha256-fx_fLLWf-jySld8rlcNIpHcPODZ1oBCtK0izV29isQE"
+  },
+  "fixture": {
+    "hostPosture": "armed production/enforce test Host",
+    "principal": "root project principal (module id 0)",
+    "floor": [
+      "fs:list over the project tree",
+      "fs:read over the project tree"
+    ],
+    "specifier": "./spike-E-target.mjs",
+    "moduleReferrer": "/project/spike-E-entry.mjs",
+    "sessionLogicalReferrer": {
+      "root": "project",
+      "components": []
+    },
+    "resolutionKind": "esm-static",
+    "resultForEveryCall": "successful return record with no error",
+    "legacyDecisionCountForEveryCall": 0
+  },
+  "auxiliaryEdges": {
+    "surface.native.op.exactreadfile.1cmzco7": "authenticated package-manifest candidate probes emitted by vfs-script-read",
+    "surface.loader.require.resolve.12c9l9i": "metadata path-disclosure authorization emitted by loader-require-resolve"
+  },
+  "observations": [
+    {
+      "cellId": "surface.host.abi.ex.host.module.resolve.0xdfuf4",
+      "declaredActionIds": [
+        "fs:list",
+        "fs:read"
+      ],
+      "typedDecisionCount": 2,
+      "typedDecisions": [
+        {
+          "order": 1,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "package.json probe below the target spelling",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 2,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "project-root package.json probe",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        }
+      ],
+      "attribution": {
+        "honestlyCreditable": false,
+        "reason": "No decision is attributed to the cell's own coverage edge, and the declared fs:read action is not observed at all. The returned module source is acquired through LLP 0021's trusted-loader path, which is deliberately not represented as importer-borrowed fs:read authority.",
+        "observedActionSet": [
+          "fs:list"
+        ],
+        "observedCoverageEdgeSet": [
+          "surface.native.op.exactreadfile.1cmzco7"
+        ]
+      }
+    },
+    {
+      "cellId": "surface.host.abi.ex.host.module.resolve.meta.0wto1rk",
+      "declaredActionIds": [
+        "fs:list"
+      ],
+      "typedDecisionCount": 6,
+      "typedDecisions": [
+        {
+          "order": 1,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata disclosure preflight",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 2,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "package.json probe below the target spelling",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 3,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "project-root package.json probe",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 4,
+          "stage": "discovery",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata target discovery",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 5,
+          "stage": "commit",
+          "actionId": "fs:read",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata path-disclosure commit",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 6,
+          "stage": "repeat",
+          "actionId": "fs:read",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata path-disclosure retained-object repeat",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        }
+      ],
+      "attribution": {
+        "honestlyCreditable": false,
+        "reason": "No decision is attributed to the cell's own coverage edge. The observed fs:read commit and repeat are a substantive metadata-disclosure action absent from the cell declaration; they are not fs:list traversal surplus permitted by LLP 0037 D2.",
+        "observedActionSet": [
+          "fs:list",
+          "fs:read"
+        ],
+        "observedCoverageEdgeSet": [
+          "surface.loader.require.resolve.12c9l9i",
+          "surface.native.op.exactreadfile.1cmzco7"
+        ]
+      }
+    },
+    {
+      "cellId": "surface.host.abi.ex.host.session.static.import.resolve.0337gqn",
+      "declaredActionIds": [
+        "fs:list",
+        "fs:read"
+      ],
+      "typedDecisionCount": 2,
+      "typedDecisions": [
+        {
+          "order": 1,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "package.json probe below the target spelling",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 2,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "project-root package.json probe",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        }
+      ],
+      "attribution": {
+        "honestlyCreditable": false,
+        "reason": "No decision is attributed to the cell's own coverage edge, and the declared fs:read action is not observed at all. The returned module source is acquired through LLP 0021's trusted-loader path rather than a typed fs:read decision credited to this ABI.",
+        "observedActionSet": [
+          "fs:list"
+        ],
+        "observedCoverageEdgeSet": [
+          "surface.native.op.exactreadfile.1cmzco7"
+        ]
+      }
+    },
+    {
+      "cellId": "surface.host.abi.ex.host.session.static.import.resolve.meta.1o3w1b9",
+      "declaredActionIds": [
+        "fs:list"
+      ],
+      "typedDecisionCount": 6,
+      "typedDecisions": [
+        {
+          "order": 1,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata disclosure preflight",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 2,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "package.json probe below the target spelling",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 3,
+          "stage": "requested",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.native.op.exactreadfile.1cmzco7",
+          "operation": "project-root package.json probe",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 4,
+          "stage": "discovery",
+          "actionId": "fs:list",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata target discovery",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 5,
+          "stage": "commit",
+          "actionId": "fs:read",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata path-disclosure commit",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        },
+        {
+          "order": 6,
+          "stage": "repeat",
+          "actionId": "fs:read",
+          "coverageEdgeId": "surface.loader.require.resolve.12c9l9i",
+          "operation": "metadata path-disclosure retained-object repeat",
+          "outcome": "allow",
+          "stratum": "static-floor"
+        }
+      ],
+      "attribution": {
+        "honestlyCreditable": false,
+        "reason": "No decision is attributed to the cell's own coverage edge. The observed fs:read commit and repeat are a substantive metadata-disclosure action absent from the cell declaration; they are not fs:list traversal surplus permitted by LLP 0037 D2.",
+        "observedActionSet": [
+          "fs:list",
+          "fs:read"
+        ],
+        "observedCoverageEdgeSet": [
+          "surface.loader.require.resolve.12c9l9i",
+          "surface.native.op.exactreadfile.1cmzco7"
+        ]
+      }
+    }
+  ],
+  "decisionAssessment": {
+    "D1": "Not the accepted ambient traversal shape. Every observed decision resolved through static-floor, and the decisions are loader/native manifest or metadata-disclosure operations on auxiliary coverage edges.",
+    "D2": "Fails for all four cells. The full resolvers omit declared fs:read and never reach their declared edge. The metadata resolvers observe undeclared fs:read commit/repeat, which is not sanctioned traversal surplus, and also never reach their declared edge.",
+    "D3": "Satisfied for this observation: the sequences above were captured from the successful armed-Host run and were not authored as expected sequences.",
+    "D4": "Not evaluated. All four cells already fail attribution on the allow path, so no deny sequence was inferred or pinned."
+  },
+  "executorAssessment": {
+    "currentTier": "T1",
+    "finding": "The existing effect-classified Host-ABI executor only drives seven SQLite memory branches, requires empty recipe actions, and pins expected_typed_decision_count to zero. The module-runner Host-ABI executor is non-capability and also pins zero decisions. Neither can drive these four cells.",
+    "requiredBeforeAReattempt": [
+      "Re-adjudicate the four coverage edges against LLP 0021's trusted-loader source-acquisition rule and the observed metadata-disclosure fs:read action.",
+      "If the Host-ABI cells are intended to remain effectful, add an ABI-specific typed authorization boundary that emits the declared action on the cell's own coverage edge; inner loader/native decisions may then be authenticated as narrowly enumerated auxiliaries.",
+      "If the existing loader/native attribution is the intended model, withdraw or rewrite the Host-ABI effect assertions and regenerate the candidate-E scope rather than borrowing those auxiliary decisions as Host-ABI credit.",
+      "Only after the model is honest, add an exact resolver operation to the Host-ABI executor, allow non-empty declared action ids and observed stages for that reviewed family, invoke the owned armed fixture, validate results and every primary/auxiliary edge, and add deny-path postconditions."
+    ]
+  },
+  "authoringDisposition": {
+    "probesAuthored": 0,
+    "cellsClosed": 0,
+    "batchEvidenceEnvelope": null,
+    "routeEvidenceDiff": "NOT RUN — no candidate catalog was authored after the mandatory attribution stop",
+    "terminalEvidenceDiff": "NOT RUN — no candidate catalog was authored after the mandatory attribution stop"
+  }
+}
