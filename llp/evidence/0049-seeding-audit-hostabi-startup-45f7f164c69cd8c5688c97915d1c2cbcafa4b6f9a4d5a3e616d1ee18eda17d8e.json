@@ -1,0 +1,1939 @@
+{
+  "schema": "ibex/llp-evidence/seeding-audit-hostabi-startup/1",
+  "measurement": "capsec-seeding-audit-hostabi-startup",
+  "generatedDate": "2026-08-08",
+  "sourceRevision": "b86f4c624ace800e500952a0b065e8969d243971",
+  "target": "aarch64-apple-darwin",
+  "result": "MIS-SEEDING-CONFIRMED-AND-NARROWLY-CORRECTED",
+  "architecturalAnswer": "The host ABI is not one uniform authorization boundary: the 41 in-scope raw env/filesystem/SQLite primitives are deliberately below caller-side typed authorization (or are used only by explicit unarmed/diagnostic paths), while four module-resolution ABI functions call typed Host resolvers from inside their ABI bodies and therefore remain correctly seeded. The native-op layer is the real package-principal decision surface for process.env, filesystem, and SQLite.",
+  "representativeFlows": [
+    {
+      "id": "environment-enumeration",
+      "trace": [
+        "packages/ibex-runtime-js/src/node/process.ts:1324-1345",
+        "src/engine/hermes_runtime.cc:5059-5083",
+        "src/engine/hermes_runtime_internal.h:2003-2034",
+        "src/engine/hermes_runtime.cc:3936-3954",
+        "src/host/abi.rs:10239-10255"
+      ],
+      "finding": "__exactGetAllEnv authorizes each exact compiled key before getEnvValue enters ex_host_env_get. The ABI itself only reads compiled/ambient state. __exactGetEnv likewise makes the typed decision at src/engine/hermes_runtime.cc:4977; an armed scalar read returns the principal overlay rather than ambient host state."
+    },
+    {
+      "id": "filesystem-read",
+      "trace": [
+        "src/builtins/fs.js:3711",
+        "src/engine/hermes_runtime_fs_windows.cc:2395-2427",
+        "src/engine/hermes_runtime_fs_windows.cc:2429-2439",
+        "src/host/abi.rs:8877-8891"
+      ],
+      "finding": "The JavaScript read reaches __exactFsRead. Armed Windows execution takes the typed private-VFS path; ex_host_fs_read/ex_host_fs_pread are reached only by the unarmed compatibility branch after its legacy retained-entry check. The raw ABI body performs I/O, not authorization. POSIX whole-file read/write has the same split at src/engine/hermes_runtime_fs.cc:5059-5215."
+    },
+    {
+      "id": "sqlite-open-and-statement",
+      "trace": [
+        "src/engine/hermes_runtime_sqlite.cc:745-797",
+        "src/engine/hermes_runtime_fs.cc:2524-2577",
+        "src/engine/hermes_runtime_sqlite.cc:177-234",
+        "src/engine/hermes_runtime_sqlite.cc:952-980",
+        "src/host/abi.rs:9722-10224"
+      ],
+      "finding": "__exactSqliteOpen authorizes and opens an armed descriptor before ex_host_sqlite_open_checked_fd; retained statements repeat requireSqliteAuthorization before calling raw ex_host_sqlite_* functions. The rusqlite ABI bodies have no typed decision."
+    }
+  ],
+  "correctlySeededComparison": {
+    "surface": "native-op:__exactGetAllEnv",
+    "citations": [
+      "src/engine/hermes_runtime.cc:5059-5141",
+      "src/engine/hermes_runtime_internal.h:2003-2034"
+    ],
+    "finding": "This surface really performs exact-name typed decisions and remains an obligation."
+  },
+  "verdicts": {
+    "hostAbi": {
+      "totals": {
+        "correctlySeeded": 4,
+        "misSeeded": 41,
+        "undetermined": 0
+      },
+      "cells": [
+        {
+          "cell": "host-abi:ex_host_module_resolve",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "typed module resolution is entered from inside the ABI function",
+          "citations": [
+            "src/host/abi.rs:8567-8592",
+            "src/host/mod.rs:5594-5609"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_module_resolve_meta",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "typed module resolution is entered from inside the ABI function",
+          "citations": [
+            "src/host/abi.rs:8786-8811",
+            "src/host/mod.rs:6462-6726"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_session_static_import_resolve",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "typed module resolution is entered from inside the ABI function",
+          "citations": [
+            "src/host/abi.rs:8641-8680",
+            "src/host/mod.rs:5495-5522"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_session_static_import_resolve_meta",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "typed module resolution is entered from inside the ABI function",
+          "citations": [
+            "src/host/abi.rs:8699-8738",
+            "src/host/mod.rs:5547-5574"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_ambient_get",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10314",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_ambient_key_at",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10361",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_ambient_key_count",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10352",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_ambient_set",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10333",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_compiled_key_at",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10289",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_compiled_key_count",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10280",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_env_get",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10239",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_access",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9533",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_append",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9695",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_chmod",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9603",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_copy",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9283",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_copy_exclusive",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9302",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_fstat",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9056",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_lstat",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9099",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_mkdir",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9156",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_mkdir_recursive_result",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9194",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_mkdtemp",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9635",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_open",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:8847",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_pread",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:8935",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_pwrite",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:8977",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_read",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:8877",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_read_file",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:7829",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_readdir",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9124",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_realpath",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9504",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_rename",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9264",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_rmdir",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9228",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_stat",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9075",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_statfs",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9400",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_sync",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9032",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_truncate",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9333",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_unlink",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9246",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_utimes",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9367",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_fs_write",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:8893",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_all",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9930",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_exec",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10191",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_get",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10014",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_open",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9722",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_open_checked_fd",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9756",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_prepare",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:9815",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_run",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10154",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        },
+        {
+          "cell": "host-abi:ex_host_sqlite_values",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "raw primitive; caller-authorized or explicitly unarmed/diagnostic",
+          "citations": [
+            "src/host/abi.rs:10081",
+            "src/engine/hermes_runtime_fs.cc:5059-5215",
+            "src/engine/hermes_runtime_sqlite.cc:177-234"
+          ]
+        }
+      ]
+    },
+    "startupEnv": {
+      "totals": {
+        "correctlySeeded": 24,
+        "misSeeded": 39,
+        "undetermined": 0
+      },
+      "note": "24 correctly seeded = 11 already fully executable plus 13 clean authorable cells; 39 mis-seeded = the 39 authorable names with no JavaScript source binding.",
+      "cells": [
+        {
+          "cell": "startup:env:COLORTERM",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/tty.js:157",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:COLUMNS",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/tty.js:134",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_DEBUG_EMIT_LISTENER",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/events.js:21",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_PIPELINE_DEBUG",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/stream.js:15",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_PIPELINE_STATE_DEBUG",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/stream.js:18",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:FORCE_COLOR",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/tty.js:148",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:LINES",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/tty.js:135",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:NO_COLOR",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/tty.js:145",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:NODE_DEBUG",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/http.js:579",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:TERM",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/tty.js:157",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:TZ",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/node/process.ts:616",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:COMSPEC",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/child-process.js:1177",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:javascript:process[]",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/stream.js:13",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:javascript:process-binding-flow",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/node/index.ts:1",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:javascript:process.env[]",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/fetch/Headers.ts:55",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:javascript:process.env",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/bootstrap.ts:367",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_ANDROID_FILES_DIR",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/storage/native-root.ts:71",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_COMPAT_EXEC_ARGV",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/child-process.js:4432",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_EXECUTABLE",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/child-process.js:2098",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_RAW_ARGV0",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/builtins/child-process.js:2108",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:HOME",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/storage/native-root.ts:71",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:NODE_ENV",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/camera/index.ts:19",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:NODE_EXTRA_CA_CERTS",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "packages/ibex-runtime-js/src/fetch/fetch.ts:443",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:NODE_PENDING_DEPRECATION",
+          "verdict": "CORRECTLY-SEEDED",
+          "authorizationShape": "JavaScript process.env binding reaches __exactGetEnv/__exactGetAllEnv typed authorization",
+          "citations": [
+            "src/engine/bootstrap/module-loader.js:1154",
+            "src/engine/hermes_runtime.cc:4945-5141",
+            "src/engine/hermes_runtime_internal.h:2003-2034"
+          ]
+        },
+        {
+          "cell": "startup:env:CLICOLOR_FORCE",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/terminal_session.rs:947",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:_dupenv_s",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime_platform_windows.cc:60",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:environ",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime_process.cc:622",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:::environ",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime.cc:4811",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:getenv",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime.cc:290",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime.cc:4779",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime.cc:284",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:cpp:_NSGetEnviron",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime.cc:4809",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:rust:Command::default_env",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs:192",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:rust:Command::env_clear",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:5251",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:rust:env::var",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/main.rs:91",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:rust:env::var_os",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/host/abi.rs:10250",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:<dynamic>:rust:env::vars_os",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/host/process.rs:76",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_ANDROID_CACHE_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/native_android_networking.cc:341",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/native_android_networking.cc:347",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/native_android_networking.cc:350",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/native_android_networking.cc:344",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_COMPAT_EXECUTABLE",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:1736",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_HERMES_TOOL_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:1346",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_POLICY",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:5287",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_QUIET",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:3722",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_REPO_ROOT",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:1268",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_SECURITY_LOG",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/host/abi.rs:4521",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:EXACT_TRANSPILE_SCRIPT",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/module_loader/mod.rs:1514",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_BUNDLE_CACHE_MAX_BYTES",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:10830",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_BYTECODE_CACHE_MAX_BYTES",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:9448",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_HERMES_TOOL_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:1345",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_POLICY",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:5287",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_REPO_ROOT",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:1268",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/host/abi.rs:4533",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:11051",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:11050",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/module_loader/mod.rs:1524",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:PATH",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/main.rs:1493",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:TEMP",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:5254",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:TMP",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:5253",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:TMPDIR",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/engine/hermes.rs:5252",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:USERNAME",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/engine/hermes_runtime_platform_windows.cc:2267",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        },
+        {
+          "cell": "startup:env:USERPROFILE",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "direct non-JavaScript startup/launcher/native access; cannot traverse typed process.env native operations",
+          "citations": [
+            "src/bin/ibex/runtime.rs:10942",
+            "src/engine/hermes_runtime.cc:4945-5141"
+          ]
+        }
+      ]
+    },
+    "startupSupervisor": {
+      "totals": {
+        "correctlySeeded": 0,
+        "misSeeded": 10,
+        "undetermined": 0
+      },
+      "cells": [
+        {
+          "cell": "startup:supervisor-history.authenticated-project-scope",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:963",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.global-platform-data-root",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:248",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.journal-append",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:587",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.journal-compact",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:724",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.journal-recover",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:642",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.legacy-probe",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:910",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.project-platform-data-root",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:241",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.sidecar-lock-acquire",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:619",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.store-open",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:562",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        },
+        {
+          "cell": "startup:supervisor-history.user-key-read-create",
+          "verdict": "MIS-SEEDED",
+          "authorizationShape": "supervisor-private operation over platform-owned or already-authenticated root; no package-principal typed decision site",
+          "citations": [
+            "src/bin/ibex/history.rs:813",
+            "src/bin/ibex/history.rs:1-7",
+            "src/bin/ibex/history.rs:145-249"
+          ]
+        }
+      ]
+    }
+  },
+  "targetApplicability": {
+    "correctedCells": 13,
+    "appleTerminalRemovals": 10,
+    "note": "The Apple and macOS rows remain applicable on aarch64-apple-darwin; the Linux|macOS WPT row changes recipe branch identity but not terminal membership. Ten Windows/Android/Linux-only rows lose impossible Apple terminal routes.",
+    "cells": [
+      {
+        "cell": "startup:env:<dynamic>:cpp:_dupenv_s",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "windows"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime_platform_windows.cc:60",
+          "build.rs:2081-2108"
+        ]
+      },
+      {
+        "cell": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "windows"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime.cc:4771-4806",
+          "build.rs:2081-2108"
+        ]
+      },
+      {
+        "cell": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "windows"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime.cc:280-291",
+          "build.rs:2081-2108"
+        ]
+      },
+      {
+        "cell": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "android"
+        ],
+        "citations": [
+          "src/engine/native_android_networking.cc:347",
+          "build.rs:2596-2607"
+        ]
+      },
+      {
+        "cell": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "android"
+        ],
+        "citations": [
+          "src/engine/native_android_networking.cc:350",
+          "build.rs:2596-2607"
+        ]
+      },
+      {
+        "cell": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "android"
+        ],
+        "citations": [
+          "src/engine/native_android_networking.cc:344",
+          "build.rs:2596-2607"
+        ]
+      },
+      {
+        "cell": "startup:env:<dynamic>:cpp:_NSGetEnviron",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "apple"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime.cc:4807-4812",
+          "src/engine/hermes_runtime_process_setup.cc:93-97"
+        ]
+      },
+      {
+        "cell": "startup:env:<dynamic>:cpp:::environ",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "android",
+          "linux"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime.cc:4807-4812",
+          "src/engine/hermes_runtime_process_setup.cc:93-97"
+        ]
+      },
+      {
+        "cell": "startup:env:<dynamic>:cpp:environ",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "android",
+          "linux"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime_process.cc:618-623",
+          "build.rs:2110-2126"
+        ]
+      },
+      {
+        "cell": "startup:env:USERNAME",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "windows"
+        ],
+        "citations": [
+          "src/engine/hermes_runtime_platform_windows.cc:2267",
+          "build.rs:2081-2108"
+        ]
+      },
+      {
+        "cell": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "windows"
+        ],
+        "citations": [
+          "src/engine/native_fetch_windows.cc:52-59",
+          "build.rs:2580-2590"
+        ]
+      },
+      {
+        "cell": "startup:env:EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "macos"
+        ],
+        "citations": [
+          "src/engine/native_websocket_macos.mm:156-160",
+          "build.rs:2130-2140"
+        ]
+      },
+      {
+        "cell": "startup:env:EXACT_WPT_TRUST_LOOPBACK_TLS",
+        "previousApplicability": [
+          "all"
+        ],
+        "correctedApplicability": [
+          "linux",
+          "macos"
+        ],
+        "citations": [
+          "src/engine/native_websocket_linux.cc:124-128",
+          "src/engine/native_websocket_macos.mm:151-155"
+        ]
+      }
+    ]
+  },
+  "modelCorrections": {
+    "policyRationales": [
+      {
+        "id": "preauthorized-host-primitive",
+        "source": "capsec/registry/policy-rules.json:835"
+      },
+      {
+        "id": "supervisor-private-effect",
+        "source": "capsec/registry/policy-rules.json:855"
+      },
+      {
+        "id": "trusted-startup-environment",
+        "source": "capsec/registry/policy-rules.json:870"
+      }
+    ],
+    "exactCarveOuts": [
+      "packages/ibex-devtools/src/scripts/capsec-coverage-model.mjs:11556-11629",
+      "packages/ibex-devtools/src/scripts/capsec-coverage-model.mjs:11905-11918",
+      "packages/ibex-devtools/src/scripts/capsec-coverage-model.mjs:13870-13931"
+    ],
+    "targetMetadata": "packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs:20257-20289",
+    "discipline": "All withdrawals are exact-string sets ordered before class-prefix classification; startup.env additionally self-retires if a JavaScript language binding appears. No regex was widened and no execution credit was granted."
+  },
+  "catalogs": {
+    "baseline": {
+      "path": "/tmp/wt-audit-seeding-b86f4c62/baseline-live.json",
+      "digest": "sha256-AymFfo2L6Yoq4UebsQTFlIJ0SOn3uwYR06SrfpUGGaA",
+      "summary": {
+        "requiredFixtures": 22522,
+        "fullyExecutableFixtures": 3942,
+        "internallyVerifiedFixtures": 3124,
+        "adapterExecutableFixtures": 10725,
+        "unresolvedFixtures": 15456,
+        "byScenario": {
+          "absent": 114,
+          "allow": 2145,
+          "attribution-missing-deny": 514,
+          "branch-selection": 2017,
+          "cannot-widen-authority": 534,
+          "closed": 1232,
+          "deny": 2145,
+          "generation-recheck": 514,
+          "malformed": 2145,
+          "missing-attribution": 2145,
+          "no-effect": 557,
+          "non-capability": 4753,
+          "post-lockdown-invariant": 534,
+          "principal-restore": 514,
+          "snapshot-mismatch-deny": 514,
+          "wrong-principal": 2145
+        },
+        "residualReasons": {
+          "ambiguous-static-enforcement-route": 5639,
+          "argument-selected-terminal-alternatives-not-authored": 2095,
+          "builtin-export-requires-deprecation-warning": 4,
+          "builtin-export-resolves-to-bootstrap-internal": 36,
+          "callback-invariant-attribution-missing-deny-probe-not-authored": 514,
+          "callback-invariant-cannot-widen-authority-probe-not-authored": 534,
+          "callback-invariant-generation-recheck-probe-not-authored": 514,
+          "callback-invariant-post-lockdown-invariant-probe-not-authored": 534,
+          "callback-invariant-principal-restore-probe-not-authored": 514,
+          "callback-invariant-snapshot-mismatch-deny-probe-not-authored": 514,
+          "closed-surface-denial-probe-not-authored": 446,
+          "conditional-branch-selection-probe-not-authored": 1932,
+          "conditional-no-effect-probe-not-authored": 520,
+          "native-public-allow-scenario-not-authored": 12,
+          "native-public-arguments-not-authored": 614,
+          "native-public-attribution-missing-deny-scenario-not-authored": 40,
+          "native-public-cannot-widen-authority-scenario-not-authored": 21,
+          "native-public-deny-scenario-not-authored": 25,
+          "native-public-generation-recheck-scenario-not-authored": 40,
+          "native-public-malformed-scenario-not-authored": 13,
+          "native-public-missing-attribution-scenario-not-authored": 13,
+          "native-public-post-lockdown-invariant-scenario-not-authored": 21,
+          "native-public-principal-restore-scenario-not-authored": 40,
+          "native-public-snapshot-mismatch-deny-scenario-not-authored": 40,
+          "native-public-source-descriptor-drift": 1,
+          "native-public-source-invocation-unavailable": 4283,
+          "native-public-wrong-principal-scenario-not-authored": 13,
+          "no-static-enforcement-terminal": 3826,
+          "non-capability-no-decision-probe-not-authored": 1542,
+          "public-surface-invocation-not-authored": 18580
+        }
+      }
+    },
+    "candidate": {
+      "path": "/tmp/wt-audit-seeding-b86f4c62/candidate-strict-v3.json",
+      "digest": "sha256-3SuOeDeHLEzaPWLaQ4n93XJzrmF4j5K4DJ6YDjBfPCM",
+      "declaredAllowListDigest": "sha256-9DIxRY3d6j8Fq30ARBsOQ1TwCGnS4lzELZv5UJ8M3HM",
+      "summary": {
+        "requiredFixtures": 21908,
+        "fullyExecutableFixtures": 3928,
+        "internallyVerifiedFixtures": 3124,
+        "adapterExecutableFixtures": 10100,
+        "unresolvedFixtures": 14856,
+        "byScenario": {
+          "absent": 124,
+          "allow": 2020,
+          "attribution-missing-deny": 514,
+          "branch-selection": 1945,
+          "cannot-widen-authority": 534,
+          "closed": 1232,
+          "deny": 2020,
+          "generation-recheck": 514,
+          "malformed": 2020,
+          "missing-attribution": 2020,
+          "no-effect": 549,
+          "non-capability": 4834,
+          "post-lockdown-invariant": 534,
+          "principal-restore": 514,
+          "snapshot-mismatch-deny": 514,
+          "wrong-principal": 2020
+        },
+        "residualReasons": {
+          "ambiguous-static-enforcement-route": 5639,
+          "argument-selected-terminal-alternatives-not-authored": 2095,
+          "builtin-export-requires-deprecation-warning": 4,
+          "builtin-export-resolves-to-bootstrap-internal": 36,
+          "callback-invariant-attribution-missing-deny-probe-not-authored": 514,
+          "callback-invariant-cannot-widen-authority-probe-not-authored": 534,
+          "callback-invariant-generation-recheck-probe-not-authored": 514,
+          "callback-invariant-post-lockdown-invariant-probe-not-authored": 534,
+          "callback-invariant-principal-restore-probe-not-authored": 514,
+          "callback-invariant-snapshot-mismatch-deny-probe-not-authored": 514,
+          "closed-surface-denial-probe-not-authored": 446,
+          "conditional-branch-selection-probe-not-authored": 1867,
+          "conditional-no-effect-probe-not-authored": 519,
+          "native-public-allow-scenario-not-authored": 12,
+          "native-public-arguments-not-authored": 614,
+          "native-public-attribution-missing-deny-scenario-not-authored": 40,
+          "native-public-cannot-widen-authority-scenario-not-authored": 21,
+          "native-public-deny-scenario-not-authored": 25,
+          "native-public-generation-recheck-scenario-not-authored": 40,
+          "native-public-malformed-scenario-not-authored": 13,
+          "native-public-missing-attribution-scenario-not-authored": 13,
+          "native-public-post-lockdown-invariant-scenario-not-authored": 21,
+          "native-public-principal-restore-scenario-not-authored": 40,
+          "native-public-snapshot-mismatch-deny-scenario-not-authored": 40,
+          "native-public-source-descriptor-drift": 1,
+          "native-public-source-invocation-unavailable": 4283,
+          "native-public-wrong-principal-scenario-not-authored": 13,
+          "no-static-enforcement-terminal": 3826,
+          "non-capability-no-decision-probe-not-authored": 1623,
+          "public-surface-invocation-not-authored": 17970,
+          "target-absence-probe-not-authored": 10
+        }
+      }
+    },
+    "targetCorrectedOldSeeding": {
+      "path": "/tmp/wt-audit-seeding-b86f4c62/target-corrected-old-seeding.json",
+      "digest": "sha256-EiQqpd9w5f1HFtzMF4krilR3zkQahj8wkF0485ZeNBw",
+      "purpose": "target-applicability corrected, original effect seeding retained"
+    }
+  },
+  "correctedCandidateMeasurements": {
+    "control": {
+      "families": [
+        "env",
+        "fs",
+        "process"
+      ],
+      "surfaceKinds": [
+        "all"
+      ],
+      "before": {
+        "cells": 609,
+        "cleanCells": 536,
+        "poisonedCells": 73,
+        "authorableRows": 3913,
+        "surfaces": 487,
+        "templateClasses": 79
+      },
+      "after": {
+        "cells": 519,
+        "cleanCells": 446,
+        "poisonedCells": 73,
+        "authorableRows": 3260,
+        "surfaces": 397,
+        "templateClasses": 66
+      },
+      "delta": {
+        "cells": -90,
+        "cleanCells": -90,
+        "poisonedCells": 0,
+        "authorableRows": -653,
+        "surfaces": -90,
+        "templateClasses": -13
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "A2": {
+      "families": [
+        "fs"
+      ],
+      "surfaceKinds": [
+        "native-op"
+      ],
+      "before": {
+        "cells": 54,
+        "cleanCells": 40,
+        "poisonedCells": 14,
+        "authorableRows": 137,
+        "surfaces": 26,
+        "templateClasses": 6
+      },
+      "after": {
+        "cells": 54,
+        "cleanCells": 40,
+        "poisonedCells": 14,
+        "authorableRows": 137,
+        "surfaces": 26,
+        "templateClasses": 6
+      },
+      "delta": {
+        "cells": 0,
+        "cleanCells": 0,
+        "poisonedCells": 0,
+        "authorableRows": 0,
+        "surfaces": 0,
+        "templateClasses": 0
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "A": {
+      "families": [
+        "env",
+        "fs",
+        "process"
+      ],
+      "surfaceKinds": [
+        "native-op"
+      ],
+      "before": {
+        "cells": 70,
+        "cleanCells": 48,
+        "poisonedCells": 22,
+        "authorableRows": 202,
+        "surfaces": 30,
+        "templateClasses": 10
+      },
+      "after": {
+        "cells": 70,
+        "cleanCells": 48,
+        "poisonedCells": 22,
+        "authorableRows": 202,
+        "surfaces": 30,
+        "templateClasses": 10
+      },
+      "delta": {
+        "cells": 0,
+        "cleanCells": 0,
+        "poisonedCells": 0,
+        "authorableRows": 0,
+        "surfaces": 0,
+        "templateClasses": 0
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "B": {
+      "families": [
+        "env",
+        "fs",
+        "process"
+      ],
+      "surfaceKinds": [
+        "native-op",
+        "startup"
+      ],
+      "before": {
+        "cells": 143,
+        "cleanCells": 121,
+        "poisonedCells": 22,
+        "authorableRows": 750,
+        "surfaces": 92,
+        "templateClasses": 22
+      },
+      "after": {
+        "cells": 94,
+        "cleanCells": 72,
+        "poisonedCells": 22,
+        "authorableRows": 347,
+        "surfaces": 43,
+        "templateClasses": 16
+      },
+      "delta": {
+        "cells": -49,
+        "cleanCells": -49,
+        "poisonedCells": 0,
+        "authorableRows": -403,
+        "surfaces": -49,
+        "templateClasses": -6
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "C": {
+      "families": [
+        "env"
+      ],
+      "surfaceKinds": [
+        "startup"
+      ],
+      "before": {
+        "cells": 65,
+        "cleanCells": 65,
+        "poisonedCells": 0,
+        "authorableRows": 406,
+        "surfaces": 54,
+        "templateClasses": 4
+      },
+      "after": {
+        "cells": 24,
+        "cleanCells": 24,
+        "poisonedCells": 0,
+        "authorableRows": 109,
+        "surfaces": 13,
+        "templateClasses": 2
+      },
+      "delta": {
+        "cells": -41,
+        "cleanCells": -41,
+        "poisonedCells": 0,
+        "authorableRows": -297,
+        "surfaces": -41,
+        "templateClasses": -2
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "C2": {
+      "families": [
+        "env",
+        "fs",
+        "process"
+      ],
+      "surfaceKinds": [
+        "startup"
+      ],
+      "before": {
+        "cells": 73,
+        "cleanCells": 73,
+        "poisonedCells": 0,
+        "authorableRows": 548,
+        "surfaces": 62,
+        "templateClasses": 12
+      },
+      "after": {
+        "cells": 24,
+        "cleanCells": 24,
+        "poisonedCells": 0,
+        "authorableRows": 145,
+        "surfaces": 13,
+        "templateClasses": 6
+      },
+      "delta": {
+        "cells": -49,
+        "cleanCells": -49,
+        "poisonedCells": 0,
+        "authorableRows": -403,
+        "surfaces": -49,
+        "templateClasses": -6
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "D": {
+      "families": [
+        "env"
+      ],
+      "surfaceKinds": [
+        "host-abi",
+        "startup"
+      ],
+      "before": {
+        "cells": 72,
+        "cleanCells": 72,
+        "poisonedCells": 0,
+        "authorableRows": 441,
+        "surfaces": 61,
+        "templateClasses": 6
+      },
+      "after": {
+        "cells": 24,
+        "cleanCells": 24,
+        "poisonedCells": 0,
+        "authorableRows": 109,
+        "surfaces": 13,
+        "templateClasses": 2
+      },
+      "delta": {
+        "cells": -48,
+        "cleanCells": -48,
+        "poisonedCells": 0,
+        "authorableRows": -332,
+        "surfaces": -48,
+        "templateClasses": -4
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "E": {
+      "families": [
+        "fs"
+      ],
+      "surfaceKinds": [
+        "host-abi"
+      ],
+      "before": {
+        "cells": 38,
+        "cleanCells": 38,
+        "poisonedCells": 0,
+        "authorableRows": 235,
+        "surfaces": 38,
+        "templateClasses": 7
+      },
+      "after": {
+        "cells": 4,
+        "cleanCells": 4,
+        "poisonedCells": 0,
+        "authorableRows": 20,
+        "surfaces": 4,
+        "templateClasses": 2
+      },
+      "delta": {
+        "cells": -34,
+        "cleanCells": -34,
+        "poisonedCells": 0,
+        "authorableRows": -215,
+        "surfaces": -34,
+        "templateClasses": -5
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    },
+    "F": {
+      "families": [
+        "env",
+        "fs",
+        "process"
+      ],
+      "surfaceKinds": [
+        "host-abi",
+        "native-op",
+        "startup"
+      ],
+      "before": {
+        "cells": 188,
+        "cleanCells": 166,
+        "poisonedCells": 22,
+        "authorableRows": 1020,
+        "surfaces": 137,
+        "templateClasses": 31
+      },
+      "after": {
+        "cells": 98,
+        "cleanCells": 76,
+        "poisonedCells": 22,
+        "authorableRows": 367,
+        "surfaces": 47,
+        "templateClasses": 18
+      },
+      "delta": {
+        "cells": -90,
+        "cleanCells": -90,
+        "poisonedCells": 0,
+        "authorableRows": -653,
+        "surfaces": -90,
+        "templateClasses": -13
+      },
+      "instrument": "scripts/capsec-scope-measurement.mjs"
+    }
+  },
+  "gates": {
+    "route": {
+      "result": "PASS",
+      "changes": 798,
+      "allowListed": 798,
+      "unexplained": 0,
+      "stale": 0,
+      "allowList": "llp/evidence/0049-allow-list-seeding-audit-hostabi-startup.json",
+      "allowListEntries": 798,
+      "report": "/tmp/wt-audit-seeding-b86f4c62/route-gate-final.json"
+    },
+    "terminalTargetApplicability": {
+      "result": "PASS",
+      "changes": 20,
+      "cells": 10,
+      "allowListed": 20,
+      "unexplained": 0,
+      "stale": 0,
+      "allowList": "llp/evidence/0049-terminal-allow-list-seeding-audit-hostabi-startup.json",
+      "allowListEntries": 20,
+      "report": "/tmp/wt-audit-seeding-b86f4c62/terminal-gate-final.json",
+      "mechanism": "combined original-to-final check; all 20 terminal deltas are the ten target-applicability removals"
+    },
+    "terminalSeedingOnly": {
+      "result": "PASS",
+      "baselineDigest": "sha256-EiQqpd9w5f1HFtzMF4krilR3zkQahj8wkF0485ZeNBw",
+      "candidateDigest": "sha256-3SuOeDeHLEzaPWLaQ4n93XJzrmF4j5K4DJ6YDjBfPCM",
+      "changes": 0,
+      "cells": 0,
+      "allowList": null,
+      "unexplained": 0,
+      "stale": 0,
+      "report": "/tmp/wt-audit-seeding-b86f4c62/terminal-gate-seeding-only.json",
+      "mechanism": "target-corrected old-seeding baseline to final; exact no-allow-list command proves the 90 authorization-shape corrections changed no per-cell terminal set"
+    }
+  },
+  "validation": {
+    "refCheck": {
+      "result": "PASS",
+      "summary": "51 LLP docs, 2523 refs in 1998 files, 0 errors, 1 unchecked"
+    },
+    "coverageModel": {
+      "baseline": {
+        "pass": 143,
+        "fail": 0
+      },
+      "candidate": {
+        "pass": 144,
+        "fail": 0
+      }
+    },
+    "surfaceInventory": {
+      "result": "PASS"
+    },
+    "knownRegistryDriftComparison": {
+      "baseline": {
+        "pass": 183,
+        "fail": 5
+      },
+      "candidate": {
+        "pass": 183,
+        "fail": 5
+      },
+      "identicalFailures": [
+        "canonical environment output templates > rejects empty-base, overlay, authorization, facade, and coverage source drift",
+        "Exact fixture-evidence pilot > credits nine actual fixtures plus reviewed internal proofs and keeps promotion closed",
+        "exact-target CapSec executable recipes > accounts for every obligation exactly once and reports honest residuals",
+        "exact-target CapSec executable recipes > accounts for the Windows candidate without borrowing Apple probes",
+        "LLP 0021 capsec contract > all schemas, registries, examples, and generated output validate"
+      ],
+      "issue": "issues/20260808-capsec-registry-drift-suite-red-on-main.md"
+    }
+  },
+  "undetermined": [],
+  "conclusion": "The prior no-zero-poison conclusion was caused by false authorization-shape assertions. After removing only the 90 source-proven false effect cells, C, C2, D, and E are zero-poison scopes. The four typed module-resolution host ABI cells and all 24 JavaScript-bound startup.env cells remain obligations."
+}

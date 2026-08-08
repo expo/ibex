@@ -377,7 +377,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ],
     [
       "environment read",
-      surface("host-abi", "ex_host_env_get"),
+      surface("native-op", "__exactGetEnv"),
       "effects",
       ["env:read"],
     ],
@@ -825,6 +825,61 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
+  test("raw environment filesystem and SQLite Host ABI primitives stay below caller authorization", () => {
+    for (const name of [
+      "ex_host_env_ambient_get",
+      "ex_host_env_ambient_key_at",
+      "ex_host_env_ambient_key_count",
+      "ex_host_env_ambient_set",
+      "ex_host_env_compiled_key_at",
+      "ex_host_env_compiled_key_count",
+      "ex_host_env_get",
+      "ex_host_fs_access",
+      "ex_host_fs_append",
+      "ex_host_fs_chmod",
+      "ex_host_fs_copy",
+      "ex_host_fs_copy_exclusive",
+      "ex_host_fs_fstat",
+      "ex_host_fs_lstat",
+      "ex_host_fs_mkdir",
+      "ex_host_fs_mkdir_recursive_result",
+      "ex_host_fs_mkdtemp",
+      "ex_host_fs_open",
+      "ex_host_fs_pread",
+      "ex_host_fs_pwrite",
+      "ex_host_fs_read",
+      "ex_host_fs_read_file",
+      "ex_host_fs_readdir",
+      "ex_host_fs_realpath",
+      "ex_host_fs_rename",
+      "ex_host_fs_rmdir",
+      "ex_host_fs_stat",
+      "ex_host_fs_statfs",
+      "ex_host_fs_sync",
+      "ex_host_fs_truncate",
+      "ex_host_fs_unlink",
+      "ex_host_fs_utimes",
+      "ex_host_fs_write",
+      "ex_host_sqlite_all",
+      "ex_host_sqlite_exec",
+      "ex_host_sqlite_get",
+      "ex_host_sqlite_open",
+      "ex_host_sqlite_open_checked_fd",
+      "ex_host_sqlite_prepare",
+      "ex_host_sqlite_run",
+      "ex_host_sqlite_values",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("host-abi", name),
+        context,
+      );
+      expect(classified.edge, name).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "preauthorized-host-primitive",
+      });
+    }
+  });
+
   test("authenticated session-root resolve separates metadata from source reads", () => {
     const full = classifyObservedSurface(
       surface("host-abi", "ex_host_session_static_import_resolve"),
@@ -899,12 +954,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       surface("host-abi", "ex_host_sqlite_values"),
       context,
     );
-    expect(sqliteValues.edge.classification).toBe("effects");
-    expect(edgeActions(sqliteValues)).toEqual(["fs:read"]);
-    expect(sqliteValues.edge.effectMode).toBe("conditional");
-    expect(
-      sqliteValues.edge.logicalBranches.map((branch) => branch.id),
-    ).toEqual(["file", "memory"]);
+    expect(sqliteValues.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "preauthorized-host-primitive",
+    });
   });
 
   test("exact escape families remain closed after boundary hardening", () => {
@@ -1494,24 +1547,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       surface("host-abi", "ex_host_sqlite_open_checked_fd"),
       context,
     );
-    expect(checkedDescriptorOpen.edge.effectMode).toBe("conditional");
-    expect(
-      checkedDescriptorOpen.edge.logicalBranches.map((branch) => branch.id),
-    ).toEqual(["file-read", "file-read-write"]);
-    expect(edgeActions(checkedDescriptorOpen)).toEqual([
-      "fs:list",
-      "fs:read",
-      "fs:write",
-    ]);
-    expect(checkedDescriptorOpen.edge.effectOwnerSource).toBe(
-      "descriptor-owner",
-    );
-    expect(checkedDescriptorOpen.edge.principalSources).toEqual([
-      "descriptor-owner",
-      "frame-set",
-      "schedule-time",
-    ]);
-    expect(checkedDescriptorOpen.edge.lifetimeContract).toBe("file-handle");
+    expect(checkedDescriptorOpen.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "preauthorized-host-primitive",
+    });
 
     expect(
       classifyObservedSurface(
@@ -4154,6 +4193,35 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(escapedProcessEnvironment.edge.effectMode).toBe("conjunctive");
     expect(edgeActions(escapedProcessEnvironment)).toEqual(["env:read"]);
 
+    const trustedStartupPath = classifyObservedSurface(
+      surface("startup", "env:PATH", {
+        accessDirections: ["read"],
+        dynamic: false,
+        evidenceType: "static-runtime-environment-control",
+        languages: ["rust"],
+      }),
+      context,
+    );
+    expect(trustedStartupPath.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "trusted-startup-environment",
+    });
+    const javascriptBoundPath = classifyObservedSurface(
+      surface("startup", "env:PATH", {
+        accessDirections: ["read"],
+        dynamic: false,
+        evidenceType: "static-runtime-environment-control",
+        languages: ["javascript", "rust"],
+      }),
+      context,
+    );
+    expect(javascriptBoundPath.edge.classification).toBe("effects");
+    expect(edgeActions(javascriptBoundPath)).toEqual([
+      "env:read",
+      "fs:list",
+      "process:spawn",
+    ]);
+
     for (const observed of [
       surface("startup", "evaluation:future_evaluator:remote-source", {
         evidenceType: "startup-evaluation-route",
@@ -4174,35 +4242,29 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
-  test("supervisor history routes are root-owned explicit effects", () => {
-    const expected = new Map([
-      ["supervisor-history.authenticated-project-scope", ["fs:list"]],
-      ["supervisor-history.global-platform-data-root", ["env:read"]],
-      ["supervisor-history.journal-append", ["fs:list", "fs:write"]],
-      ["supervisor-history.journal-compact", ["fs:list", "fs:write"]],
-      [
-        "supervisor-history.journal-recover",
-        ["fs:list", "fs:read", "fs:write"],
-      ],
-      ["supervisor-history.legacy-probe", ["fs:list"]],
-      ["supervisor-history.project-platform-data-root", ["env:read"]],
-      ["supervisor-history.sidecar-lock-acquire", ["fs:list", "fs:write"]],
-      ["supervisor-history.store-open", ["fs:list", "fs:write"]],
-      [
-        "supervisor-history.user-key-read-create",
-        ["fs:list", "fs:read", "fs:write"],
-      ],
-    ]);
+  test("supervisor history routes remain exact supervisor-private effects", () => {
+    const expected = [
+      "supervisor-history.authenticated-project-scope",
+      "supervisor-history.global-platform-data-root",
+      "supervisor-history.journal-append",
+      "supervisor-history.journal-compact",
+      "supervisor-history.journal-recover",
+      "supervisor-history.legacy-probe",
+      "supervisor-history.project-platform-data-root",
+      "supervisor-history.sidecar-lock-acquire",
+      "supervisor-history.store-open",
+      "supervisor-history.user-key-read-create",
+    ];
 
-    for (const [name, actions] of expected) {
+    for (const name of expected) {
       const classified = classifyObservedSurface(
         surface("startup", name),
         context,
       );
-      expect(classified.edge.classification, name).toBe("effects");
-      expect(edgeActions(classified), name).toEqual(actions);
-      expect(classified.edge.principalSources, name).toEqual(["root"]);
-      expect(classified.edge.effectOwnerSource, name).toBe("root");
+      expect(classified.edge, name).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "supervisor-private-effect",
+      });
     }
 
     expect(() =>
@@ -4224,12 +4286,14 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           evidenceType: "dynamic-runtime-environment-sentinel",
           dynamic: true,
           accessDirections: ["read"],
+          languages: ["cpp"],
         }),
         context,
       );
-      expect(classified.edge.classification, name).toBe("effects");
-      expect(edgeActions(classified), name).toEqual(["env:read"]);
-      expect(classified.edge.effectMode, name).toBe("conjunctive");
+      expect(classified.edge, name).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "trusted-startup-environment",
+      });
     }
 
     for (const [label, classification, semantic] of [
@@ -4910,13 +4974,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
   });
 
   test("retained descriptor operations retain descriptor ownership", () => {
-    for (const name of [
-      "__exactFsRead",
-      "__exactFsWrite",
-      "ex_host_fs_pread",
-    ]) {
-      const kind = name.startsWith("ex_host_") ? "host-abi" : "native-op";
-      const classified = classifyObservedSurface(surface(kind, name), context);
+    for (const name of ["__exactFsRead", "__exactFsWrite"]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
       expect(classified.edge.effectOwnerSource).toBe("descriptor-owner");
       expect(classified.edge.principalSources).toContain("descriptor-owner");
       expect(classified.edge.lifetimeContract).toBe("file-handle");
@@ -5283,9 +5345,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       edgeByObservedKey.get("host-abi:ex_host_sqlite_values"),
     ).toMatchObject({
-      classification: "effects",
-      effectMode: "conditional",
-      effects: [{ cap: "fs:read" }],
+      classification: "non-capability",
+      rationaleId: "preauthorized-host-primitive",
     });
     expect(edgeByObservedKey.get("native-op:__exactGetAllEnv")).toMatchObject({
       classification: "effects",
@@ -5528,9 +5589,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "env:<dynamic>:cpp:_NSGetEnviron",
     ]) {
       expect(edgeByObservedKey.get(`startup:${name}`), name).toMatchObject({
-        classification: "effects",
-        effectMode: "conjunctive",
-        effects: [{ cap: "env:read" }],
+        classification: "non-capability",
+        rationaleId: "trusted-startup-environment",
       });
     }
     for (const [label, expected] of [

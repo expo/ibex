@@ -20246,6 +20246,49 @@ function environmentContext(sourcePath, direction, name = null) {
   return "startup-input";
 }
 
+// These environment occurrences are compiled only for the named target. Keep
+// the exact member list ahead of the generic environment collector so a source
+// filename or accessor prefix can never widen target applicability.
+//
+// The two `environ` spellings are selected by `!_WIN32 && !__APPLE__`, while
+// the WPT TLS control has separate Linux and macOS implementations. Model
+// those disjunctions as exact alternatives instead of pretending they are
+// `all`.
+const EXACT_RUNTIME_ENVIRONMENT_TARGET_VARIANTS = new Map([
+  ["env:<dynamic>:cpp:GetEnvironmentStringsW", "windows"],
+  ["env:<dynamic>:cpp:GetEnvironmentVariableA", "windows"],
+  ["env:<dynamic>:cpp:_NSGetEnviron", "apple"],
+  ["env:<dynamic>:cpp:_dupenv_s", "windows"],
+  ["env:EXACT_ANDROID_CODE_CACHE_DIR", "android"],
+  ["env:EXACT_ANDROID_EXTERNAL_FILES_DIR", "android"],
+  ["env:EXACT_ANDROID_NO_BACKUP_FILES_DIR", "android"],
+  ["env:EXACT_WINHTTP_ENABLE_HTTP2", "windows"],
+  ["env:EXACT_WPT_FIXTURE_CLOSE_SEMANTICS", "macos"],
+  ["env:USERNAME", "windows"],
+]);
+const EXACT_RUNTIME_ENVIRONMENT_TARGET_ALTERNATIVES = new Map([
+  ["env:<dynamic>:cpp:::environ", ["android", "linux"]],
+  ["env:<dynamic>:cpp:environ", ["android", "linux"]],
+  ["env:EXACT_WPT_TRUST_LOOPBACK_TLS", ["linux", "macos"]],
+]);
+
+function runtimeEnvironmentTargetMetadata(name, sourceRefs) {
+  const targetVariant = EXACT_RUNTIME_ENVIRONMENT_TARGET_VARIANTS.get(name);
+  if (targetVariant !== undefined) return { targetVariant };
+  const alternatives = EXACT_RUNTIME_ENVIRONMENT_TARGET_ALTERNATIVES.get(name);
+  if (alternatives !== undefined) {
+    return {
+      branches: alternatives.map((variant) => ({
+        id: variant,
+        kind: "alternative",
+        sourceRefs,
+        targetVariant: variant,
+      })),
+    };
+  }
+  return {};
+}
+
 function createEnvironmentCollector() {
   const exact = new Map();
   const dynamic = new Map();
@@ -20347,8 +20390,9 @@ function createEnvironmentCollector() {
   };
 
   const rows = () => {
-    const emit = (name, entry, dynamicKey = null) =>
-      makeSurface("startup", name, [...entry.sourceRefs], {
+    const emit = (name, entry, dynamicKey = null) => {
+      const sourceRefs = [...entry.sourceRefs];
+      return makeSurface("startup", name, sourceRefs, {
         metadata: {
           accessDirections: uniqueSorted(entry.accessDirections),
           accessors: uniqueSorted(entry.accessors),
@@ -20367,8 +20411,10 @@ function createEnvironmentCollector() {
               `${right.sourceRef}\0${right.scope ?? ""}\0${right.sourceOffset ?? ""}`,
             ),
           ),
+          ...runtimeEnvironmentTargetMetadata(name, sourceRefs),
         },
       });
+    };
     return sortSurfaces([
       ...[...exact.entries()].map(([name, entry]) =>
         emit(`env:${name}`, entry),

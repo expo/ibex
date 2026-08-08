@@ -4658,8 +4658,16 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
               char* copied = nullptr;
               size_t copiedLength = 0;
               _dupenv_s(&copied, &copiedLength, dynamicEnvironmentName);
+              GetEnvironmentVariableA(dynamicEnvironmentName, nullptr, 0);
+              GetEnvironmentVariableW(L"EXACT_WINHTTP_ENABLE_HTTP2", nullptr, 0);
               setenv("EXACT_ANDROID_FILES_DIR", files, 1);
+              setenv("EXACT_ANDROID_CODE_CACHE_DIR", cache, 1);
+              setenv("EXACT_ANDROID_EXTERNAL_FILES_DIR", external, 1);
+              setenv("EXACT_ANDROID_NO_BACKUP_FILES_DIR", backup, 1);
               auto shell = getenvString("ComSpec");
+              auto username = getenvString("USERNAME");
+              auto fixture = std::getenv("EXACT_WPT_FIXTURE_CLOSE_SEMANTICS");
+              auto trust = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
               auto apple = _NSGetEnviron();
               auto posix = ::environ;
               auto bare = environ;
@@ -4765,6 +4773,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual([
       "::environ",
       "GetEnvironmentStringsW",
+      "GetEnvironmentVariableA",
       "_NSGetEnviron",
       "_dupenv_s",
       "environ",
@@ -4773,6 +4782,55 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       rows.find((row) => row.name === "env:<dynamic>:cpp:environ").metadata
         .occurrences,
     ).toHaveLength(2);
+    for (const name of [
+      "env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "env:<dynamic>:cpp:_dupenv_s",
+      "env:EXACT_WINHTTP_ENABLE_HTTP2",
+      "env:USERNAME",
+    ]) {
+      expect(rows.find((row) => row.name === name).metadata.targetVariant).toBe(
+        "windows",
+      );
+    }
+    expect(
+      rows.find((row) => row.name === "env:<dynamic>:cpp:_NSGetEnviron")
+        .metadata.targetVariant,
+    ).toBe("apple");
+    for (const name of [
+      "env:EXACT_ANDROID_CODE_CACHE_DIR",
+      "env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
+      "env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
+    ]) {
+      expect(rows.find((row) => row.name === name).metadata.targetVariant).toBe(
+        "android",
+      );
+    }
+    expect(
+      rows.find(
+        (row) => row.name === "env:EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
+      ).metadata.targetVariant,
+    ).toBe("macos");
+    for (const name of [
+      "env:<dynamic>:cpp:::environ",
+      "env:<dynamic>:cpp:environ",
+    ]) {
+      expect(
+        rows
+          .find((row) => row.name === name)
+          .metadata.branches.map((branch) => branch.targetVariant),
+        name,
+      ).toEqual(["android", "linux"]);
+    }
+    expect(
+      rows
+        .find((row) => row.name === "env:EXACT_WPT_TRUST_LOOPBACK_TLS")
+        .metadata.branches.map((branch) => branch.targetVariant),
+    ).toEqual(["linux", "macos"]);
+    expect(
+      rows.find((row) => row.name === "env:EXACT_ANDROID_FILES_DIR").metadata
+        .targetVariant,
+    ).toBeUndefined();
     expect(
       rows.some((row) => row.name === "env:<dynamic>:cpp:env_flag_enabled"),
     ).toBe(false);
