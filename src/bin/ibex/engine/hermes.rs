@@ -10031,17 +10031,21 @@ module.exports = JSON.stringify({
             )
             .into_request()
             .unwrap();
-        let AuthenticatedEvaluation::Value { receipt, .. } = engine
+        let AuthenticatedEvaluation::Throw(thrown) = engine
             .evaluate_authenticated(&session, listener)
             .await
             .unwrap()
         else {
-            panic!("listener precedence fixture did not settle normally")
+            panic!("armed unhandledRejection listener registration was not refused")
         };
-        engine
-            .release_undisplayed_value(receipt.expect("listener value must retain a receipt"))
-            .await
-            .unwrap();
+        assert_eq!(
+            thrown.metadata.error_class(),
+            Some(AuthenticatedErrorClass::Error)
+        );
+        assert_eq!(
+            thrown.metadata.message(),
+            Some("process.once is disabled for this event in an armed runtime")
+        );
         engine.drive_ready_tasks().await.unwrap();
         assert!(
             engine
@@ -10049,7 +10053,7 @@ module.exports = JSON.stringify({
                 .await
                 .unwrap()
                 .is_empty(),
-            "an admitted unhandledRejection listener must take precedence"
+            "a refused unhandledRejection listener must not schedule a rejection"
         );
 
         let handled = sequence
@@ -10075,8 +10079,8 @@ module.exports = JSON.stringify({
         };
         assert_eq!(
             display.text,
-            serde_json::to_string("listener-owned").unwrap(),
-            "the admitted listener did not observe the exact rejection"
+            serde_json::to_string("").unwrap(),
+            "the phase-6 listener denial did not preserve the committed var binding"
         );
         engine
             .release_undisplayed_value(receipt.expect("handled value must retain a receipt"))

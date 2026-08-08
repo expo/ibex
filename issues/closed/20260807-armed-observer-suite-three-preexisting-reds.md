@@ -37,4 +37,6 @@ repo defects; run unsandboxed.
 
 ## Resolution
 
-(unresolved)
+- `closed_compatibility_window_keeps_call_time_import_and_require_native` — `30c79bf5e` merged away the fixture's affine-credential scope; restored the inner preflight scope so every submission credential drops before the program run opens a fresh ingress.
+- `compatibility_call_time_refusals_preserve_import_and_require_error_timing` — `35f6232a7` rejected every repeated literal spelling; both initial and activated graph builders now coalesce identical `(specifier, attributes)` rows and refuse only same-spelling conflicts.
+- `authenticated_promise_checkpoint_preserves_provenance_and_tla_is_not_duplicated` — `ebc955853` intentionally closed armed non-lifecycle process events; updated the stale fixture to assert the exact `process.once` denial and the committed empty `listenerReason` binding while retaining cancellation and TLA checks.

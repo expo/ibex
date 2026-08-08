@@ -14487,31 +14487,31 @@ pub(crate) mod tests {
                 ArmedExecutionMode::Program,
             )
             .unwrap();
-            let mut ingress = runtime.authenticated_file_ingress().unwrap();
-            let request = ingress.file_request(&[]).unwrap();
-            let preparation = ingress
-                .prepare_authenticated_module_graph(&request)
-                .unwrap_or_else(|error| {
-                    panic!("deferred call-time edge preflight failed: {error:#}")
-                });
-            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preparation
-            else {
-                panic!("a deferred call-time edge required the compatibility loader")
-            };
-            assert_eq!(graph.records().count(), 1);
-            let deferred = graph.deferred_dynamic_links();
-            assert_eq!(deferred.len(), 1);
-            let entry = deferred.get(graph.entry()).unwrap();
-            assert_eq!(
-                entry_name == "entry.mjs",
-                entry.literal_specifiers.contains("./missing.mjs")
-            );
-            assert_eq!(
-                entry_name == "entry.cjs",
-                entry.commonjs_require_specifiers.contains("./missing.cjs")
-            );
-            drop(graph);
-            drop(ingress);
+            {
+                let mut ingress = runtime.authenticated_file_ingress().unwrap();
+                let request = ingress.file_request(&[]).unwrap();
+                let preparation = ingress
+                    .prepare_authenticated_module_graph(&request)
+                    .unwrap_or_else(|error| {
+                        panic!("deferred call-time edge preflight failed: {error:#}")
+                    });
+                let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preparation
+                else {
+                    panic!("a deferred call-time edge required the compatibility loader")
+                };
+                assert_eq!(graph.records().count(), 1);
+                let deferred = graph.deferred_dynamic_links();
+                assert_eq!(deferred.len(), 1);
+                let entry = deferred.get(graph.entry()).unwrap();
+                assert_eq!(
+                    entry_name == "entry.mjs",
+                    entry.literal_specifiers.contains("./missing.mjs")
+                );
+                assert_eq!(
+                    entry_name == "entry.cjs",
+                    entry.commonjs_require_specifiers.contains("./missing.cjs")
+                );
+            }
             runtime.load_runtime().await.unwrap();
             assert_eq!(
                 runtime.run_authenticated_file_program(&[]).await.unwrap(),

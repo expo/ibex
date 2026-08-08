@@ -839,12 +839,19 @@ impl SourceModuleGraphV1 {
                     attributes,
                 } = edge
                 {
-                    if deferred_dynamic
+                    // @ref LLP 0027#artifact-envelope — authored sites remain distinct
+                    // artifact edges, while identical spelling/attribute rows share one binding.
+                    match deferred_dynamic
                         .literal_attributes
                         .insert(specifier.as_str().to_owned(), attributes.clone())
-                        .is_some()
                     {
-                        bail!("activated artifact repeats a literal dynamic import");
+                        Some(previous) if previous != *attributes => {
+                            bail!(
+                                "activated artifact literal dynamic-import spelling {:?} carries conflicting attributes",
+                                specifier.as_str()
+                            );
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -2213,12 +2220,19 @@ fn build_authenticated_source_graph_v1_with_host(
                 attributes,
             } = edge
             {
-                if deferred_dynamic
+                // @ref LLP 0027#artifact-envelope — authored sites remain distinct
+                // artifact edges, while identical spelling/attribute rows share one binding.
+                match deferred_dynamic
                     .literal_attributes
                     .insert(specifier.as_str().to_owned(), attributes.clone())
-                    .is_some()
                 {
-                    bail!("authenticated artifact repeats one literal dynamic-import spelling");
+                    Some(previous) if previous != *attributes => {
+                        bail!(
+                            "authenticated artifact literal dynamic-import spelling {:?} carries conflicting attributes",
+                            specifier.as_str()
+                        );
+                    }
+                    _ => {}
                 }
             }
         }
@@ -4784,6 +4798,126 @@ mod tests {
                 .to_string()
                 .contains("grammar differs from the structured request"),
             "unexpected grammar-join refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    fn build_test_source_graph(
+        project_root: &Path,
+        entry_source: &str,
+    ) -> Result<SourceModuleGraphV1> {
+        let entry = project_root.join("entry.mjs");
+        std::fs::write(&entry, entry_source)?;
+        let entry = std::fs::canonicalize(entry)?;
+        let host = armed_file_host(project_root);
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        )? {
+            SourceModuleGraphBuildV1::Native(graph) => Ok(graph),
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                bail!("test graph unexpectedly required legacy: {requirement:?}")
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initial_source_graph_coalesces_identical_literal_dynamic_import_attributes() {
+        let project = tempfile::tempdir().unwrap();
+        let graph = build_test_source_graph(
+            project.path(),
+            "if (false) { import('./repeat.json'); import('./repeat.json'); }\n",
+        )
+        .unwrap();
+
+        let deferred = graph.deferred_dynamic_links();
+        let entry = deferred.get(graph.entry()).unwrap();
+        assert_eq!(entry.literal_specifiers.len(), 1);
+        assert!(entry.literal_specifiers.contains("./repeat.json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initial_source_graph_refuses_conflicting_literal_dynamic_import_attributes() {
+        let project = tempfile::tempdir().unwrap();
+        let error = match build_test_source_graph(
+            project.path(),
+            "if (false) { import('./repeat.json'); import('./repeat.json', { with: { type: 'json' } }); }\n",
+        ) {
+            Ok(_) => panic!("conflicting initial literal dynamic-import attributes were accepted"),
+            Err(error) => error,
+        };
+
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains(
+                "authenticated artifact literal dynamic-import spelling \"./repeat.json\" carries conflicting attributes"
+            ),
+            "unexpected conflicting-attributes refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn activated_source_graph_coalesces_identical_literal_dynamic_import_attributes() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("target.mjs"),
+            "if (false) { import('./repeat.json'); import('./repeat.json'); }\nexport const value = 1;\n",
+        )
+        .unwrap();
+        let mut graph = build_test_source_graph(
+            project.path(),
+            "export const target = import('./target.mjs');\n",
+        )
+        .unwrap();
+        let request = DynamicModuleActivationRequest::for_test(
+            1,
+            graph.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./target.mjs",
+        );
+
+        let target = graph.activate_dynamic_target(&request).unwrap();
+        let deferred = graph.deferred_dynamic_links();
+        let target = deferred.get(&target).unwrap();
+        assert_eq!(target.literal_specifiers.len(), 1);
+        assert!(target.literal_specifiers.contains("./repeat.json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn activated_source_graph_refuses_conflicting_literal_dynamic_import_attributes() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("target.mjs"),
+            "if (false) { import('./repeat.json'); import('./repeat.json', { with: { type: 'json' } }); }\nexport const value = 1;\n",
+        )
+        .unwrap();
+        let mut graph = build_test_source_graph(
+            project.path(),
+            "export const target = import('./target.mjs');\n",
+        )
+        .unwrap();
+        let request = DynamicModuleActivationRequest::for_test(
+            1,
+            graph.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./target.mjs",
+        );
+
+        let error = graph.activate_dynamic_target(&request).unwrap_err();
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains(
+                "activated artifact literal dynamic-import spelling \"./repeat.json\" carries conflicting attributes"
+            ),
+            "unexpected conflicting-attributes refusal: {error:#}"
         );
     }
 
