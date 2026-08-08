@@ -126318,9 +126318,9 @@
       "edgeId": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry",
       "observedKey": "host-abi:ex_host_env_ambient_get",
       "branchId": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.ambient.get.0pzg4fa",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.ambient.get.0x0l4ry.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_ambient_get"
         ],
@@ -126343,20 +126343,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.get.0pzg4fa.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.get.0pzg4fa.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.get.0pzg4fa.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.get.0pzg4fa.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.get.0pzg4fa.wrong-principal"
+        "surface.host.abi.ex.host.env.ambient.get.0x0l4ry.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j",
       "observedKey": "host-abi:ex_host_env_ambient_key_at",
       "branchId": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.ambient.key.at.092uhx0",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.ambient.key.at.0trw95j.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_ambient_key_at"
         ],
@@ -126379,20 +126375,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.at.092uhx0.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.at.092uhx0.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.at.092uhx0.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.at.092uhx0.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.at.092uhx0.wrong-principal"
+        "surface.host.abi.ex.host.env.ambient.key.at.0trw95j.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x",
       "observedKey": "host-abi:ex_host_env_ambient_key_count",
       "branchId": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.ambient.key.count.056f5hm",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_ambient_key_count"
         ],
@@ -126415,20 +126407,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.count.056f5hm.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.count.056f5hm.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.count.056f5hm.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.count.056f5hm.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.key.count.056f5hm.wrong-principal"
+        "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.env.ambient.set.101dg8i",
       "observedKey": "host-abi:ex_host_env_ambient_set",
       "branchId": "surface.host.abi.ex.host.env.ambient.set.101dg8i.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.ambient.set.1wz8lb1",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.ambient.set.101dg8i.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_ambient_set"
         ],
@@ -126451,20 +126439,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.set.1wz8lb1.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.set.1wz8lb1.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.set.1wz8lb1.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.set.1wz8lb1.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.ambient.set.1wz8lb1.wrong-principal"
+        "surface.host.abi.ex.host.env.ambient.set.101dg8i.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
       "observedKey": "host-abi:ex_host_env_compiled_key_at",
       "branchId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_compiled_key_at"
         ],
@@ -126487,20 +126471,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.wrong-principal"
+        "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
       "observedKey": "host-abi:ex_host_env_compiled_key_count",
       "branchId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_compiled_key_count"
         ],
@@ -126523,20 +126503,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.wrong-principal"
+        "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.env.get.11ro4cp",
       "observedKey": "host-abi:ex_host_env_get",
       "branchId": "surface.host.abi.ex.host.env.get.11ro4cp.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.get.0que2ju",
+      "enforcementBranchId": "surface.host.abi.ex.host.env.get.11ro4cp.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_env_get"
         ],
@@ -126559,11 +126535,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.env.get.0que2ju.allow",
-        "enforcement.src.host.abi.rs.ex.host.env.get.0que2ju.deny",
-        "enforcement.src.host.abi.rs.ex.host.env.get.0que2ju.malformed",
-        "enforcement.src.host.abi.rs.ex.host.env.get.0que2ju.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.env.get.0que2ju.wrong-principal"
+        "surface.host.abi.ex.host.env.get.11ro4cp.default.non-capability"
       ]
     },
     {
@@ -126702,9 +126674,9 @@
       "edgeId": "surface.host.abi.ex.host.fs.access.07ymnn7",
       "observedKey": "host-abi:ex_host_fs_access",
       "branchId": "surface.host.abi.ex.host.fs.access.07ymnn7.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.access.0dkure9",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.access.07ymnn7.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_access"
         ],
@@ -126725,22 +126697,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_access"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.access.0dkure9.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.access.0dkure9.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.access.0dkure9.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.access.0dkure9.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.access.0dkure9.wrong-principal"
+        "surface.host.abi.ex.host.fs.access.07ymnn7.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.append.1uj49nd",
       "observedKey": "host-abi:ex_host_fs_append",
       "branchId": "surface.host.abi.ex.host.fs.append.1uj49nd.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.append.0flqerp",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.append.1uj49nd.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_append"
         ],
@@ -126761,22 +126729,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_append"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.append.0flqerp.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.append.0flqerp.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.append.0flqerp.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.append.0flqerp.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.append.0flqerp.wrong-principal"
+        "surface.host.abi.ex.host.fs.append.1uj49nd.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.chmod.1fztam2",
       "observedKey": "host-abi:ex_host_fs_chmod",
       "branchId": "surface.host.abi.ex.host.fs.chmod.1fztam2.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.chmod.16wmjkp",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.chmod.1fztam2.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_chmod"
         ],
@@ -126797,13 +126761,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_chmod"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.chmod.16wmjkp.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.chmod.16wmjkp.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.chmod.16wmjkp.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.chmod.16wmjkp.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.chmod.16wmjkp.wrong-principal"
+        "surface.host.abi.ex.host.fs.chmod.1fztam2.default.non-capability"
       ]
     },
     {
@@ -126842,9 +126802,9 @@
       "edgeId": "surface.host.abi.ex.host.fs.copy.0fqucdo",
       "observedKey": "host-abi:ex_host_fs_copy",
       "branchId": "surface.host.abi.ex.host.fs.copy.0fqucdo.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.copy.09few47",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.copy.0fqucdo.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_copy"
         ],
@@ -126865,22 +126825,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_copy"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.09few47.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.09few47.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.09few47.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.09few47.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.09few47.wrong-principal"
+        "surface.host.abi.ex.host.fs.copy.0fqucdo.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
       "observedKey": "host-abi:ex_host_fs_copy_exclusive",
       "branchId": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.copy.exclusive.0tp6zk7",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_copy_exclusive"
         ],
@@ -126901,22 +126857,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_copy_exclusive"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.exclusive.0tp6zk7.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.exclusive.0tp6zk7.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.exclusive.0tp6zk7.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.exclusive.0tp6zk7.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.copy.exclusive.0tp6zk7.wrong-principal"
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.fstat.1di7udv",
       "observedKey": "host-abi:ex_host_fs_fstat",
       "branchId": "surface.host.abi.ex.host.fs.fstat.1di7udv.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.fstat.08ljvi4",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.fstat.1di7udv.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_fstat"
         ],
@@ -126937,13 +126889,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_fstat"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.fstat.08ljvi4.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.fstat.08ljvi4.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.fstat.08ljvi4.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.fstat.08ljvi4.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.fstat.08ljvi4.wrong-principal"
+        "surface.host.abi.ex.host.fs.fstat.1di7udv.default.non-capability"
       ]
     },
     {
@@ -126982,9 +126930,9 @@
       "edgeId": "surface.host.abi.ex.host.fs.lstat.0wkeomh",
       "observedKey": "host-abi:ex_host_fs_lstat",
       "branchId": "surface.host.abi.ex.host.fs.lstat.0wkeomh.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.lstat.09imkuz",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.lstat.0wkeomh.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_lstat"
         ],
@@ -127005,22 +126953,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_lstat"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.lstat.09imkuz.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.lstat.09imkuz.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.lstat.09imkuz.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.lstat.09imkuz.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.lstat.09imkuz.wrong-principal"
+        "surface.host.abi.ex.host.fs.lstat.0wkeomh.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.mkdir.1h3eq8w",
       "observedKey": "host-abi:ex_host_fs_mkdir",
       "branchId": "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.mkdir.0stihgp",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_mkdir"
         ],
@@ -127041,22 +126985,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_mkdir"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.0stihgp.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.0stihgp.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.0stihgp.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.0stihgp.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.0stihgp.wrong-principal"
+        "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
       "observedKey": "host-abi:ex_host_fs_mkdir_recursive_result",
       "branchId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.mkdir.recursive.result.0gx3ih5",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_mkdir_recursive_result"
         ],
@@ -127077,22 +127017,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_mkdir_recursive_result"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.recursive.result.0gx3ih5.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.recursive.result.0gx3ih5.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.recursive.result.0gx3ih5.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.recursive.result.0gx3ih5.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdir.recursive.result.0gx3ih5.wrong-principal"
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
       "observedKey": "host-abi:ex_host_fs_mkdtemp",
       "branchId": "surface.host.abi.ex.host.fs.mkdtemp.071q6nt.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.mkdtemp.0wbiovb",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.mkdtemp.071q6nt.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_mkdtemp"
         ],
@@ -127113,22 +127049,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_mkdtemp"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdtemp.0wbiovb.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdtemp.0wbiovb.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdtemp.0wbiovb.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdtemp.0wbiovb.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.mkdtemp.0wbiovb.wrong-principal"
+        "surface.host.abi.ex.host.fs.mkdtemp.071q6nt.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.open.09qvr5d",
       "observedKey": "host-abi:ex_host_fs_open",
       "branchId": "surface.host.abi.ex.host.fs.open.09qvr5d.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.open.09qvr5d.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_open"
         ],
@@ -127149,35 +127081,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_open"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read-write.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read-write.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read-write.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read-write.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read-write.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read-write.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.read.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.write.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.write.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.write.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.write.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.write.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.open.0upg6a8.logical.write.wrong-principal"
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.pread.1vjiqgb",
       "observedKey": "host-abi:ex_host_fs_pread",
       "branchId": "surface.host.abi.ex.host.fs.pread.1vjiqgb.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.pread.1xolhzm",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.pread.1vjiqgb.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_pread"
         ],
@@ -127198,22 +127113,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_pread"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.pread.1xolhzm.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.pread.1xolhzm.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.pread.1xolhzm.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.pread.1xolhzm.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.pread.1xolhzm.wrong-principal"
+        "surface.host.abi.ex.host.fs.pread.1vjiqgb.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.pwrite.198hf1m",
       "observedKey": "host-abi:ex_host_fs_pwrite",
       "branchId": "surface.host.abi.ex.host.fs.pwrite.198hf1m.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.pwrite.0b5e4ib",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.pwrite.198hf1m.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_pwrite"
         ],
@@ -127234,22 +127145,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_pwrite"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.pwrite.0b5e4ib.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.pwrite.0b5e4ib.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.pwrite.0b5e4ib.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.pwrite.0b5e4ib.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.pwrite.0b5e4ib.wrong-principal"
+        "surface.host.abi.ex.host.fs.pwrite.198hf1m.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.read.09hnxf1",
       "observedKey": "host-abi:ex_host_fs_read",
       "branchId": "surface.host.abi.ex.host.fs.read.09hnxf1.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.read.1snkct4",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.read.09hnxf1.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_read"
         ],
@@ -127270,22 +127177,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_read"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.read.1snkct4.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.1snkct4.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.1snkct4.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.1snkct4.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.1snkct4.wrong-principal"
+        "surface.host.abi.ex.host.fs.read.09hnxf1.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.read.file.042wgnk",
       "observedKey": "host-abi:ex_host_fs_read_file",
       "branchId": "surface.host.abi.ex.host.fs.read.file.042wgnk.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.read.file.05mweib",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.read.file.042wgnk.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_read_file"
         ],
@@ -127306,22 +127209,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_read_file"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.read.file.05mweib.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.file.05mweib.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.file.05mweib.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.file.05mweib.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.read.file.05mweib.wrong-principal"
+        "surface.host.abi.ex.host.fs.read.file.042wgnk.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.readdir.1jmcmt8",
       "observedKey": "host-abi:ex_host_fs_readdir",
       "branchId": "surface.host.abi.ex.host.fs.readdir.1jmcmt8.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.readdir.08wjavx",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.readdir.1jmcmt8.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_readdir"
         ],
@@ -127342,22 +127241,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_readdir"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.readdir.08wjavx.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.readdir.08wjavx.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.readdir.08wjavx.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.readdir.08wjavx.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.readdir.08wjavx.wrong-principal"
+        "surface.host.abi.ex.host.fs.readdir.1jmcmt8.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.realpath.15844au",
       "observedKey": "host-abi:ex_host_fs_realpath",
       "branchId": "surface.host.abi.ex.host.fs.realpath.15844au.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.realpath.0qpn4z9",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.realpath.15844au.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_realpath"
         ],
@@ -127378,22 +127273,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_realpath"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.realpath.0qpn4z9.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.realpath.0qpn4z9.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.realpath.0qpn4z9.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.realpath.0qpn4z9.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.realpath.0qpn4z9.wrong-principal"
+        "surface.host.abi.ex.host.fs.realpath.15844au.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.rename.0xyp2mz",
       "observedKey": "host-abi:ex_host_fs_rename",
       "branchId": "surface.host.abi.ex.host.fs.rename.0xyp2mz.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.rename.00l2xdx",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.rename.0xyp2mz.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_rename"
         ],
@@ -127414,22 +127305,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_rename"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.rename.00l2xdx.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.rename.00l2xdx.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.rename.00l2xdx.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.rename.00l2xdx.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.rename.00l2xdx.wrong-principal"
+        "surface.host.abi.ex.host.fs.rename.0xyp2mz.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.rmdir.1tps5fb",
       "observedKey": "host-abi:ex_host_fs_rmdir",
       "branchId": "surface.host.abi.ex.host.fs.rmdir.1tps5fb.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.rmdir.0qyi49b",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.rmdir.1tps5fb.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_rmdir"
         ],
@@ -127450,13 +127337,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_rmdir"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.rmdir.0qyi49b.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.rmdir.0qyi49b.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.rmdir.0qyi49b.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.rmdir.0qyi49b.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.rmdir.0qyi49b.wrong-principal"
+        "surface.host.abi.ex.host.fs.rmdir.1tps5fb.default.non-capability"
       ]
     },
     {
@@ -127497,9 +127380,9 @@
       "edgeId": "surface.host.abi.ex.host.fs.stat.17ncwgv",
       "observedKey": "host-abi:ex_host_fs_stat",
       "branchId": "surface.host.abi.ex.host.fs.stat.17ncwgv.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.stat.0w6su9h",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.stat.17ncwgv.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_stat"
         ],
@@ -127520,22 +127403,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_stat"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.stat.0w6su9h.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.stat.0w6su9h.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.stat.0w6su9h.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.stat.0w6su9h.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.stat.0w6su9h.wrong-principal"
+        "surface.host.abi.ex.host.fs.stat.17ncwgv.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.statfs.19uv3yw",
       "observedKey": "host-abi:ex_host_fs_statfs",
       "branchId": "surface.host.abi.ex.host.fs.statfs.19uv3yw.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.statfs.0725vet",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.statfs.19uv3yw.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_statfs"
         ],
@@ -127556,22 +127435,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_statfs"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.statfs.0725vet.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.statfs.0725vet.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.statfs.0725vet.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.statfs.0725vet.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.statfs.0725vet.wrong-principal"
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.sync.011h89u",
       "observedKey": "host-abi:ex_host_fs_sync",
       "branchId": "surface.host.abi.ex.host.fs.sync.011h89u.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.sync.1r4dcir",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.sync.011h89u.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_sync"
         ],
@@ -127592,22 +127467,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_sync"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.sync.1r4dcir.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.sync.1r4dcir.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.sync.1r4dcir.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.sync.1r4dcir.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.sync.1r4dcir.wrong-principal"
+        "surface.host.abi.ex.host.fs.sync.011h89u.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
       "observedKey": "host-abi:ex_host_fs_truncate",
       "branchId": "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.truncate.0miv6e9",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_truncate"
         ],
@@ -127628,22 +127499,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_truncate"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.truncate.0miv6e9.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.truncate.0miv6e9.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.truncate.0miv6e9.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.truncate.0miv6e9.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.truncate.0miv6e9.wrong-principal"
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.unlink.05xgwei",
       "observedKey": "host-abi:ex_host_fs_unlink",
       "branchId": "surface.host.abi.ex.host.fs.unlink.05xgwei.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.unlink.0n0og89",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.unlink.05xgwei.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_unlink"
         ],
@@ -127664,22 +127531,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_unlink"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.unlink.0n0og89.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.unlink.0n0og89.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.unlink.0n0og89.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.unlink.0n0og89.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.unlink.0n0og89.wrong-principal"
+        "surface.host.abi.ex.host.fs.unlink.05xgwei.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.utimes.12bl9di",
       "observedKey": "host-abi:ex_host_fs_utimes",
       "branchId": "surface.host.abi.ex.host.fs.utimes.12bl9di.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.utimes.192r65d",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.utimes.12bl9di.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_utimes"
         ],
@@ -127700,22 +127563,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_utimes"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.utimes.192r65d.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.utimes.192r65d.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.utimes.192r65d.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.utimes.192r65d.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.utimes.192r65d.wrong-principal"
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.fs.write.083p7no",
       "observedKey": "host-abi:ex_host_fs_write",
       "branchId": "surface.host.abi.ex.host.fs.write.083p7no.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.fs.write.1hcp0hf",
+      "enforcementBranchId": "surface.host.abi.ex.host.fs.write.083p7no.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_fs_write"
         ],
@@ -127736,13 +127595,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_fs_write"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.fs.write.1hcp0hf.allow",
-        "enforcement.src.host.abi.rs.ex.host.fs.write.1hcp0hf.deny",
-        "enforcement.src.host.abi.rs.ex.host.fs.write.1hcp0hf.malformed",
-        "enforcement.src.host.abi.rs.ex.host.fs.write.1hcp0hf.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.fs.write.1hcp0hf.wrong-principal"
+        "surface.host.abi.ex.host.fs.write.083p7no.default.non-capability"
       ]
     },
     {
@@ -130128,9 +129983,9 @@
       "edgeId": "surface.host.abi.ex.host.sqlite.all.0sb72in",
       "observedKey": "host-abi:ex_host_sqlite_all",
       "branchId": "surface.host.abi.ex.host.sqlite.all.0sb72in.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.all.0sb72in.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_all"
         ],
@@ -130151,16 +130006,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_all"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.file.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.file.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.file.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.file.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.file.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.file.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.all.0ey1pge.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.non-capability"
       ]
     },
     {
@@ -130199,9 +130047,9 @@
       "edgeId": "surface.host.abi.ex.host.sqlite.exec.059u1vx",
       "observedKey": "host-abi:ex_host_sqlite_exec",
       "branchId": "surface.host.abi.ex.host.sqlite.exec.059u1vx.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.exec.059u1vx.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_exec"
         ],
@@ -130222,22 +130070,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_exec"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read-write.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read-write.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read-write.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read-write.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read-write.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read-write.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.file-read.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.exec.1mqkru9.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.non-capability"
       ]
     },
     {
@@ -130310,9 +130145,9 @@
       "edgeId": "surface.host.abi.ex.host.sqlite.get.143k080",
       "observedKey": "host-abi:ex_host_sqlite_get",
       "branchId": "surface.host.abi.ex.host.sqlite.get.143k080.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.get.143k080.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_get"
         ],
@@ -130333,16 +130168,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_get"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.file.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.file.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.file.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.file.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.file.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.file.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.get.1w30y98.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.non-capability"
       ]
     },
     {
@@ -130383,9 +130211,9 @@
       "edgeId": "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
       "observedKey": "host-abi:ex_host_sqlite_open",
       "branchId": "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_open"
         ],
@@ -130406,31 +130234,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_open"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read-write.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read-write.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read-write.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read-write.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read-write.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read-write.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.file-read.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.155td25.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191",
       "observedKey": "host-abi:ex_host_sqlite_open_checked_fd",
       "branchId": "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_open_checked_fd"
         ],
@@ -130451,20 +130266,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_open_checked_fd"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read-write.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read-write.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read-write.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read-write.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read-write.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read-write.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.open.checked.fd.13339ke.logical.file-read.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191.default.non-capability"
       ]
     },
     {
@@ -130503,9 +130307,9 @@
       "edgeId": "surface.host.abi.ex.host.sqlite.prepare.0yg51cf",
       "observedKey": "host-abi:ex_host_sqlite_prepare",
       "branchId": "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_prepare"
         ],
@@ -130526,25 +130330,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_prepare"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.file.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.file.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.file.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.file.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.file.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.file.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.prepare.0zadhwu.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.sqlite.run.1hryeyp",
       "observedKey": "host-abi:ex_host_sqlite_run",
       "branchId": "surface.host.abi.ex.host.sqlite.run.1hryeyp.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.run.1hryeyp.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_run"
         ],
@@ -130565,31 +130362,18 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_run"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read-write.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read-write.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read-write.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read-write.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read-write.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read-write.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.file-read.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.run.0h4ijkb.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.host.abi.ex.host.sqlite.values.0lknlvu",
       "observedKey": "host-abi:ex_host_sqlite_values",
       "branchId": "surface.host.abi.ex.host.sqlite.values.0lknlvu.default",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o",
+      "enforcementBranchId": "surface.host.abi.ex.host.sqlite.values.0lknlvu.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "host-abi:ex_host_sqlite_values"
         ],
@@ -130610,16 +130394,9 @@
       "sourceRefs": [
         "src/host/abi.rs#ex_host_sqlite_values"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.file.allow",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.file.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.file.deny",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.file.malformed",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.file.missing-attribution",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.file.wrong-principal",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.memory.branch-selection",
-        "enforcement.src.host.abi.rs.ex.host.sqlite.values.1mzhq1o.logical.memory.no-effect"
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.non-capability"
       ]
     },
     {
@@ -268180,9 +267957,9 @@
       "edgeId": "surface.startup.env.clicolor.force.07xv92a",
       "observedKey": "startup:env:CLICOLOR_FORCE",
       "branchId": "surface.startup.env.clicolor.force.07xv92a.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3",
+      "enforcementBranchId": "surface.startup.env.clicolor.force.07xv92a.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:CLICOLOR_FORCE"
         ],
@@ -268204,18 +267981,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.absent.allow",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.absent.deny",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.absent.malformed",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.present.allow",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.present.deny",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.present.malformed",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.terminal.session.rs.env.var.os.clicolor.force.read.163dtn3.logical.present.wrong-principal"
+        "surface.startup.env.clicolor.force.07xv92a.main.non-capability"
       ]
     },
     {
@@ -268354,9 +268120,9 @@
       "edgeId": "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy",
       "observedKey": "startup:env:<dynamic>:cpp:_dupenv_s",
       "branchId": "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy.main",
-      "enforcementBranchId": "enforcement.engine.hermes.runtime.platform.windows.cc.dupenv.s.dynamic.read.1uc444v",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:_dupenv_s"
         ],
@@ -268369,29 +268135,26 @@
         "terminalObservedKey": "startup:env:<dynamic>:cpp:_dupenv_s"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "windows",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "windows"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_platform_windows.cc#_dupenv_s:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.engine.hermes.runtime.platform.windows.cc.dupenv.s.dynamic.read.1uc444v.allow",
-        "enforcement.engine.hermes.runtime.platform.windows.cc.dupenv.s.dynamic.read.1uc444v.deny",
-        "enforcement.engine.hermes.runtime.platform.windows.cc.dupenv.s.dynamic.read.1uc444v.malformed",
-        "enforcement.engine.hermes.runtime.platform.windows.cc.dupenv.s.dynamic.read.1uc444v.missing-attribution",
-        "enforcement.engine.hermes.runtime.platform.windows.cc.dupenv.s.dynamic.read.1uc444v.wrong-principal"
+        "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc",
       "observedKey": "startup:env:<dynamic>:cpp:environ",
-      "branchId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.process.cc.environ.dynamic.read.0jvjv1z",
+      "branchId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc.android",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc.android",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:environ"
         ],
@@ -268403,30 +268166,59 @@
         ],
         "terminalObservedKey": "startup:env:<dynamic>:cpp:environ"
       },
-      "branchKind": "single",
-      "targetVariant": "all",
+      "branchKind": "alternative",
+      "targetVariant": "android",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "android"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_process.cc#environ:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.process.cc.environ.dynamic.read.0jvjv1z.allow",
-        "enforcement.src.engine.hermes.runtime.process.cc.environ.dynamic.read.0jvjv1z.deny",
-        "enforcement.src.engine.hermes.runtime.process.cc.environ.dynamic.read.0jvjv1z.malformed",
-        "enforcement.src.engine.hermes.runtime.process.cc.environ.dynamic.read.0jvjv1z.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.process.cc.environ.dynamic.read.0jvjv1z.wrong-principal"
+        "surface.startup.env.dynamic.cpp.environ.0bvzoxc.android.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc",
+      "observedKey": "startup:env:<dynamic>:cpp:environ",
+      "branchId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc.linux",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.environ.0bvzoxc.linux",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:<dynamic>:cpp:environ"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_process.cc#environ:dynamic:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_process.cc#environ:dynamic:read"
+        ],
+        "terminalObservedKey": "startup:env:<dynamic>:cpp:environ"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "linux",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "linux"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process.cc#environ:dynamic:read"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.startup.env.dynamic.cpp.environ.0bvzoxc.linux.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
       "observedKey": "startup:env:<dynamic>:cpp:::environ",
-      "branchId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.environ.dynamic.read.1bn40qn",
+      "branchId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk.android",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk.android",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:::environ"
         ],
@@ -268440,10 +268232,11 @@
         ],
         "terminalObservedKey": "startup:env:<dynamic>:cpp:::environ"
       },
-      "branchKind": "single",
-      "targetVariant": "all",
+      "branchKind": "alternative",
+      "targetVariant": "android",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "android"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#::environ:dynamic:read",
@@ -268451,20 +268244,51 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.environ.dynamic.read.1bn40qn.allow",
-        "enforcement.src.engine.hermes.runtime.cc.environ.dynamic.read.1bn40qn.deny",
-        "enforcement.src.engine.hermes.runtime.cc.environ.dynamic.read.1bn40qn.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.environ.dynamic.read.1bn40qn.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.environ.dynamic.read.1bn40qn.wrong-principal"
+        "surface.startup.env.dynamic.cpp.environ.1o5nbvk.android.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
+      "observedKey": "startup:env:<dynamic>:cpp:::environ",
+      "branchId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk.linux",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.environ.1o5nbvk.linux",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:<dynamic>:cpp:::environ"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#::environ:dynamic:read",
+          "src/engine/hermes_runtime_process_setup.cc#::environ:dynamic:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#::environ:dynamic:read",
+          "src/engine/hermes_runtime_process_setup.cc#::environ:dynamic:read"
+        ],
+        "terminalObservedKey": "startup:env:<dynamic>:cpp:::environ"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "linux",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "linux"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#::environ:dynamic:read",
+        "src/engine/hermes_runtime_process_setup.cc#::environ:dynamic:read"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.startup.env.dynamic.cpp.environ.1o5nbvk.linux.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.cpp.getenv.1kddphg",
       "observedKey": "startup:env:<dynamic>:cpp:getenv",
       "branchId": "surface.startup.env.dynamic.cpp.getenv.1kddphg.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.getenv.1kddphg.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:getenv"
         ],
@@ -268489,20 +268313,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.allow",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.deny",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.wrong-principal"
+        "surface.startup.env.dynamic.cpp.getenv.1kddphg.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9",
       "observedKey": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW",
       "branchId": "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.getenvironmentstringsw.dynamic.read.0yymlsj",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:GetEnvironmentStringsW"
         ],
@@ -268515,29 +268335,26 @@
         "terminalObservedKey": "startup:env:<dynamic>:cpp:GetEnvironmentStringsW"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "windows",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "windows"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#GetEnvironmentStringsW:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.getenvironmentstringsw.dynamic.read.0yymlsj.allow",
-        "enforcement.src.engine.hermes.runtime.cc.getenvironmentstringsw.dynamic.read.0yymlsj.deny",
-        "enforcement.src.engine.hermes.runtime.cc.getenvironmentstringsw.dynamic.read.0yymlsj.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.getenvironmentstringsw.dynamic.read.0yymlsj.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.getenvironmentstringsw.dynamic.read.0yymlsj.wrong-principal"
+        "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
       "observedKey": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
       "branchId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main",
-      "enforcementBranchId": "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:GetEnvironmentVariableA"
         ],
@@ -268550,29 +268367,26 @@
         "terminalObservedKey": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "windows",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "windows"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.allow",
-        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.deny",
-        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.malformed",
-        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.missing-attribution",
-        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.wrong-principal"
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "observedKey": "startup:env:<dynamic>:cpp:_NSGetEnviron",
       "branchId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz",
+      "enforcementBranchId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:_NSGetEnviron"
         ],
@@ -268589,9 +268403,10 @@
         "terminalObservedKey": "startup:env:<dynamic>:cpp:_NSGetEnviron"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "apple",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system-family",
+        "value": "apple"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
@@ -268600,11 +268415,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.allow",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.deny",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.wrong-principal"
+        "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke.main.non-capability"
       ]
     },
     {
@@ -268892,9 +268703,9 @@
       "edgeId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs",
       "observedKey": "startup:env:<dynamic>:rust:Command::default_env",
       "branchId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs.main",
-      "enforcementBranchId": "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m",
+      "enforcementBranchId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:rust:Command::default_env"
         ],
@@ -268943,20 +268754,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.allow",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.deny",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.malformed",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.missing-attribution",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.wrong-principal"
+        "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg",
       "observedKey": "startup:env:<dynamic>:rust:Command::env_clear",
       "branchId": "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p",
+      "enforcementBranchId": "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:rust:Command::env_clear"
         ],
@@ -268990,20 +268797,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.wrong-principal"
+        "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.rust.env.var.06m71te",
       "observedKey": "startup:env:<dynamic>:rust:env::var",
       "branchId": "surface.startup.env.dynamic.rust.env.var.06m71te.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.main.rs.env.var.dynamic.read.1dvausn",
+      "enforcementBranchId": "surface.startup.env.dynamic.rust.env.var.06m71te.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:rust:env::var"
         ],
@@ -269028,20 +268831,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.main.rs.env.var.dynamic.read.1dvausn.allow",
-        "enforcement.src.bin.ibex.main.rs.env.var.dynamic.read.1dvausn.deny",
-        "enforcement.src.bin.ibex.main.rs.env.var.dynamic.read.1dvausn.malformed",
-        "enforcement.src.bin.ibex.main.rs.env.var.dynamic.read.1dvausn.missing-attribution",
-        "enforcement.src.bin.ibex.main.rs.env.var.dynamic.read.1dvausn.wrong-principal"
+        "surface.startup.env.dynamic.rust.env.var.06m71te.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.rust.env.var.os.11lyypt",
       "observedKey": "startup:env:<dynamic>:rust:env::var_os",
       "branchId": "surface.startup.env.dynamic.rust.env.var.os.11lyypt.main",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.env.var.os.dynamic.read.1od744q",
+      "enforcementBranchId": "surface.startup.env.dynamic.rust.env.var.os.11lyypt.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:rust:env::var_os"
         ],
@@ -269066,20 +268865,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.env.var.os.dynamic.read.1od744q.allow",
-        "enforcement.src.host.abi.rs.env.var.os.dynamic.read.1od744q.deny",
-        "enforcement.src.host.abi.rs.env.var.os.dynamic.read.1od744q.malformed",
-        "enforcement.src.host.abi.rs.env.var.os.dynamic.read.1od744q.missing-attribution",
-        "enforcement.src.host.abi.rs.env.var.os.dynamic.read.1od744q.wrong-principal"
+        "surface.startup.env.dynamic.rust.env.var.os.11lyypt.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.rust.env.vars.os.016blc6",
       "observedKey": "startup:env:<dynamic>:rust:env::vars_os",
       "branchId": "surface.startup.env.dynamic.rust.env.vars.os.016blc6.main",
-      "enforcementBranchId": "enforcement.src.host.process.rs.env.vars.os.dynamic.read.1ktnfrt",
+      "enforcementBranchId": "surface.startup.env.dynamic.rust.env.vars.os.016blc6.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:<dynamic>:rust:env::vars_os"
         ],
@@ -269101,11 +268896,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.process.rs.env.vars.os.dynamic.read.1ktnfrt.allow",
-        "enforcement.src.host.process.rs.env.vars.os.dynamic.read.1ktnfrt.deny",
-        "enforcement.src.host.process.rs.env.vars.os.dynamic.read.1ktnfrt.malformed",
-        "enforcement.src.host.process.rs.env.vars.os.dynamic.read.1ktnfrt.missing-attribution",
-        "enforcement.src.host.process.rs.env.vars.os.dynamic.read.1ktnfrt.wrong-principal"
+        "surface.startup.env.dynamic.rust.env.vars.os.016blc6.main.non-capability"
       ]
     },
     {
@@ -270423,9 +270214,9 @@
       "edgeId": "surface.startup.env.exact.android.cache.dir.1yr2vkb",
       "observedKey": "startup:env:EXACT_ANDROID_CACHE_DIR",
       "branchId": "surface.startup.env.exact.android.cache.dir.1yr2vkb.main",
-      "enforcementBranchId": "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula",
+      "enforcementBranchId": "surface.startup.env.exact.android.cache.dir.1yr2vkb.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_ANDROID_CACHE_DIR"
         ],
@@ -270450,33 +270241,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.absent.allow",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.absent.branch-selection",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.absent.deny",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.absent.malformed",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.absent.missing-attribution",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.absent.wrong-principal",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.present.allow",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.present.branch-selection",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.present.deny",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.present.malformed",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.present.missing-attribution",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.present.wrong-principal",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.propagated.allow",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.propagated.branch-selection",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.propagated.deny",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.propagated.malformed",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.propagated.missing-attribution",
-        "enforcement.ative.android.networking.cc.setenv.exact.android.cache.dir.write.0f56ula.logical.propagated.wrong-principal"
+        "surface.startup.env.exact.android.cache.dir.1yr2vkb.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.exact.android.code.cache.dir.1pu6n7j",
       "observedKey": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR",
       "branchId": "surface.startup.env.exact.android.code.cache.dir.1pu6n7j.main",
-      "enforcementBranchId": "enforcement.android.networking.cc.setenv.exact.android.code.cache.dir.write.0ofw3eu",
+      "enforcementBranchId": "surface.startup.env.exact.android.code.cache.dir.1pu6n7j.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_ANDROID_CODE_CACHE_DIR"
         ],
@@ -270489,29 +270263,26 @@
         "terminalObservedKey": "startup:env:EXACT_ANDROID_CODE_CACHE_DIR"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "android",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "android"
       },
       "sourceRefs": [
         "src/engine/native_android_networking.cc#setenv:EXACT_ANDROID_CODE_CACHE_DIR:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.android.networking.cc.setenv.exact.android.code.cache.dir.write.0ofw3eu.allow",
-        "enforcement.android.networking.cc.setenv.exact.android.code.cache.dir.write.0ofw3eu.deny",
-        "enforcement.android.networking.cc.setenv.exact.android.code.cache.dir.write.0ofw3eu.malformed",
-        "enforcement.android.networking.cc.setenv.exact.android.code.cache.dir.write.0ofw3eu.missing-attribution",
-        "enforcement.android.networking.cc.setenv.exact.android.code.cache.dir.write.0ofw3eu.wrong-principal"
+        "surface.startup.env.exact.android.code.cache.dir.1pu6n7j.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.exact.android.external.files.dir.0btv52w",
       "observedKey": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR",
       "branchId": "surface.startup.env.exact.android.external.files.dir.0btv52w.main",
-      "enforcementBranchId": "enforcement.roid.networking.cc.setenv.exact.android.external.files.dir.write.00apaga",
+      "enforcementBranchId": "surface.startup.env.exact.android.external.files.dir.0btv52w.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR"
         ],
@@ -270524,20 +270295,17 @@
         "terminalObservedKey": "startup:env:EXACT_ANDROID_EXTERNAL_FILES_DIR"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "android",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "android"
       },
       "sourceRefs": [
         "src/engine/native_android_networking.cc#setenv:EXACT_ANDROID_EXTERNAL_FILES_DIR:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.roid.networking.cc.setenv.exact.android.external.files.dir.write.00apaga.allow",
-        "enforcement.roid.networking.cc.setenv.exact.android.external.files.dir.write.00apaga.deny",
-        "enforcement.roid.networking.cc.setenv.exact.android.external.files.dir.write.00apaga.malformed",
-        "enforcement.roid.networking.cc.setenv.exact.android.external.files.dir.write.00apaga.missing-attribution",
-        "enforcement.roid.networking.cc.setenv.exact.android.external.files.dir.write.00apaga.wrong-principal"
+        "surface.startup.env.exact.android.external.files.dir.0btv52w.main.non-capability"
       ]
     },
     {
@@ -270595,9 +270363,9 @@
       "edgeId": "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr",
       "observedKey": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR",
       "branchId": "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr.main",
-      "enforcementBranchId": "enforcement.oid.networking.cc.setenv.exact.android.no.backup.files.dir.write.0bl9j1u",
+      "enforcementBranchId": "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR"
         ],
@@ -270610,20 +270378,17 @@
         "terminalObservedKey": "startup:env:EXACT_ANDROID_NO_BACKUP_FILES_DIR"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "android",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "android"
       },
       "sourceRefs": [
         "src/engine/native_android_networking.cc#setenv:EXACT_ANDROID_NO_BACKUP_FILES_DIR:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.oid.networking.cc.setenv.exact.android.no.backup.files.dir.write.0bl9j1u.allow",
-        "enforcement.oid.networking.cc.setenv.exact.android.no.backup.files.dir.write.0bl9j1u.deny",
-        "enforcement.oid.networking.cc.setenv.exact.android.no.backup.files.dir.write.0bl9j1u.malformed",
-        "enforcement.oid.networking.cc.setenv.exact.android.no.backup.files.dir.write.0bl9j1u.missing-attribution",
-        "enforcement.oid.networking.cc.setenv.exact.android.no.backup.files.dir.write.0bl9j1u.wrong-principal"
+        "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr.main.non-capability"
       ]
     },
     {
@@ -270845,9 +270610,9 @@
       "edgeId": "surface.startup.env.exact.compat.executable.196scvi",
       "observedKey": "startup:env:EXACT_COMPAT_EXECUTABLE",
       "branchId": "surface.startup.env.exact.compat.executable.196scvi.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq",
+      "enforcementBranchId": "surface.startup.env.exact.compat.executable.196scvi.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_COMPAT_EXECUTABLE"
         ],
@@ -270869,18 +270634,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.absent.allow",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.absent.deny",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.absent.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.present.allow",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.present.deny",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.present.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.exact.compat.executable.read.1cwa7fq.logical.present.wrong-principal"
+        "surface.startup.env.exact.compat.executable.196scvi.main.non-capability"
       ]
     },
     {
@@ -271041,9 +270795,9 @@
       "edgeId": "surface.startup.env.exact.hermes.tool.dir.080a6oo",
       "observedKey": "startup:env:EXACT_HERMES_TOOL_DIR",
       "branchId": "surface.startup.env.exact.hermes.tool.dir.080a6oo.main",
-      "enforcementBranchId": "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm",
+      "enforcementBranchId": "surface.startup.env.exact.hermes.tool.dir.080a6oo.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_HERMES_TOOL_DIR"
         ],
@@ -271065,18 +270819,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.absent.allow",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.absent.branch-selection",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.absent.deny",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.absent.malformed",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.absent.missing-attribution",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.absent.wrong-principal",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.present.allow",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.present.branch-selection",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.present.deny",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.present.malformed",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.present.missing-attribution",
-        "enforcement.bin.ibex.engine.hermes.rs.env.var.os.exact.hermes.tool.dir.read.1fswfzm.logical.present.wrong-principal"
+        "surface.startup.env.exact.hermes.tool.dir.080a6oo.main.non-capability"
       ]
     },
     {
@@ -271303,9 +271046,9 @@
       "edgeId": "surface.startup.env.exact.policy.0yq5zol",
       "observedKey": "startup:env:EXACT_POLICY",
       "branchId": "surface.startup.env.exact.policy.0yq5zol.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k",
+      "enforcementBranchId": "surface.startup.env.exact.policy.0yq5zol.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_POLICY"
         ],
@@ -271327,27 +271070,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.absent.allow",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.absent.deny",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.absent.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.present.allow",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.present.deny",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.present.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.exact.policy.read.0k2ga1k.logical.present.wrong-principal"
+        "surface.startup.env.exact.policy.0yq5zol.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.exact.quiet.1nd5flt",
       "observedKey": "startup:env:EXACT_QUIET",
       "branchId": "surface.startup.env.exact.quiet.1nd5flt.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim",
+      "enforcementBranchId": "surface.startup.env.exact.quiet.1nd5flt.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_QUIET"
         ],
@@ -271372,24 +271104,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.present.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.propagated.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.propagated.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.propagated.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.propagated.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.propagated.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.quiet.read.017ykim.logical.propagated.wrong-principal"
+        "surface.startup.env.exact.quiet.1nd5flt.main.non-capability"
       ]
     },
     {
@@ -271450,9 +271165,9 @@
       "edgeId": "surface.startup.env.exact.repo.root.0b6zh2k",
       "observedKey": "startup:env:EXACT_REPO_ROOT",
       "branchId": "surface.startup.env.exact.repo.root.0b6zh2k.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i",
+      "enforcementBranchId": "surface.startup.env.exact.repo.root.0b6zh2k.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_REPO_ROOT"
         ],
@@ -271477,18 +271192,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.wrong-principal"
+        "surface.startup.env.exact.repo.root.0b6zh2k.main.non-capability"
       ]
     },
     {
@@ -271528,9 +271232,9 @@
       "edgeId": "surface.startup.env.exact.security.log.1nsxtc4",
       "observedKey": "startup:env:EXACT_SECURITY_LOG",
       "branchId": "surface.startup.env.exact.security.log.1nsxtc4.main",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah",
+      "enforcementBranchId": "surface.startup.env.exact.security.log.1nsxtc4.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_SECURITY_LOG"
         ],
@@ -271552,18 +271256,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.absent.allow",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.absent.branch-selection",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.absent.deny",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.absent.malformed",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.absent.missing-attribution",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.absent.wrong-principal",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.present.allow",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.present.branch-selection",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.present.deny",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.present.malformed",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.present.missing-attribution",
-        "enforcement.src.host.abi.rs.env.var.exact.security.log.read.1g0esah.logical.present.wrong-principal"
+        "surface.startup.env.exact.security.log.1nsxtc4.main.non-capability"
       ]
     },
     {
@@ -271622,9 +271315,9 @@
       "edgeId": "surface.startup.env.exact.transpile.script.0rr4fr7",
       "observedKey": "startup:env:EXACT_TRANSPILE_SCRIPT",
       "branchId": "surface.startup.env.exact.transpile.script.0rr4fr7.main",
-      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9",
+      "enforcementBranchId": "surface.startup.env.exact.transpile.script.0rr4fr7.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:EXACT_TRANSPILE_SCRIPT"
         ],
@@ -271646,18 +271339,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.absent.allow",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.absent.branch-selection",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.absent.deny",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.absent.malformed",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.absent.missing-attribution",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.absent.wrong-principal",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.present.allow",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.present.branch-selection",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.present.deny",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.present.malformed",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.present.missing-attribution",
-        "enforcement.src.module.loader.mod.rs.env.var.exact.transpile.script.read.12n02t9.logical.present.wrong-principal"
+        "surface.startup.env.exact.transpile.script.0rr4fr7.main.non-capability"
       ]
     },
     {
@@ -271695,7 +271377,7 @@
       "edgeId": "surface.startup.env.exact.winhttp.enable.http2.0pqreb6",
       "observedKey": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2",
       "branchId": "surface.startup.env.exact.winhttp.enable.http2.0pqreb6.main",
-      "enforcementBranchId": "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys",
+      "enforcementBranchId": "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -271710,23 +271392,24 @@
         "terminalObservedKey": "startup:env:EXACT_WINHTTP_ENABLE_HTTP2"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "windows",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "windows"
       },
       "sourceRefs": [
         "src/engine/native_fetch_windows.cc#GetEnvironmentVariableW:EXACT_WINHTTP_ENABLE_HTTP2:read"
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.set.allow",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.set.branch-selection",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.set.deny",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.set.malformed",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.set.missing-attribution",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.set.wrong-principal",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.unset.branch-selection",
-        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.10kcfys.logical.unset.no-effect"
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.set.allow",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.set.branch-selection",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.set.deny",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.set.malformed",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.set.missing-attribution",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.set.wrong-principal",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.unset.branch-selection",
+        "enforcement.ndows.cc.getenvironmentvariablew.exact.winhttp.enable.http2.read.00b8ydi.logical.unset.no-effect"
       ]
     },
     {
@@ -271748,9 +271431,10 @@
         "terminalObservedKey": "startup:env:EXACT_WPT_FIXTURE_CLOSE_SEMANTICS"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "macos",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "macos"
       },
       "sourceRefs": [
         "src/engine/native_websocket_macos.mm#getenv:EXACT_WPT_FIXTURE_CLOSE_SEMANTICS:read"
@@ -271763,8 +271447,8 @@
     {
       "edgeId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01",
       "observedKey": "startup:env:EXACT_WPT_TRUST_LOOPBACK_TLS",
-      "branchId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.main",
-      "enforcementBranchId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.main",
+      "branchId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.linux",
+      "enforcementBranchId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.linux",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -271780,10 +271464,11 @@
         ],
         "terminalObservedKey": "startup:env:EXACT_WPT_TRUST_LOOPBACK_TLS"
       },
-      "branchKind": "single",
-      "targetVariant": "all",
+      "branchKind": "alternative",
+      "targetVariant": "linux",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "linux"
       },
       "sourceRefs": [
         "src/engine/native_websocket_linux.cc#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read",
@@ -271791,7 +271476,42 @@
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
-        "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.main.closed"
+        "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.linux.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01",
+      "observedKey": "startup:env:EXACT_WPT_TRUST_LOOPBACK_TLS",
+      "branchId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.macos",
+      "enforcementBranchId": "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.macos",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:EXACT_WPT_TRUST_LOOPBACK_TLS"
+        ],
+        "proofSourceRefs": [
+          "src/engine/native_websocket_linux.cc#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read",
+          "src/engine/native_websocket_macos.mm#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read"
+        ],
+        "sourceRefs": [
+          "src/engine/native_websocket_linux.cc#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read",
+          "src/engine/native_websocket_macos.mm#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read"
+        ],
+        "terminalObservedKey": "startup:env:EXACT_WPT_TRUST_LOOPBACK_TLS"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "macos",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "macos"
+      },
+      "sourceRefs": [
+        "src/engine/native_websocket_linux.cc#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read",
+        "src/engine/native_websocket_macos.mm#getenv:EXACT_WPT_TRUST_LOOPBACK_TLS:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01.macos.closed"
       ]
     },
     {
@@ -271937,9 +271657,9 @@
       "edgeId": "surface.startup.env.ibex.bundle.cache.max.bytes.0dzhqzi",
       "observedKey": "startup:env:IBEX_BUNDLE_CACHE_MAX_BYTES",
       "branchId": "surface.startup.env.ibex.bundle.cache.max.bytes.0dzhqzi.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.runtime.rs.env.var.ibex.bundle.cache.max.bytes.read.17xjq0s",
+      "enforcementBranchId": "surface.startup.env.ibex.bundle.cache.max.bytes.0dzhqzi.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_BUNDLE_CACHE_MAX_BYTES"
         ],
@@ -271961,20 +271681,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.runtime.rs.env.var.ibex.bundle.cache.max.bytes.read.17xjq0s.allow",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.ibex.bundle.cache.max.bytes.read.17xjq0s.deny",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.ibex.bundle.cache.max.bytes.read.17xjq0s.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.ibex.bundle.cache.max.bytes.read.17xjq0s.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.env.var.ibex.bundle.cache.max.bytes.read.17xjq0s.wrong-principal"
+        "surface.startup.env.ibex.bundle.cache.max.bytes.0dzhqzi.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.ibex.bytecode.cache.max.bytes.06hi8e9",
       "observedKey": "startup:env:IBEX_BYTECODE_CACHE_MAX_BYTES",
       "branchId": "surface.startup.env.ibex.bytecode.cache.max.bytes.06hi8e9.main",
-      "enforcementBranchId": "enforcement.c.bin.ibex.runtime.rs.env.var.ibex.bytecode.cache.max.bytes.read.1ok21vi",
+      "enforcementBranchId": "surface.startup.env.ibex.bytecode.cache.max.bytes.06hi8e9.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_BYTECODE_CACHE_MAX_BYTES"
         ],
@@ -271996,11 +271712,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.c.bin.ibex.runtime.rs.env.var.ibex.bytecode.cache.max.bytes.read.1ok21vi.allow",
-        "enforcement.c.bin.ibex.runtime.rs.env.var.ibex.bytecode.cache.max.bytes.read.1ok21vi.deny",
-        "enforcement.c.bin.ibex.runtime.rs.env.var.ibex.bytecode.cache.max.bytes.read.1ok21vi.malformed",
-        "enforcement.c.bin.ibex.runtime.rs.env.var.ibex.bytecode.cache.max.bytes.read.1ok21vi.missing-attribution",
-        "enforcement.c.bin.ibex.runtime.rs.env.var.ibex.bytecode.cache.max.bytes.read.1ok21vi.wrong-principal"
+        "surface.startup.env.ibex.bytecode.cache.max.bytes.06hi8e9.main.non-capability"
       ]
     },
     {
@@ -272503,9 +272215,9 @@
       "edgeId": "surface.startup.env.ibex.hermes.tool.dir.0878egj",
       "observedKey": "startup:env:IBEX_HERMES_TOOL_DIR",
       "branchId": "surface.startup.env.ibex.hermes.tool.dir.0878egj.main",
-      "enforcementBranchId": "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6",
+      "enforcementBranchId": "surface.startup.env.ibex.hermes.tool.dir.0878egj.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_HERMES_TOOL_DIR"
         ],
@@ -272527,18 +272239,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.absent.allow",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.absent.branch-selection",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.absent.deny",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.absent.malformed",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.absent.missing-attribution",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.absent.wrong-principal",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.present.allow",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.present.branch-selection",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.present.deny",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.present.malformed",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.present.missing-attribution",
-        "enforcement.c.bin.ibex.engine.hermes.rs.env.var.os.ibex.hermes.tool.dir.read.0v761p6.logical.present.wrong-principal"
+        "surface.startup.env.ibex.hermes.tool.dir.0878egj.main.non-capability"
       ]
     },
     {
@@ -272802,9 +272503,9 @@
       "edgeId": "surface.startup.env.ibex.policy.1jjizio",
       "observedKey": "startup:env:IBEX_POLICY",
       "branchId": "surface.startup.env.ibex.policy.1jjizio.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34",
+      "enforcementBranchId": "surface.startup.env.ibex.policy.1jjizio.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_POLICY"
         ],
@@ -272826,18 +272527,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.absent.allow",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.absent.deny",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.absent.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.present.allow",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.present.deny",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.present.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.runtime.env.ibex.policy.read.1q4np34.logical.present.wrong-principal"
+        "surface.startup.env.ibex.policy.1jjizio.main.non-capability"
       ]
     },
     {
@@ -272875,9 +272565,9 @@
       "edgeId": "surface.startup.env.ibex.repo.root.0qhf2d7",
       "observedKey": "startup:env:IBEX_REPO_ROOT",
       "branchId": "surface.startup.env.ibex.repo.root.0qhf2d7.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91",
+      "enforcementBranchId": "surface.startup.env.ibex.repo.root.0qhf2d7.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_REPO_ROOT"
         ],
@@ -272902,18 +272592,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.wrong-principal"
+        "surface.startup.env.ibex.repo.root.0qhf2d7.main.non-capability"
       ]
     },
     {
@@ -272990,9 +272669,9 @@
       "edgeId": "surface.startup.env.ibex.suppress.console.mirror.0vlv453",
       "observedKey": "startup:env:IBEX_SUPPRESS_CONSOLE_MIRROR",
       "branchId": "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main",
-      "enforcementBranchId": "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll",
+      "enforcementBranchId": "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_SUPPRESS_CONSOLE_MIRROR"
         ],
@@ -273014,18 +272693,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.absent.allow",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.absent.branch-selection",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.absent.deny",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.absent.malformed",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.absent.missing-attribution",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.absent.wrong-principal",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.present.allow",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.present.branch-selection",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.present.deny",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.present.malformed",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.present.missing-attribution",
-        "enforcement.src.host.abi.rs.env.var.ibex.suppress.console.mirror.read.11u49ll.logical.present.wrong-principal"
+        "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main.non-capability"
       ]
     },
     {
@@ -273094,9 +272762,9 @@
       "edgeId": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
       "observedKey": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR",
       "branchId": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3.main",
-      "enforcementBranchId": "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu",
+      "enforcementBranchId": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR"
         ],
@@ -273118,33 +272786,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.allow",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.branch-selection",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.deny",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.malformed",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.missing-attribution",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.wrong-principal",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.allow",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.branch-selection",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.deny",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.malformed",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.missing-attribution",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.wrong-principal",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.allow",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.branch-selection",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.deny",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.malformed",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.missing-attribution",
-        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.wrong-principal"
+        "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
       "observedKey": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
       "branchId": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8.main",
-      "enforcementBranchId": "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf",
+      "enforcementBranchId": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY"
         ],
@@ -273166,24 +272817,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.allow",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.branch-selection",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.deny",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.malformed",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.missing-attribution",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.wrong-principal",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.allow",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.branch-selection",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.deny",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.malformed",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.missing-attribution",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.wrong-principal",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.allow",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.branch-selection",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.deny",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.malformed",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.missing-attribution",
-        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.wrong-principal"
+        "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8.main.non-capability"
       ]
     },
     {
@@ -273376,9 +273010,9 @@
       "edgeId": "surface.startup.env.ibex.transpile.cache.max.bytes.0kkuqkk",
       "observedKey": "startup:env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
       "branchId": "surface.startup.env.ibex.transpile.cache.max.bytes.0kkuqkk.main",
-      "enforcementBranchId": "enforcement.module.loader.mod.rs.env.var.ibex.transpile.cache.max.bytes.read.04vb0ae",
+      "enforcementBranchId": "surface.startup.env.ibex.transpile.cache.max.bytes.0kkuqkk.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:IBEX_TRANSPILE_CACHE_MAX_BYTES"
         ],
@@ -273400,11 +273034,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.module.loader.mod.rs.env.var.ibex.transpile.cache.max.bytes.read.04vb0ae.allow",
-        "enforcement.module.loader.mod.rs.env.var.ibex.transpile.cache.max.bytes.read.04vb0ae.deny",
-        "enforcement.module.loader.mod.rs.env.var.ibex.transpile.cache.max.bytes.read.04vb0ae.malformed",
-        "enforcement.module.loader.mod.rs.env.var.ibex.transpile.cache.max.bytes.read.04vb0ae.missing-attribution",
-        "enforcement.module.loader.mod.rs.env.var.ibex.transpile.cache.max.bytes.read.04vb0ae.wrong-principal"
+        "surface.startup.env.ibex.transpile.cache.max.bytes.0kkuqkk.main.non-capability"
       ]
     },
     {
@@ -273945,9 +273575,9 @@
       "edgeId": "surface.startup.env.path.1sio6bc",
       "observedKey": "startup:env:PATH",
       "branchId": "surface.startup.env.path.1sio6bc.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q",
+      "enforcementBranchId": "surface.startup.env.path.1sio6bc.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:PATH"
         ],
@@ -273984,18 +273614,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.absent.allow",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.absent.deny",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.absent.malformed",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.present.allow",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.present.deny",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.present.malformed",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.main.rs.command.env.path.write.1093b6q.logical.present.wrong-principal"
+        "surface.startup.env.path.1sio6bc.main.non-capability"
       ]
     },
     {
@@ -274040,9 +273659,9 @@
       "edgeId": "surface.startup.env.temp.1wag4vd",
       "observedKey": "startup:env:TEMP",
       "branchId": "surface.startup.env.temp.1wag4vd.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i",
+      "enforcementBranchId": "surface.startup.env.temp.1wag4vd.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:TEMP"
         ],
@@ -274076,24 +273695,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.present.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.propagated.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.propagated.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.propagated.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.propagated.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.propagated.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.temp.write.0y8zz5i.logical.propagated.wrong-principal"
+        "surface.startup.env.temp.1wag4vd.main.non-capability"
       ]
     },
     {
@@ -274148,9 +273750,9 @@
       "edgeId": "surface.startup.env.tmp.0lxnsz0",
       "observedKey": "startup:env:TMP",
       "branchId": "surface.startup.env.tmp.0lxnsz0.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql",
+      "enforcementBranchId": "surface.startup.env.tmp.0lxnsz0.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:TMP"
         ],
@@ -274184,33 +273786,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.present.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.propagated.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.propagated.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.propagated.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.propagated.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.propagated.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmp.write.1r26iql.logical.propagated.wrong-principal"
+        "surface.startup.env.tmp.0lxnsz0.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.tmpdir.1crsfhf",
       "observedKey": "startup:env:TMPDIR",
       "branchId": "surface.startup.env.tmpdir.1crsfhf.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c",
+      "enforcementBranchId": "surface.startup.env.tmpdir.1crsfhf.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:TMPDIR"
         ],
@@ -274244,24 +273829,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.present.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.propagated.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.propagated.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.propagated.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.propagated.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.propagated.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.tmpdir.write.1gsnc8c.logical.propagated.wrong-principal"
+        "surface.startup.env.tmpdir.1crsfhf.main.non-capability"
       ]
     },
     {
@@ -274319,9 +273887,9 @@
       "edgeId": "surface.startup.env.username.1b3s1pj",
       "observedKey": "startup:env:USERNAME",
       "branchId": "surface.startup.env.username.1b3s1pj.main",
-      "enforcementBranchId": "enforcement.ne.hermes.runtime.platform.windows.cc.getenvstring.username.read.0nut3lu",
+      "enforcementBranchId": "surface.startup.env.username.1b3s1pj.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:USERNAME"
         ],
@@ -274334,29 +273902,26 @@
         "terminalObservedKey": "startup:env:USERNAME"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "windows",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "operating-system",
+        "value": "windows"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERNAME:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ne.hermes.runtime.platform.windows.cc.getenvstring.username.read.0nut3lu.allow",
-        "enforcement.ne.hermes.runtime.platform.windows.cc.getenvstring.username.read.0nut3lu.deny",
-        "enforcement.ne.hermes.runtime.platform.windows.cc.getenvstring.username.read.0nut3lu.malformed",
-        "enforcement.ne.hermes.runtime.platform.windows.cc.getenvstring.username.read.0nut3lu.missing-attribution",
-        "enforcement.ne.hermes.runtime.platform.windows.cc.getenvstring.username.read.0nut3lu.wrong-principal"
+        "surface.startup.env.username.1b3s1pj.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.env.userprofile.1sxunkp",
       "observedKey": "startup:env:USERPROFILE",
       "branchId": "surface.startup.env.userprofile.1sxunkp.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9",
+      "enforcementBranchId": "surface.startup.env.userprofile.1sxunkp.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:env:USERPROFILE"
         ],
@@ -274384,24 +273949,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.absent.allow",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.absent.deny",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.absent.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.present.allow",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.present.deny",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.present.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.present.wrong-principal",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.propagated.allow",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.propagated.branch-selection",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.propagated.deny",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.propagated.malformed",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.propagated.missing-attribution",
-        "enforcement.src.bin.ibex.runtime.rs.command.env.userprofile.write.0r8hzn9.logical.propagated.wrong-principal"
+        "surface.startup.env.userprofile.1sxunkp.main.non-capability"
       ]
     },
     {
@@ -278804,9 +278352,9 @@
       "edgeId": "surface.startup.supervisor.history.authenticated.project.scope.146nx9b",
       "observedKey": "startup:supervisor-history.authenticated-project-scope",
       "branchId": "surface.startup.supervisor.history.authenticated.project.scope.146nx9b.main",
-      "enforcementBranchId": "enforcement.c.bin.ibex.history.rs.derive.authenticated.project.history.scope.0hze2dc",
+      "enforcementBranchId": "surface.startup.supervisor.history.authenticated.project.scope.146nx9b.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.authenticated-project-scope"
         ],
@@ -278828,20 +278376,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.c.bin.ibex.history.rs.derive.authenticated.project.history.scope.0hze2dc.allow",
-        "enforcement.c.bin.ibex.history.rs.derive.authenticated.project.history.scope.0hze2dc.deny",
-        "enforcement.c.bin.ibex.history.rs.derive.authenticated.project.history.scope.0hze2dc.malformed",
-        "enforcement.c.bin.ibex.history.rs.derive.authenticated.project.history.scope.0hze2dc.missing-attribution",
-        "enforcement.c.bin.ibex.history.rs.derive.authenticated.project.history.scope.0hze2dc.wrong-principal"
+        "surface.startup.supervisor.history.authenticated.project.scope.146nx9b.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6",
       "observedKey": "startup:supervisor-history.global-platform-data-root",
       "branchId": "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6.main",
-      "enforcementBranchId": "enforcement.rc.bin.ibex.history.rs.capture.global.history.platform.data.root.0r078oc",
+      "enforcementBranchId": "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.global-platform-data-root"
         ],
@@ -278863,20 +278407,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.rc.bin.ibex.history.rs.capture.global.history.platform.data.root.0r078oc.allow",
-        "enforcement.rc.bin.ibex.history.rs.capture.global.history.platform.data.root.0r078oc.deny",
-        "enforcement.rc.bin.ibex.history.rs.capture.global.history.platform.data.root.0r078oc.malformed",
-        "enforcement.rc.bin.ibex.history.rs.capture.global.history.platform.data.root.0r078oc.missing-attribution",
-        "enforcement.rc.bin.ibex.history.rs.capture.global.history.platform.data.root.0r078oc.wrong-principal"
+        "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.journal.append.131h4a1",
       "observedKey": "startup:supervisor-history.journal-append",
       "branchId": "surface.startup.supervisor.history.journal.append.131h4a1.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.append.history.journal.1yscxpq",
+      "enforcementBranchId": "surface.startup.supervisor.history.journal.append.131h4a1.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.journal-append"
         ],
@@ -278898,20 +278438,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.append.history.journal.1yscxpq.allow",
-        "enforcement.src.bin.ibex.history.rs.append.history.journal.1yscxpq.deny",
-        "enforcement.src.bin.ibex.history.rs.append.history.journal.1yscxpq.malformed",
-        "enforcement.src.bin.ibex.history.rs.append.history.journal.1yscxpq.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.append.history.journal.1yscxpq.wrong-principal"
+        "surface.startup.supervisor.history.journal.append.131h4a1.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.journal.compact.0qo2xhq",
       "observedKey": "startup:supervisor-history.journal-compact",
       "branchId": "surface.startup.supervisor.history.journal.compact.0qo2xhq.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.compact.history.journal.locked.0ozze75",
+      "enforcementBranchId": "surface.startup.supervisor.history.journal.compact.0qo2xhq.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.journal-compact"
         ],
@@ -278933,20 +278469,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.compact.history.journal.locked.0ozze75.allow",
-        "enforcement.src.bin.ibex.history.rs.compact.history.journal.locked.0ozze75.deny",
-        "enforcement.src.bin.ibex.history.rs.compact.history.journal.locked.0ozze75.malformed",
-        "enforcement.src.bin.ibex.history.rs.compact.history.journal.locked.0ozze75.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.compact.history.journal.locked.0ozze75.wrong-principal"
+        "surface.startup.supervisor.history.journal.compact.0qo2xhq.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.journal.recover.1tl92hf",
       "observedKey": "startup:supervisor-history.journal-recover",
       "branchId": "surface.startup.supervisor.history.journal.recover.1tl92hf.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.recover.history.journal.locked.112mkfq",
+      "enforcementBranchId": "surface.startup.supervisor.history.journal.recover.1tl92hf.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.journal-recover"
         ],
@@ -278968,20 +278500,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.recover.history.journal.locked.112mkfq.allow",
-        "enforcement.src.bin.ibex.history.rs.recover.history.journal.locked.112mkfq.deny",
-        "enforcement.src.bin.ibex.history.rs.recover.history.journal.locked.112mkfq.malformed",
-        "enforcement.src.bin.ibex.history.rs.recover.history.journal.locked.112mkfq.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.recover.history.journal.locked.112mkfq.wrong-principal"
+        "surface.startup.supervisor.history.journal.recover.1tl92hf.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.legacy.probe.1wh2t4f",
       "observedKey": "startup:supervisor-history.legacy-probe",
       "branchId": "surface.startup.supervisor.history.legacy.probe.1wh2t4f.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.legacy.history.present.1bawogn",
+      "enforcementBranchId": "surface.startup.supervisor.history.legacy.probe.1wh2t4f.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.legacy-probe"
         ],
@@ -279003,20 +278531,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.legacy.history.present.1bawogn.allow",
-        "enforcement.src.bin.ibex.history.rs.legacy.history.present.1bawogn.deny",
-        "enforcement.src.bin.ibex.history.rs.legacy.history.present.1bawogn.malformed",
-        "enforcement.src.bin.ibex.history.rs.legacy.history.present.1bawogn.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.legacy.history.present.1bawogn.wrong-principal"
+        "surface.startup.supervisor.history.legacy.probe.1wh2t4f.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.project.platform.data.root.16mbl6y",
       "observedKey": "startup:supervisor-history.project-platform-data-root",
       "branchId": "surface.startup.supervisor.history.project.platform.data.root.16mbl6y.main",
-      "enforcementBranchId": "enforcement.c.bin.ibex.history.rs.capture.project.history.platform.data.root.1ezeqzo",
+      "enforcementBranchId": "surface.startup.supervisor.history.project.platform.data.root.16mbl6y.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.project-platform-data-root"
         ],
@@ -279038,20 +278562,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.c.bin.ibex.history.rs.capture.project.history.platform.data.root.1ezeqzo.allow",
-        "enforcement.c.bin.ibex.history.rs.capture.project.history.platform.data.root.1ezeqzo.deny",
-        "enforcement.c.bin.ibex.history.rs.capture.project.history.platform.data.root.1ezeqzo.malformed",
-        "enforcement.c.bin.ibex.history.rs.capture.project.history.platform.data.root.1ezeqzo.missing-attribution",
-        "enforcement.c.bin.ibex.history.rs.capture.project.history.platform.data.root.1ezeqzo.wrong-principal"
+        "surface.startup.supervisor.history.project.platform.data.root.16mbl6y.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.sidecar.lock.acquire.0q9swyn",
       "observedKey": "startup:supervisor-history.sidecar-lock-acquire",
       "branchId": "surface.startup.supervisor.history.sidecar.lock.acquire.0q9swyn.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.acquire.history.sidecar.lock.1n94kz0",
+      "enforcementBranchId": "surface.startup.supervisor.history.sidecar.lock.acquire.0q9swyn.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.sidecar-lock-acquire"
         ],
@@ -279073,20 +278593,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.acquire.history.sidecar.lock.1n94kz0.allow",
-        "enforcement.src.bin.ibex.history.rs.acquire.history.sidecar.lock.1n94kz0.deny",
-        "enforcement.src.bin.ibex.history.rs.acquire.history.sidecar.lock.1n94kz0.malformed",
-        "enforcement.src.bin.ibex.history.rs.acquire.history.sidecar.lock.1n94kz0.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.acquire.history.sidecar.lock.1n94kz0.wrong-principal"
+        "surface.startup.supervisor.history.sidecar.lock.acquire.0q9swyn.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.store.open.0u6mrwv",
       "observedKey": "startup:supervisor-history.store-open",
       "branchId": "surface.startup.supervisor.history.store.open.0u6mrwv.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.open.history.store.0emvywu",
+      "enforcementBranchId": "surface.startup.supervisor.history.store.open.0u6mrwv.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.store-open"
         ],
@@ -279108,20 +278624,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.open.history.store.0emvywu.allow",
-        "enforcement.src.bin.ibex.history.rs.open.history.store.0emvywu.deny",
-        "enforcement.src.bin.ibex.history.rs.open.history.store.0emvywu.malformed",
-        "enforcement.src.bin.ibex.history.rs.open.history.store.0emvywu.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.open.history.store.0emvywu.wrong-principal"
+        "surface.startup.supervisor.history.store.open.0u6mrwv.main.non-capability"
       ]
     },
     {
       "edgeId": "surface.startup.supervisor.history.user.key.read.create.16p08qw",
       "observedKey": "startup:supervisor-history.user-key-read-create",
       "branchId": "surface.startup.supervisor.history.user.key.read.create.16p08qw.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.history.rs.load.or.create.history.user.key.013jj7x",
+      "enforcementBranchId": "surface.startup.supervisor.history.user.key.read.create.16p08qw.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "startup:supervisor-history.user-key-read-create"
         ],
@@ -279143,11 +278655,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.history.rs.load.or.create.history.user.key.013jj7x.allow",
-        "enforcement.src.bin.ibex.history.rs.load.or.create.history.user.key.013jj7x.deny",
-        "enforcement.src.bin.ibex.history.rs.load.or.create.history.user.key.013jj7x.malformed",
-        "enforcement.src.bin.ibex.history.rs.load.or.create.history.user.key.013jj7x.missing-attribution",
-        "enforcement.src.bin.ibex.history.rs.load.or.create.history.user.key.013jj7x.wrong-principal"
+        "surface.startup.supervisor.history.user.key.read.create.16p08qw.main.non-capability"
       ]
     },
     {
@@ -279269,12 +278777,6 @@
         "surface.builtin.sys.1oe78qz",
         "surface.builtin.util.1isnyze",
         "surface.builtin.util.types.0v4anl8",
-        "surface.host.abi.ex.host.env.ambient.get.0x0l4ry",
-        "surface.host.abi.ex.host.env.ambient.key.at.0trw95j",
-        "surface.host.abi.ex.host.env.ambient.key.count.1oaff6x",
-        "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
-        "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
-        "surface.host.abi.ex.host.env.get.11ro4cp",
         "surface.loader.entry.dynamic.import.0bk2zgb",
         "surface.loader.entry.exact.require.0bp9r8f",
         "surface.loader.entry.global.import.19mh9t9",
@@ -279380,73 +278882,37 @@
         "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00",
         "surface.native.op.global.process.execve.0cxp60m",
         "surface.native.op.global.require.00nyxb6",
-        "surface.startup.env.clicolor.force.07xv92a",
         "surface.startup.env.colorterm.1c641i4",
         "surface.startup.env.columns.0htd3h6",
         "surface.startup.env.comspec.1vitmnr",
-        "surface.startup.env.dynamic.cpp.dupenv.s.13liyhy",
-        "surface.startup.env.dynamic.cpp.environ.0bvzoxc",
-        "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
-        "surface.startup.env.dynamic.cpp.getenv.1kddphg",
-        "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9",
-        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
-        "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
         "surface.startup.env.dynamic.javascript.process.0zq1e6e",
         "surface.startup.env.dynamic.javascript.process.binding.flow.0sy2re1",
         "surface.startup.env.dynamic.javascript.process.env.0g7t2rn",
         "surface.startup.env.dynamic.javascript.process.env.1cbcogv",
-        "surface.startup.env.dynamic.rust.env.var.06m71te",
-        "surface.startup.env.dynamic.rust.env.var.os.11lyypt",
-        "surface.startup.env.dynamic.rust.env.vars.os.016blc6",
-        "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei",
         "surface.startup.env.exact.compat.exec.argv.1eqpi8a",
-        "surface.startup.env.exact.compat.executable.196scvi",
         "surface.startup.env.exact.debug.emit.listener.0e0menx",
         "surface.startup.env.exact.executable.1nt755v",
-        "surface.startup.env.exact.hermes.tool.dir.080a6oo",
         "surface.startup.env.exact.pipeline.debug.1mfb93l",
         "surface.startup.env.exact.pipeline.state.debug.0v1tc2z",
-        "surface.startup.env.exact.policy.0yq5zol",
-        "surface.startup.env.exact.quiet.1nd5flt",
         "surface.startup.env.exact.raw.argv0.1dcel06",
-        "surface.startup.env.exact.repo.root.0b6zh2k",
-        "surface.startup.env.exact.security.log.1nsxtc4",
-        "surface.startup.env.exact.transpile.script.0rr4fr7",
         "surface.startup.env.exact.winhttp.enable.http2.0pqreb6",
         "surface.startup.env.force.color.0iu4ece",
         "surface.startup.env.home.1aw1qfo",
-        "surface.startup.env.ibex.bundle.cache.max.bytes.0dzhqzi",
-        "surface.startup.env.ibex.bytecode.cache.max.bytes.06hi8e9",
         "surface.startup.env.ibex.dns.server.0ggdo6d",
-        "surface.startup.env.ibex.hermes.tool.dir.0878egj",
         "surface.startup.env.ibex.http.max.request.body.bytes.0x1qpbe",
-        "surface.startup.env.ibex.policy.1jjizio",
-        "surface.startup.env.ibex.repo.root.0qhf2d7",
-        "surface.startup.env.ibex.suppress.console.mirror.0vlv453",
-        "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
-        "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
-        "surface.startup.env.ibex.transpile.cache.max.bytes.0kkuqkk",
         "surface.startup.env.lines.0c2zxai",
         "surface.startup.env.no.color.0u5kipw",
         "surface.startup.env.node.debug.1oplp8n",
         "surface.startup.env.node.env.1b15umn",
         "surface.startup.env.node.extra.ca.certs.0brff6f",
         "surface.startup.env.node.pending.deprecation.08gz4k2",
-        "surface.startup.env.path.1sio6bc",
         "surface.startup.env.res.options.0e62k3i",
-        "surface.startup.env.temp.1wag4vd",
         "surface.startup.env.term.1uw6gat",
-        "surface.startup.env.tmp.0lxnsz0",
-        "surface.startup.env.tmpdir.1crsfhf",
         "surface.startup.env.tz.1uttegh",
-        "surface.startup.env.username.1b3s1pj",
-        "surface.startup.env.userprofile.1sxunkp",
-        "surface.startup.env.wpt.server.url.1y5rfd8",
-        "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6",
-        "surface.startup.supervisor.history.project.platform.data.root.16mbl6y"
+        "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 196 observed effect edges."
+      "rationale": "Covered by 154 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -279462,7 +278928,6 @@
         "surface.builtin.export.node.child.process.spawn.149aed0",
         "surface.builtin.export.node.child.process.spawnsync.0z8kcwn",
         "surface.builtin.export.node.cluster.fork.0ywb16n",
-        "surface.host.abi.ex.host.env.ambient.set.101dg8i",
         "surface.native.op.exactexecsync.041glur",
         "surface.native.op.exactsetenv.1785yh6",
         "surface.native.op.exactspawn.0waye4c",
@@ -279476,26 +278941,13 @@
         "surface.native.op.global.process.env.dynamic.table.env.obj.properties.161cd28",
         "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00",
         "surface.native.op.global.process.execve.0cxp60m",
-        "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs",
-        "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg",
-        "surface.startup.env.exact.android.cache.dir.1yr2vkb",
-        "surface.startup.env.exact.android.code.cache.dir.1pu6n7j",
-        "surface.startup.env.exact.android.external.files.dir.0btv52w",
         "surface.startup.env.exact.android.files.dir.0c1x0ei",
-        "surface.startup.env.exact.android.no.backup.files.dir.07e9ggr",
         "surface.startup.env.exact.compat.exec.argv.1eqpi8a",
         "surface.startup.env.exact.executable.1nt755v",
-        "surface.startup.env.exact.quiet.1nd5flt",
         "surface.startup.env.exact.raw.argv0.1dcel06",
-        "surface.startup.env.home.1aw1qfo",
-        "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
-        "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
-        "surface.startup.env.temp.1wag4vd",
-        "surface.startup.env.tmp.0lxnsz0",
-        "surface.startup.env.tmpdir.1crsfhf",
-        "surface.startup.env.userprofile.1sxunkp"
+        "surface.startup.env.home.1aw1qfo"
       ],
-      "rationale": "Covered by 42 observed effect edges."
+      "rationale": "Covered by 28 observed effect edges."
     },
     {
       "definitionId": "ffi:load",
@@ -279606,30 +279058,10 @@
         "surface.builtin.export.node.fs.writestream.open.0lpubfp",
         "surface.builtin.export.node.fs.writestream.write.0g2cl8d",
         "surface.builtin.export.node.fs.writestream.writev.0djj8lt",
-        "surface.host.abi.ex.host.fs.access.07ymnn7",
-        "surface.host.abi.ex.host.fs.append.1uj49nd",
-        "surface.host.abi.ex.host.fs.chmod.1fztam2",
-        "surface.host.abi.ex.host.fs.fstat.1di7udv",
-        "surface.host.abi.ex.host.fs.lstat.0wkeomh",
-        "surface.host.abi.ex.host.fs.mkdir.1h3eq8w",
-        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
-        "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
-        "surface.host.abi.ex.host.fs.open.09qvr5d",
-        "surface.host.abi.ex.host.fs.readdir.1jmcmt8",
-        "surface.host.abi.ex.host.fs.realpath.15844au",
-        "surface.host.abi.ex.host.fs.rename.0xyp2mz",
-        "surface.host.abi.ex.host.fs.rmdir.1tps5fb",
-        "surface.host.abi.ex.host.fs.stat.17ncwgv",
-        "surface.host.abi.ex.host.fs.statfs.19uv3yw",
-        "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
-        "surface.host.abi.ex.host.fs.unlink.05xgwei",
-        "surface.host.abi.ex.host.fs.utimes.12bl9di",
         "surface.host.abi.ex.host.module.resolve.0xdfuf4",
         "surface.host.abi.ex.host.module.resolve.meta.0wto1rk",
         "surface.host.abi.ex.host.session.static.import.resolve.0337gqn",
         "surface.host.abi.ex.host.session.static.import.resolve.meta.1o3w1b9",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
-        "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191",
         "surface.loader.commonjs.module.13o3pbt",
         "surface.loader.dynamic.import.1n0l635",
         "surface.loader.entry.dynamic.import.0bk2zgb",
@@ -279907,29 +279339,11 @@
         "surface.native.op.global.require.00nyxb6",
         "surface.native.op.global.require.resolve.14z26gg",
         "surface.startup.env.comspec.1vitmnr",
-        "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei",
-        "surface.startup.env.exact.compat.executable.196scvi",
         "surface.startup.env.exact.executable.1nt755v",
-        "surface.startup.env.exact.hermes.tool.dir.080a6oo",
-        "surface.startup.env.exact.policy.0yq5zol",
-        "surface.startup.env.exact.repo.root.0b6zh2k",
-        "surface.startup.env.exact.transpile.script.0rr4fr7",
-        "surface.startup.env.ibex.hermes.tool.dir.0878egj",
-        "surface.startup.env.ibex.policy.1jjizio",
-        "surface.startup.env.ibex.repo.root.0qhf2d7",
-        "surface.startup.env.node.extra.ca.certs.0brff6f",
-        "surface.startup.env.path.1sio6bc",
-        "surface.startup.supervisor.history.authenticated.project.scope.146nx9b",
-        "surface.startup.supervisor.history.journal.append.131h4a1",
-        "surface.startup.supervisor.history.journal.compact.0qo2xhq",
-        "surface.startup.supervisor.history.journal.recover.1tl92hf",
-        "surface.startup.supervisor.history.legacy.probe.1wh2t4f",
-        "surface.startup.supervisor.history.sidecar.lock.acquire.0q9swyn",
-        "surface.startup.supervisor.history.store.open.0u6mrwv",
-        "surface.startup.supervisor.history.user.key.read.create.16p08qw"
+        "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 405 observed effect edges."
+      "rationale": "Covered by 367 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -280000,22 +279414,8 @@
         "surface.builtin.export.node.net.createconnection.1tl708g",
         "surface.builtin.export.node.net.socket.connect.1kfqbvh",
         "surface.builtin.export.node.net.stream.connect.1dm8n0c",
-        "surface.host.abi.ex.host.fs.copy.0fqucdo",
-        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
-        "surface.host.abi.ex.host.fs.open.09qvr5d",
-        "surface.host.abi.ex.host.fs.pread.1vjiqgb",
-        "surface.host.abi.ex.host.fs.read.09hnxf1",
-        "surface.host.abi.ex.host.fs.read.file.042wgnk",
         "surface.host.abi.ex.host.module.resolve.0xdfuf4",
         "surface.host.abi.ex.host.session.static.import.resolve.0337gqn",
-        "surface.host.abi.ex.host.sqlite.all.0sb72in",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx",
-        "surface.host.abi.ex.host.sqlite.get.143k080",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
-        "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp",
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu",
         "surface.loader.commonjs.module.13o3pbt",
         "surface.loader.dynamic.import.1n0l635",
         "surface.loader.entry.dynamic.import.0bk2zgb",
@@ -280216,18 +279616,10 @@
         "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.require.00nyxb6",
         "surface.native.op.global.require.resolve.14z26gg",
-        "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei",
-        "surface.startup.env.exact.policy.0yq5zol",
-        "surface.startup.env.exact.repo.root.0b6zh2k",
-        "surface.startup.env.exact.transpile.script.0rr4fr7",
-        "surface.startup.env.ibex.policy.1jjizio",
-        "surface.startup.env.ibex.repo.root.0qhf2d7",
-        "surface.startup.env.node.extra.ca.certs.0brff6f",
-        "surface.startup.supervisor.history.journal.recover.1tl92hf",
-        "surface.startup.supervisor.history.user.key.read.create.16p08qw"
+        "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 291 observed effect edges."
+      "rationale": "Covered by 269 observed effect edges."
     },
     {
       "definitionId": "fs:unbound-mutation",
@@ -280402,26 +279794,6 @@
         "surface.builtin.export.node.fs.writev.03izp9t",
         "surface.builtin.export.node.fs.writevsync.188kkmm",
         "surface.builtin.export.node.net.server.listen.0qe75z0",
-        "surface.host.abi.ex.host.fs.append.1uj49nd",
-        "surface.host.abi.ex.host.fs.chmod.1fztam2",
-        "surface.host.abi.ex.host.fs.copy.0fqucdo",
-        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
-        "surface.host.abi.ex.host.fs.mkdir.1h3eq8w",
-        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
-        "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
-        "surface.host.abi.ex.host.fs.open.09qvr5d",
-        "surface.host.abi.ex.host.fs.pwrite.198hf1m",
-        "surface.host.abi.ex.host.fs.rename.0xyp2mz",
-        "surface.host.abi.ex.host.fs.rmdir.1tps5fb",
-        "surface.host.abi.ex.host.fs.sync.011h89u",
-        "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
-        "surface.host.abi.ex.host.fs.unlink.05xgwei",
-        "surface.host.abi.ex.host.fs.utimes.12bl9di",
-        "surface.host.abi.ex.host.fs.write.083p7no",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
-        "surface.host.abi.ex.host.sqlite.open.checked.fd.1tsf191",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp",
         "surface.loader.entry.dynamic.import.0bk2zgb",
         "surface.loader.entry.exact.require.0bp9r8f",
         "surface.loader.entry.global.import.19mh9t9",
@@ -280560,16 +279932,9 @@
         "surface.native.op.global.import.0lvmxcm",
         "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.require.00nyxb6",
-        "surface.startup.env.exact.android.cache.dir.1yr2vkb",
-        "surface.startup.env.exact.android.files.dir.0c1x0ei",
-        "surface.startup.supervisor.history.journal.append.131h4a1",
-        "surface.startup.supervisor.history.journal.compact.0qo2xhq",
-        "surface.startup.supervisor.history.journal.recover.1tl92hf",
-        "surface.startup.supervisor.history.sidecar.lock.acquire.0q9swyn",
-        "surface.startup.supervisor.history.store.open.0u6mrwv",
-        "surface.startup.supervisor.history.user.key.read.create.16p08qw"
+        "surface.startup.env.exact.android.files.dir.0c1x0ei"
       ],
-      "rationale": "Covered by 226 observed effect edges."
+      "rationale": "Covered by 199 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -281984,14 +281349,9 @@
         "surface.native.op.global.process.execve.0cxp60m",
         "surface.native.op.global.require.00nyxb6",
         "surface.startup.env.comspec.1vitmnr",
-        "surface.startup.env.exact.compat.executable.196scvi",
-        "surface.startup.env.exact.executable.1nt755v",
-        "surface.startup.env.exact.hermes.tool.dir.080a6oo",
-        "surface.startup.env.exact.transpile.script.0rr4fr7",
-        "surface.startup.env.ibex.hermes.tool.dir.0878egj",
-        "surface.startup.env.path.1sio6bc"
+        "surface.startup.env.exact.executable.1nt755v"
       ],
-      "rationale": "Covered by 82 observed effect edges."
+      "rationale": "Covered by 77 observed effect edges."
     },
     {
       "definitionId": "process:umask",
@@ -282799,21 +282159,17 @@
         "surface.native.op.global.process.stdout.0wivv6h",
         "surface.native.op.global.process.stdout.write.1d593l8",
         "surface.native.op.global.require.00nyxb6",
-        "surface.startup.env.clicolor.force.07xv92a",
         "surface.startup.env.colorterm.1c641i4",
         "surface.startup.env.exact.debug.emit.listener.0e0menx",
         "surface.startup.env.exact.pipeline.debug.1mfb93l",
         "surface.startup.env.exact.pipeline.state.debug.0v1tc2z",
-        "surface.startup.env.exact.quiet.1nd5flt",
-        "surface.startup.env.exact.security.log.1nsxtc4",
         "surface.startup.env.force.color.0iu4ece",
-        "surface.startup.env.ibex.suppress.console.mirror.0vlv453",
         "surface.startup.env.no.color.0u5kipw",
         "surface.startup.env.node.debug.1oplp8n",
         "surface.startup.env.node.pending.deprecation.08gz4k2",
         "surface.startup.env.term.1uw6gat"
       ],
-      "rationale": "Covered by 163 observed effect edges."
+      "rationale": "Covered by 159 observed effect edges."
     },
     {
       "definitionId": "storage:persist",
@@ -283467,7 +282823,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-_QR6pH9kri-Z-h7GUugHHgo2DgqiusJw4YZzhk7LKko"
+      "rawContentDigest": "sha256-yD5GZnlmX_ksaCeWc177twbxdVZxd53AP6KFBhdPpBg"
     },
     {
       "kind": "output-disposition-dataset",
@@ -283487,38 +282843,38 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Z_dfnq3NNoSaD_ftvIceNKAaFDh6tkHnSLgj1DYPE5A"
+      "rawContentDigest": "sha256-pwjH7YzxE68D9Ajz1DP6uWkYguFv5_oLv2FyqG4kH4A"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-_WroVVv8VBLPsWGmyN_WZP46NVjIGMGQ2fgl0rRyRW4"
+      "rawContentDigest": "sha256-IHT4J19lupfyLfnzDYtfdf9tnPn3xyFTYU1TOM6w84Q"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-EHPNbYOzqtsmEBGQ3YM_6Rckubg4fyTouASP53xoHC0"
+      "rawContentDigest": "sha256-Qd5iZRGAhEkkSg0aFJD0KRD8z9G69rbzQ0MNkSQdHdE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-qVhC7KwRdDPoMOt3bo8UFC8jyAeR_z5jDzoUlScb-Vo"
+      "rawContentDigest": "sha256-ayHy9JvLtb59ScStYlQ8d9uN10ReB3G5P6MWz-7CigU"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Sh9pwdgYgqdY_kIo8MuyqhA2sQbhtEwDWT-FbUKLcO0"
+      "rawContentDigest": "sha256-pJWKmUUf7oy4S9qlMqy9q6Lj4SK3dceuVXsEI8vVTRU"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-UjbYn6zAWeIX2j-0ilLL9wUDYv8vKILzpDq4AHnZ8ZY"
+      "rawContentDigest": "sha256-OF-SZveI4ObWhi9rf7u4UkjMcRezAXN1gaaghKegQ6U"
     }
   ],
   "counts": {
-    "observedReferences": 13442,
+    "observedReferences": 13447,
     "logicalSurfaces": 7580,
-    "enforcementBranches": 7823,
+    "enforcementBranches": 7826,
     "coverageEdges": 7580,
     "targetCells": 15160
   }
