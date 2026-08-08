@@ -5,6 +5,32 @@
 **Systems:** Security, Conformance, CI, Runtime, Tooling
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-08-06
+**Revised:** 2026-08-07b (executor-reachability rebuild — a retained
+per-surface-kind measurement falsified the §6 claim the previous revision
+was built on, and both round-3 reviews (Fable NOT READY, one BLOCKER;
+Codex NOT READY, four MATERIAL) had already falsified it independently,
+with different counterexamples. §6 is rebuilt from
+`llp/evidence/0049-executor-capability-matrix-ff9b3031….json`: **three**
+effectful executors exist, not one, and the worklist is now stated by
+executor tier — 200 rows T3, 1,171 T2, 757 T1, 1,783 T0 — of which
+**2,540 (65%) are behind new executor construction**. New §6.1 carries
+the matrix inline with `file:line` citations and its four qualifications;
+new §6.2 records the strategic consequence — scope selection needs two
+independent axes (Lane B/C/D poisoning **and** executor reachability) and
+LLP 0044 selected fs+env+process on the first alone. §3 rule 10 is
+narrowed to the boundary its checker actually covers, with the
+process-boundary inventory gap recorded as a follow-up rather than
+claimed as conformance, and its checker stated at true strength; rule 11
+is extended to every implementation-bearing phase with an auditable
+discharge contract; new §3.1 records the meta-lesson at its proper
+altitude. §9's executor-cost kill criterion gains a named unit, a
+retained artifact and an explicit extrapolation rule. §10 item (f) is
+replaced by a four-option scope/budget fork — the recommendation is now
+to re-cut the v1.1 scope on the reachability axis — and moved after (e);
+the prior "author indicated agreement" is withdrawn as given under the
+falsified premise. §5.3's unretained gate-code figures are dropped per
+rule 1, and §2/§6/§11 counts are reconciled to their retained artifacts
+(81 → 80; ~3,922/~80 → 3,911/488/79). This revision is UNREVIEWED.)
 **Revised:** 2026-08-07 (execution round — what Phase 0/1 execution and
 the independent implementation review taught, folded back in: §3 gains
 rule 10 (an artifact crossing a language boundary is not agreed until one
@@ -166,7 +192,7 @@ rule 1. Do not reuse these numbers without regenerating; the catalog grew
 
 **The scope, currently measured:** fs+env+process is **610 cells — 537
 clean, 73 poisoned** (Lane B/C/D rows authoring cannot clear), with
-**3,927 clean authorable rows across 491 surfaces in 81 template
+**3,927 clean authorable rows across 491 surfaces in 80 template
 classes**. This is the Phase 0 post-seeding measurement recorded in
 `llp/evidence/0049-scope-measurement-postseeding-df1da4b5….json` and
 indexed in §11.
@@ -181,9 +207,17 @@ indexed in §11.
 > re-pointed to 73. The same 2026-08-05 passage also recorded
 > **3,922 rows / 490 surfaces / 80 classes** remaining after the first
 > landed tranche; the post-seeding re-measurement supersedes it at
-> 3,927/491/81, and §6's worklist figure is re-derived at entry per
-> rule 5 regardless. Per §3 rule 5 all such figures are snapshots and
-> must be re-derived at each gate, not quoted from here.
+> 3,927/491/**80**, and §6's worklist figure is re-derived at entry per
+> rule 5 regardless. (This paragraph and the table above said "81
+> classes" through the 2026-08-07 revision; the artifact they cite
+> records 80. Corrected 2026-08-07b — a §3 rule 1 figure may not
+> disagree with the artifact it inherits from.) The **current** retained
+> figure, after the Phase 2 calibration tranche closed one class, is
+> **3,911 rows / 488 surfaces / 79 classes**
+> (`llp/evidence/0049-scope-measurement-phase2-calibration-close.json`),
+> and that is the denominator §6 and §6.1 use. Per §3 rule 5 all such
+> figures are snapshots and must be re-derived at each gate, not quoted
+> from here.
 
 LLP 0044 §9's day-one figures (513 cells / 3,256 rows / 64 classes)
 are superseded — the drift of +671 rows / +17 classes in five days is
@@ -296,30 +330,139 @@ its output.
    Phase 0), not by agent discipline. Preflight includes `bun install` — a
    stale `node_modules` cost a real session a generator run on 2026-08-06.
 
-10. **An artifact crossing a language or process boundary is not agreed
-    until one shared vector is consumed from both sides.** Phase 1's only
-    BLOCKER was found this way: the scope artifact had two incompatible
-    canonical forms sharing one schema id and one digest domain — the JS
-    producer emitting `scopeSchema`/`expandedCellIds`/seven-field closure
-    edges, the Rust consumer declaring `schema`/`expandedCells`/two fields
-    under `deny_unknown_fields`. Five of ten names differed. Every test on
-    both sides passed, because **each side built its own fixture in its own
+10. **An artifact whose producer and consumer are implemented in
+    different languages is not agreed until one shared vector is consumed
+    from both sides.** Phase 1's only BLOCKER was found this way: the
+    scope artifact had two incompatible canonical forms sharing one schema
+    id and one digest domain — the JS producer emitting
+    `scopeSchema`/`expandedCellIds`/seven-field closure edges, the Rust
+    consumer declaring `schema`/`expandedCells`/two fields under
+    `deny_unknown_fields`. Five of ten names differed. Every test on both
+    sides passed, because **each side built its own fixture in its own
     dialect** and the artifact was the one CapSec artifact with no
     cross-language vector. *Checker:* every artifact with producers and
     consumers in different languages carries a vector under
-    `schemas/vectors/`, generated by the real producer, consumed by a test
-    on each side. Agreement asserted in prose, or by two fixtures that never
-    meet, is not agreement.
-11. **Implementation gets an independent adversarial review before its
-    phase exit gate, and the reviewer must try to break the fixtures.**
-    Phase 1's gate code passed 719 Rust tests, the full lineage suite,
-    `check:secure-mode`, and every adversarial fixture — all written by the
-    agents that wrote the code — and still shipped the rule-10 BLOCKER plus
-    a fixture that refused at the wrong layer (it passed with the assertion
-    it claimed to test deleted). Both were found by an outside reviewer
-    instructed to revert defects and confirm the fixtures fail. *Checker:*
-    the phase does not exit on self-verified green; the review artifact and
-    the break-test results are part of the exit gate.
+    `schemas/vectors/`, consumed by a test on each side — for the scope
+    artifact, `schemas/vectors/capsec-scope-v1.valid.json` read by
+    `packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`
+    and parsed through the production parser by
+    `src/host/portable_target_admission.rs:2159-2177`. Agreement asserted
+    in prose, or by two fixtures that never meet, is not agreement.
+
+    Two honesty qualifications, both from the round-3 reviews, both
+    recorded rather than papered over:
+
+    - **The rule is stated at the boundary its checker covers.** Through
+      the 2026-08-07 revision the rule read "a language **or process**
+      boundary." That overreached: the checker is specified for
+      different-language producer/consumer pairs only, and an in-tree
+      artifact crossing both boundaries already does not conform —
+      `ibex/capsec-public-batch-evidence/1` is written by Rust
+      (`src/bin/ibex/engine/capsec_conformance_batch.rs:4252-4267`) and
+      consumed by JS
+      (`packages/ibex-devtools/src/scripts/capsec-public-surface-evidence.mjs:2144-2185`)
+      with no vector under `schemas/vectors/`. Claiming repo-wide
+      conformance would have been false. The remedy is an **inventory**,
+      not a wider sentence: enumerating every cross-language and
+      process-boundary artifact and closing the gaps is owed as a
+      **filesystem ticket under `issues/`**, outside this plan's exit
+      gate. Until that inventory exists, this rule binds **new**
+      artifacts this plan creates and asserts nothing about existing
+      ones.
+    - **The checker's true strength.** Both tests read the *committed*
+      vector bytes. They prove the two dialects agree on those bytes and
+      that the production parser accepts them; they do **not** prove the
+      real producer still emits them. Regenerate-and-compare against
+      live producer output is a strictly stronger checker and is not
+      implemented. Any artifact this plan adds under `schemas/vectors/`
+      should carry the regeneration check; the existing vectors are
+      credited only at the strength stated here.
+11. **Every implementation-bearing phase gets an independent adversarial
+    review before its exit gate, and the reviewer must try to break the
+    fixtures.** Phase 1's gate code passed its full self-authored test
+    suite — unit tests, the lineage suite, `check:secure-mode`, and every
+    adversarial fixture, all written by the agents that wrote the code —
+    and still shipped the rule-10 BLOCKER plus a fixture that refused at
+    the wrong layer (it passed with the assertion it claimed to test
+    deleted). Both were found by an outside reviewer instructed to revert
+    defects and confirm the fixtures fail.
+
+    **Which phases:** Phase 1 (gate code), **Phase 2 for every batch that
+    lands an executor change** — §6.1 measures that as the dominant Phase 2
+    work product, and it is security-sensitive Rust — and Phase 3 for the
+    ceremony and publication wiring. A template-only, no-Rust-change batch
+    is exempt; the exemption is claimed per batch in its evidence envelope,
+    not assumed.
+
+    **Discharge is a contract, not an assertion.** *Checker:* the phase
+    does not exit on self-verified green; a retained artifact under
+    `llp/reviews/` (indexed in §11) is part of the exit gate and carries
+    all five of:
+
+    1. the **exact reviewed revision** — commit and document/tree digest,
+       not "current main";
+    2. a **reviewer-independence statement** — family, runtime, and the
+       fact that the reviewer authored neither the code nor its tests;
+    3. the **break-tests actually run**: the defect reverted or the
+       assertion deleted, the command, and the observed failure, for each
+       fixture whose strength is being credited;
+    4. **commands and outputs** for every green figure the phase claims,
+       so that no count enters the plan without a retained source
+       (rule 1);
+    5. the **disposition of every finding** — fixed (with commit),
+       accepted with rationale, or deferred to a named ticket. An open
+       BLOCKER or MATERIAL with no disposition blocks the exit.
+
+    Phase 1's own implementation review is not yet discharged under this
+    contract — see the §5.3 status block, which is the worked example of
+    the gap.
+12. **Parallel agents get one worktree each, and every branch is diffed
+    from its merge base.** Agents sharing a checkout collide on git state
+    rather than on files, and a diff taken against a moving `origin/main`
+    lies about what a branch changed. *Checker (commands, recorded in each
+    batch's evidence envelope):* `git worktree list` shows one worktree per
+    concurrent agent, and each branch's changed-path set comes from
+    `git diff --stat $(git merge-base origin/main HEAD)..HEAD`. This rule
+    is the checkable residue of §6's fan-out retrospective; the rest of
+    that passage is explicitly non-binding advice.
+
+### 3.1 What execution taught us
+
+Rules 1–11 came from other plans' failures. Two lessons come from this
+one, and they sit above any individual rule:
+
+**A bounded observation must never be promoted into an unbounded claim.**
+The 2026-08-06 calibration examined three surface kinds and found that,
+among them, only `native-op` had an executor able to produce an effectful
+source-bound receipt. The 2026-08-07 revision wrote that down as *only
+`native-op` has* such an executor — dropping the quantifier's domain. The
+per-surface-kind measurement of 2026-08-07
+(`llp/evidence/0049-executor-capability-matrix-ff9b3031….json`) falsified
+it: **three** effectful executors exist, and both round-3 reviewers had
+already falsified it independently with different counterexamples (Fable
+via `surface.builtin.export`, Codex via `surface.startup.env`). The
+promoted claim then became the sole premise of a kill criterion (§9) and
+a register item (§10 f), so one dropped quantifier propagated into the
+plan's schedule and its budget fork.
+
+That is exactly what §3 rule 2 forbids — size work from the emitting
+code, never from a label or a summary — applied one level up: **the
+summary being trusted was our own**. Rule 2's checker (a `file:line`
+citation for every work item) would have caught it, because no
+`file:line` citation for "no other executor exists" can be written
+without reading every executor.
+
+**A plan's construction rules apply to the plan itself.** §3 rule 1 says
+every load-bearing figure comes from a command at a named revision, with
+a §11 row. The falsified §6 claim had neither, and neither did the §5.3
+gate-code figures written in the same revision — in a delta whose thesis
+was that self-verified green is not evidence. The rules were being
+enforced on the campaign's outputs and not on the document that defines
+them. Concretely: a plan section that states a **universal negative**
+("no executor can…", "nothing in the tree does…") is a rule-1 figure,
+carries the same retention obligation as a count, and is the shape of
+claim most likely to be false. Write it only from a measurement that
+enumerated the whole domain, and retain that measurement.
 
 ## 4. Phase 0 — Decisions and denominator stabilization
 
@@ -531,14 +674,18 @@ LLP 0044 defines as **diagnostic, never claim-upgrading**.
 Exit gate: review artifacts under `llp/reviews/`; register item 5 put to
 the author and decided (rejection is a §9 diversion, not a gate pass);
 gate code landed with its adversarial fixtures green; **an independent
-review of the merged implementation, with break-tests** (§3 rule 11);
+review of the merged implementation, with break-tests, discharged under
+§3 rule 11's five-item contract and retained under `llp/reviews/` with a
+§11 row** (not discharged as of 2026-08-07b — see the status block);
 `check:secure-mode` green; **§5.2 disposition complete** — each of the 73 poisoned cells is
 audit-cleared, grammar-excluded under the reviewed extension, or covered
 by a decided scope re-cut. `unresolved-in-scope === 0` is unreachable at
 Phase 3 while any of the 73 lacks a disposition, so this phase does not
 exit without one.
 
-> **Review-package exit-gate condition: MET (2026-08-06).** The first two
+> **[Superseded historical status — see the 2026-08-07b block below for
+> current Phase 1 state.] Review-package exit-gate condition: MET
+> (2026-08-06).** The first two
 > exit conditions are satisfied. Review artifacts exist under
 > `llp/reviews/` —
 > `0021-scoped-advertisement-amendment.fable.md` and
@@ -560,23 +707,63 @@ exit without one.
 > additions F6f-4, F6f-5 and F6h-c); `check:secure-mode` green; and the
 > **§5.2 disposition of the 73 poisoned cells**.
 
-> **Gate-code status (2026-08-07).** Implemented and merged: the six-slice
-> program plus reconciliation landed on main, `cargo test --lib` 719/0,
-> the F6 lineage adversarial suite green, the Rust scoped fixtures 14/0,
-> `check:secure-mode` green with `SECURE_SMOKE` reporting real enforcement,
-> and the report-schema version seam closed repo-wide. An independent
+> **Gate-code status (2026-08-07b).** Implemented and merged: the
+> six-slice program plus reconciliation landed on `main`. An independent
 > review then found one BLOCKER (§3 rule 10) and one fixture refusing at
-> the wrong layer; both are fixed and the fix is break-tested. **Still
-> open before this phase exits:** the review's MATERIAL findings (two
-> report schemas colliding on id `/3`; three further fixtures asserting
-> less than their names claim; matrix rows M11 and M26 unpinned), and the
-> §5.2 disposition of the 73 poisoned cells.
+> the wrong layer; **the BLOCKER fix is verifiable in the tree** — the
+> shared vector `schemas/vectors/capsec-scope-v1.valid.json` is now
+> consumed from JS
+> (`packages/ibex-devtools/src/scripts/capsec-scope-artifact.test.mjs:53-66`)
+> and parsed through the production Rust parser
+> (`src/host/portable_target_admission.rs:2159-2177`,
+> `generated_scope_vector_deserializes_through_the_production_parser`),
+> and both round-3 reviewers verified it independently.
+>
+> **Figures withdrawn (2026-08-07b).** The 2026-08-07 form of this block
+> also carried `cargo test --lib` 719/0, the Rust scoped fixtures 14/0,
+> `check:secure-mode` green, "the fix is break-tested," and "the
+> report-schema version seam closed repo-wide." None had a retained
+> artifact or a §11 row, so under §3 rule 1 they were not admissible
+> figures and are **dropped** rather than restated. That is the honest
+> disposition, not a claim that the runs did not happen: they are
+> unretained, and an unretained green is exactly what rule 11 exists to
+> refuse.
+>
+> **Rule 11 is therefore NOT discharged for Phase 1.** No artifact exists
+> under `llp/reviews/` for the implementation review, so none of rule 11's
+> five discharge items — reviewed revision, independence statement,
+> break-test commands and results, commands and outputs for every claimed
+> figure, disposition of every finding — is auditable. Retaining that
+> artifact is now an explicit **exit-gate item** for this phase.
+>
+> **Still open before this phase exits:** the rule-11 discharge artifact
+> above; the review's MATERIAL findings, which survive only as prose in
+> this document and cannot be re-derived without it — a reported
+> collision between two conformance-report schema ids (not locatable in
+> the repo as written: `schemas/capsec-conformance-report-v2.schema.json`
+> is the only conformance-report schema on disk carrying an `$id`, so the
+> finding must be restated against real files or withdrawn), three
+> further fixtures asserting less than their names claim, and matrix rows
+> M11 and M26 unpinned; and the §5.2 disposition of the 73 poisoned
+> cells. The "seam closed repo-wide" claim is likewise withdrawn until it
+> names the files it covers.
 
 ## 6. Phase 2 — The authoring campaign (parallel with Phase 1)
 
-Authoring needs no gate code, so this phase starts once Phase 0 completes
-and runs concurrently with Phase 1. Two honesty constraints bound the
-parallelism:
+This phase starts once Phase 0 completes and runs concurrently with
+Phase 1 because it does not depend on Phase 1's **scope-identity** gate
+code — not because it is code-free work. §6.1 measures the opposite:
+**2,540 of the 3,911 in-scope rows sit behind new executor
+construction**, and both classes the calibration tranche actually closed
+needed Rust executor changes. Phase 2's dominant work product is
+security-sensitive Rust in the batch executors, so §3 rule 11 applies to
+it (see this phase's exit gate). What Phase 2 does *not* touch is the
+scope-validating consumers, the scope-artifact generator, and the
+`ScopedAdvertised` arm state — those are Phase 1's, and that is what
+makes the phases concurrent. (The 2026-08-07 revision opened this section
+with "Authoring needs no gate code," which its own calibration result
+contradicted two pages later; corrected 2026-08-07b.) Two further
+honesty constraints bound the parallelism:
 
 - **Everything Phase 2 executes is diagnostic.** Authoritative promotion
   evidence is produced only by the Phase 3 ceremony (LLP 0032's authority
@@ -601,8 +788,15 @@ parallelism:
 budget that sizes this fan-out — register item c); worklist re-derived
 from the §4.1 post-seeding measurement.
 
-**Worklist:** the ~3,922 clean authorable rows across ~80 template classes
-(re-derived at entry per §3 rule 5).
+**Worklist:** **3,911 clean authorable rows across 488 surfaces in 79
+template classes** — the retained calibration-close measurement
+(`llp/evidence/0049-scope-measurement-phase2-calibration-close.json`,
+catalog `sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs`), re-derived
+at entry per §3 rule 5. Through the 2026-08-07 revision this line still
+read "~3,922 rows across ~80 template classes," a 2026-08-05 figure §2's
+own denominator note had already declared superseded. §6.1 partitions
+these same 3,911 rows by **executor tier**, which is the partition that
+governs sequencing.
 
 **The loop, per template class** (proven by the env:write landing):
 author template → run batch on the bound engine → pin the observed typed
@@ -614,8 +808,14 @@ and 7) → commit, retaining the batch evidence envelope as
 D2, confirm per family that every surplus `fs:list` is traversal-stage
 before pinning.
 
-**Fan-out method (measured in Phase 1, 2026-08-07).** Phase 2 is a much
-larger parallel campaign than Phase 1, so record what actually worked:
+**Fan-out method — retrospective, from Phase 1's parallel run
+(2026-08-07).** Labeled "measured" through the 2026-08-07 revision; it is
+not a measurement in the §3 rule 1 sense — no sample, no comparison
+against an alternative method, no retained artifact — so it is relabeled
+here. Its two mechanically checkable parts are promoted to §3 rule 12,
+which binds; **everything else below is non-binding operational
+advice.** Phase 2 is a much larger parallel campaign than Phase 1, so
+record what actually worked:
 give every agent its own **git worktree on its own branch** — exclusive
 file ownership is not enough on its own, because agents sharing a checkout
 collide on git state rather than on files; verify each branch's true diff
@@ -661,17 +861,8 @@ closed to the full gate standard (16 rows: `surface.native.op × [env:read]`
 whole class, and two direct-list cells of `surface.native.op × [fs:list]`),
 one class stopped on a genuine enforcement defect, and **the two remaining
 candidate classes were rejected because they are executor-construction
-work, not template authoring**. The measured findings that supersede the
-paragraph above:
+work, not template authoring**. What survives from that tranche:
 
-- **Only `native-op` has an executor that can produce an effectful
-  source-bound receipt today.** `surface.host.abi`'s probe path admits only
-  non-capability module-runner ABIs with zero expected decisions;
-  `surface.startup.env`'s effectful path is keyed to a closed table of
-  eleven reviewed `process.env` read sources, and its `env:write` cells are
-  Android/Rust startup sources with no JS-invocable surface at all. A
-  tranche "spanning surface kinds" therefore cannot be authored — each new
-  surface kind requires **Rust executor construction first**.
 - **Both completed classes needed executor changes**, one requiring three
   separate generalizations for six rows. LLP 0036's "small executor edit
   per family" is confirmed as the real unit of work, and it is
@@ -682,12 +873,227 @@ paragraph above:
 - Inventory growth measured 0 during the session, but that is an artifact
   of a session that changed no surface-bearing source — §9's net-closure
   criterion still needs a cross-session boundary measurement.
+- The `surface.native.op × [env:read, fs:list]` enforcement-defect stop
+  **is discharged**: `issues/20260806-exactwhich-declares-typed-effects-it-never-emits.md`
+  is in `issues/closed/`, fixed by `54f69d0df` (typed enforcement for
+  `__exactWhich`), and the class is re-authorable. The stop is accurate as
+  history and stale as status; recorded here so nobody re-opens it.
 
-**Consequence for sequencing:** the campaign cannot be scaled until the
-per-surface-kind executor-construction cost is measured. §10 item (f)
-records that as an author decision; the recommended discharge is a bounded
-spike on the highest-row non-`native-op` surface kind, chosen from a fresh
-per-surface-kind row distribution rather than by intuition.
+**Withdrawn (2026-08-07b): "only `native-op` has an executor that can
+produce an effectful source-bound receipt today."** That sentence was the
+premise of the previous revision's §9 kill criterion and §10 item (f). It
+is **false**, and it is false in a specific way this plan's own §3 rule 2
+forbids: the calibration examined three surface kinds and found that
+*among them* only `native-op` had such an executor; this document dropped
+the domain and wrote it as a universal. Both round-3 reviewers falsified
+it independently and with different counterexamples — Fable via
+`surface.builtin.export`, Codex via `surface.startup.env` — and the
+per-surface-kind measurement in §6.1 falsifies it directly: **three**
+effectful executors exist.
+
+Where the fault lies, precisely, because it is tempting to put all of it
+on this document. The calibration artifact's `honestAccounting` field
+*is* correctly scoped — it says the **two rejected candidate classes**
+had no executor able to produce a receipt for an effectful surface of
+their kind, which remains true. But its `costModelFindings[3]` opens with
+the same unbounded sentence in miniature ("Only native-op had an executor
+able to produce an effectful source-bound receipt") and then concedes two
+sentences later that `surface.startup.env` "has an effectful probe path."
+So the artifact is internally inconsistent, and the plan promoted the
+weaker half of it. The lesson in §3.1 applies to both: an evidence
+artifact is not exempt from the quantifier discipline, and a plan reading
+one must reconcile it against itself before inheriting a sentence.
+
+§3.1 records the meta-lesson. §6.1 replaces the claim with the
+measurement; §6.2 records what the measurement means for the scope
+selection itself.
+
+### 6.1 The measured executor capability matrix (2026-08-07)
+
+Retained at
+`llp/evidence/0049-executor-capability-matrix-ff9b3031….json` (schema
+`ibex/llp-evidence/executor-capability-matrix/1`), generated at HEAD
+`322b4260d` against catalog
+`sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs` (22,505 required
+fixtures) and joined to the same scope logic as
+`scripts/capsec-scope-measurement.mjs`, so its 3,911 rows / 488 surfaces
+/ 79 classes reconcile exactly with the §6 worklist. Every executor tier
+below was derived by reading the emitting Rust; every claim in the
+artifact carries `file:line`.
+
+**Tiers.** An *effectful source-bound receipt* is a fully-executable
+recipe whose public-surface invocation carries
+`expectedTypedDecisionCount > 0` **and** non-empty capability action ids,
+validated against decisions harvested from the loaded engine.
+
+- **T0** — no executor serves this surface kind at all.
+- **T1** — an executor exists but structurally cannot produce an
+  effectful receipt (hard-asserts non-capability classification, and/or
+  pins `expected_typed_decision_count == 0`, and/or pins empty action
+  ids).
+- **T2** — effectful, but only for an enumerated reviewed set of sources;
+  a new source needs a reviewed-table edit.
+- **T3** — reusable effectful: generic invocation machinery; a new
+  surface needs arguments and setup but no structural change.
+
+| surface kind | tier | rows | surfaces | classes | executor(s) | what a new row costs |
+| --- | :-: | ---: | ---: | ---: | --- | --- |
+| `surface.loader.route` | T0 | 1,195 | 131 | 9 | — | new executor construction |
+| `surface.builtin.export` | T2 | 673 | 98 | 10 | `builtin-public` (effectful, `capsec_public_builtin_batch.rs:1683`) | reviewed-table edit for `node:os`-shaped exports only — see qualification 1 |
+| `surface.startup.env` | T2 | 498 | 52 | 8 | `startup-environment-public` (effectful, `capsec_public_startup_environment_batch.test.rs:1627`) | reviewed-table edit — see qualification 1 |
+| `surface.loader.function` | T1 | 487 | 47 | 5 | `module-loader-captured-route` (`capsec_public_noncap_builtin_batch.rs:3825`) | new effectful path |
+| `surface.loader.operation` | T0 | 310 | 55 | 5 | — | new executor construction |
+| `surface.host.abi` | T1 | 270 | 45 | 9 | `host-abi-public` (`capsec_conformance_batch.rs:3078`), `module-runner-host-abi` (`:3526`) | new effectful path — see qualification 3 |
+| `surface.native.op` | T3 | 200 | 31 | 10 | `native-public` (effectful, `capsec_conformance_batch.rs:4091`) | arguments + setup, no structural change — see qualification 2 |
+| `surface.loader.entry` | T0 | 132 | 11 | 3 | — | new executor construction |
+| `surface.startup.supervisor` | T0 | 50 | 10 | 4 | — | new executor construction |
+| eight leaf loader kinds (`require`, `json`, `commonjs`, `dynamic`, `native`, `esm`, `private`, `oxc`) | T0 | 12 each = 96 | 1 each = 8 | 2 each = 16 | — | new executor construction |
+| **total** | | **3,911** | **488** | **79** | | |
+
+**Rolled up by tier — this is the number that governs the campaign:**
+
+| tier | rows | share | meaning |
+| --- | ---: | ---: | --- |
+| T3 | 200 | 5.1% | reachable with no structural executor change |
+| T2 | 1,171 | 29.9% | nominally a reviewed-table edit |
+| T1 | 757 | 19.4% | an executor exists and cannot be made to emit a receipt as written |
+| T0 | 1,783 | 45.6% | no executor at all |
+| **T1 + T0** | **2,540** | **64.9%** | **behind new executor construction** |
+
+Three effectful executors serve the worklist today: `native-public`
+(T3, generic — `setup_script` `capsec_conformance_batch.rs:1018`,
+`materialize_native_arguments` `:1394`, `native_invocation_script`
+`:1543`, with no `_ => panic!` catch-all on a global name),
+`builtin-public` (T2 — classification pinned to `"effects"`
+`capsec_public_builtin_batch.rs:1042`, observed typed decisions validated
+against the pinned count `:1077-1084`, real on-disk postconditions
+`:517-601`, 205 recipes already authored for this tuple `:449-463`), and
+`startup-environment-public` (T2 — classification pinned to `"effects"`
+`capsec_public_startup_environment_batch.test.rs:703`, `:881`, `env:read`
+effects validated against decisions harvested from a real loaded-engine
+evaluation `:1122-1152`).
+
+**Four qualifications, without which the tiers mislead:**
+
+1. **The T2 tiers are soft, and for this worklist mostly structural.**
+   Authorable rows are by construction rows whose sources are *not* yet
+   exercised, so a T2 tier always means at least one reviewed-table edit
+   per source — and here usually more. Only **3 of the 673**
+   `surface.builtin.export` rows and **0 of the 498**
+   `surface.startup.env` rows sit on a cell that already carries an
+   effectful fixture. The in-scope builtin-export sources are not
+   `node:os`: they are `exact_sqlite` 246, `node_fs` 210,
+   `node_fs_promises` 115, `node_child_process` 90, `node_dns` 12. The
+   executor pins `module_specifier == "node:os"`
+   (`capsec_public_builtin_batch.rs:628`) and `"node:fs"` (`:640`,
+   `:788`) and panics on anything else (`:970`), so **463 of the 673
+   rows are new-executor-scale work despite the T2 tier**, and the
+   remaining 210 `node_fs` rows each need a new `expected_caps` arm
+   behind a panic (`:656-686`, `:685`). On the startup side, **0 of the
+   52 authorable environment names overlap the 11-entry
+   `EXPECTED_SOURCES` table** (`:176-306`), and the worklist names are
+   startup path-resolution reads (`HOME`, `TMPDIR`, `EXACT_*`,
+   `IBEX_*`), not the tty/date/emitter mechanisms the executor's 5-arm
+   dispatch implements (`:1199-1246`, `:449-491`), so most also need new
+   mechanism JS on both sides. A further 102 of those 498 rows carry
+   `fs:*` or `process:*` actions that executor has never validated.
+2. **`process:*` is unproven everywhere, in every tier.** **Zero**
+   recipes with status `fully-executable` in the entire 22,505-row
+   catalog carry any `process:*` action id, while **197 authorable
+   in-scope rows touch `process:*`** (`surface.builtin.export` 90,
+   `surface.native.op` 59, `surface.startup.env` 48). The T3 tier on
+   `surface.native.op` does **not** imply its 59 `process:spawn` rows
+   are reachable: they have no `NativeProbeSetup` variant
+   (`capsec_conformance_batch.rs:302-350`) and no effectful precedent
+   anywhere, and the artifact records their structural cost as
+   explicitly **undetermined** — settling it needs an authoring attempt,
+   not more reading. The 200-row T3 figure is therefore an **upper
+   bound** on what is reachable without construction; 14 of the 31
+   authorable native globals are already proven effectful, the other 17
+   (spawn/exec/sqlite/which/readlink) are not.
+3. **`surface.host.abi` admits the `effects` classification and still
+   cannot emit a receipt** — and the mechanism matters, because the
+   2026-08-07 revision got it wrong while reaching the right
+   conclusion. `execute_host_abi_public_recipe` *does* admit
+   `classification == "effects"` (`capsec_conformance_batch.rs:3091`);
+   what blocks the receipt is that **both** host-abi executors pin
+   `expected_typed_decision_count == 0` (`:3111` and `:3552`), with
+   empty action ids and empty typed stages (`:3096`, `:3113`). Zero of
+   the 33 fully-executable host-abi-function probes in the catalog
+   carry a typed decision. Admitting the effects *classification* is not
+   producing an effectful *receipt*; only the second is a §3 rule 2
+   mechanism claim.
+4. **The loader block is the largest single obstruction and was never
+   examined by the calibration.** **1,783 rows — 45.6% of the worklist**
+   — are on surface kinds with **zero** public-surface probes of any
+   invocation schema (`surface.loader.route` 1,195,
+   `surface.loader.operation` 310, `surface.loader.entry` 132,
+   `surface.startup.supervisor` 50, and the eight leaf loader kinds at 12
+   each). Counting `surface.loader.function` (T1, 487 rows), the loader
+   family alone is **2,220 rows / 38 template classes / 56.8% of the
+   worklist**, and it contains this section's own cited largest in-scope
+   class (`surface.loader.route × [fs:list, fs:read]`, 454 rows across 77
+   surfaces). Its only two executors — `module-loader-authority`
+   (`capsec_conformance_batch.rs:3845`, non-capability `:3867`, zero
+   decisions `:3884`) and `module-loader-captured-route`
+   (`capsec_public_noncap_builtin_batch.rs:3825`, `:3837`, `:3845`) — are
+   both structurally non-effectful, so even reusing the nearest neighbour
+   discharges nothing. Whether those executors could be extended rather
+   than replaced is an authoring decision the artifact records as
+   undetermined.
+
+### 6.2 Executor reachability is a second scope-selection axis
+
+This is the part of the measurement that reaches past Phase 2.
+
+LLP 0044 selected **fs+env+process** as the v1.1 scope because it measured
+the scope **89% clean — 457 of 513 cells certifiable**
+(`llp/evidence/0044-scope-measurement-09e6aece….json`). That measurement
+is sound and is not in question. But it measured exactly one thing:
+**Lane B/C/D poisoning** — whether a cell's rows can be *proved* at all.
+
+**Executor reachability is a second, independent axis, and nobody
+measured it until 2026-08-07.** A cell can be perfectly clean on the
+poisoning axis and still be unauthorable, because no executor can drive
+its surface kind. The two axes are genuinely independent: authorable rows
+are *by definition* rows on clean cells, and yet 2,540 of them — 65% —
+are behind new executor construction. `surface.loader.route` is the
+worked example: 1,195 authorable rows, every one on a clean cell, not one
+of them reachable.
+
+**The consequence, stated plainly: scope selection needs both axes, and
+the current scope was chosen on one of them.** fs+env+process is clean;
+fs+env+process is not reachable. With 65% of the selected scope behind new
+executor construction of unmeasured size, **fs+env+process as selected is
+a materially larger program than LLP 0044 priced** — LLP 0044 §9's
+half-day-to-a-day-and-a-half per template class assumed template
+authoring against existing executors, which describes 5.1% of the
+worklist.
+
+Two corollaries for the machinery, not just for this scope:
+
+- **The scope-measurement tool measures one axis.**
+  `scripts/capsec-scope-measurement.mjs` reports cells / clean / poisoned
+  / authorable rows / surfaces / template classes. It cannot report
+  reachability, so a scope selected from its output alone is selected on
+  half the evidence. Joining an executor-tier column into that tool — the
+  matrix artifact already replicates its scope logic exactly, so the join
+  is mechanical — would make both axes visible at every §3 rule 5
+  boundary. Recommended as a Phase 2 instrument; not yet a deliverable,
+  because §10 item (f) may re-cut the scope first.
+- **"Authorable" is the wrong word for what the tool counts.** It counts
+  *unpoisoned*. A row is authorable only if it is both unpoisoned and
+  reachable. This document keeps the tool's vocabulary to stay
+  reconcilable with the retained artifacts, but the distinction is real
+  and is the reason §6.1 exists.
+
+**Consequence for sequencing.** The campaign cannot be scaled until the
+per-surface-kind executor-construction cost is measured, and the scope
+itself may need re-cutting on the reachability axis before that cost is
+worth measuring. §10 item (f) carries the fork, and it is now a genuine
+scope/budget decision rather than a scheduling question.
+
+### 6.3 Phase 2 exit gate
 
 Exit gate (command):
 `node scripts/capsec-scope-measurement.mjs --families fs,env,process
@@ -696,7 +1102,12 @@ the pre-gate-code equivalent of scoped `unresolved-in-scope === 0` for the
 clean set (once Phase 1's scoped `assertRecipeCatalogComplete` exists, it
 supersedes this assertion); every batch's evidence envelope digest-bound
 and retained; zero unexplained route-evidence or terminal deltas over the
-whole campaign.
+whole campaign; **and, per §3 rule 11, a retained independent
+implementation review with break-tests for every batch that lands an
+executor change** — the exemption for a template-only batch is claimed in
+that batch's evidence envelope, not assumed. Since §6.1 measures executor
+work as this phase's dominant work product, the rule-11 item is the
+phase's principal exit condition, not a formality.
 
 ## 7. Phase 3 — Ceremony, admission, advertisement
 
@@ -774,11 +1185,43 @@ loops (LLP 0026–0045) ran 3–8 rounds over 3–10 days.
   inventory growth ≥ rows authored in the interval), authoring is losing
   to growth outright → return to the author. Slower-but-positive closure
   is governed by the 8-week projection line above, not by this criterion.
-- **Executor-construction cost exceeds its spike estimate by 2x** on any
-  surface kind → stop scaling that kind and return to the author with the
-  measurement; the per-kind multiplier is the campaign's dominant unknown
-  (§6 calibration result, §10 item f), and a blown estimate there invalidates
-  every projection built on it.
+- **Executor-construction cost exceeds the baseline by 2x on any surface
+  kind** → stop scaling that kind and return to the author with the
+  measurement. The per-kind multiplier is the campaign's dominant unknown
+  (§6.1, §10 item f), and a blown estimate there invalidates every
+  projection built on it. The 2026-08-07 form of this criterion said
+  "exceeds its spike estimate by 2x" and **had no operand** — no unit, no
+  baseline, no artifact, and a spike defined as a measurement rather than
+  an estimate. Round 2 killed a criterion for wrong arithmetic; this one
+  had none. Fully specified, it is:
+  - **Unit.** Executor-construction wall-clock minutes per authorable row
+    of the surface kind — continuous with what the calibration tranche
+    already records per class (`authoringWallClockMinutes`,
+    `correctionLoopIterations`). Template authoring, batch runtime and
+    catalog regen are counted separately and are **not** in this unit;
+    the criterion prices Rust construction, which is what §6.1 says
+    dominates.
+  - **Baseline `E`.** The cost-per-row measured by the §10(f)(iii)
+    spike, retained as
+    `llp/evidence/0049-executor-spike-<surface-kind>-<digest>.json` and
+    given a §11 row when it lands. That artifact must record: the surface
+    kind, its pre-spike tier, rows closed, executor-construction minutes,
+    correction-loop iterations, and the resulting cost-per-row.
+  - **Extrapolation rule (explicit, because one spike cannot price every
+    kind).** `E` from a spike at tier `t` is the baseline for every
+    surface kind at tier `t` **or worse** (T0 is worse than T1; both mean
+    new construction). A kind at a **strictly better** tier inherits
+    nothing — a T2 kind is not priced by a T0 spike and gets its own
+    first-class measurement before it is scaled. No baseline crosses
+    from a better tier to a worse one in either direction by default.
+  - **Predicate.** For surface kind `k`, let `C_k` be the measured
+    cost-per-row once the greater of one full template class or 20% of
+    `k`'s authorable rows has closed. `C_k > 2 × E` → stop scaling `k`.
+  - **Armed state.** Until the spike artifact exists this criterion is
+    **unevaluable and is not in force**, and this plan says so rather
+    than implying a gate that cannot fire. If §10 item (f) resolves to an
+    option with no spike, the first surface kind whose construction is
+    funded produces `E` instead, under the same artifact contract.
 - **Cumulative reforecast**: every post-calibration LLP 0037 stop (a new
   attribution pattern) re-projects the end date; a third stop, or any
   re-projection past the 8-week line, re-opens item 9 — repeated
@@ -825,6 +1268,16 @@ loops (LLP 0026–0045) ran 3–8 rounds over 3–10 days.
 > disposition and recorded. Item (c) is thereby discharged (the packet is
 > decided; Phase 2 may enter). Items (b), (d), (e) stand as written —
 > (b) activates in Phase 1, (d) at Phase 3 close.
+>
+> **Ledger — 2026-08-07b:** item (f) is **OPEN**, and it is the register's
+> only genuine fork. The "author indicated agreement 2026-08-07" recorded
+> in the previous revision's (f) was given under the executor claim §6.1
+> falsifies, so it does **not** carry and is withdrawn; item (f) below is
+> rewritten with four options and a changed recommendation. Item (a)'s
+> decision on LLP 0044 item 4 — **fs+env+process** as the v1.1 scope — is
+> the specific decision option (f)(ii) would re-open: it was taken on the
+> poisoning axis alone (§6.2), and re-opening it is a scope change, not a
+> process failure. No other item's status changes.
 
 a. **Adopt the Phase 0 decision packet** (LLP 0044 items 1, 2, 3, 4, 6, 8,
    9, 10 — all eight decided at §4.2 exit — plus the
@@ -847,26 +1300,86 @@ d. **Whether a verified scoped advertisement satisfies LLP 0039's
    condition for retiring `unadvertised-dev-arming`.** Recommendation:
    partially — retire it for the advertised tuple only, keep it elsewhere;
    record the ruling in LLP 0039 either way.
-f. **The per-surface-kind executor-construction budget** (raised by the
-   2026-08-06 calibration result in §6; the one genuinely open scope/budget
-   trade). Only `native-op` can produce an effectful source-bound receipt
-   today, so the ~79 remaining template classes are gated on Rust executor
-   work of unmeasured size. Options: **(i)** a bounded spike on the
-   highest-row non-`native-op` surface kind — chosen from a fresh
-   per-surface-kind row distribution, closed to the full gate standard,
-   purely to measure the multiplier before committing (**recommended**;
-   author indicated agreement 2026-08-07); **(ii)** fund broad parallel
-   executor construction across surface kinds up front; **(iii)** narrow
-   the v1.1 scope to what `native-op` can already reach and defer the rest.
-   Until this is discharged, no campaign end date may be projected — §9's
-   8-week criterion has nothing to measure against.
-
 e. **Review intensity for this plan itself.** Recommendation: stakes-scaled
    per LLP 0005 — this document sequences work but changes no claim
    boundary itself; the claim-boundary artifacts it produces (Phase 1
    package, including the two must-amend consumers' implementations) carry
    the formal loop instead. (This document received a bounded two-round
-   dual-model review on 2026-08-06; artifacts under `llp/reviews/0049-*`.)
+   dual-model review on 2026-08-06 and a third, execution-round delta
+   review on 2026-08-07 — both families NOT READY; artifacts under
+   `llp/reviews/0049-*`.)
+
+f. **The v1.1 scope, re-opened on the executor-reachability axis.**
+   *(Printed between (d) and (e) through the 2026-08-07 revision; moved to
+   its correct position 2026-08-07b.)* **This is a genuine author fork —
+   scope and budget — not a scheduling question,** and it is the only such
+   item now open in this register.
+
+   *Status of the prior agreement.* The 2026-08-07 revision recorded
+   "author indicated agreement" with a bounded spike. That agreement was
+   given under the premise that only `native-op` had an effectful
+   executor and the remaining ~79 classes were uniformly gated on Rust
+   work. §6.1 falsifies that premise: three effectful executors exist, the
+   worklist splits 200 / 1,171 / 757 / 1,783 across tiers, and the kind a
+   spike would land on was never examined. **The agreement therefore does
+   not carry, and (f) is open.**
+
+   *What is actually measured* (§6.1, from
+   `llp/evidence/0049-executor-capability-matrix-ff9b3031….json`): of
+   3,911 in-scope rows, **200 (5.1%) are reachable with no structural
+   executor change** — and 59 of those are `process:spawn` rows with no
+   precedent anywhere and an undetermined structural cost — while **2,540
+   (64.9%) are behind new executor construction**, and **1,783 (45.6%)
+   are on surface kinds with no executor of any kind**.
+
+   Options:
+
+   - **(i) Fund the executor construction for the full fs+env+process
+     scope.** ~2,540 rows behind new executors, spanning the loader
+     family (2,220 rows / 38 classes, no effectful path at all), the
+     host-abi family (270 rows), plus structural work for 463 of the 673
+     builtin-export rows. Honest about what LLP 0044 chose; expensive,
+     and its size is unmeasured in every one of those kinds.
+   - **(ii) Re-cut the v1.1 scope on the executor-reachability axis —
+     advertise a genuinely reachable scope first. (Recommended.)** The
+     scope was selected on the poisoning axis alone (§6.2); re-cutting it
+     with reachability joined in produces a first advertisement that can
+     actually be built, on evidence that already exists rather than on a
+     spike yet to be run. **Why this is not a dead end:** LLP 0021 §A5
+     makes lineage **monotone** — narrowing is expressible only as
+     inventory retirement or authenticated rename/split/merge, and every
+     expansion is a **new promotion, never an edit** (§8). Scope grows
+     over time by construction, so a small honest first advertisement is
+     the intended growth path, not a ceiling. **What it costs:** a
+     smaller first claim. The advertised surface would be a fraction of
+     fs+env+process, the release note's uncertified remainder would be
+     correspondingly larger, and LLP 0044's "fs+env+process" headline
+     would not be the v1.1 claim. §3 rule 8 already requires that
+     remainder to carry no conformance claim, so the smaller scope costs
+     credibility only if the plan oversells it — which is the failure
+     this whole revision exists to correct.
+   - **(iii) A bounded spike on `surface.loader.route`** — the highest-row
+     unreachable kind at 1,195 rows / 131 surfaces / 9 classes, and the
+     home of the largest in-scope class (454 rows). Closed to the full
+     gate standard, purely to price executor construction before
+     choosing, and producing the `E` baseline §9's criterion needs. Note
+     what this option is: it defers the choice between (i) and (ii) by
+     buying information, and it buys that information from the hardest
+     kind in the worklist, which is the right place to buy it and also
+     the most expensive.
+   - **(iv) Exhaust the 200 reachable rows first.** Honestly: this is
+     **5.1% of the worklist**, it does not constitute a campaign, and it
+     cannot on its own reach `unresolved-in-scope === 0` for any scope
+     worth advertising. It is a **sequencing detail** — sensible under
+     (ii) and harmless under (i) or (iii) — not a strategy, and it should
+     not be recorded as one. (Round-3 review proposed a larger version of
+     this option, ~873 rows including all of builtin-export; §6.1
+     qualification 1 falsifies it — 463 of those 673 rows are structural
+     and the other 210 each need a Rust arm behind a panic.)
+
+   Until (f) is discharged, no campaign end date may be projected: §9's
+   8-week line has nothing to measure against, and §9's executor-cost
+   criterion is explicitly unarmed.
 
 ## 11. Evidence index
 
@@ -887,3 +1400,7 @@ compliance if a §3 rule 1 figure lacks a row.
 | Phase 2 calibration close scope measurement (3,927 → 3,911 rows / 491 → 488 surfaces / 80 → 79 classes) | llp/evidence/0049-scope-measurement-phase2-calibration-close.json (catalog `sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs`) | §6 |
 | per-batch evidence envelopes | llp/evidence/0049-batch-`<template-class>`-`<digest>`.json — landed: `native-op-env-read-5EaSZ…` (6 rows), `native-op-fs-list-dzsLtl…` (10 rows) | §6 |
 | per-class paired allow-lists (rule 3, strict mode) | llp/evidence/0049-allow-list-class-native-op-env-read.json, llp/evidence/0049-allow-list-class-native-op-fs-list.json | §6 |
+| **per-surface-kind executor capability matrix** — the source of every §6.1/§6.2/§10(f) figure (3,911 rows by tier: T3 200 / T2 1,171 / T1 757 / T0 1,783; 2,540 behind new executor construction; 197 process-touching rows; 0 fully-executable `process:*` recipes in 22,505) | llp/evidence/0049-executor-capability-matrix-ff9b303171350b36604359a8eb026d88a32d3248703d004c62b712a46623acd7.json (schema `ibex/llp-evidence/executor-capability-matrix/1`, generated at HEAD `322b4260d`, catalog `sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs`) | §6.1 |
+| LLP 0044 day-one 89%-clean scope selection (457 of 513 cells certifiable) — the one-axis measurement §6.2 says is necessary and not sufficient | llp/evidence/0044-scope-measurement-09e6aece….json | §6.2 |
+| Phase 1 implementation review + break-tests (§3 rule 11 discharge) | **OWED** — llp/reviews/0049-phase1-implementation.`<family>`.md; not yet retained, so rule 11 is undischarged for Phase 1 and the §5.3 gate-code figures are withdrawn rather than restated | §5.3 |
+| executor-construction spike cost baseline (`E` for §9's criterion) | **OWED, conditional on §10(f)** — llp/evidence/0049-executor-spike-`<surface-kind>`-`<digest>`.json; until it exists §9's executor-cost criterion is unarmed | §9 |
