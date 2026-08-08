@@ -584,6 +584,41 @@ net-closure criterion needs both slopes. Only the measured slope, not
 LLP 0044's "2–4 weeks at 4–8 streams" estimate, is allowed to project the
 campaign end date.
 
+**Calibration result, 2026-08-06 — the tranche as designed above is not
+achievable, and the unit of work is not what this section assumed.**
+Evidence: `llp/evidence/0049-calibration-tranche-report.json`. Two classes
+closed to the full gate standard (16 rows: `surface.native.op × [env:read]`
+whole class, and two direct-list cells of `surface.native.op × [fs:list]`),
+one class stopped on a genuine enforcement defect, and **the two remaining
+candidate classes were rejected because they are executor-construction
+work, not template authoring**. The measured findings that supersede the
+paragraph above:
+
+- **Only `native-op` has an executor that can produce an effectful
+  source-bound receipt today.** `surface.host.abi`'s probe path admits only
+  non-capability module-runner ABIs with zero expected decisions;
+  `surface.startup.env`'s effectful path is keyed to a closed table of
+  eleven reviewed `process.env` read sources, and its `env:write` cells are
+  Android/Rust startup sources with no JS-invocable surface at all. A
+  tranche "spanning surface kinds" therefore cannot be authored — each new
+  surface kind requires **Rust executor construction first**.
+- **Both completed classes needed executor changes**, one requiring three
+  separate generalizations for six rows. LLP 0036's "small executor edit
+  per family" is confirmed as the real unit of work, and it is
+  security-sensitive Rust, not template text.
+- **Do not project the campaign from this sample.** Two `native-op` classes
+  of 1–2 cells each, against a distribution whose largest in-scope class is
+  454 rows across 77 surfaces.
+- Inventory growth measured 0 during the session, but that is an artifact
+  of a session that changed no surface-bearing source — §9's net-closure
+  criterion still needs a cross-session boundary measurement.
+
+**Consequence for sequencing:** the campaign cannot be scaled until the
+per-surface-kind executor-construction cost is measured. §10 item (f)
+records that as an author decision; the recommended discharge is a bounded
+spike on the highest-row non-`native-op` surface kind, chosen from a fresh
+per-surface-kind row distribution rather than by intuition.
+
 Exit gate (command):
 `node scripts/capsec-scope-measurement.mjs --families fs,env,process
 --catalog <fresh> --assert clean-unresolved=0` passes on a fresh catalog —
@@ -669,6 +704,11 @@ loops (LLP 0026–0045) ran 3–8 rounds over 3–10 days.
   inventory growth ≥ rows authored in the interval), authoring is losing
   to growth outright → return to the author. Slower-but-positive closure
   is governed by the 8-week projection line above, not by this criterion.
+- **Executor-construction cost exceeds its spike estimate by 2x** on any
+  surface kind → stop scaling that kind and return to the author with the
+  measurement; the per-kind multiplier is the campaign's dominant unknown
+  (§6 calibration result, §10 item f), and a blown estimate there invalidates
+  every projection built on it.
 - **Cumulative reforecast**: every post-calibration LLP 0037 stop (a new
   attribution pattern) re-projects the end date; a third stop, or any
   re-projection past the 8-week line, re-opens item 9 — repeated
@@ -737,6 +777,20 @@ d. **Whether a verified scoped advertisement satisfies LLP 0039's
    condition for retiring `unadvertised-dev-arming`.** Recommendation:
    partially — retire it for the advertised tuple only, keep it elsewhere;
    record the ruling in LLP 0039 either way.
+f. **The per-surface-kind executor-construction budget** (raised by the
+   2026-08-06 calibration result in §6; the one genuinely open scope/budget
+   trade). Only `native-op` can produce an effectful source-bound receipt
+   today, so the ~79 remaining template classes are gated on Rust executor
+   work of unmeasured size. Options: **(i)** a bounded spike on the
+   highest-row non-`native-op` surface kind — chosen from a fresh
+   per-surface-kind row distribution, closed to the full gate standard,
+   purely to measure the multiplier before committing (**recommended**;
+   author indicated agreement 2026-08-07); **(ii)** fund broad parallel
+   executor construction across surface kinds up front; **(iii)** narrow
+   the v1.1 scope to what `native-op` can already reach and defer the rest.
+   Until this is discharged, no campaign end date may be projected — §9's
+   8-week criterion has nothing to measure against.
+
 e. **Review intensity for this plan itself.** Recommendation: stakes-scaled
    per LLP 0005 — this document sequences work but changes no claim
    boundary itself; the claim-boundary artifacts it produces (Phase 1
