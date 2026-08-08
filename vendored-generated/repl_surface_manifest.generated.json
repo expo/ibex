@@ -20,14 +20,14 @@
     },
     {
       "path": "capsec/registry/policy-rules.json",
-      "sha256": "7274868262f28dff973328cde4d9de5508cd85d1c449e21355a9c2d40c328ed7"
+      "sha256": "d6adac4ee22a96516562f33130434d2cfcc4212d4d755efdde4b883d74400fbc"
     }
   ],
   "outputs": [
     {
       "name": "rust",
       "path": "vendored-generated/repl_surface.generated.rs",
-      "sha256": "02824c207a0a3d8a31491279f7e2f44c93576edd3922bc964951a693703134a4"
+      "sha256": "52b9258335ad3ca42fb9974e42c8bcf294573b23abd5592c9864fdb0c3d4e596"
     },
     {
       "name": "help",

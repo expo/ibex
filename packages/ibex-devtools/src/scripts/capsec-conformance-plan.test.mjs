@@ -189,7 +189,7 @@ test("the scoped ceremony preserves gate order and validates physical closure", 
   ]);
   expect(source).toContain('"--scope-output-dir"');
   expect(source).toContain(
-    "closureEdgeIds: scopeArtifact.expandedCellIds",
+    "allowedObservedEdgeIds: scopeArtifact.expandedCellIds",
   );
   expect(source).toMatch(
     /trackedAdvertisementCandidate:[\s\S]*?"target-advertisements\.json"/u,

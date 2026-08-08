@@ -108,6 +108,48 @@ func TestStableV2ExpectationsDeriveOnlySignedRunObservations(t *testing.T) {
 	}
 }
 
+// M26 is deliberately scope-transparent: it authenticates the signed engine
+// subject and provenance, not a CapSec report, advertisement, or cell set.
+// @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M26 consumes no
+// CapSec claim schema and must not silently acquire one.
+func TestAttestationVerifierRemainsScopeTransparent(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{
+		"scopeDigest",
+		"conformanceSchema",
+		"targetAdvertisementSchema",
+	} {
+		t.Run(field, func(t *testing.T) {
+			stable := oracleStableExpectations(t)
+			stable[field] = "scope-bearing-value"
+			if _, err := parseStableExpectations(mustMarshalJSON(t, stable), privateTrustProfile); err == nil {
+				t.Fatalf("scope-transparent expectations unexpectedly consumed %s", field)
+			}
+		})
+	}
+
+	artifact := materializeOracleArtifact(t)
+	result, err := verifyFiles(
+		filepath.Join(githubPrivateOracleDirectory, "bundle.json"),
+		artifact,
+		filepath.Join(githubPrivateOracleDirectory, "expectations.json"),
+	)
+	if err != nil {
+		t.Fatalf("verifyFiles: %v", err)
+	}
+	decoded := decodeJSONObject(t, result)
+	for _, field := range []string{
+		"scopeDigest",
+		"conformanceSchema",
+		"targetAdvertisementSchema",
+	} {
+		if _, present := decoded[field]; present {
+			t.Fatalf("scope-transparent verification result unexpectedly emitted %s", field)
+		}
+	}
+}
+
 func TestPinnedGitHubPrivateRoot(t *testing.T) {
 	t.Parallel()
 

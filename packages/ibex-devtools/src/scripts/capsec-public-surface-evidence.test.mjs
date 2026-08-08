@@ -1398,7 +1398,7 @@ function completeArtifact(catalog = completeCatalog()) {
     coverage,
     scopeDigest: SCOPE_DIGEST,
     expandedEdgeIds: ["edge.public"],
-    closureEdgeIds: ["edge.terminal"],
+    allowedObservedEdgeIds: ["edge.terminal"],
     executions: [
       buildPublicFixtureEvidence({
         recipe: catalog.recipes[0],
@@ -4464,13 +4464,18 @@ describe("CapSec public-surface promotion evidence", () => {
         engine,
         coverage,
         expandedEdgeIds: ["edge.public"],
-        closureEdgeIds: ["edge.terminal"],
+        allowedObservedEdgeIds: ["edge.terminal"],
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
   });
 
   test("keeps zero-decision remainder and compositions diagnostic-only", () => {
+    // This JS half is an F4 channel-separation smoke check only: it proves the
+    // diagnostic schema cannot be consumed as authoritative public evidence.
+    // The authoritative required/passed/execution union arithmetic is pinned
+    // by Rust admission's
+    // `out_of_scope_rows_keep_honest_required_fixtures_without_authoritative_credit`.
     const catalog = completeCatalog();
     const authoritative = completeArtifact(catalog);
     const authoritativeBytes = canonicalJson(authoritative);
@@ -9302,7 +9307,7 @@ describe("CapSec public-surface promotion evidence", () => {
       coverage,
       scopeDigest: SCOPE_DIGEST,
       expandedEdgeIds: recipe.edgeIds,
-      closureEdgeIds: recipe.edgeIds,
+      allowedObservedEdgeIds: recipe.edgeIds,
       executions: [execution],
     });
     expect(() =>
@@ -9313,7 +9318,7 @@ describe("CapSec public-surface promotion evidence", () => {
         engine,
         coverage,
         expandedEdgeIds: recipe.edgeIds,
-        closureEdgeIds: recipe.edgeIds,
+        allowedObservedEdgeIds: recipe.edgeIds,
         expectedFixtureIds: [recipe.fixtureId],
       }),
     ).not.toThrow();
@@ -10841,13 +10846,13 @@ describe("CapSec public-surface promotion evidence", () => {
       coverage,
       scopeDigest: SCOPE_DIGEST,
       expandedEdgeIds: ["edge.public"],
-      closureEdgeIds: ["edge.public"],
+      allowedObservedEdgeIds: ["edge.public"],
       executions: [],
     });
     expect(() =>
       assertPublicSurfaceExecutionComplete(artifact, catalog, {
         expandedEdgeIds: ["edge.public"],
-        closureEdgeIds: ["edge.public"],
+        allowedObservedEdgeIds: ["edge.public"],
       }),
     ).toThrow(/catalog is incomplete/);
   });

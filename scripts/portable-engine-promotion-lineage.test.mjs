@@ -275,7 +275,9 @@ async function createHistoryPromotion(fixture, {
     logicalName === "portable-conformance-report"
       ? `${evidenceRoot}/conformance-report.json`
       : logicalName === "scope-artifact"
-        ? `${evidenceRoot}/capsec-scope.json`
+        ? variant === "scope-row-non-reserved-path"
+          ? `${evidenceRoot}/scope.json`
+          : `${evidenceRoot}/capsec-scope.json`
         : `${evidenceRoot}/${logicalName}.json`;
   for (const member of graph.members) {
     await writeFile(repoRoot, memberPath(member.logicalName), member.bytes);
@@ -339,9 +341,7 @@ async function createHistoryPromotion(fixture, {
       return artifactRow(repoRoot, role, memberPath(member.logicalName));
     }),
   ];
-  const scopeRow = artifacts.find(
-    (row) => row.path === `${evidenceRoot}/capsec-scope.json`,
-  );
+  const scopeRow = artifacts.find((row) => row.role === "scope-artifact");
   if (variant === "scope-row-object-mismatch") {
     scopeRow.blobObjectId = "f".repeat(40);
   } else if (variant === "scope-row-size-mismatch") {
@@ -1390,9 +1390,15 @@ describe("M27 evolvable scoped promotion history", () => {
     });
     const prior = resolveHistory(fixture.repoRoot, promotion2.sourceRevision);
     assert.equal(prior.admittedScopeDigest, promotion1.declaredScopeDigest);
+    const admittedPrior = verifyPortableEngineScopePredecessor({
+      repoRoot: fixture.repoRoot,
+      startRevision: promotion2.sourceRevision,
+      target: clone(target),
+      predecessorScopeDigest: promotion2.scope.predecessor.scopeDigest,
+    });
     assert.equal(
-      promotion2.scope.predecessor.scopeDigest,
-      prior.admittedScopeDigest,
+      admittedPrior.admittedScopeDigest,
+      promotion1.declaredScopeDigest,
     );
   });
 
@@ -1499,20 +1505,17 @@ describe("M27 evolvable scoped promotion history", () => {
   test("F6f-5 accepts a new scope role only at the reserved evidence-prefix path", async () => {
     const fixture = await initializeHistoryRepository();
     const promotion = await createHistoryPromotion(fixture);
-    const scopePath = promotion.admission.artifacts.find((row) => row.role === "scope-artifact").path;
-    const oldHeadRolePredicate = spawnSync("/usr/bin/git", [
-      "cat-file",
-      "-e",
-      `${promotion.sourceRevision}:${scopePath}`,
-    ], { cwd: fixture.repoRoot, env: gitEnvironment, encoding: "utf8" });
-    assert.notEqual(
-      oldHeadRolePredicate.status,
-      0,
-      "HEAD before M19 refused this positive control by requiring every non-conformance role to pre-exist",
-    );
     const admitted = resolveHistory(fixture.repoRoot, promotion.mergeRevision);
     assert.equal(admitted.admittedScopeDigest, promotion.declaredScopeDigest);
-    assert.equal(scopePath.endsWith("/capsec-scope.json"), true);
+
+    const nonReservedFixture = await initializeHistoryRepository();
+    const nonReserved = await createHistoryPromotion(nonReservedFixture, {
+      variant: "scope-row-non-reserved-path",
+    });
+    assert.throws(
+      () => resolveHistory(nonReservedFixture.repoRoot, nonReserved.mergeRevision),
+      /scope-artifact must use the reserved evidence-prefix path/u,
+    );
   });
 
   test("current-schema historical hops also run the full portable graph checks", async () => {

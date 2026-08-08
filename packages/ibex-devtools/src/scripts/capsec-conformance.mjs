@@ -612,7 +612,7 @@ export function buildConformanceReport({
     );
   }
   const report = {
-    conformanceSchema: "ibex/capsec-conformance/3",
+    conformanceSchema: "ibex/capsec-conformance-rich/2",
     profile: "ibex/capsec/1",
     status,
     bindings: {
@@ -655,7 +655,7 @@ export function buildConformanceReport({
 
 export function assertReportMayAdvertise(report) {
   if (
-    report?.conformanceSchema !== "ibex/capsec-conformance/3" ||
+    report?.conformanceSchema !== "ibex/capsec-conformance-rich/2" ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
       report.bindings?.recipeCatalogDigest ?? "",
     ) ||

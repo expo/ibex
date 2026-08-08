@@ -396,6 +396,12 @@ pub struct CapsecScopedRefusal {
 #[serde(rename_all = "kebab-case")]
 pub enum CapsecScopedRefusalHostDisposition {
     Uncertified,
+    /// Defensive diagnostic for a private evaluator call that presents an
+    /// incomplete gate for a certified cell. Production recomputing ingresses
+    /// cannot produce this value; the private funnel fixture keeps the
+    /// distinction explicit without claiming a production producer.
+    /// @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — A3 reserves
+    /// incomplete-by-defect as telemetry distinct from uncertified posture.
     IncompleteDefect,
     AbsentEdge,
 }
@@ -4147,6 +4153,11 @@ impl Host {
         let Some(evidence) = decision
             .evidence
             .iter()
+            // The typed evaluator returns at the first incomplete target cell,
+            // so one decision has at most one matching refusal envelope. If
+            // that evaluator contract changes, this `find` must change with it.
+            // @ref LLP 0021#amendment-scoped-advertisement-2026-08-06 — F3
+            // requires exactly one host envelope per scoped refusal decision.
             .find(|evidence| evidence.reason == DecisionReason::TargetCellIncomplete)
         else {
             return;

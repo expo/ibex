@@ -95,7 +95,7 @@ afterAll(() => {
 });
 
 describe("LLP 0021 capsec contract", () => {
-  test("report v3 schemas require one scope binding and explicit uncertified accounting", () => {
+  test("rich and portable report schemas have distinct ids and the same scoped accounting floor", () => {
     const schemas = [
       fs.readFileSync(
         path.join(capsecRoot, "schema/conformance-report.schema.json"),
@@ -104,10 +104,18 @@ describe("LLP 0021 capsec contract", () => {
         path.join(capsecRoot, "../schemas/capsec-conformance-report-v2.schema.json"),
       ),
     ].map((bytes, index) => parseJsonStrict(bytes, `report schema ${index}`));
+    expect(
+      schemas.map((schema) => schema.properties.conformanceSchema.const),
+    ).toEqual([
+      "ibex/capsec-conformance-rich/2",
+      "ibex/capsec-conformance/3",
+    ]);
+    expect(
+      new Set(
+        schemas.map((schema) => schema.properties.conformanceSchema.const),
+      ).size,
+    ).toBe(2);
     for (const schema of schemas) {
-      expect(schema.properties.conformanceSchema.const).toBe(
-        "ibex/capsec-conformance/3",
-      );
       expect(schema.properties.bindings.required).toContain("scopeDigest");
       expect(schema.properties.bindings.properties.scopeDigest).toBeDefined();
       expect(schema.properties.bindings.additionalProperties).toBe(false);

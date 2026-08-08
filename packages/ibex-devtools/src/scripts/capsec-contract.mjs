@@ -701,7 +701,7 @@ const EXPECTED_DIGEST_PROJECTIONS = {
   },
   conformance: {
     status: "unavailable-until-wp10",
-    inputSchema: "ibex/capsec-conformance/3",
+    inputSchema: "ibex/capsec-conformance-rich/2",
     memberOrder: "not-applicable",
     members: ["conformance-report-object"],
     omitFields: ["conformanceDigest"],
