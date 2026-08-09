@@ -8239,6 +8239,94 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
+  test("authors exact on-disk SQLite open branches with owned setup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactSqliteOpen" &&
+        ["file-read", "file-read-write"].some((branch) =>
+          recipe.fixtureId.includes(`.logical.${branch}.`),
+        ),
+    );
+    expect(rows).toHaveLength(12);
+    expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
+      true,
+    );
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.length === 1 &&
+          recipe.publicSurfaceProbe.invocation.setup[0].kind ===
+            "sqlite-file" &&
+          recipe.publicSurfaceProbe.invocation.expectedCleanup ===
+            "closed-sqlite-db-removed-owned-file",
+      ),
+    ).toBe(true);
+    expect(
+      rows
+        .filter((recipe) => recipe.scenario !== "deny")
+        .every(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation
+              .expectedTypedDecisionCount === 7,
+        ),
+    ).toBe(true);
+    for (const writable of [false, true]) {
+      const branch = writable ? "file-read-write" : "file-read";
+      const branchRows = rows.filter((recipe) =>
+        recipe.fixtureId.includes(`.logical.${branch}.`),
+      );
+      const path = `target/ibex-capsec-sqlite-open-${writable ? "read-write" : "read"}.sqlite`;
+      const actions = writable
+        ? ["fs:list", "fs:read", "fs:write"]
+        : ["fs:list", "fs:read"];
+      expect(branchRows.map((recipe) => recipe.scenario).sort()).toEqual([
+        "allow",
+        "branch-selection",
+        "deny",
+        "malformed",
+        "missing-attribution",
+        "wrong-principal",
+      ]);
+      expect(
+        branchRows.every((recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          return (
+            canonicalJson(recipe.actionIds) === canonicalJson(actions) &&
+            invocation.arguments[0].kind === "json-literal" &&
+            invocation.arguments[0].value === path &&
+            canonicalJson(invocation.arguments[1]) ===
+              canonicalJson({
+                kind: "json-literal",
+                value: writable
+                  ? { create: false, readwrite: true }
+                  : { readonly: true },
+              }) &&
+            invocation.setup[0].path === path &&
+            canonicalJson(invocation.expectedActionIds) ===
+              canonicalJson(
+                recipe.scenario === "deny" ? ["fs:list"] : actions,
+              ) &&
+            canonicalJson(invocation.expectedTypedStages) ===
+              canonicalJson(
+                recipe.scenario === "deny"
+                  ? ["requested"]
+                  : [
+                      "requested",
+                      "discovery",
+                      "requested",
+                      "repeat",
+                      "requested",
+                      "repeat",
+                      "commit",
+                    ],
+              )
+          );
+        }),
+      ).toBe(true);
+    }
+  });
+
   test("executes source-defined SQLite host ABIs on the exact memory branch", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

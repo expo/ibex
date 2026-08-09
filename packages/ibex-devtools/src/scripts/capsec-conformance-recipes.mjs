@@ -772,6 +772,12 @@ const sqliteMemorySetup = (withStatement = false) => [
       ]
     : []),
 ];
+const sqliteFileSetup = (path) => [
+  {
+    kind: "sqlite-file",
+    path,
+  },
+];
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
 // retained filesystem controls receive a source-bound descriptor created by
 // the harness before the zero-decision invocation is observed.
@@ -1948,6 +1954,52 @@ const nativeProjectFsOpenTemplate = ({
           unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
         }
       : {}),
+  });
+};
+// A file-backed SQLite open uses the same authenticated retained-component
+// walk as a direct descriptor open, but has no extra facade access-class
+// request. The harness provisions a real SQLite database before observation;
+// the public operation still opens that exact file through
+// exactOpenArmedSqliteFile and the checked-fd host ABI.
+// @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+const nativeProjectSqliteOpenTemplate = ({ writable = false } = {}) => {
+  const fixture = writable
+    ? "ibex-capsec-sqlite-open-read-write.sqlite"
+    : "ibex-capsec-sqlite-open-read.sqlite";
+  const actionIds = writable
+    ? ["fs:list", "fs:read", "fs:write"]
+    : ["fs:list", "fs:read"];
+  const stages = existingProjectChildStages("commit");
+  return Object.freeze({
+    actionIds,
+    arguments: [
+      literalArgument(`target/${fixture}`),
+      literalArgument(
+        writable
+          ? { create: false, readwrite: true }
+          : { readonly: true },
+      ),
+    ],
+    expectedCleanup: "closed-sqlite-db-removed-owned-file",
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedObservedActionIds: { malformed: actionIds },
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: nativeEffectStages(stages),
+    requiredFloor: actionIds.map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", fixture),
+    })),
+    requiredSourceArity: 2,
+    setup: sqliteFileSetup(`target/${fixture}`),
   });
 };
 const nativeRetainedFsReadTemplate = () =>
@@ -3409,6 +3461,16 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           flags: "a",
           fixture: "ibex-capsec-fsopen-async-write",
         }),
+      ],
+    ]),
+  ],
+  [
+    "__exactSqliteOpen",
+    new Map([
+      ["file-read", nativeProjectSqliteOpenTemplate()],
+      [
+        "file-read-write",
+        nativeProjectSqliteOpenTemplate({ writable: true }),
       ],
     ]),
   ],

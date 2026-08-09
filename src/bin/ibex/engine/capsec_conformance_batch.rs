@@ -317,6 +317,9 @@ enum NativeProbeSetup {
         #[serde(rename = "sourceDescriptorDigest")]
         source_descriptor_digest: String,
     },
+    SqliteFile {
+        path: String,
+    },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
         global_name: String,
@@ -523,6 +526,79 @@ fn generated_derived_env_write_template_is_accepted_by_rust_registry() {
         .definitions
         .validate_requested_resource(&occurrence.action, &requested)
         .expect("generated occurrence must satisfy Rust action constraints");
+}
+
+#[test]
+fn native_sqlite_file_setup_is_real_and_bounded() {
+    let path = "target/ibex-capsec-sqlite-open-read.sqlite";
+    let mut cleanup = NativePublicFixtureCleanup::default();
+    cleanup.files.push(path.into());
+    create_native_sqlite_file_fixture(path);
+
+    let connection = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .expect("reopen SQLite setup read-only");
+    let value: String = connection
+        .query_row(
+            "SELECT value FROM ibex_capsec_probe",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read seeded SQLite setup row");
+    assert_eq!(value, "file-backed");
+    drop(connection);
+
+    let escaped = std::panic::catch_unwind(|| {
+        create_native_sqlite_file_fixture("target/ibex-capsec-sqlite-escaped.sqlite")
+    });
+    assert!(escaped.is_err(), "SQLite setup accepted an unowned path");
+}
+
+#[test]
+fn native_sqlite_file_setup_binding_is_exact() {
+    let invocation = |global_name: &str, argument: serde_json::Value| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: vec![NativeProbeArgument::JsonLiteral { value: argument }],
+        completion: None,
+        required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_outcomes: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    };
+    let path = "target/ibex-capsec-sqlite-open-read.sqlite";
+    assert!(native_sqlite_file_setup_is_bound(
+        &invocation("__exactSqliteOpen", serde_json::json!(path)),
+        path,
+    ));
+    assert!(!native_sqlite_file_setup_is_bound(
+        &invocation("__exactSqliteExec", serde_json::json!(path)),
+        path,
+    ));
+    assert!(!native_sqlite_file_setup_is_bound(
+        &invocation(
+            "__exactSqliteOpen",
+            serde_json::json!("target/another.sqlite"),
+        ),
+        path,
+    ));
+    assert!(!native_sqlite_file_setup_is_bound(
+        &invocation("__exactSqliteOpen", serde_json::Value::Null),
+        path,
+    ));
 }
 
 #[test]
@@ -1134,6 +1210,52 @@ struct NativeSetupState {
     tcp_loopback_client_handle: Option<f64>,
     sqlite_database_handle: Option<f64>,
     sqlite_statement_handle: Option<f64>,
+    sqlite_file_path: Option<String>,
+}
+
+fn create_native_sqlite_file_fixture(path: &str) {
+    assert!(
+        matches!(
+            path,
+            "target/ibex-capsec-sqlite-open-read.sqlite"
+                | "target/ibex-capsec-sqlite-open-read-write.sqlite"
+        ),
+        "SQLite setup escaped its exact harness-owned paths"
+    );
+    for owned_path in [
+        path.to_owned(),
+        format!("{path}-journal"),
+        format!("{path}-shm"),
+        format!("{path}-wal"),
+    ] {
+        if let Err(error) = std::fs::remove_file(&owned_path) {
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::NotFound,
+                "clear stale SQLite setup fixture {owned_path}: {error}"
+            );
+        }
+    }
+    let connection = rusqlite::Connection::open(path).expect("create on-disk SQLite setup");
+    connection
+        .execute_batch(
+            "CREATE TABLE ibex_capsec_probe (value TEXT NOT NULL);\n\
+             INSERT INTO ibex_capsec_probe (value) VALUES ('file-backed');",
+        )
+        .expect("seed on-disk SQLite setup");
+    drop(connection);
+}
+
+fn native_sqlite_file_setup_is_bound(
+    invocation: &NativePublicInvocation,
+    path: &str,
+) -> bool {
+    invocation.global_name == "__exactSqliteOpen"
+        && matches!(
+            invocation.arguments.first(),
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some(path)
+        )
 }
 
 /// Test-only armed engine facade for source-derived native-global probes.
@@ -1362,6 +1484,19 @@ async fn run_native_setup(
                         .expect("native writable setup must return a numeric descriptor"),
                 );
                 state.fs_file_path = Some(path.clone());
+            }
+            NativeProbeSetup::SqliteFile { path } => {
+                // The fixture is a genuine on-disk database, while the
+                // observed __exactSqliteOpen remains solely responsible for
+                // the typed VFS walk and checked-fd SQLite open under test.
+                // @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+                assert!(
+                    native_sqlite_file_setup_is_bound(invocation, path),
+                    "SQLite setup is not bound to the observed open path"
+                );
+                assert!(state.sqlite_file_path.is_none());
+                create_native_sqlite_file_fixture(path);
+                state.sqlite_file_path = Some(path.clone());
             }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
@@ -2157,6 +2292,7 @@ fn validate_native_runtime_observation(
                         | "__exactReaddir"
                         | "__exactRealpath"
                         | "__exactReadlink"
+                        | "__exactSqliteOpen"
                         | "__exactStat"
                         | "__exactStatfs"
                         | "__exactTruncate"
@@ -2803,6 +2939,9 @@ async fn execute_native_public_recipe(
     let setup_state = run_native_setup(engine, invocation, listener_port).await;
     let arguments = materialize_native_arguments(invocation, listener_port, &setup_state);
     let mut fixture_cleanup = NativePublicFixtureCleanup::default();
+    if let Some(path) = &setup_state.sqlite_file_path {
+        fixture_cleanup.files.push(path.into());
+    }
     let fs_path_async_directory_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (invocation.arguments.first(), invocation.arguments.get(1)) {
             (
@@ -3191,6 +3330,14 @@ async fn execute_native_public_recipe(
             invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
+    }
+    if let Some(path) = &setup_state.sqlite_file_path {
+        std::fs::remove_file(path).expect("remove on-disk SQLite setup fixture");
+        if invocation_result["kind"] == "return" {
+            assert_eq!(invocation_result["cleanup"], "closed-sqlite-db");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("closed-sqlite-db-removed-owned-file".into());
+        }
     }
     remove_native_async_harness_fields(&mut invocation_result);
     let typed_decisions = observed_typed_values(&session_id, typed);
