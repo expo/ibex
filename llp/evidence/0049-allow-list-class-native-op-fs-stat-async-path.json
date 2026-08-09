@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-fs-stat-async-path",
+  "templateClass": "surface.native.op.__exactFsStatAsync × logical path",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes the six logical-path rows of surface.native.op.exactfsstatasync.0b0hr8s. The retained-descriptor sibling is not declared or claimed. No route or terminal-set change is declared; the delta is exactly the residual-reason removals below.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactfsstatasync.0b0hr8s",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2174-2203",
+      "proof": "Authored: nativeProjectFsStatAsyncPathTemplate supplies the exact Cargo.toml path, the source-selected stat branch, a null presented handle, event-loop quiescence, and the fs:list metadata floor. The loaded __exactFsStatAsync path branch opens the authenticated list target and passes its retained descriptors to fsStatArmedWork (src/engine/hermes_runtime_fs.cc:7901-7992)."
+    },
+    {
+      "edgeId": "surface.native.op.exactfsstatasync.0b0hr8s",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3490-3494",
+      "proof": "The logical-branch registry emits source-bound ibex/capsec-native-global-invocation/1 probes for all six path scenarios. The executor retains observation through event-loop quiescence, checks the exact fs:list decisions and observed stages, and admits the operation's exact EACCES denial message through a fail-closed reviewed-global predicate."
+    },
+    {
+      "edgeId": "surface.native.op.exactfsstatasync.0b0hr8s",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3490-3494",
+      "proof": "The branch-selection row is physically selected by the second argument's exact stat discriminator with a string path first argument; the mutually exclusive descriptor branch requires fstat with a numeric retained descriptor."
+    }
+  ]
+}

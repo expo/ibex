@@ -944,6 +944,19 @@ fn native_async_write_file_fixture_lifecycle_is_exact_and_fail_closed() {
     );
 }
 
+#[test]
+fn native_filesystem_denial_message_allowance_is_exact_and_fail_closed() {
+    assert!(native_filesystem_denial_message_is_reviewed(
+        "__exactFsStatAsync"
+    ));
+    assert!(!native_filesystem_denial_message_is_reviewed(
+        "__exactFsStatAsyncExtra"
+    ));
+    assert!(!native_filesystem_denial_message_is_reviewed(
+        "__exactFsLstatAsync"
+    ));
+}
+
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
     let mut selectors = BTreeMap::new();
     for selector in catalog
@@ -2389,6 +2402,32 @@ fn uses_ambient_project_prefix_authority(
         })
 }
 
+fn native_filesystem_denial_message_is_reviewed(global_name: &str) -> bool {
+    matches!(
+        global_name,
+        "__exactAccess"
+            | "__exactOpendir"
+            | "__exactAppendFile"
+            | "__exactFsOpen"
+            | "__exactFsOpenAsync"
+            | "__exactFsPathAsync"
+            | "__exactFsReadFileAsync"
+            | "__exactFsStatAsync"
+            | "__exactFsWriteFileAsync"
+            | "__exactLstat"
+            | "__exactMkdir"
+            | "__exactReadFile"
+            | "__exactReaddir"
+            | "__exactRealpath"
+            | "__exactReadlink"
+            | "__exactSqliteOpen"
+            | "__exactStat"
+            | "__exactStatfs"
+            | "__exactTruncate"
+            | "__exactWriteFile"
+    )
+}
+
 fn validate_native_runtime_observation(
     recipe: &Recipe,
     probe: &PublicSurfaceProbe,
@@ -2436,32 +2475,12 @@ fn validate_native_runtime_observation(
             assert!(invocation.public_access_digest.is_none());
             if let Some(fragment) = invocation.expected_deny_message_fragment.as_deref() {
                 assert_eq!(fragment, "filesystem policy denied");
-                assert!(matches!(
-                    invocation.global_name.as_str(),
-                    // Direct armed list terminals: both refuse through
-                    // openArmedListTarget / throwFsAsyncResult, the same
-                    // EACCES "filesystem policy denied" refusal the other
-                    // path-taking natives raise
-                    // (src/engine/hermes_runtime_fs.cc:1288, :2370, :2409).
-                    "__exactAccess"
-                        | "__exactOpendir"
-                        | "__exactAppendFile"
-                        | "__exactFsOpen"
-                        | "__exactFsOpenAsync"
-                        | "__exactFsPathAsync"
-                        | "__exactFsReadFileAsync"
-                        | "__exactFsWriteFileAsync"
-                        | "__exactLstat"
-                        | "__exactMkdir"
-                        | "__exactReadFile"
-                        | "__exactReaddir"
-                        | "__exactRealpath"
-                        | "__exactReadlink"
-                        | "__exactSqliteOpen"
-                        | "__exactStat"
-                        | "__exactStatfs"
-                        | "__exactTruncate"
-                        | "__exactWriteFile"
+                // Direct armed list terminals refuse through
+                // openArmedListTarget / throwFsAsyncResult with this exact
+                // EACCES message. Keep the accepted public-global set closed.
+                // @ref LLP 0049#3-construction-rules — reviewed evidence sets stay closed
+                assert!(native_filesystem_denial_message_is_reviewed(
+                    invocation.global_name.as_str()
                 ));
             }
         }

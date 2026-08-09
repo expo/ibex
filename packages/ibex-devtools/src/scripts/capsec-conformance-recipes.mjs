@@ -2171,6 +2171,34 @@ const nativeProjectFsReadFileAsyncTemplate = () => {
     requiredSourceArity: 4,
   });
 };
+const nativeProjectFsStatAsyncPathTemplate = () => {
+  const pathStat = nativeProjectStatTemplate();
+  const stages = [...pathStat.expectedStages.allow, "repeat"];
+  return Object.freeze({
+    ...pathStat,
+    arguments: [
+      literalArgument("Cargo.toml"),
+      literalArgument("stat"),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedStages: nativeEffectStages(stages),
+    requiredSourceArity: 3,
+  });
+};
 // The public branch owns the bytes and the exact missing project child. The
 // semantic cell is fs:write-only; fs:list decisions are retained separately as
 // authenticated open traversal and must satisfy the executor's D2 validator.
@@ -3459,6 +3487,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
     "__exactFsWriteFileAsync",
     new Map([["path", nativeProjectFsWriteFileAsyncTemplate()]]),
+  ],
+  [
+    "__exactFsStatAsync",
+    new Map([["path", nativeProjectFsStatAsyncPathTemplate()]]),
   ],
   [
     "__exactFsFdAsync",

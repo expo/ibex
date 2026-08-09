@@ -8414,6 +8414,59 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
+  test("authors the path branch of async stat with worker reauthorization", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsStatAsync" &&
+        recipe.fixtureId.includes(".logical.path."),
+    );
+    expect(rows).toHaveLength(6);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "branch-selection",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    expect(
+      rows.every((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return (
+          recipe.status === "fully-executable" &&
+          canonicalJson(recipe.actionIds) === canonicalJson(["fs:list"]) &&
+          canonicalJson(invocation.arguments) ===
+            canonicalJson([
+              { kind: "json-literal", value: "Cargo.toml" },
+              { kind: "json-literal", value: "stat" },
+              { kind: "json-literal", value: null },
+            ]) &&
+          invocation.completion.kind === "event-loop-quiescence" &&
+          invocation.completion.timeoutMilliseconds === 1_000 &&
+          invocation.setup.length === 0 &&
+          canonicalJson(invocation.expectedActionIds) ===
+            canonicalJson(["fs:list"]) &&
+          invocation.expectedTypedDecisionCount ===
+            (recipe.scenario === "deny" ? 1 : 6) &&
+          canonicalJson(invocation.expectedTypedStages) ===
+            canonicalJson(
+              recipe.scenario === "deny"
+                ? ["requested"]
+                : [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "repeat",
+                    "repeat",
+                  ],
+            )
+        );
+      }),
+    ).toBe(true);
+  });
+
   test("executes source-defined SQLite host ABIs on the exact memory branch", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
