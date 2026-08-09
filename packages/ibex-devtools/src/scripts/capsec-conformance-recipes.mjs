@@ -863,6 +863,31 @@ const nativeConditionalNoEffectTemplate = (
     requiredSourceArity,
     setup,
   });
+const nativeClosedFilesystemMutationTemplate = (
+  requiredSourceArity,
+  argumentsList,
+  { async = true } = {},
+) =>
+  Object.freeze({
+    actionIds: [],
+    arguments: argumentsList,
+    expectedDecisionCounts: { "branch-selection": 0 },
+    expectedResults: { "branch-selection": "permission-denied" },
+    expectedDenyMessageFragment: "EPERM: operation not permitted",
+    expectedStages: { "branch-selection": [] },
+    requiredFloor: [],
+    requiredSourceArity,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    ...(async
+      ? {
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+        }
+      : {}),
+  });
 const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
     actionIds: ["sys:read"],
@@ -3649,6 +3674,33 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           argumentsList: [literalArgument(0), literalArgument(0)],
         }),
       ],
+      [
+        "fchmod",
+        nativeClosedFilesystemMutationTemplate(4, [
+          literalArgument("fchmod"),
+          literalArgument(42),
+          literalArgument(0o600),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "fchown",
+        nativeClosedFilesystemMutationTemplate(4, [
+          literalArgument("fchown"),
+          literalArgument(42),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "futimes",
+        nativeClosedFilesystemMutationTemplate(4, [
+          literalArgument("futimes"),
+          literalArgument(42),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
     ]),
   ],
   [
@@ -3732,6 +3784,151 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
     "__exactFsPathAsync",
     new Map([
+      [
+        "chown",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("chown"),
+          literalArgument("target/ibex-capsec-closed-chown"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "copyfile",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("copyfile"),
+          literalArgument("target/ibex-capsec-closed-copyfile-source"),
+          literalArgument("target/ibex-capsec-closed-copyfile-destination"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "copyfile-excl",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("copyfile_excl"),
+          literalArgument("target/ibex-capsec-closed-copyfile-excl-source"),
+          literalArgument(
+            "target/ibex-capsec-closed-copyfile-excl-destination",
+          ),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "lchmod",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("lchmod"),
+          literalArgument("target/ibex-capsec-closed-lchmod"),
+          literalArgument(null),
+          literalArgument(0o600),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "lchown",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("lchown"),
+          literalArgument("target/ibex-capsec-closed-lchown"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "link",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("link"),
+          literalArgument("target/ibex-capsec-closed-link-source"),
+          literalArgument("target/ibex-capsec-closed-link-destination"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "lutime",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("lutime"),
+          literalArgument("target/ibex-capsec-closed-lutime"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "mkdir-recursive",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("mkdir"),
+          literalArgument("target/ibex-capsec-fspathasync-closed-mkdir-recursive"),
+          literalArgument(null),
+          literalArgument(1),
+          literalArgument(-1),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "mkdtemp",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("mkdtemp"),
+          literalArgument("target/ibex-capsec-closed-mkdtemp-"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "rename",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("rename"),
+          literalArgument("target/ibex-capsec-closed-rename-source"),
+          literalArgument("target/ibex-capsec-closed-rename-destination"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "rmdir",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("rmdir"),
+          literalArgument("target/ibex-capsec-closed-rmdir"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "symlink",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("symlink"),
+          literalArgument("closed-symlink-target"),
+          literalArgument("target/ibex-capsec-closed-symlink"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "unlink",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("unlink"),
+          literalArgument("target/ibex-capsec-closed-unlink"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
       ["access-read", nativeProjectFsPathAccessReadTemplate()],
       ["readlink", nativeProjectReadlinkTemplate({ async: true })],
       [

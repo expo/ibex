@@ -1261,13 +1261,19 @@ export function nativeAsyncWorkerTerminal(authored) {
   return terminals?.length === 1 ? terminals[0] : null;
 }
 
-export function validateNativeFilesystemDenialRecipeDescriptor(authored) {
+export function validateNativeFilesystemDenialRecipeDescriptor(
+  authored,
+  recipe,
+) {
+  const reviewedFilesystemPolicyDenial =
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) &&
+    authored.expectedDenyMessageFragment === "filesystem policy denied";
   if (
-    authored?.invocationSchema !==
-      "ibex/capsec-native-global-invocation/1" ||
-    authored.kind !== "native-global-function" ||
-    !NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) ||
-    authored.expectedDenyMessageFragment !== "filesystem policy denied"
+    !reviewedFilesystemPolicyDenial &&
+    !reviewedNativeClosedFilesystemMutation({ authored, recipe })
   ) {
     throw new Error("unreviewed native denial expectation");
   }
@@ -3519,7 +3525,7 @@ function validateRuntimeInvocation(observation, recipe) {
       }
       if (hasTopLevelDenyFragment) {
         try {
-          validateNativeFilesystemDenialRecipeDescriptor(authored);
+          validateNativeFilesystemDenialRecipeDescriptor(authored, recipe);
         } catch {
           throw new Error(
             `${recipe.fixtureId}: unreviewed native denial expectation`,
@@ -7621,6 +7627,19 @@ function validateRuntimeInvocation(observation, recipe) {
     const authoredFragment =
       authored.expectedDenyMessageFragment ??
       authored.publicAccess?.expectedDenyMessageFragment;
+    if (
+      reviewedNativeClosedFilesystemMutationRequired({ authored, recipe }) &&
+      (!reviewedNativeClosedFilesystemMutation({ authored, recipe }) ||
+        !reviewedNativeClosedFilesystemMutationResult({
+          authored,
+          recipe,
+          result: invocation.result,
+        }))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: closed native filesystem mutation account drifted`,
+      );
+    }
     const expectedFragment = authoredFragment ?? "Permission denied";
     const errorMessage = invocation.result.errorMessage;
     const fragmentMatched =
@@ -9460,6 +9479,7 @@ export function validatePublicFixtureRuntimeObservation(
         authored.operation?.kind ===
           "process-event-lifecycle-no-effect" &&
         ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
+      reviewedNativeClosedFilesystemMutation({ authored, recipe }) ||
       (recipe.classification === "effects" &&
         recipe.actionIds.length === 0 &&
         ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
@@ -9588,6 +9608,192 @@ export function reviewedNativeEarlyDenialActionPrefix({
     canonicalJson(authored.expectedActionIds) ===
       canonicalJson(["env:read", "fs:list"]) &&
     canonicalJson(observedActions) === canonicalJson(["env:read"])
+  );
+}
+
+export function reviewedNativeClosedFilesystemMutationRequired({
+  authored,
+  recipe,
+}) {
+  const operation = authored?.arguments?.[0];
+  return (
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    recipe?.classification === "closed" &&
+    recipe?.scenario === "branch-selection" &&
+    operation?.kind === "json-literal" &&
+    ((authored.globalName === "__exactFsFdAsync" &&
+      ["fchmod", "fchown", "futimes"].includes(operation.value)) ||
+      (authored.globalName === "__exactFsPathAsync" &&
+        [
+          "chown",
+          "copyfile",
+          "copyfile_excl",
+          "lchmod",
+          "lchown",
+          "link",
+          "lutime",
+          "mkdir",
+          "mkdtemp",
+          "rename",
+          "rmdir",
+          "symlink",
+          "unlink",
+        ].includes(operation.value)))
+  );
+}
+
+export function reviewedNativeClosedFilesystemMutation({ authored, recipe }) {
+  if (
+    !reviewedNativeClosedFilesystemMutationRequired({ authored, recipe }) ||
+    authored.expectedResult !== "permission-denied" ||
+    authored.expectedDenyMessageFragment !==
+      "EPERM: operation not permitted" ||
+    authored.expectedTypedDecisionCount !== 0 ||
+    canonicalJson(authored.expectedTypedStages) !== canonicalJson([]) ||
+    canonicalJson(authored.expectedActionIds) !== canonicalJson([]) ||
+    canonicalJson(authored.requiredFloor) !== canonicalJson([]) ||
+    canonicalJson(authored.requiredSetupFloor ?? []) !== canonicalJson([]) ||
+    canonicalJson(authored.setup) !== canonicalJson([]) ||
+    canonicalJson(authored.completion) !==
+      canonicalJson({
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      })
+  ) {
+    return false;
+  }
+  const literalArguments = authored.arguments.map((argument) =>
+    argument?.kind === "json-literal" ? argument.value : Symbol.for("invalid"),
+  );
+  if (literalArguments.some((value) => value === Symbol.for("invalid"))) {
+    return false;
+  }
+  if (authored.globalName === "__exactFsFdAsync") {
+    const expected = new Map([
+      ["fchmod", ["fchmod", 42, 0o600, 0]],
+      ["fchown", ["fchown", 42, 0, 0]],
+      ["futimes", ["futimes", 42, 0, 0]],
+    ]).get(literalArguments[0]);
+    return canonicalJson(literalArguments) === canonicalJson(expected);
+  }
+  const expected = new Map([
+    [
+      "chown",
+      ["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0],
+    ],
+    [
+      "copyfile",
+      [
+        "copyfile",
+        "target/ibex-capsec-closed-copyfile-source",
+        "target/ibex-capsec-closed-copyfile-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "copyfile_excl",
+      [
+        "copyfile_excl",
+        "target/ibex-capsec-closed-copyfile-excl-source",
+        "target/ibex-capsec-closed-copyfile-excl-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "lchmod",
+      ["lchmod", "target/ibex-capsec-closed-lchmod", null, 0o600, 0, 0],
+    ],
+    [
+      "lchown",
+      ["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0],
+    ],
+    [
+      "link",
+      [
+        "link",
+        "target/ibex-capsec-closed-link-source",
+        "target/ibex-capsec-closed-link-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "lutime",
+      ["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0],
+    ],
+    [
+      "mkdir",
+      [
+        "mkdir",
+        "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+        null,
+        1,
+        -1,
+        0,
+      ],
+    ],
+    [
+      "mkdtemp",
+      ["mkdtemp", "target/ibex-capsec-closed-mkdtemp-", null, 0, 0, 0],
+    ],
+    [
+      "rename",
+      [
+        "rename",
+        "target/ibex-capsec-closed-rename-source",
+        "target/ibex-capsec-closed-rename-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "rmdir",
+      ["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0],
+    ],
+    [
+      "symlink",
+      [
+        "symlink",
+        "closed-symlink-target",
+        "target/ibex-capsec-closed-symlink",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "unlink",
+      ["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0],
+    ],
+  ]).get(literalArguments[0]);
+  return canonicalJson(literalArguments) === canonicalJson(expected);
+}
+
+export function reviewedNativeClosedFilesystemMutationResult({
+  authored,
+  recipe,
+  result,
+}) {
+  if (
+    !reviewedNativeClosedFilesystemMutation({ authored, recipe }) ||
+    !hasExactKeys(result, ["kind", "globalName", "errorName", "errorMessage"])
+  ) {
+    return false;
+  }
+  const operation = authored.arguments[0].value;
+  return (
+    result.kind === "throw" &&
+    result.globalName === authored.globalName &&
+    result.errorName === "Error" &&
+    result.errorMessage === `EPERM: operation not permitted, ${operation}`
   );
 }
 

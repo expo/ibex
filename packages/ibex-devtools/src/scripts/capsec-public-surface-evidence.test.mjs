@@ -12,6 +12,8 @@ import {
   nativeAsyncWorkerTerminal,
   nativeAsyncWorkerTerminals,
   observedActionSetMatchesReviewedAccount,
+  reviewedNativeClosedFilesystemMutation,
+  reviewedNativeClosedFilesystemMutationResult,
   reviewedNativeEarlyDenialActionPrefix,
   validateNativeFilesystemDenialRecipeDescriptor,
   validatePublicSurfaceExecutionArtifact,
@@ -4407,6 +4409,196 @@ function callbackRuntimeObservation(recipe) {
 }
 
 describe("CapSec public-surface promotion evidence", () => {
+  test("admits only exact closed native filesystem mutation branches", () => {
+    const authored = (globalName, values) => ({
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName,
+      arguments: values.map((value) => ({ kind: "json-literal", value })),
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "permission-denied",
+      expectedDenyMessageFragment: "EPERM: operation not permitted",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      expectedActionIds: [],
+    });
+    const recipe = {
+      classification: "closed",
+      scenario: "branch-selection",
+    };
+    const exactCases = [
+      ["__exactFsFdAsync", ["fchmod", 42, 0o600, 0]],
+      ["__exactFsFdAsync", ["fchown", 42, 0, 0]],
+      ["__exactFsFdAsync", ["futimes", 42, 0, 0]],
+      [
+        "__exactFsPathAsync",
+        ["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "copyfile",
+          "target/ibex-capsec-closed-copyfile-source",
+          "target/ibex-capsec-closed-copyfile-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "copyfile_excl",
+          "target/ibex-capsec-closed-copyfile-excl-source",
+          "target/ibex-capsec-closed-copyfile-excl-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["lchmod", "target/ibex-capsec-closed-lchmod", null, 0o600, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "link",
+          "target/ibex-capsec-closed-link-source",
+          "target/ibex-capsec-closed-link-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "mkdir",
+          "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+          null,
+          1,
+          -1,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["mkdtemp", "target/ibex-capsec-closed-mkdtemp-", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "rename",
+          "target/ibex-capsec-closed-rename-source",
+          "target/ibex-capsec-closed-rename-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "symlink",
+          "closed-symlink-target",
+          "target/ibex-capsec-closed-symlink",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0],
+      ],
+    ];
+    for (const [globalName, values] of exactCases) {
+      const operation = values[0];
+      const exact = {
+        authored: authored(globalName, values),
+        recipe,
+      };
+      expect(
+        reviewedNativeClosedFilesystemMutation(exact),
+      ).toBe(true);
+      expect(
+        reviewedNativeClosedFilesystemMutationResult({
+          ...exact,
+          result: {
+            kind: "throw",
+            globalName,
+            errorName: "Error",
+            errorMessage: `EPERM: operation not permitted, ${operation}`,
+          },
+        }),
+      ).toBe(true);
+    }
+
+    const exact = {
+      authored: authored("__exactFsFdAsync", ["fchmod", 42, 0o600, 0]),
+      recipe,
+    };
+    for (const mutate of [
+      (value) => {
+        value.authored.globalName = "__exactFsFdAsyncExtra";
+      },
+      (value) => {
+        value.authored.arguments[1].value = 43;
+      },
+      (value) => {
+        value.authored.expectedDenyMessageFragment = "Permission denied";
+      },
+      (value) => {
+        value.authored.expectedActionIds = ["fs:write"];
+      },
+      (value) => {
+        value.authored.expectedTypedDecisionCount = 1;
+      },
+      (value) => {
+        value.authored.requiredFloor = [{ cap: "fs:write" }];
+      },
+      (value) => {
+        value.recipe.classification = "effects";
+      },
+      (value) => {
+        value.recipe.scenario = "closed";
+      },
+    ]) {
+      const nearby = structuredClone(exact);
+      mutate(nearby);
+      expect(reviewedNativeClosedFilesystemMutation(nearby)).toBe(false);
+    }
+    expect(
+      reviewedNativeClosedFilesystemMutationResult({
+        ...exact,
+        result: {
+          kind: "throw",
+          globalName: "__exactFsFdAsync",
+          errorName: "Error",
+          errorMessage: "EPERM: operation not permitted, fchown",
+        },
+      }),
+    ).toBe(false);
+  });
+
   test("admits only the observed bare-which early-denial action prefix", () => {
     const authored = {
       invocationSchema: "ibex/capsec-native-global-invocation/1",

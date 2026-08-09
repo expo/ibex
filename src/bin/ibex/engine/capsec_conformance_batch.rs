@@ -1094,6 +1094,267 @@ fn native_filesystem_denial_message_allowance_is_exact_and_fail_closed() {
 }
 
 #[test]
+fn native_closed_filesystem_mutation_account_is_exact_and_fail_closed() {
+    let invocation =
+        |global_name: &str, arguments: Vec<serde_json::Value>| NativePublicInvocation {
+            kind: "native-global-function".into(),
+            global_name: global_name.into(),
+            source_descriptor: serde_json::json!({}),
+            source_descriptor_digest: "sha256-test".into(),
+            public_access: None,
+            public_access_digest: None,
+            expected_deny_message_fragment: Some("EPERM: operation not permitted".into()),
+            arguments: arguments
+                .into_iter()
+                .map(|value| NativeProbeArgument::JsonLiteral { value })
+                .collect(),
+            completion: Some(NativeProbeCompletion {
+                kind: "event-loop-quiescence".into(),
+                timeout_milliseconds: 1_000,
+            }),
+            required_floor: Vec::new(),
+            required_setup_floor: Vec::new(),
+            setup: Vec::new(),
+            expected_result: "permission-denied".into(),
+            expected_string_value: None,
+            expected_cleanup: None,
+            expected_typed_stages: Vec::new(),
+            expected_typed_outcomes: Vec::new(),
+            expected_typed_decision_count: 0,
+            allowed_coverage_edge_ids: Vec::new(),
+            expected_action_ids: Vec::new(),
+        };
+    let exact_cases = [
+        (
+            "__exactFsFdAsync",
+            serde_json::json!(["fchmod", 42, 0o600, 0]),
+        ),
+        ("__exactFsFdAsync", serde_json::json!(["fchown", 42, 0, 0])),
+        ("__exactFsFdAsync", serde_json::json!(["futimes", 42, 0, 0])),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "copyfile",
+                "target/ibex-capsec-closed-copyfile-source",
+                "target/ibex-capsec-closed-copyfile-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "copyfile_excl",
+                "target/ibex-capsec-closed-copyfile-excl-source",
+                "target/ibex-capsec-closed-copyfile-excl-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "lchmod",
+                "target/ibex-capsec-closed-lchmod",
+                null,
+                0o600,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "link",
+                "target/ibex-capsec-closed-link-source",
+                "target/ibex-capsec-closed-link-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "mkdir",
+                "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+                null,
+                1,
+                -1,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "mkdtemp",
+                "target/ibex-capsec-closed-mkdtemp-",
+                null,
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "rename",
+                "target/ibex-capsec-closed-rename-source",
+                "target/ibex-capsec-closed-rename-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "symlink",
+                "closed-symlink-target",
+                "target/ibex-capsec-closed-symlink",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0]),
+        ),
+    ];
+    for (global_name, arguments) in exact_cases {
+        let operation = arguments[0]
+            .as_str()
+            .expect("closed mutation operation")
+            .to_owned();
+        let exact_invocation = invocation(
+            global_name,
+            arguments
+                .as_array()
+                .expect("closed mutation arguments")
+                .clone(),
+        );
+        assert!(native_closed_filesystem_mutation_is_reviewed(
+            "closed",
+            "branch-selection",
+            &exact_invocation,
+        ));
+        assert!(native_closed_filesystem_mutation_result_is_reviewed(
+            "closed",
+            "branch-selection",
+            &exact_invocation,
+            &serde_json::json!({
+                "kind": "throw",
+                "globalName": global_name,
+                "errorName": "Error",
+                "errorMessage": format!("EPERM: operation not permitted, {operation}"),
+            }),
+        ));
+    }
+
+    let exact = || {
+        invocation(
+            "__exactFsFdAsync",
+            serde_json::json!(["fchmod", 42, 0o600, 0])
+                .as_array()
+                .unwrap()
+                .clone(),
+        )
+    };
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "effects",
+        "branch-selection",
+        &exact(),
+    ));
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "closed",
+        &exact(),
+    ));
+    let mut nearby = exact();
+    nearby.global_name = "__exactFsFdAsyncExtra".into();
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let mut nearby = exact();
+    nearby.expected_deny_message_fragment = Some("Permission denied".into());
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let mut nearby = exact();
+    nearby.expected_action_ids.push("fs:write".into());
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let mut nearby = exact();
+    nearby.expected_typed_decision_count = 1;
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let wrong_descriptor = invocation(
+        "__exactFsFdAsync",
+        serde_json::json!(["fchmod", 43, 0o600, 0])
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &wrong_descriptor,
+    ));
+    let wrong_path = invocation(
+        "__exactFsPathAsync",
+        serde_json::json!(["unlink", "target/not-reviewed", null, 0, 0, 0])
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &wrong_path,
+    ));
+    assert!(!native_closed_filesystem_mutation_result_is_reviewed(
+        "closed",
+        "branch-selection",
+        &exact(),
+        &serde_json::json!({
+            "kind": "throw",
+            "globalName": "__exactFsFdAsync",
+            "errorName": "Error",
+            "errorMessage": "EPERM: operation not permitted, fchown",
+        }),
+    ));
+}
+
+#[test]
 fn native_which_string_result_account_is_exact_and_fail_closed() {
     let slash_arguments = [NativeProbeArgument::JsonLiteral {
         value: serde_json::json!("/project/ref-check"),
@@ -2660,6 +2921,184 @@ fn native_filesystem_denial_message_is_reviewed(global_name: &str) -> bool {
     )
 }
 
+fn native_closed_filesystem_mutation_is_reviewed(
+    classification: &str,
+    scenario: &str,
+    invocation: &NativePublicInvocation,
+) -> bool {
+    // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified —
+    // these loaded native branches refuse with EPERM before path lookup or
+    // descriptor validation, and therefore must emit no capability decision.
+    if classification != "closed"
+        || scenario != "branch-selection"
+        || invocation.kind != "native-global-function"
+        || invocation.expected_result != "permission-denied"
+        || invocation.expected_deny_message_fragment.as_deref()
+            != Some("EPERM: operation not permitted")
+        || !invocation.required_floor.is_empty()
+        || !invocation.required_setup_floor.is_empty()
+        || !invocation.setup.is_empty()
+        || !invocation.expected_typed_stages.is_empty()
+        || !invocation.expected_typed_outcomes.is_empty()
+        || invocation.expected_typed_decision_count != 0
+        || !invocation.expected_action_ids.is_empty()
+        || invocation.completion.as_ref().is_none_or(|completion| {
+            completion.kind != "event-loop-quiescence" || completion.timeout_milliseconds != 1_000
+        })
+    {
+        return false;
+    }
+    let Some(arguments) = invocation
+        .arguments
+        .iter()
+        .map(|argument| match argument {
+            NativeProbeArgument::JsonLiteral { value } => Some(value.clone()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    if invocation.global_name == "__exactFsFdAsync" {
+        return matches!(
+            arguments.as_slice(),
+            [operation, descriptor, first, second]
+                if descriptor == &serde_json::json!(42)
+                    && second == &serde_json::json!(0)
+                    && matches!(
+                        operation.as_str(),
+                        Some("fchmod" | "fchown" | "futimes")
+                    )
+                    && match operation.as_str() {
+                        Some("fchmod") => first == &serde_json::json!(0o600),
+                        Some("fchown" | "futimes") => first == &serde_json::json!(0),
+                        _ => false,
+                    }
+        );
+    }
+    if invocation.global_name != "__exactFsPathAsync" || arguments.len() != 6 {
+        return false;
+    }
+    let expected = match arguments[0].as_str() {
+        Some("chown") => {
+            serde_json::json!(["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0])
+        }
+        Some("copyfile") => serde_json::json!([
+            "copyfile",
+            "target/ibex-capsec-closed-copyfile-source",
+            "target/ibex-capsec-closed-copyfile-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("copyfile_excl") => serde_json::json!([
+            "copyfile_excl",
+            "target/ibex-capsec-closed-copyfile-excl-source",
+            "target/ibex-capsec-closed-copyfile-excl-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("lchmod") => serde_json::json!([
+            "lchmod",
+            "target/ibex-capsec-closed-lchmod",
+            null,
+            0o600,
+            0,
+            0
+        ]),
+        Some("lchown") => {
+            serde_json::json!(["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0])
+        }
+        Some("link") => serde_json::json!([
+            "link",
+            "target/ibex-capsec-closed-link-source",
+            "target/ibex-capsec-closed-link-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("lutime") => {
+            serde_json::json!(["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0])
+        }
+        Some("mkdir") => serde_json::json!([
+            "mkdir",
+            "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+            null,
+            1,
+            -1,
+            0
+        ]),
+        Some("mkdtemp") => serde_json::json!([
+            "mkdtemp",
+            "target/ibex-capsec-closed-mkdtemp-",
+            null,
+            0,
+            0,
+            0
+        ]),
+        Some("rename") => serde_json::json!([
+            "rename",
+            "target/ibex-capsec-closed-rename-source",
+            "target/ibex-capsec-closed-rename-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("rmdir") => {
+            serde_json::json!(["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0])
+        }
+        Some("symlink") => serde_json::json!([
+            "symlink",
+            "closed-symlink-target",
+            "target/ibex-capsec-closed-symlink",
+            0,
+            0,
+            0
+        ]),
+        Some("unlink") => {
+            serde_json::json!(["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0])
+        }
+        _ => return false,
+    };
+    expected
+        .as_array()
+        .is_some_and(|expected| expected == &arguments)
+}
+
+fn native_closed_filesystem_mutation_result_is_reviewed(
+    classification: &str,
+    scenario: &str,
+    invocation: &NativePublicInvocation,
+    invocation_result: &serde_json::Value,
+) -> bool {
+    if !native_closed_filesystem_mutation_is_reviewed(classification, scenario, invocation) {
+        return false;
+    }
+    let Some(operation) = invocation
+        .arguments
+        .first()
+        .and_then(|argument| match argument {
+            NativeProbeArgument::JsonLiteral { value } => value.as_str(),
+            _ => None,
+        })
+    else {
+        return false;
+    };
+    let Some(result) = invocation_result.as_object() else {
+        return false;
+    };
+    result.len() == 4
+        && ["kind", "globalName", "errorName", "errorMessage"]
+            .iter()
+            .all(|key| result.contains_key(*key))
+        && invocation_result["kind"] == "throw"
+        && invocation_result["globalName"] == invocation.global_name
+        && invocation_result["errorName"] == "Error"
+        && invocation_result["errorMessage"]
+            == format!("EPERM: operation not permitted, {operation}")
+}
+
 fn native_string_result_matches_reviewed_expectation(
     global_name: &str,
     arguments: &[NativeProbeArgument],
@@ -2674,8 +3113,7 @@ fn native_string_result_matches_reviewed_expectation(
     };
     let reviewed_lookup = matches!(
         (argument, expected_string_value),
-        ("/project/ref-check", "/project/ref-check")
-            | ("ref-check", "/project/ref-check")
+        ("/project/ref-check", "/project/ref-check") | ("ref-check", "/project/ref-check")
     );
     let Some(result) = invocation_result.as_object() else {
         return false;
@@ -2740,14 +3178,22 @@ fn validate_native_runtime_observation(
             assert!(invocation.public_access.is_none());
             assert!(invocation.public_access_digest.is_none());
             if let Some(fragment) = invocation.expected_deny_message_fragment.as_deref() {
-                assert_eq!(fragment, "filesystem policy denied");
-                // Direct armed list terminals refuse through
-                // openArmedListTarget / throwFsAsyncResult with this exact
-                // EACCES message. Keep the accepted public-global set closed.
-                // @ref LLP 0049#3-construction-rules — reviewed evidence sets stay closed
-                assert!(native_filesystem_denial_message_is_reviewed(
-                    invocation.global_name.as_str()
-                ));
+                if fragment == "EPERM: operation not permitted" {
+                    assert!(native_closed_filesystem_mutation_is_reviewed(
+                        &recipe.classification,
+                        &recipe.scenario,
+                        invocation,
+                    ));
+                } else {
+                    assert_eq!(fragment, "filesystem policy denied");
+                    // Direct armed list terminals refuse through
+                    // openArmedListTarget / throwFsAsyncResult with this exact
+                    // EACCES message. Keep the accepted public-global set closed.
+                    // @ref LLP 0049#3-construction-rules — reviewed evidence sets stay closed
+                    assert!(native_filesystem_denial_message_is_reviewed(
+                        invocation.global_name.as_str()
+                    ));
+                }
             }
         }
     }
@@ -2767,7 +3213,17 @@ fn validate_native_runtime_observation(
             NativeProbeSetup::FsReadFile { .. } | NativeProbeSetup::FsWriteFile { .. }
         )
     });
-    let auxiliary_allowed_terminal = if !target_absence
+    let closed_filesystem_mutation = native_closed_filesystem_mutation_is_reviewed(
+        &recipe.classification,
+        &recipe.scenario,
+        invocation,
+    );
+    // These exact branches refuse in __exactFsPathAsync before dispatch. In
+    // particular, recursive mkdir must not inherit __exactMkdir's worker edge
+    // merely because its operation selector is "mkdir".
+    let auxiliary_allowed_terminal = if closed_filesystem_mutation {
+        None
+    } else if !target_absence
         && ((retained_descriptor_setup
             && matches!(
                 invocation.global_name.as_str(),
@@ -2796,7 +3252,9 @@ fn validate_native_runtime_observation(
     // identities throughout. An admitted setup edge is therefore not
     // automatically the selected terminal.
     // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
-    let source_selected_auxiliary_terminals = if !target_absence
+    let source_selected_auxiliary_terminals = if closed_filesystem_mutation {
+        None
+    } else if !target_absence
         && !windows_source
         && retained_descriptor_setup
         && invocation.global_name == "__exactFsReadFileAsync"
@@ -3035,6 +3493,22 @@ fn validate_native_runtime_observation(
                 "{}: denied public native invocation threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
+            if native_closed_filesystem_mutation_is_reviewed(
+                &recipe.classification,
+                &recipe.scenario,
+                invocation,
+            ) {
+                assert!(
+                    native_closed_filesystem_mutation_result_is_reviewed(
+                        &recipe.classification,
+                        &recipe.scenario,
+                        invocation,
+                        invocation_result,
+                    ),
+                    "{}: closed native filesystem mutation returned the wrong exact EPERM account: {invocation_result}",
+                    recipe.fixture_id
+                );
+            }
             serde_json::json!({
                 "kind": "typed-permission-denial",
                 "bodyEntered": true,
@@ -3281,7 +3755,13 @@ fn validate_native_runtime_observation(
             (recipe.classification == "non-capability" && recipe.scenario == "non-capability")
                 || (recipe.classification == "effects"
                     && recipe.action_ids.is_empty()
-                    && matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect")),
+                    && matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect"))
+                || native_closed_filesystem_mutation_result_is_reviewed(
+                    &recipe.classification,
+                    &recipe.scenario,
+                    invocation,
+                    invocation_result,
+                ),
             "{}: a zero-decision public invocation did not select a reviewed zero-effect branch",
             recipe.fixture_id
         );

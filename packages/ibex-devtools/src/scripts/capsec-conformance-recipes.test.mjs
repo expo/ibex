@@ -2678,8 +2678,31 @@ describe("exact-target CapSec executable recipes", () => {
       rows.find((recipe) => recipe.scenario === "branch-selection"),
     ).toMatchObject({
       classification: "closed",
-      status: "unresolved",
-      publicSurfaceProbe: null,
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          globalName: "__exactFsPathAsync",
+          arguments: [
+            { kind: "json-literal", value: "mkdtemp" },
+            {
+              kind: "json-literal",
+              value: "target/ibex-capsec-closed-mkdtemp-",
+            },
+            { kind: "json-literal", value: null },
+            { kind: "json-literal", value: 0 },
+            { kind: "json-literal", value: 0 },
+            { kind: "json-literal", value: 0 },
+          ],
+          expectedDenyMessageFragment: "EPERM: operation not permitted",
+          expectedResult: "permission-denied",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+          expectedActionIds: [],
+          requiredFloor: [],
+          setup: [],
+        },
+      },
     });
   });
 
@@ -3537,7 +3560,8 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
-        "__exactFsFdAsync",
+          "__exactFsFdAsync" &&
+        recipe.fixtureId.includes(".logical.durability-write."),
     );
     expect(rows).toHaveLength(5);
     for (const recipe of rows) {
@@ -3607,6 +3631,102 @@ describe("exact-target CapSec executable recipes", () => {
         .filter((recipe) => recipe.scenario === "closed")
         .every((recipe) => recipe.status === "fully-executable"),
     ).toBe(true);
+    const closedBranchRows = closedMetadataRows.filter(
+      (recipe) => recipe.scenario === "branch-selection",
+    );
+    expect(closedBranchRows).toHaveLength(3);
+    for (const recipe of closedBranchRows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      const branch = recipe.fixtureId.match(
+        /\.logical\.(fchmod|fchown|futimes)\./u,
+      )?.[1];
+      expect(branch).toBeDefined();
+      expect(invocation).toMatchObject({
+        globalName: "__exactFsFdAsync",
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedResult: "permission-denied",
+        expectedDenyMessageFragment: "EPERM: operation not permitted",
+        expectedActionIds: [],
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        requiredFloor: [],
+        setup: [],
+      });
+      expect(invocation.arguments).toHaveLength(4);
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: branch,
+      });
+      expect(invocation.arguments[1]).toEqual({
+        kind: "json-literal",
+        value: 42,
+      });
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("physically refuses every closed async path-mutation branch before lookup", () => {
+    const operationByBranch = new Map([
+      ["chown", "chown"],
+      ["copyfile", "copyfile"],
+      ["copyfile-excl", "copyfile_excl"],
+      ["lchmod", "lchmod"],
+      ["lchown", "lchown"],
+      ["link", "link"],
+      ["lutime", "lutime"],
+      ["mkdir-recursive", "mkdir"],
+      ["mkdtemp", "mkdtemp"],
+      ["rename", "rename"],
+      ["rmdir", "rmdir"],
+      ["symlink", "symlink"],
+      ["unlink", "unlink"],
+    ]);
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.classification === "closed" &&
+        recipe.scenario === "branch-selection" &&
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync",
+    );
+    expect(rows).toHaveLength(operationByBranch.size);
+    for (const recipe of rows) {
+      const entry = [...operationByBranch.entries()].find(([branch]) =>
+        recipe.fixtureId.includes(`.logical.${branch}.`),
+      );
+      expect(entry).toBeDefined();
+      const [, operation] = entry;
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedResult: "permission-denied",
+        expectedDenyMessageFragment: "EPERM: operation not permitted",
+        expectedActionIds: [],
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        requiredFloor: [],
+        setup: [],
+      });
+      expect(invocation.arguments).toHaveLength(6);
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: operation,
+      });
+      if (operation === "mkdir") {
+        expect(invocation.arguments[3]).toEqual({
+          kind: "json-literal",
+          value: 1,
+        });
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
   });
 
   test("flushes retained writable descriptors and removes their owned files", () => {

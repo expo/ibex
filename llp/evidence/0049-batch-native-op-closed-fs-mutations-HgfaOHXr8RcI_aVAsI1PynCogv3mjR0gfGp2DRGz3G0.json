@@ -1,0 +1,142 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-closed-fs-mutations-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op filesystem mutations × closed branch-selection (16 rows)",
+  "sourceRevision": "base bc6b20f613ccd7a741a9f4679297800ab78f21ec plus independently reviewed seven-file implementation diff sha256 b1888a42cfa5cf00d2e6a1927f5668ca33204c34db6134223a47d241b3a5d0c3; this envelope and the retained review artifact document that exact implementation target",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Apartment MacBook Air fleet runner)",
+  "baselineCatalogDigest": "sha256-Yqenf9cBCh57flKqrJWc266ihly5w3cD-VBOYDW9RpY",
+  "candidateCatalogDigest": "sha256-HgfaOHXr8RcI_aVAsI1PynCogv3mjR0gfGp2DRGz3G0",
+  "candidateRawSha256": "b5c5b424fe740517e9e9b438819107c3a1f594fad9a106e941b507e7ecd9be3d",
+  "declaredAllowListDigest": "sha256-N-58JXvaHByM9FvvqgV-fpuInr8y-wPjyvLt2Hs0Hcw",
+  "allowListRawSha256": "37ee7c257bda1c1c8cf45befaa057e7e9b889ebf32fb03e3caf2edd87b341dcc",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-closed-fs-mutations.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-closed-fs-mutations.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-closed-fs-mutations.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 48 changes, 48 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -16, native-public-arguments-not-authored -16, closed-surface-denial-probe-not-authored -16; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 322/322 fixtures, 20.05 s fixture execution; 10 target executions",
+    "batchSecondary": "PASS (exit 0), 348/348 fixtures, 22.56 s fixture execution; 6 target executions",
+    "productionEvidenceReplay": "PASS; 16/16 final observations rebuilt byte-for-byte through buildPublicFixtureEvidence; wrong syscall, widened result, wrong global, legacy observation, descriptor, path, action, count, and independently tested wrong-operation mutations rejected"
+  },
+  "rowsClosed": 16,
+  "cells": [
+    "surface.native.op.exactfsfdasync.1iinzl8 logical fchmod, fchown, and futimes branch-selection (3 rows)",
+    "surface.native.op.exactfspathasync.10cb78b logical chown, copyfile, copyfile-excl, lchmod, lchown, link, lutime, mkdir-recursive, mkdtemp, rename, rmdir, symlink, and unlink branch-selection (13 rows)"
+  ],
+  "classRemainder": "The 16 pre-dispatch closed mutation branches are complete. The effectful truncate/access-write and retained-descriptor rows on these carrier cells remain separate obligations. The direct __exactMkdir recursive branch is not claimed by this class.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3982 → 3998",
+    "unresolvedFixtures": "14678 → 14662",
+    "changedRows": "exactly 16 of 21784; 0 added, 0 removed; route, terminal, semantic edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine after physical execution, never guessed (LLP 0037 D3). Every target row observed the empty sequence because its loaded dispatcher refuses before capability work.",
+    "allRows": [],
+    "coverageEdges": [
+      "surface.native.op.exactfsfdasync.1iinzl8 for the three descriptor-selector rows",
+      "surface.native.op.exactfspathasync.10cb78b for the thirteen path-selector rows"
+    ],
+    "d1AndD2Confirmation": "All 16 observations contain zero typed decisions and zero legacy observations. No fs:list decision exists, surplus or otherwise, so the LLP 0037 D2 traversal-stage check is vacuous. Recursive mkdir emits no worker gate and cannot borrow __exactMkdir evidence. This is a source-branch refusal account, not a new attribution pattern outside D1–D4."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/closed-fs-mutations-primary-v5-final.json",
+    "primaryRawSha256": "e38e4663b5e80b0cc9f716a028f58484364b9fd5bf9b5d13db0085fa2fe136d2",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/closed-fs-mutations-secondary-v5-final.json",
+    "secondaryRawSha256": "04a9dde784bca8451c8504adf22d485345cfd5adf2f0aae0c9715445eabfc3ac",
+    "catalogBinding": "both envelopes bind sha256-HgfaOHXr8RcI_aVAsI1PynCogv3mjR0gfGp2DRGz3G0 and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y; the final-v6 catalog is byte-identical to the physically executed final-v5 catalog",
+    "target": "aarch64",
+    "coverage": "16/16 target executions occur exactly once across disjoint shards (10 primary, 6 secondary), all passed; every result is the exact four-key Error throw EPERM: operation not permitted, <authored syscall>",
+    "secureCommandAudit": "both physical commands contain the exact tokens --no-default-features --features standard,capsec-conformance-observer,openssl-crypto"
+  },
+  "correctionLoop": [
+    {
+      "iteration": 1,
+      "failure": "The first physical fchmod row produced the exact platform error EPERM: operation not permitted, fchmod, while the initial template expected a humanized, differently capitalized fragment.",
+      "resolution": "Pinned the observed EPERM prefix and exact authored-syscall suffix in both evidence consumers. Added wrong-syscall and extra-result-key negatives; no assertion was weakened."
+    },
+    {
+      "iteration": 2,
+      "failure": "The Rust consumer's independent zero-decision gate recognized older non-capability/effects branches but not this exact closed account.",
+      "resolution": "Admitted zero decisions only after the full closed-mutation account and exact four-key result are proven. The physical primary shard then advanced."
+    },
+    {
+      "iteration": 3,
+      "failure": "The recursive-mkdir cleanup preflight rejected the authored path because it did not use the existing __exactFsPathAsync-owned fixture prefix.",
+      "resolution": "Moved that one exact argument under target/ibex-capsec-fspathasync-closed-mkdir-recursive, preserving the global cleanup ownership invariant."
+    },
+    {
+      "iteration": 4,
+      "failure": "The generic operation-name heuristic inferred an __exactMkdir worker edge for recursive mkdir even though this closed source branch refuses inside __exactFsPathAsync before dispatch.",
+      "resolution": "Excluded auxiliary-worker inference only after proving the full exact closed account. The catalog route remains dispatcher-only, and the independent review's removal break-test reproduced the borrowed-worker failure."
+    },
+    {
+      "iteration": 5,
+      "failure": "The independent JavaScript promotion consumer's earlier denial-descriptor gate still accepted only the established filesystem-policy EACCES account and rejected all 16 EPERM receipts.",
+      "resolution": "Added the exact closed-mutation descriptor account to that independent gate. Production replay then rebuilt 16/16 receipts and rejected eight nearby mutations."
+    },
+    {
+      "iteration": 6,
+      "failure": "The full suite retained a stale test assertion that the newly authored mkdtemp branch-selection row must remain unresolved.",
+      "resolution": "Replaced the stale null-probe expectation with exact executable denial assertions for arguments, result, fragment, zero decisions, empty stages/actions/floor/setup. The exact-final suite returned to the same seven known failures."
+    }
+  ],
+  "environmentIncidents": [
+    "The final Rust consumer moved two source-derived runtime environment offsets. The canonical full vendored regeneration chain was run; check:drift and the 11-test inventory suite are green.",
+    "The first full-suite pass exposed the stale mkdtemp assertion as an eighth failure. After its exact update, the final suite is 1402 pass / 7 fail and every failing identity matches the prior-class same-tree baseline in issues/20260808-capsec-registry-drift-suite-red-on-main.md.",
+    "The independent review's isolated worktree needed explicit checked-in Hermes framework/header paths and EXACT_ALLOW_FALLBACK=1 as build plumbing; it retained the exact secure Rust feature vector and reported no product finding."
+  ],
+  "executorChanges": [
+    "The Rust batch consumer validates only the exact three __exactFsFdAsync and thirteen __exactFsPathAsync closed argument vectors, empty authority/evidence account, exact EPERM result, zero-decision admission, and pre-dispatch recursive-mkdir terminal account.",
+    "The independent JavaScript promotion consumer mirrors the exact subject, descriptor, result, and zero-decision constraints without sharing the Rust table.",
+    "The generated runtime environment inventory restamps only the two IBEX_CAPSEC_* source byte offsets moved by the Rust validator."
+  ],
+  "independentAdversarialReview": {
+    "artifact": "llp/reviews/0049-a2-native-closed-fs-mutations-executor.codex.md",
+    "artifactRawSha256": "4d2bae005cdc5a1da8c3578718bb6b7d9ba4352207c4e159315084530519a789",
+    "family": "OpenAI GPT-5 family via independent Codex workspace agent",
+    "reviewedBase": "bc6b20f613ccd7a741a9f4679297800ab78f21ec",
+    "reviewedDiffSha256": "b1888a42cfa5cf00d2e6a1927f5668ca33204c34db6134223a47d241b3a5d0c3",
+    "verdict": "READY; 0 blockers, 0 material findings, 0 unaddressed minor findings",
+    "breakTests": "Removing Rust or JavaScript zero-decision admission rejected positives; removing either exact-result constraint admitted a wrong suffix/shape and failed negatives; widening global/descriptor/path/operation accounts failed exact negatives; removing recursive-mkdir worker exclusion reproduced the borrowed __exactMkdir edge failure. All isolated mutations were restored and the implementation diff hash reverified."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 58,
+    "correctionLoopIterations": 6,
+    "batchPrimarySeconds": 20.05,
+    "batchSecondarySeconds": 22.56,
+    "batchTotalSeconds": 42.61,
+    "exactFinalFullDevtoolsSuiteSeconds": 312.98
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; final-v6 is byte-identical to final-v5 and reproduces the candidate and embedded allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two IBEX_CAPSEC_* source byte offsets",
+    "focusedJavaScript": "PASS; exact recipe and promotion tests plus the pre-existing mkdtemp test; independent combined review run 3 pass / 201 filtered / 186 expectations",
+    "focusedRust": "PASS; exact closed-mutation account test 1 pass / 658 filtered with the exact secure feature vector",
+    "productionEvidenceReplay": "PASS; 16/16 byte-structural matches and all supplied or independently added mutations rejected",
+    "referenceCheck": "PASS; 51 LLP docs, 2538 refs in 2018 files, 0 errors, 1 unchecked",
+    "runtimeInventory": "PASS; 11/11 tests",
+    "fullDevtoolsSuite": "1402 pass / 7 fail versus prior-class 1400 pass / 7 fail; all seven failure identities are unchanged, and the two new class tests account for the pass-count increase"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 107,
+    "endRows": 91,
+    "remainingGroups": 27,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 7,
+      "no-action": 1,
+      "fs:read+fs:write": 12
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. Eight committed tranches will close 69 of the 160 real obligations. The 91-row ledger consists of 72 rows in twelve six-row groups, one five-row retained writev group, thirteen one-row retained-descriptor denies, and the one-row direct recursive-mkdir branch."
+  }
+}

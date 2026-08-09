@@ -1,0 +1,56 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-closed-fs-mutations",
+  "templateClass": "surface.native.op filesystem mutations × closed branch-selection",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes only the 16 zero-decision branch-selection rows whose loaded native implementations refuse the operation with EPERM before descriptor validation or path lookup: three __exactFsFdAsync metadata branches and thirteen __exactFsPathAsync mutation branches. The separate __exactMkdir recursive branch and all effectful rows remain unclaimed. No route or terminal-set change is declared.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3667-3704",
+      "proof": "The closed filesystem mutation template supplies the exact fchmod, fchown, and futimes selector plus a numeric descriptor argument. The loaded implementation refuses each selector before descriptor ownership or capability evaluation."
+    },
+    {
+      "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3667-3704",
+      "proof": "Each source-bound branch-selection row invokes __exactFsFdAsync through the physical native executor, expects no typed decisions, and binds the exact armed EPERM refusal."
+    },
+    {
+      "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "closed-surface-denial-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3667-3704",
+      "proof": "The real loaded global proves the closed branch directly: it returns no value, emits no capability decision, and throws the platform EPERM message before touching the supplied descriptor."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3784-3931",
+      "proof": "The template supplies exact six-slot argument vectors for chown, copyfile, copyfile_excl, lchmod, lchown, link, lutime, recursive mkdir, mkdtemp, rename, rmdir, symlink, and unlink. Every selector is in the source's closedMutation predicate."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3784-3931",
+      "proof": "Each source-bound branch-selection row invokes __exactFsPathAsync through the physical native executor, expects no typed decisions, and binds the exact armed EPERM refusal."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "closed-surface-denial-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3784-3931",
+      "proof": "The real loaded global proves each branch closed before path conversion or lookup: zero typed decisions, no filesystem effect, and the source-owned EPERM error."
+    }
+  ]
+}
