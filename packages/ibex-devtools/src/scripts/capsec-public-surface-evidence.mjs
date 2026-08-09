@@ -9616,16 +9616,22 @@ export function reviewedNativeClosedFilesystemMutationRequired({
   recipe,
 }) {
   const operation = authored?.arguments?.[0];
-  return (
-    authored?.invocationSchema ===
-      "ibex/capsec-native-global-invocation/1" &&
-    authored.kind === "native-global-function" &&
-    recipe?.classification === "closed" &&
-    recipe?.scenario === "branch-selection" &&
+  const directRecursiveMkdir =
+    authored?.globalName === "__exactMkdir" &&
+    canonicalJson(authored.arguments) ===
+      canonicalJson([
+        {
+          kind: "json-literal",
+          value: "target/ibex-capsec-mkdir-recursive-closed",
+        },
+        { kind: "json-literal", value: true },
+        { kind: "json-literal", value: -1 },
+      ]);
+  const asyncClosedMutation =
     operation?.kind === "json-literal" &&
-    ((authored.globalName === "__exactFsFdAsync" &&
+    ((authored?.globalName === "__exactFsFdAsync" &&
       ["fchmod", "fchown", "futimes"].includes(operation.value)) ||
-      (authored.globalName === "__exactFsPathAsync" &&
+      (authored?.globalName === "__exactFsPathAsync" &&
         [
           "chown",
           "copyfile",
@@ -9640,7 +9646,14 @@ export function reviewedNativeClosedFilesystemMutationRequired({
           "rmdir",
           "symlink",
           "unlink",
-        ].includes(operation.value)))
+        ].includes(operation.value)));
+  return (
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    recipe?.classification === "closed" &&
+    recipe?.scenario === "branch-selection" &&
+    (directRecursiveMkdir || asyncClosedMutation)
   );
 }
 
@@ -9656,11 +9669,13 @@ export function reviewedNativeClosedFilesystemMutation({ authored, recipe }) {
     canonicalJson(authored.requiredFloor) !== canonicalJson([]) ||
     canonicalJson(authored.requiredSetupFloor ?? []) !== canonicalJson([]) ||
     canonicalJson(authored.setup) !== canonicalJson([]) ||
-    canonicalJson(authored.completion) !==
-      canonicalJson({
-        kind: "event-loop-quiescence",
-        timeoutMilliseconds: 1_000,
-      })
+    (authored.globalName === "__exactMkdir"
+      ? authored.completion !== undefined
+      : canonicalJson(authored.completion) !==
+        canonicalJson({
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        }))
   ) {
     return false;
   }
@@ -9669,6 +9684,16 @@ export function reviewedNativeClosedFilesystemMutation({ authored, recipe }) {
   );
   if (literalArguments.some((value) => value === Symbol.for("invalid"))) {
     return false;
+  }
+  if (authored.globalName === "__exactMkdir") {
+    return (
+      canonicalJson(literalArguments) ===
+      canonicalJson([
+        "target/ibex-capsec-mkdir-recursive-closed",
+        true,
+        -1,
+      ])
+    );
   }
   if (authored.globalName === "__exactFsFdAsync") {
     const expected = new Map([
@@ -9788,7 +9813,10 @@ export function reviewedNativeClosedFilesystemMutationResult({
   ) {
     return false;
   }
-  const operation = authored.arguments[0].value;
+  const operation =
+    authored.globalName === "__exactMkdir"
+      ? "mkdir"
+      : authored.arguments[0].value;
   return (
     result.kind === "throw" &&
     result.globalName === authored.globalName &&

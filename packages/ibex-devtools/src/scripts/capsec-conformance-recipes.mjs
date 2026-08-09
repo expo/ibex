@@ -3637,6 +3637,23 @@ function nativeEffectStages(nonDenyStages) {
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
+    "__exactMkdir",
+    new Map([
+      [
+        "recursive",
+        nativeClosedFilesystemMutationTemplate(
+          3,
+          [
+            literalArgument("target/ibex-capsec-mkdir-recursive-closed"),
+            literalArgument(true),
+            literalArgument(-1),
+          ],
+          { async: false },
+        ),
+      ],
+    ]),
+  ],
+  [
     "__exactGetAllEnv",
     new Map([
       [
@@ -4630,10 +4647,10 @@ function nativePublicProbeForPlan({
           requiredSourceArity: invocation.arity,
           setup: [],
         }
-      : (NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
-        NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
+      : (NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
           invocation.globalName,
         )?.get(logicalBranchIdForPlan(plan, scenario)) ??
+        NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
         (plan.actionIds.length === 0 &&
         new Set(["branch-selection", "no-effect"]).has(scenario)
           ? NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES.get(invocation.globalName)

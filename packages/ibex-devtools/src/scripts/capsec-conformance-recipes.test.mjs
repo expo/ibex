@@ -561,14 +561,14 @@ describe("exact-target CapSec executable recipes", () => {
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally. The three
     // branch-local filesystem closures use the closed-surface harness, while
-    // the direct non-recursive mkdir branch and retained async reads add native
-    // selection proofs. Five direct environment writes bind the exact armed
+    // the direct mkdir branches and retained async reads add native selection
+    // proofs. Five direct environment writes bind the exact armed
     // __exactSetEnv source and principal-overlay resource. The LLP 0049
     // Phase 2 calibration tranche adds sixteen more: six armed
     // whole-environment enumeration receipts on the nonempty logical branch
     // and five each for the direct __exactAccess and __exactOpendir list
     // terminals.
-    expect(nativePublicFixtures).toHaveLength(578);
+    expect(nativePublicFixtures).toHaveLength(579);
     expect(
       nativePublicFixtures
         .filter(
@@ -2994,7 +2994,8 @@ describe("exact-target CapSec executable recipes", () => {
   test("creates a direct native directory only under an exact owned floor", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
-        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactMkdir",
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactMkdir" &&
+        recipe.publicSurfaceProbe.invocation.arguments[1]?.value === false,
     );
     expect(rows).toHaveLength(6);
     for (const recipe of rows) {
@@ -3727,6 +3728,44 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }
+  });
+
+  test("physically refuses direct recursive mkdir before path lookup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactmkdir.") &&
+        recipe.fixtureId.includes(".logical.recursive.") &&
+        recipe.scenario === "branch-selection",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      classification: "closed",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          globalName: "__exactMkdir",
+          arguments: [
+            {
+              kind: "json-literal",
+              value: "target/ibex-capsec-mkdir-recursive-closed",
+            },
+            { kind: "json-literal", value: true },
+            { kind: "json-literal", value: -1 },
+          ],
+          expectedResult: "permission-denied",
+          expectedDenyMessageFragment: "EPERM: operation not permitted",
+          expectedActionIds: [],
+          expectedTypedStages: [],
+          expectedTypedDecisionCount: 0,
+          requiredFloor: [],
+          setup: [],
+        },
+      },
+    });
+    expect(rows[0].publicSurfaceProbe.invocation).not.toHaveProperty(
+      "completion",
+    );
   });
 
   test("flushes retained writable descriptors and removes their owned files", () => {

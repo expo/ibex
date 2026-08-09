@@ -1108,7 +1108,7 @@ fn native_closed_filesystem_mutation_account_is_exact_and_fail_closed() {
                 .into_iter()
                 .map(|value| NativeProbeArgument::JsonLiteral { value })
                 .collect(),
-            completion: Some(NativeProbeCompletion {
+            completion: (global_name != "__exactMkdir").then_some(NativeProbeCompletion {
                 kind: "event-loop-quiescence".into(),
                 timeout_milliseconds: 1_000,
             }),
@@ -1125,6 +1125,10 @@ fn native_closed_filesystem_mutation_account_is_exact_and_fail_closed() {
             expected_action_ids: Vec::new(),
         };
     let exact_cases = [
+        (
+            "__exactMkdir",
+            serde_json::json!(["target/ibex-capsec-mkdir-recursive-closed", true, -1]),
+        ),
         (
             "__exactFsFdAsync",
             serde_json::json!(["fchmod", 42, 0o600, 0]),
@@ -1241,10 +1245,14 @@ fn native_closed_filesystem_mutation_account_is_exact_and_fail_closed() {
         ),
     ];
     for (global_name, arguments) in exact_cases {
-        let operation = arguments[0]
-            .as_str()
-            .expect("closed mutation operation")
-            .to_owned();
+        let operation = if global_name == "__exactMkdir" {
+            "mkdir".to_owned()
+        } else {
+            arguments[0]
+                .as_str()
+                .expect("closed mutation operation")
+                .to_owned()
+        };
         let exact_invocation = invocation(
             global_name,
             arguments
@@ -1340,6 +1348,18 @@ fn native_closed_filesystem_mutation_account_is_exact_and_fail_closed() {
         "closed",
         "branch-selection",
         &wrong_path,
+    ));
+    let wrong_recursive_path = invocation(
+        "__exactMkdir",
+        serde_json::json!(["target/ibex-capsec-mkdir-recursive-nearby", true, -1])
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &wrong_recursive_path,
     ));
     assert!(!native_closed_filesystem_mutation_result_is_reviewed(
         "closed",
@@ -2942,9 +2962,14 @@ fn native_closed_filesystem_mutation_is_reviewed(
         || !invocation.expected_typed_outcomes.is_empty()
         || invocation.expected_typed_decision_count != 0
         || !invocation.expected_action_ids.is_empty()
-        || invocation.completion.as_ref().is_none_or(|completion| {
-            completion.kind != "event-loop-quiescence" || completion.timeout_milliseconds != 1_000
-        })
+        || if invocation.global_name == "__exactMkdir" {
+            invocation.completion.is_some()
+        } else {
+            invocation.completion.as_ref().is_none_or(|completion| {
+                completion.kind != "event-loop-quiescence"
+                    || completion.timeout_milliseconds != 1_000
+            })
+        }
     {
         return false;
     }
@@ -2959,6 +2984,14 @@ fn native_closed_filesystem_mutation_is_reviewed(
     else {
         return false;
     };
+    if invocation.global_name == "__exactMkdir" {
+        return arguments
+            == vec![
+                serde_json::json!("target/ibex-capsec-mkdir-recursive-closed"),
+                serde_json::json!(true),
+                serde_json::json!(-1),
+            ];
+    }
     if invocation.global_name == "__exactFsFdAsync" {
         return matches!(
             arguments.as_slice(),
@@ -3075,15 +3108,20 @@ fn native_closed_filesystem_mutation_result_is_reviewed(
     if !native_closed_filesystem_mutation_is_reviewed(classification, scenario, invocation) {
         return false;
     }
-    let Some(operation) = invocation
-        .arguments
-        .first()
-        .and_then(|argument| match argument {
-            NativeProbeArgument::JsonLiteral { value } => value.as_str(),
-            _ => None,
-        })
-    else {
-        return false;
+    let operation = if invocation.global_name == "__exactMkdir" {
+        "mkdir"
+    } else {
+        let Some(operation) = invocation
+            .arguments
+            .first()
+            .and_then(|argument| match argument {
+                NativeProbeArgument::JsonLiteral { value } => value.as_str(),
+                _ => None,
+            })
+        else {
+            return false;
+        };
+        operation
     };
     let Some(result) = invocation_result.as_object() else {
         return false;

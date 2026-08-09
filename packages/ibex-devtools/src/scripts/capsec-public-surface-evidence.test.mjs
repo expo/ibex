@@ -4410,15 +4410,19 @@ function callbackRuntimeObservation(recipe) {
 
 describe("CapSec public-surface promotion evidence", () => {
   test("admits only exact closed native filesystem mutation branches", () => {
-    const authored = (globalName, values) => ({
+    const authored = (globalName, values, { async = true } = {}) => ({
       invocationSchema: "ibex/capsec-native-global-invocation/1",
       kind: "native-global-function",
       globalName,
       arguments: values.map((value) => ({ kind: "json-literal", value })),
-      completion: {
-        kind: "event-loop-quiescence",
-        timeoutMilliseconds: 1_000,
-      },
+      ...(async
+        ? {
+            completion: {
+              kind: "event-loop-quiescence",
+              timeoutMilliseconds: 1_000,
+            },
+          }
+        : {}),
       requiredFloor: [],
       setup: [],
       expectedResult: "permission-denied",
@@ -4432,6 +4436,11 @@ describe("CapSec public-surface promotion evidence", () => {
       scenario: "branch-selection",
     };
     const exactCases = [
+      [
+        "__exactMkdir",
+        ["target/ibex-capsec-mkdir-recursive-closed", true, -1],
+        false,
+      ],
       ["__exactFsFdAsync", ["fchmod", 42, 0o600, 0]],
       ["__exactFsFdAsync", ["fchown", 42, 0, 0]],
       ["__exactFsFdAsync", ["futimes", 42, 0, 0]],
@@ -4530,10 +4539,10 @@ describe("CapSec public-surface promotion evidence", () => {
         ["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0],
       ],
     ];
-    for (const [globalName, values] of exactCases) {
-      const operation = values[0];
+    for (const [globalName, values, async = true] of exactCases) {
+      const operation = globalName === "__exactMkdir" ? "mkdir" : values[0];
       const exact = {
-        authored: authored(globalName, values),
+        authored: authored(globalName, values, { async }),
         recipe,
       };
       expect(
@@ -4596,6 +4605,17 @@ describe("CapSec public-surface promotion evidence", () => {
           errorMessage: "EPERM: operation not permitted, fchown",
         },
       }),
+    ).toBe(false);
+    const wrongRecursivePath = {
+      authored: authored(
+        "__exactMkdir",
+        ["target/ibex-capsec-mkdir-recursive-nearby", true, -1],
+        { async: false },
+      ),
+      recipe,
+    };
+    expect(
+      reviewedNativeClosedFilesystemMutation(wrongRecursivePath),
     ).toBe(false);
   });
 
