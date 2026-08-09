@@ -2171,6 +2171,72 @@ const nativeProjectFsReadFileAsyncTemplate = () => {
     requiredSourceArity: 4,
   });
 };
+// The public branch owns the bytes and the exact missing project child. The
+// semantic cell is fs:write-only; fs:list decisions are retained separately as
+// authenticated open traversal and must satisfy the executor's D2 validator.
+// @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
+const nativeProjectFsWriteFileAsyncTemplate = () => {
+  const stages = missingProjectChildStages("commit", "repeat");
+  const denyStages = missingProjectChildStages();
+  return Object.freeze({
+    actionIds: ["fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-fswritefileasync-path"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-async-write-file"),
+      ]),
+      literalArgument(null),
+      literalArgument(0o600),
+      literalArgument(false),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          stages.length,
+        ]),
+      ),
+      deny: denyStages.length,
+    }),
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [scenario, stages]),
+      ),
+      deny: denyStages,
+    }),
+    expectedTypedOutcomes: Object.freeze({
+      deny: ["allow", "allow", "allow", "allow", "allow", "allow", "deny"],
+    }),
+    reviewedIncidentalActionIds: ["fs:list"],
+    requiredFloor: [
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(
+          "target",
+          "ibex-capsec-fswritefileasync-path",
+        ),
+      },
+    ],
+    requiredSourceArity: 6,
+    setup: [],
+  });
+};
 const nativeRetainedFsFstatTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -3389,6 +3455,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
       ["descriptor", nativeRetainedFsReadFileAsyncTemplate()],
       ["path", nativeProjectFsReadFileAsyncTemplate()],
     ]),
+  ],
+  [
+    "__exactFsWriteFileAsync",
+    new Map([["path", nativeProjectFsWriteFileAsyncTemplate()]]),
   ],
   [
     "__exactFsFdAsync",

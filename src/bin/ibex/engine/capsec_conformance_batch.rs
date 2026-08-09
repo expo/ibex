@@ -535,17 +535,11 @@ fn native_sqlite_file_setup_is_real_and_bounded() {
     cleanup.files.push(path.into());
     create_native_sqlite_file_fixture(path);
 
-    let connection = rusqlite::Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("reopen SQLite setup read-only");
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("reopen SQLite setup read-only");
     let value: String = connection
-        .query_row(
-            "SELECT value FROM ibex_capsec_probe",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT value FROM ibex_capsec_probe", [], |row| row.get(0))
         .expect("read seeded SQLite setup row");
     assert_eq!(value, "file-backed");
     drop(connection);
@@ -762,6 +756,47 @@ fn native_incidental_traversal_allowance_is_exact_and_fail_closed() {
         &declared_and_traversal
     ));
 
+    let mut write_file = invocation(
+        "__exactFsWriteFileAsync",
+        Some("target/ibex-capsec-fswritefileasync-path"),
+    );
+    write_file.expected_action_ids = vec!["fs:write".into()];
+    let declared_write_and_traversal = BTreeSet::from(["fs:list".into(), "fs:write".into()]);
+    assert_eq!(
+        native_async_write_file_fixture_path(&write_file),
+        Some("target/ibex-capsec-fswritefileasync-path")
+    );
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&write_file),
+        Some("fs-write-file-async:")
+    );
+    assert!(native_observed_actions_are_reviewed(
+        &write_file,
+        &declared_write_and_traversal
+    ));
+    let mut wrong_write_path = invocation(
+        "__exactFsWriteFileAsync",
+        Some("target/not-owned-by-this-fixture"),
+    );
+    wrong_write_path.expected_action_ids = vec!["fs:write".into()];
+    assert_eq!(
+        native_async_write_file_fixture_path(&wrong_write_path),
+        None
+    );
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&wrong_write_path),
+        None
+    );
+    let mut wrong_write_action = invocation(
+        "__exactFsWriteFileAsync",
+        Some("target/ibex-capsec-fswritefileasync-path"),
+    );
+    wrong_write_action.expected_action_ids = vec!["fs:list".into()];
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&wrong_write_action),
+        None
+    );
+
     let traversal_decision = |stage: &str, operation_id: &str| {
         serde_json::json!({
             "decisionSet": {
@@ -795,6 +830,24 @@ fn native_incidental_traversal_allowance_is_exact_and_fail_closed() {
         &list_effects,
         true,
     ));
+    assert!(native_decision_is_reviewed_open_traversal(
+        &write_file,
+        &traversal_decision(
+            "repeat",
+            "fs-write-file-async:/project/target/ibex-capsec-fswritefileasync-path",
+        ),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &write_file,
+        &traversal_decision(
+            "commit",
+            "fs-write-file-async:/project/target/ibex-capsec-fswritefileasync-path",
+        ),
+        &list_effects,
+        false,
+    ));
 }
 
 #[test]
@@ -811,6 +864,84 @@ fn native_async_harness_fields_are_not_published_as_runtime_results() {
 
     assert!(result.get("resultString").is_none());
     assert_eq!(result["cleanup"], "removed-owned-file");
+}
+
+#[test]
+fn native_async_argument_producer_is_exact_and_fail_closed() {
+    let supported = serde_json::json!({
+        "kind": "native-global-result",
+        "globalName": "__exactStringToUtf8Bytes",
+        "arguments": [{
+            "kind": "json-literal",
+            "value": "ibex-capsec-async-write-file"
+        }]
+    });
+    assert!(native_async_argument_is_supported(&supported));
+
+    let mut wrong_producer = supported.clone();
+    wrong_producer["globalName"] = serde_json::json!("__exactUtf8BytesToString");
+    assert!(!native_async_argument_is_supported(&wrong_producer));
+
+    let mut wrong_argument = supported.clone();
+    wrong_argument["arguments"][0]["value"] = serde_json::json!("different-bytes");
+    assert!(!native_async_argument_is_supported(&wrong_argument));
+
+    let mut extra_argument = supported;
+    extra_argument["arguments"] = serde_json::json!([
+        {"kind": "json-literal", "value": "ibex-capsec-async-write-file"},
+        {"kind": "json-literal", "value": "extra"}
+    ]);
+    assert!(!native_async_argument_is_supported(&extra_argument));
+    assert!(!native_async_argument_is_supported(
+        &serde_json::json!({"kind": "native-global-result-property"})
+    ));
+}
+
+#[test]
+fn native_async_write_file_fixture_lifecycle_is_exact_and_fail_closed() {
+    let path = NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH;
+    let mut cleanup = NativePublicFixtureCleanup::default();
+    prepare_native_async_write_file_fixture(path, &mut cleanup);
+    assert_eq!(cleanup.files, [std::path::PathBuf::from(path)]);
+    assert!(!std::path::Path::new(path).exists());
+
+    std::fs::write(path, b"wrong-bytes").expect("write wrong async write-file fixture bytes");
+    let mut returned = serde_json::json!({ "kind": "return" });
+    let wrong_bytes = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        finalize_native_async_write_file_fixture(path, &mut returned);
+    }));
+    assert!(
+        wrong_bytes.is_err(),
+        "async write-file accepted wrong bytes"
+    );
+
+    std::fs::write(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES)
+        .expect("write exact async write-file fixture bytes");
+    finalize_native_async_write_file_fixture(path, &mut returned);
+    assert_eq!(returned["cleanup"], "removed-owned-file");
+    assert!(!std::path::Path::new(path).exists());
+
+    std::fs::write(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES)
+        .expect("write forbidden denied async write-file fixture state");
+    let mut denied = serde_json::json!({ "kind": "throw" });
+    let denied_state = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        finalize_native_async_write_file_fixture(path, &mut denied);
+    }));
+    assert!(
+        denied_state.is_err(),
+        "denied async write-file accepted changed physical state"
+    );
+    std::fs::remove_file(path).expect("remove forbidden denied async write-file fixture state");
+    finalize_native_async_write_file_fixture(path, &mut denied);
+    assert!(denied.get("cleanup").is_none());
+
+    let escaped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prepare_native_async_write_file_fixture("target/not-owned-by-this-fixture", &mut cleanup);
+    }));
+    assert!(
+        escaped.is_err(),
+        "async write-file cleanup accepted an unowned path"
+    );
 }
 
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
@@ -1246,10 +1377,7 @@ fn create_native_sqlite_file_fixture(path: &str) {
     drop(connection);
 }
 
-fn native_sqlite_file_setup_is_bound(
-    invocation: &NativePublicInvocation,
-    path: &str,
-) -> bool {
+fn native_sqlite_file_setup_is_bound(invocation: &NativePublicInvocation, path: &str) -> bool {
     invocation.global_name == "__exactSqliteOpen"
         && matches!(
             invocation.arguments.first(),
@@ -1852,6 +1980,23 @@ fn native_async_result_take_script() -> String {
     )
 }
 
+fn native_async_argument_is_supported(argument: &serde_json::Value) -> bool {
+    match argument["kind"].as_str() {
+        Some("json-literal" | "harness-uint8-array-list") => true,
+        Some("native-global-result") => {
+            argument["globalName"] == "__exactStringToUtf8Bytes"
+                && argument["arguments"].as_array().is_some_and(|arguments| {
+                    arguments.as_slice()
+                        == [serde_json::json!({
+                            "kind": "json-literal",
+                            "value": "ibex-capsec-async-write-file"
+                        })]
+                })
+        }
+        _ => false,
+    }
+}
+
 fn native_async_invocation_script(
     invocation: &NativePublicInvocation,
     arguments: &[serde_json::Value],
@@ -1862,12 +2007,9 @@ fn native_async_invocation_script(
         .expect("async native invocation requires a completion contract");
     assert_eq!(completion.kind, "event-loop-quiescence");
     assert_eq!(completion.timeout_milliseconds, 1_000);
-    assert!(arguments.iter().all(|argument| matches!(
-        argument["kind"].as_str(),
-        Some("json-literal" | "harness-uint8-array-list")
-    )));
+    assert!(arguments.iter().all(native_async_argument_is_supported));
     format!(
-        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});throw new Error(\"unsupported async native fixture argument: \"+String(spec&&spec.kind));}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\"){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}throw new Error(\"unsupported async native fixture argument: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(error){{record({{kind:\"argument-throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
@@ -1913,21 +2055,45 @@ fn native_async_worker_terminal(invocation: &NativePublicInvocation) -> Option<&
 fn reviewed_native_open_traversal_prefix(
     invocation: &NativePublicInvocation,
 ) -> Option<&'static str> {
-    if invocation.kind != "native-global-function"
-        || invocation.expected_action_ids.as_slice() != ["fs:read"]
-    {
+    if invocation.kind != "native-global-function" {
         return None;
     }
     match invocation.global_name.as_str() {
-        "__exactReadlink" => Some("fs-readlink:"),
+        "__exactReadlink" if invocation.expected_action_ids.as_slice() == ["fs:read"] => {
+            Some("fs-readlink:")
+        }
         "__exactFsPathAsync"
-            if matches!(
-                invocation.arguments.first(),
-                Some(NativeProbeArgument::JsonLiteral { value })
-                    if value.as_str() == Some("readlink")
-            ) =>
+            if invocation.expected_action_ids.as_slice() == ["fs:read"]
+                && matches!(
+                    invocation.arguments.first(),
+                    Some(NativeProbeArgument::JsonLiteral { value })
+                        if value.as_str() == Some("readlink")
+                ) =>
         {
             Some("fs-readlink:")
+        }
+        "__exactFsWriteFileAsync"
+            if invocation.expected_action_ids.as_slice() == ["fs:write"]
+                && native_async_write_file_fixture_path(invocation).is_some() =>
+        {
+            Some("fs-write-file-async:")
+        }
+        _ => None,
+    }
+}
+
+const NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH: &str = "target/ibex-capsec-fswritefileasync-path";
+const NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES: &[u8] = b"ibex-capsec-async-write-file";
+
+fn native_async_write_file_fixture_path(invocation: &NativePublicInvocation) -> Option<&str> {
+    if invocation.global_name != "__exactFsWriteFileAsync" {
+        return None;
+    }
+    match invocation.arguments.first() {
+        Some(NativeProbeArgument::JsonLiteral { value })
+            if value.as_str() == Some(NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH) =>
+        {
+            value.as_str()
         }
         _ => None,
     }
@@ -1943,11 +2109,9 @@ fn native_observed_actions_are_reviewed(
         .cloned()
         .collect::<BTreeSet<_>>();
     declared_actions.is_subset(observed_actions)
-        && observed_actions
-            .difference(&declared_actions)
-            .all(|extra| {
-                extra == "fs:list" && reviewed_native_open_traversal_prefix(invocation).is_some()
-            })
+        && observed_actions.difference(&declared_actions).all(|extra| {
+            extra == "fs:list" && reviewed_native_open_traversal_prefix(invocation).is_some()
+        })
 }
 
 fn native_decision_is_reviewed_open_traversal(
@@ -2286,6 +2450,7 @@ fn validate_native_runtime_observation(
                         | "__exactFsOpenAsync"
                         | "__exactFsPathAsync"
                         | "__exactFsReadFileAsync"
+                        | "__exactFsWriteFileAsync"
                         | "__exactLstat"
                         | "__exactMkdir"
                         | "__exactReadFile"
@@ -2643,8 +2808,7 @@ fn validate_native_runtime_observation(
     );
     assert!(
         invocation.expected_typed_outcomes.is_empty()
-            || invocation.expected_typed_outcomes.len()
-                == invocation.expected_typed_decision_count,
+            || invocation.expected_typed_outcomes.len() == invocation.expected_typed_decision_count,
         "{}: pinned typed outcomes must cover every expected decision",
         recipe.fixture_id
     );
@@ -2876,6 +3040,39 @@ impl Drop for NativePublicFixtureCleanup {
     }
 }
 
+fn prepare_native_async_write_file_fixture(path: &str, cleanup: &mut NativePublicFixtureCleanup) {
+    assert_eq!(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH);
+    // This exact path is the complete ownership boundary for stale-file
+    // removal and cleanup. Another invocation of the same global cannot
+    // borrow the fixture under a different path.
+    // @ref LLP 0049#3-construction-rules
+    cleanup.files.push(path.into());
+    if let Err(error) = std::fs::remove_file(path) {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::NotFound,
+            "clear stale owned async write-file fixture {path}: {error}"
+        );
+    }
+}
+
+fn finalize_native_async_write_file_fixture(path: &str, invocation_result: &mut serde_json::Value) {
+    assert_eq!(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH);
+    if invocation_result["kind"] == "return" {
+        assert_eq!(
+            std::fs::read(path).expect("read async write-file fixture"),
+            NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES
+        );
+        std::fs::remove_file(path).expect("remove async write-file fixture");
+        invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
+    } else {
+        assert!(
+            !std::path::Path::new(path).exists(),
+            "denied async write-file invocation changed physical state"
+        );
+    }
+}
+
 struct InstalledConformanceObservationGuard {
     active: bool,
 }
@@ -3005,6 +3202,11 @@ async fn execute_native_public_recipe(
     if let Some(path) = &direct_write_file_fixture {
         assert_eq!(path, "target/ibex-capsec-write-file");
         let _ = std::fs::remove_file(path);
+    }
+    let async_write_file_fixture =
+        native_async_write_file_fixture_path(invocation).map(str::to_owned);
+    if let Some(path) = &async_write_file_fixture {
+        prepare_native_async_write_file_fixture(path, &mut fixture_cleanup);
     }
     let direct_append_file_fixture = if invocation.global_name == "__exactAppendFile" {
         match invocation.arguments.first() {
@@ -3244,6 +3446,9 @@ async fn execute_native_public_recipe(
             std::fs::remove_file(path).expect("remove direct write-file fixture");
             invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
+    }
+    if let Some(path) = &async_write_file_fixture {
+        finalize_native_async_write_file_fixture(path, &mut invocation_result);
     }
     if let Some(path) = &direct_append_file_fixture {
         let expected = if invocation_result["kind"] == "return" {

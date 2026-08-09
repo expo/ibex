@@ -8327,6 +8327,93 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors the path branch of async whole-file writes with owned cleanup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsWriteFileAsync" &&
+        recipe.fixtureId.includes(".logical.path."),
+    );
+    expect(rows).toHaveLength(6);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "branch-selection",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    expect(
+      rows.every((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return (
+          recipe.status === "fully-executable" &&
+          canonicalJson(recipe.actionIds) === canonicalJson(["fs:write"]) &&
+          invocation.arguments.length === 6 &&
+          canonicalJson(invocation.arguments[0]) ===
+            canonicalJson({
+              kind: "json-literal",
+              value: "target/ibex-capsec-fswritefileasync-path",
+            }) &&
+          invocation.arguments[1].kind === "native-global-result" &&
+          invocation.arguments[1].globalName ===
+            "__exactStringToUtf8Bytes" &&
+          invocation.arguments[1].arguments[0].value ===
+            "ibex-capsec-async-write-file" &&
+          invocation.arguments[2].value === null &&
+          invocation.arguments[3].value === 0o600 &&
+          invocation.arguments[4].value === false &&
+          invocation.arguments[5].value === null &&
+          invocation.completion.kind === "event-loop-quiescence" &&
+          invocation.expectedCleanup === "removed-owned-file" &&
+          invocation.setup.length === 0 &&
+          canonicalJson(invocation.expectedActionIds) ===
+            canonicalJson(["fs:write"]) &&
+          invocation.expectedTypedDecisionCount ===
+            (recipe.scenario === "deny" ? 7 : 9) &&
+          canonicalJson(invocation.expectedTypedOutcomes) ===
+            canonicalJson(
+              recipe.scenario === "deny"
+                ? [
+                    "allow",
+                    "allow",
+                    "allow",
+                    "allow",
+                    "allow",
+                    "allow",
+                    "deny",
+                  ]
+                : undefined,
+            ) &&
+          canonicalJson(invocation.expectedTypedStages) ===
+            canonicalJson(
+              recipe.scenario === "deny"
+                ? [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "requested",
+                    "requested",
+                    "discovery",
+                  ]
+                : [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "requested",
+                    "requested",
+                    "discovery",
+                    "commit",
+                    "repeat",
+                  ],
+            )
+        );
+      }),
+    ).toBe(true);
+  });
+
   test("executes source-defined SQLite host ABIs on the exact memory branch", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
