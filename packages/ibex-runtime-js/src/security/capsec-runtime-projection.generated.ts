@@ -4,4 +4,4 @@
 
 export const CAPSEC_RUNTIME_PROJECTION_SCHEMA = "ibex/capsec-runtime-projection/1";
 export const CAPSEC_RUNTIME_PROJECTION_DOMAIN = "ibex:capsec-runtime-projection:1";
-export const CAPSEC_RUNTIME_PROJECTION_DIGEST = "sha256-mIEEh2IqucvIUUcm4rwlQJxhGvkBTPcqwOro1bxJI4o";
+export const CAPSEC_RUNTIME_PROJECTION_DIGEST = "sha256-wYVEN-jOOqVpL3ha865Az1HMAQQFjxnDoNS6YwU8ctA";

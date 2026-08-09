@@ -17123,6 +17123,221 @@ module.exports = JSON.stringify({
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     #[cfg(not(feature = "insecure"))]
+    async fn lane_c_a2_facades_close_over_separate_loaded_target_edges() {
+        use std::collections::BTreeSet;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let bin = project.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let tool = bin.join("lane-c-a2-tool");
+        std::fs::write(&tool, b"#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&tool).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&tool, permissions).unwrap();
+        std::fs::write(project.path().join("handle-input.txt"), b"lane-c-a2").unwrap();
+        std::fs::write(
+            project.path().join("lane-c-a2-module.cjs"),
+            b"module.exports = 'lane-c-a2';\n",
+        )
+        .unwrap();
+        let referrer = project.path().join("lane-c-a2-entry.cjs");
+        std::fs::write(
+            &referrer,
+            b"module.exports = require('./lane-c-a2-module.cjs');\n",
+        )
+        .unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let referrer = std::fs::canonicalize(referrer).unwrap();
+        let (host, digest) = build_armed_test_host_custom(
+            Some(&root),
+            true,
+            true,
+            true,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["bootstrapCompatibilityModes"] = serde_json::json!(["bun"]);
+            },
+        );
+        let resolver_host = host.clone();
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let topology = engine
+            .eval_immediate(
+                r#"JSON.stringify((function () {
+                  var privateNames = [
+                    '__exactModuleResolve',
+                    '__exactModuleResolveMeta',
+                    '__exactNativeModuleResolve',
+                    '__exactNativeModuleResolveMeta'
+                  ];
+                  return {
+                    privateResolversAbsent: privateNames.every(function (name) {
+                      return Object.getOwnPropertyDescriptor(globalThis, name) === undefined;
+                    }),
+                    bunIsExact: Bun === Exact,
+                    whichAliasIdentity: Bun.which === Exact.which,
+                    writeAliasIdentity: Bun.write === Exact.write,
+                    importAliasIdentity: globalThis['import'] === globalThis.importModule,
+                    publicTypes: [
+                      typeof Exact.which,
+                      typeof Exact.write,
+                      typeof Ibex.fs.readHandle,
+                      typeof globalThis['import'],
+                      typeof globalThis.importModule,
+                      typeof globalThis.require,
+                      typeof globalThis.require.resolve
+                    ]
+                  };
+                })())"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let topology: serde_json::Value = serde_json::from_str(&topology).unwrap();
+        assert_eq!(topology["privateResolversAbsent"], true);
+        assert_eq!(topology["bunIsExact"], true);
+        assert_eq!(topology["whichAliasIdentity"], true);
+        assert_eq!(topology["writeAliasIdentity"], true);
+        assert_eq!(topology["importAliasIdentity"], true);
+        assert_eq!(
+            topology["publicTypes"],
+            serde_json::json!([
+                "function", "function", "function", "function", "function", "function", "function"
+            ])
+        );
+
+        let mut observations = Vec::new();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "lane-c-a2:Exact.which"
+        ));
+        let which_result = engine
+            .eval_immediate("Exact.which('/project/bin/lane-c-a2-tool')")
+            .await
+            .unwrap();
+        assert_eq!(which_result.as_deref(), Some("/project/bin/lane-c-a2-tool"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        let which_edges = typed
+            .iter()
+            .flat_map(|row| row.gates.iter())
+            .map(|gate| gate.coverage_edge_id.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            which_edges,
+            BTreeSet::from(["surface.native.op.exactwhich.0it66ce".to_owned()])
+        );
+        observations.push(serde_json::json!({
+            "path": "Exact.which / Bun.which (same loaded function)",
+            "typedDecisionCount": typed.len(),
+            "coverageEdgeIds": which_edges,
+        }));
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "lane-c-a2:Exact.write"
+        ));
+        let write_result = engine
+            .eval_immediate("Exact.write('/project/lane-c-a2-write.txt', 'written'); 'started'")
+            .await
+            .unwrap();
+        assert_eq!(write_result.as_deref(), Some("started"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        let write_edges = typed
+            .iter()
+            .flat_map(|row| row.gates.iter())
+            .map(|gate| gate.coverage_edge_id.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            write_edges,
+            BTreeSet::from(["surface.native.op.exactwritefile.1h0gy8u".to_owned()])
+        );
+        observations.push(serde_json::json!({
+            "path": "Exact.write / Bun.write (same loaded function)",
+            "typedDecisionCount": typed.len(),
+            "coverageEdgeIds": write_edges,
+        }));
+
+        for (label, method) in [
+            ("readFileSync", "readFileSync"),
+            ("readTextSync", "readTextSync"),
+        ] {
+            let _ = crate::host::abi::take_installed_conformance_observations();
+            assert!(crate::host::abi::begin_installed_conformance_observation(
+                &format!("lane-c-a2:Ibex.fs.readHandle.{label}")
+            ));
+            let result = engine
+                .eval_immediate(&format!(
+                    r#"(function () {{
+                      try {{
+                        var handle = Ibex.fs.readHandle('/project');
+                        handle.{method}('/project/handle-input.txt');
+                        return 'unexpected-success';
+                      }} catch (error) {{
+                        return String(error && error.message || error);
+                      }}
+                    }})()"#
+                ))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(result.contains("Permission denied"), "{label}: {result}");
+            let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+            assert!(legacy.is_empty());
+            assert!(typed.is_empty());
+            observations.push(serde_json::json!({
+                "path": format!("Ibex.fs.readHandle.[[return]].{label}"),
+                "result": result,
+                "typedDecisionCount": 0,
+                "coverageEdgeIds": [],
+            }));
+        }
+
+        resolver_host.begin_conformance_observation("lane-c-a2:captured-resolver-host");
+        let resolved = resolver_host
+            .resolve_module_meta_for_principal("./lane-c-a2-module.cjs", Some(&referrer), Some("0"))
+            .unwrap();
+        assert_eq!(
+            resolved.path.as_deref(),
+            Some(root.join("lane-c-a2-module.cjs").as_path())
+        );
+        let typed = resolver_host.take_typed_conformance_observations();
+        let resolver_edges = typed
+            .iter()
+            .flat_map(|row| row.gates.iter())
+            .map(|gate| gate.coverage_edge_id.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        assert!(!resolver_edges.is_empty());
+        assert!(resolver_edges.iter().all(|edge| {
+            edge == "surface.loader.require.resolve.12c9l9i"
+                || edge == "surface.native.op.exactreadfile.1cmzco7"
+        }));
+        observations.push(serde_json::json!({
+            "path": "loaded require.resolve closure -> captured metadata resolver host",
+            "typedDecisionCount": typed.len(),
+            "coverageEdgeIds": resolver_edges,
+        }));
+
+        eprintln!(
+            "LANE_C_A2_LOADED_TARGET_EVIDENCE={}",
+            serde_json::to_string(&serde_json::json!({
+                "topology": topology,
+                "observations": observations,
+            }))
+            .unwrap()
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_which_uses_overlay_then_vfs_and_preserves_logical_spelling() {
         use capsec_semantics::model::Stage;
         use std::os::unix::fs::PermissionsExt;

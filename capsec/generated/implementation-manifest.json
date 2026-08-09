@@ -172625,9 +172625,9 @@
       "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
       "observedKey": "native-op:__exactModuleResolve",
       "branchId": "surface.native.op.exactmoduleresolve.14a0zlj.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8",
+      "enforcementBranchId": "surface.native.op.exactmoduleresolve.14a0zlj.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactModuleResolve"
         ],
@@ -172650,22 +172650,18 @@
         "src/engine/hermes_runtime.cc#__exactModuleResolve",
         "src/engine/hermes_runtime.cc#jsi-global:__exactModuleResolve"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.allow",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.deny",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.wrong-principal"
+        "surface.native.op.exactmoduleresolve.14a0zlj.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
       "observedKey": "native-op:__exactModuleResolveMeta",
       "branchId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g",
+      "enforcementBranchId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactModuleResolveMeta"
         ],
@@ -172688,13 +172684,9 @@
         "src/engine/hermes_runtime.cc#__exactModuleResolveMeta",
         "src/engine/hermes_runtime.cc#jsi-global:__exactModuleResolveMeta"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.allow",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.deny",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.wrong-principal"
+        "surface.native.op.exactmoduleresolvemeta.0cn3rq2.default.non-capability"
       ]
     },
     {
@@ -172800,9 +172792,9 @@
       "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
       "observedKey": "native-op:__exactNativeModuleResolve",
       "branchId": "surface.native.op.exactnativemoduleresolve.0lt1gr6.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h",
+      "enforcementBranchId": "surface.native.op.exactnativemoduleresolve.0lt1gr6.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactNativeModuleResolve"
         ],
@@ -172825,22 +172817,18 @@
         "src/engine/hermes_runtime.cc#__exactNativeModuleResolve",
         "src/engine/hermes_runtime.cc#jsi-global:__exactNativeModuleResolve"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.allow",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.deny",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.wrong-principal"
+        "surface.native.op.exactnativemoduleresolve.0lt1gr6.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
       "observedKey": "native-op:__exactNativeModuleResolveMeta",
       "branchId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5",
+      "enforcementBranchId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactNativeModuleResolveMeta"
         ],
@@ -172863,13 +172851,9 @@
         "src/engine/hermes_runtime.cc#__exactNativeModuleResolveMeta",
         "src/engine/hermes_runtime.cc#jsi-global:__exactNativeModuleResolveMeta"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.allow",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.deny",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.wrong-principal"
+        "surface.native.op.exactnativemoduleresolvemeta.05tdyxr.default.non-capability"
       ]
     },
     {
@@ -191295,9 +191279,9 @@
       "edgeId": "surface.native.op.global.bun.which.030qwlb",
       "observedKey": "native-op:global:Bun.which",
       "branchId": "surface.native.op.global.bun.which.030qwlb.default",
-      "enforcementBranchId": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4",
+      "enforcementBranchId": "surface.native.op.global.bun.which.030qwlb.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:Bun.which"
         ],
@@ -191325,27 +191309,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.allow",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.branch-selection",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.deny",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.malformed",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.missing-attribution",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.wrong-principal",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.allow",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.branch-selection",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.deny",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.malformed",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.missing-attribution",
-        "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.wrong-principal"
+        "surface.native.op.global.bun.which.030qwlb.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.global.bun.write.0z6cgol",
       "observedKey": "native-op:global:Bun.write",
       "branchId": "surface.native.op.global.bun.write.0z6cgol.default",
-      "enforcementBranchId": "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7",
+      "enforcementBranchId": "surface.native.op.global.bun.write.0z6cgol.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:Bun.write"
         ],
@@ -191370,11 +191343,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.allow",
-        "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.deny",
-        "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.malformed",
-        "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.missing-attribution",
-        "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.wrong-principal"
+        "surface.native.op.global.bun.write.0z6cgol.default.non-capability"
       ]
     },
     {
@@ -206231,9 +206200,9 @@
       "edgeId": "surface.native.op.global.exact.which.123uwlt",
       "observedKey": "native-op:global:Exact.which",
       "branchId": "surface.native.op.global.exact.which.123uwlt.default",
-      "enforcementBranchId": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj",
+      "enforcementBranchId": "surface.native.op.global.exact.which.123uwlt.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:Exact.which"
         ],
@@ -206258,27 +206227,16 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.allow",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.branch-selection",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.deny",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.malformed",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.missing-attribution",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.wrong-principal",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.allow",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.branch-selection",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.deny",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.malformed",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.missing-attribution",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.wrong-principal"
+        "surface.native.op.global.exact.which.123uwlt.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.global.exact.write.0n288x3",
       "observedKey": "native-op:global:Exact.write",
       "branchId": "surface.native.op.global.exact.write.0n288x3.default",
-      "enforcementBranchId": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf",
+      "enforcementBranchId": "surface.native.op.global.exact.write.0n288x3.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:Exact.write"
         ],
@@ -206306,11 +206264,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.allow",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.deny",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.malformed",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.missing-attribution",
-        "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.wrong-principal"
+        "surface.native.op.global.exact.write.0n288x3.default.non-capability"
       ]
     },
     {
@@ -212243,9 +212197,9 @@
       "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
       "observedKey": "native-op:global:Ibex.fs.readHandle.[[return]].readFileSync",
       "branchId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp.default",
-      "enforcementBranchId": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o",
+      "enforcementBranchId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:Ibex.fs.readHandle.[[return]].readFileSync"
         ],
@@ -212265,22 +212219,18 @@
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#embedded:kFsHandleJS:Ibex.fs.readHandle.[[return]].readFileSync"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.allow",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.deny",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.malformed",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.missing-attribution",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.wrong-principal"
+        "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
       "observedKey": "native-op:global:Ibex.fs.readHandle.[[return]].readTextSync",
       "branchId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738.default",
-      "enforcementBranchId": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi",
+      "enforcementBranchId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:Ibex.fs.readHandle.[[return]].readTextSync"
         ],
@@ -212300,13 +212250,9 @@
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#embedded:kFsHandleJS:Ibex.fs.readHandle.[[return]].readTextSync"
       ],
-      "implementationOwner": "WP5",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.allow",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.deny",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.malformed",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.missing-attribution",
-        "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.wrong-principal"
+        "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738.default.non-capability"
       ]
     },
     {
@@ -219549,9 +219495,9 @@
       "edgeId": "surface.native.op.global.import.0lvmxcm",
       "observedKey": "native-op:global:import",
       "branchId": "surface.native.op.global.import.0lvmxcm.default",
-      "enforcementBranchId": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf",
+      "enforcementBranchId": "surface.native.op.global.import.0lvmxcm.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:import"
         ],
@@ -219571,37 +219517,18 @@
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#import"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.builtin-or-memory.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.builtin-or-memory.no-effect",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.wrong-principal"
+        "surface.native.op.global.import.0lvmxcm.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
       "observedKey": "native-op:global:importModule",
       "branchId": "surface.native.op.global.importmodule.0n7r0n6.default",
-      "enforcementBranchId": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf",
+      "enforcementBranchId": "surface.native.op.global.importmodule.0n7r0n6.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:importModule"
         ],
@@ -219621,28 +219548,9 @@
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#importModule"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.builtin-or-memory.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.builtin-or-memory.no-effect",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.wrong-principal"
+        "surface.native.op.global.importmodule.0n7r0n6.default.non-capability"
       ]
     },
     {
@@ -249142,9 +249050,9 @@
       "edgeId": "surface.native.op.global.require.00nyxb6",
       "observedKey": "native-op:global:require",
       "branchId": "surface.native.op.global.require.00nyxb6.default",
-      "enforcementBranchId": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3",
+      "enforcementBranchId": "surface.native.op.global.require.00nyxb6.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:require"
         ],
@@ -249164,37 +249072,18 @@
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#require"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.builtin-or-memory.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.builtin-or-memory.no-effect",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.wrong-principal"
+        "surface.native.op.global.require.00nyxb6.default.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.global.require.resolve.14z26gg",
       "observedKey": "native-op:global:require.resolve",
       "branchId": "surface.native.op.global.require.resolve.14z26gg.default",
-      "enforcementBranchId": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1",
+      "enforcementBranchId": "surface.native.op.global.require.resolve.14z26gg.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:global:require.resolve"
         ],
@@ -249214,22 +249103,9 @@
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#require.resolve"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP4",
       "fixtureObligations": [
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.builtin-or-memory.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.builtin-or-memory.no-effect",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.wrong-principal",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.allow",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.branch-selection",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.deny",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.malformed",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.missing-attribution",
-        "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.wrong-principal"
+        "surface.native.op.global.require.resolve.14z26gg.default.non-capability"
       ]
     },
     {
@@ -278871,17 +278747,12 @@
         "surface.native.op.global.bun.1idej6y",
         "surface.native.op.global.bun.spawn.06fthe9",
         "surface.native.op.global.bun.spawnsync.17sdmq6",
-        "surface.native.op.global.bun.which.030qwlb",
         "surface.native.op.global.exact.084448k",
         "surface.native.op.global.exact.spawn.031kfk7",
         "surface.native.op.global.exact.spawnsync.0lfwbeo",
-        "surface.native.op.global.exact.which.123uwlt",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.process.env.dynamic.table.env.obj.properties.161cd28",
         "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00",
         "surface.native.op.global.process.execve.0cxp60m",
-        "surface.native.op.global.require.00nyxb6",
         "surface.startup.env.colorterm.1c641i4",
         "surface.startup.env.columns.0htd3h6",
         "surface.startup.env.comspec.1vitmnr",
@@ -278912,7 +278783,7 @@
         "surface.startup.env.tz.1uttegh",
         "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 154 observed effect edges."
+      "rationale": "Covered by 149 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -279305,10 +279176,6 @@
         "surface.native.op.exactfsstatasync.0b0hr8s",
         "surface.native.op.exactlstat.1c98s6l",
         "surface.native.op.exactmkdir.021eaz0",
-        "surface.native.op.exactmoduleresolve.14a0zlj",
-        "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
-        "surface.native.op.exactnativemoduleresolve.0lt1gr6",
-        "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
         "surface.native.op.exactopendir.0eh7ha4",
         "surface.native.op.exactreaddir.0tg30vk",
         "surface.native.op.exactreadfile.1cmzco7",
@@ -279325,25 +279192,17 @@
         "surface.native.op.global.bun.1idej6y",
         "surface.native.op.global.bun.spawn.06fthe9",
         "surface.native.op.global.bun.spawnsync.17sdmq6",
-        "surface.native.op.global.bun.which.030qwlb",
-        "surface.native.op.global.bun.write.0z6cgol",
         "surface.native.op.global.exact.084448k",
         "surface.native.op.global.exact.spawn.031kfk7",
         "surface.native.op.global.exact.spawnsync.0lfwbeo",
-        "surface.native.op.global.exact.which.123uwlt",
-        "surface.native.op.global.exact.write.0n288x3",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.process.chdir.0u4033g",
         "surface.native.op.global.process.execve.0cxp60m",
-        "surface.native.op.global.require.00nyxb6",
-        "surface.native.op.global.require.resolve.14z26gg",
         "surface.startup.env.comspec.1vitmnr",
         "surface.startup.env.exact.android.files.dir.0c1x0ei",
         "surface.startup.env.exact.executable.1nt755v",
         "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 367 observed effect edges."
+      "rationale": "Covered by 355 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -279598,8 +279457,6 @@
         "surface.native.op.exactfsreadfileasync.0fw3fo0",
         "surface.native.op.exactfsreadv.11moytw",
         "surface.native.op.exactfsreadvasync.0bn4x60",
-        "surface.native.op.exactmoduleresolve.14a0zlj",
-        "surface.native.op.exactnativemoduleresolve.0lt1gr6",
         "surface.native.op.exactreadfile.1cmzco7",
         "surface.native.op.exactreadlink.1p5ozx1",
         "surface.native.op.exactsqliteall.0gw7b3k",
@@ -279610,16 +279467,10 @@
         "surface.native.op.exactsqliterun.0nde0wm",
         "surface.native.op.exactsqlitevalues.03uveqn",
         "surface.native.op.exactunixconnect.0z2wmqb",
-        "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
-        "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
-        "surface.native.op.global.require.00nyxb6",
-        "surface.native.op.global.require.resolve.14z26gg",
         "surface.startup.env.exact.android.files.dir.0c1x0ei",
         "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 269 observed effect edges."
+      "rationale": "Covered by 261 observed effect edges."
     },
     {
       "definitionId": "fs:unbound-mutation",
@@ -279927,14 +279778,9 @@
         "surface.native.op.exacttruncate.13gh223",
         "surface.native.op.exactunixlisten.0oo86mg",
         "surface.native.op.exactwritefile.1h0gy8u",
-        "surface.native.op.global.bun.write.0z6cgol",
-        "surface.native.op.global.exact.write.0n288x3",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
-        "surface.native.op.global.require.00nyxb6",
         "surface.startup.env.exact.android.files.dir.0c1x0ei"
       ],
-      "rationale": "Covered by 199 observed effect edges."
+      "rationale": "Covered by 194 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -281344,14 +281190,11 @@
         "surface.native.op.global.exact.084448k",
         "surface.native.op.global.exact.spawn.031kfk7",
         "surface.native.op.global.exact.spawnsync.0lfwbeo",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.process.execve.0cxp60m",
-        "surface.native.op.global.require.00nyxb6",
         "surface.startup.env.comspec.1vitmnr",
         "surface.startup.env.exact.executable.1nt755v"
       ],
-      "rationale": "Covered by 77 observed effect edges."
+      "rationale": "Covered by 74 observed effect edges."
     },
     {
       "definitionId": "process:umask",
@@ -281993,17 +281836,14 @@
         "surface.native.op.global.exact.spawn.031kfk7",
         "surface.native.op.global.exact.spawnsync.0lfwbeo",
         "surface.native.op.global.exact.stdin.0fi583m",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.process.execve.0cxp60m",
         "surface.native.op.global.process.openstdin.1ob3vxo",
         "surface.native.op.global.process.stdin.12jqaek",
         "surface.native.op.global.process.stdin.read.1cvn4ym",
         "surface.native.op.global.process.stdin.resume.1hgz1n5",
-        "surface.native.op.global.process.stdin.setencoding.0rna4tr",
-        "surface.native.op.global.require.00nyxb6"
+        "surface.native.op.global.process.stdin.setencoding.0rna4tr"
       ],
-      "rationale": "Covered by 132 observed effect edges."
+      "rationale": "Covered by 129 observed effect edges."
     },
     {
       "definitionId": "stdio:write",
@@ -282148,8 +281988,6 @@
         "surface.native.op.global.exact.spawnsync.0lfwbeo",
         "surface.native.op.global.exact.stderr.102ivqw",
         "surface.native.op.global.exact.stdout.1jkhp0b",
-        "surface.native.op.global.import.0lvmxcm",
-        "surface.native.op.global.importmodule.0n7r0n6",
         "surface.native.op.global.log.0883yaf",
         "surface.native.op.global.print.0zmmm8e",
         "surface.native.op.global.process.execve.0cxp60m",
@@ -282158,7 +281996,6 @@
         "surface.native.op.global.process.stdin.write.0hshblt",
         "surface.native.op.global.process.stdout.0wivv6h",
         "surface.native.op.global.process.stdout.write.1d593l8",
-        "surface.native.op.global.require.00nyxb6",
         "surface.startup.env.colorterm.1c641i4",
         "surface.startup.env.exact.debug.emit.listener.0e0menx",
         "surface.startup.env.exact.pipeline.debug.1mfb93l",
@@ -282169,7 +282006,7 @@
         "surface.startup.env.node.pending.deprecation.08gz4k2",
         "surface.startup.env.term.1uw6gat"
       ],
-      "rationale": "Covered by 159 observed effect edges."
+      "rationale": "Covered by 156 observed effect edges."
     },
     {
       "definitionId": "storage:persist",
@@ -282823,7 +282660,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-yD5GZnlmX_ksaCeWc177twbxdVZxd53AP6KFBhdPpBg"
+      "rawContentDigest": "sha256-IaSNhesL2ZwL4ffvEQ_uk09sicdTpifEqyN9FIqUAYo"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282843,32 +282680,32 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-pwjH7YzxE68D9Ajz1DP6uWkYguFv5_oLv2FyqG4kH4A"
+      "rawContentDigest": "sha256-OInE-H5jLkJg7QUpLM8L3uRu8gQI87Ltrafyx8_P1vo"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-IHT4J19lupfyLfnzDYtfdf9tnPn3xyFTYU1TOM6w84Q"
+      "rawContentDigest": "sha256-HREaUE9ewV_zciNqiZm2B9DdVU4xmsHYPT-EK2lrF1M"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-Qd5iZRGAhEkkSg0aFJD0KRD8z9G69rbzQ0MNkSQdHdE"
+      "rawContentDigest": "sha256-KyUSbmHFH1RmW3CET10GbeiitBUS-lcj2_sQkwIjR6A"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-ayHy9JvLtb59ScStYlQ8d9uN10ReB3G5P6MWz-7CigU"
+      "rawContentDigest": "sha256-7sKWXA-hPLdTYTLbtSRadQpAksIT51rsVz9nPgkriok"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-pJWKmUUf7oy4S9qlMqy9q6Lj4SK3dceuVXsEI8vVTRU"
+      "rawContentDigest": "sha256-lK46KgN6yzn_mCeHbqkB7p_RTUTLjrNQ9_BtmPlshr4"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-OF-SZveI4ObWhi9rf7u4UkjMcRezAXN1gaaghKegQ6U"
+      "rawContentDigest": "sha256-bjWVmUpSoIKS1J6P8f8oUoegd4Q79Ytl-ekGfLccBG4"
     }
   ],
   "counts": {

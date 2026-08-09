@@ -13918,6 +13918,44 @@ function preauthorizedHostAbiPrimitiveSpec(name) {
   return null;
 }
 
+// These exact Lane C surfaces were source-joined against the complete native
+// and shared-runtime inventories, then checked on the loaded armed target. None
+// can emit its seed edge: resolver bridges are captured below loader gates,
+// public module/which/write façades delegate to separately named typed edges,
+// and the legacy numeric-handle reader is deny-only after typed arming. Keep
+// this ahead of every broad native-operation prefix classifier; widening any
+// member set would withdraw an unaudited future obligation.
+// @ref LLP 0049#3-construction-rules — exact-string seeding corrections only
+const LANE_C_A2_NON_CAPABILITY_NATIVE_OPERATIONS = new Map([
+  ["__exactModuleResolve", ["trusted-loader-source-acquisition", "WP4"]],
+  ["__exactModuleResolveMeta", ["trusted-loader-source-acquisition", "WP4"]],
+  ["__exactNativeModuleResolve", ["trusted-loader-source-acquisition", "WP4"]],
+  ["__exactNativeModuleResolveMeta", ["trusted-loader-source-acquisition", "WP4"]],
+  ["global:Bun.which", ["typed-operation-facade", "WP7"]],
+  ["global:Bun.write", ["typed-operation-facade", "WP5"]],
+  ["global:Exact.which", ["typed-operation-facade", "WP7"]],
+  ["global:Exact.write", ["typed-operation-facade", "WP5"]],
+  [
+    "global:Ibex.fs.readHandle.[[return]].readFileSync",
+    ["retained-object-wrapper", "WP8"],
+  ],
+  [
+    "global:Ibex.fs.readHandle.[[return]].readTextSync",
+    ["retained-object-wrapper", "WP8"],
+  ],
+  ["global:import", ["module-reachability-only", "WP4"]],
+  ["global:importModule", ["module-reachability-only", "WP4"]],
+  ["global:require", ["module-reachability-only", "WP4"]],
+  ["global:require.resolve", ["module-reachability-only", "WP4"]],
+]);
+
+function laneCA2NonCapabilityNativeOperationSpec(name) {
+  const classification = LANE_C_A2_NON_CAPABILITY_NATIVE_OPERATIONS.get(name);
+  return classification
+    ? nonCapabilitySpec(classification[0], classification[1])
+    : null;
+}
+
 function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
@@ -14318,6 +14356,10 @@ function classifyConcreteSurface(surface) {
       !reviewedDynamicCallShape
     )
       return null;
+    const laneCA2Correction = laneCA2NonCapabilityNativeOperationSpec(
+      surface.name,
+    );
+    if (laneCA2Correction) return laneCA2Correction;
     if (isDualRoleGlobalNativeOperation(surface)) {
       if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
       const nativeSpecification = classifyConcreteSurface(
@@ -14558,6 +14600,10 @@ function classifyConcreteSurface(surface) {
       return nativeEscapeClassification(text);
     }
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
+    const laneCA2Correction = laneCA2NonCapabilityNativeOperationSpec(
+      surface.name,
+    );
+    if (laneCA2Correction) return laneCA2Correction;
     if (surface.name === "__esModule") {
       return nonCapabilitySpec("module-reachability-only", "WP8");
     }

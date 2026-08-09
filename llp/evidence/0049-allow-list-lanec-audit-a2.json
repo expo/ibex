@@ -1,0 +1,1224 @@
+{
+  "measurement": "llp-0049-route-evidence-allow-list",
+  "step": "llp-0049-lane-c-audit-a2",
+  "gate": "LLP 0049 §3 rule 3 — exact 14-cell recipe-cardinality consequences declared before candidate generation",
+  "note": "Exact-string withdrawal only. Every removal is a false effect scenario for one Lane C seed; every addition is that same source surface’s single non-capability plan. No prefix classifier is widened.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.exactmoduleresolve.14a0zlj.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolve.14a0zlj",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolve.0hq2op8.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.exactmoduleresolvemeta.0cn3rq2.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactmoduleresolvemeta.0isca2g.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.exactnativemoduleresolve.0lt1gr6.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolve.0lt1gr6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolve.1hsp79h.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.hermes.runtime.cc.exactnativemoduleresolvemeta.1iv1mk5.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:59-118; src/engine/hermes_runtime.cc:5810-6048",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.bun.which.030qwlb.default.non-capability",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.allow",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.branch-selection",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.deny",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.malformed",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.missing-attribution",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.bare-command.wrong-principal",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.allow",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.branch-selection",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.deny",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.malformed",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.missing-attribution",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.which.030qwlb",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ages.ibex.runtime.js.src.bootstrap.ts.installglobals.globals.bun.07g1rx4.logical.slash-containing-command.wrong-principal",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.write.0z6cgol",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.bun.write.0z6cgol.default.non-capability",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.write.0z6cgol",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.allow",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.write.0z6cgol",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.deny",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.write.0z6cgol",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.malformed",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.write.0z6cgol",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.missing-attribution",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.bun.write.0z6cgol",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.ntime.js.src.fs.exactfile.ts.defineglobalvalue.globals.bun.write.1kgokq7.wrong-principal",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.exact.which.123uwlt.default.non-capability",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.allow",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.branch-selection",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.deny",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.malformed",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.missing-attribution",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.bare-command.wrong-principal",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.allow",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.branch-selection",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.deny",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.malformed",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.missing-attribution",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.which.123uwlt",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.which.01be6hj.logical.slash-containing-command.wrong-principal",
+      "sourceSpan": "packages/ibex-runtime-js/src/bootstrap.ts:1508-1521; src/host/abi.rs:6278",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.write.0n288x3",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.exact.write.0n288x3.default.non-capability",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.write.0n288x3",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.allow",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.write.0n288x3",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.deny",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.write.0n288x3",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.malformed",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.write.0n288x3",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.missing-attribution",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.write.0n288x3",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.x.runtime.js.src.bootstrap.ts.installglobals.globals.exact.write.0dajcwf.wrong-principal",
+      "sourceSpan": "packages/ibex-runtime-js/src/fs/ExactFile.ts:364-392; src/host/abi.rs:6209",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp.default.non-capability",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.allow",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.deny",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.malformed",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.missing-attribution",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readfilesync.0x5ea4o.wrong-principal",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738.default.non-capability",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.allow",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.deny",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.malformed",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.missing-attribution",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.e.cc.embedded.kfshandlejs.ibex.fs.readhandle.return.readtextsync.0kkhpxi.wrong-principal",
+      "sourceSpan": "src/engine/hermes_runtime.cc:5365-5422,6278-6326",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.import.0lvmxcm.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.builtin-or-memory.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.builtin-or-memory.no-effect",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.cached-transform.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.disk-source.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.import.0lvmxcm",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.import.19mprlf.logical.external-transform.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.importmodule.0n7r0n6.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.builtin-or-memory.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.builtin-or-memory.no-effect",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.cached-transform.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.disk-source.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.importmodule.0n7r0n6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.importmodule.0cj5lwf.logical.external-transform.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.require.00nyxb6.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.builtin-or-memory.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.builtin-or-memory.no-effect",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.cached-transform.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.disk-source.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.00nyxb6",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.0ocqwn3.logical.external-transform.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "added",
+      "value": "surface.native.op.global.require.resolve.14z26gg.default.non-capability",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.builtin-or-memory.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.builtin-or-memory.no-effect",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.metadata.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.allow",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.branch-selection",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.deny",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.malformed",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.missing-attribution",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    },
+    {
+      "edgeId": "surface.native.op.global.require.resolve.14z26gg",
+      "field": "<recipe>",
+      "direction": "removed",
+      "value": "enforcement.src.engine.bootstrap.module.loader.js.require.resolve.1egp5y1.logical.on-disk.wrong-principal",
+      "sourceSpan": "src/engine/bootstrap/module-loader.js:8132-8230,8550-8650; src/host/mod.rs:6680-6715",
+      "proof": "LLP 0044 §3 Lane C closed-world join: this exact A2 seed edge cannot be emitted by the loaded target. Its source path either delegates to a separately named typed inner edge or is deny-only after typed arming; withdrawing the false effect plan changes only this cell’s recipe cardinality. See llp/evidence/0049-lanec-audit-a2-<digest>.json for the per-row closure map."
+    }
+  ]
+}

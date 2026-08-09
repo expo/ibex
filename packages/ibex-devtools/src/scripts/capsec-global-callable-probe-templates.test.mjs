@@ -658,12 +658,16 @@ describe("source-bound global callable recipes", () => {
     // non-capability, unexercisable recipe without publishing CapSec support.
     // The authenticated dev-served module-table lifecycle contributes two
     // private native root callables; neither has a bounded public invocation.
-    expect(recipes).toHaveLength(851);
+    // The A2 Lane C audit adds eight exact façade callables to this partition:
+    // two bounded calls and six unexercisable source-owned closures. Their
+    // downstream effects remain attributed at separately named typed gates.
+    // @ref LLP 0049#3-construction-rules — exact-string A2 seeding correction
+    expect(recipes).toHaveLength(859);
     expect(counts).toEqual({
-      call: 601,
+      call: 603,
       construct: 9,
       get: 4,
-      unexercisable: 237,
+      unexercisable: 243,
     });
   }, 30_000);
 });

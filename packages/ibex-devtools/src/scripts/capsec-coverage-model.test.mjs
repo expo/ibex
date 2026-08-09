@@ -64,6 +64,42 @@ function surface(kind, name, metadata = undefined, sourceRefs = undefined) {
   };
 }
 
+test("Lane C A2 exact façades do not assert duplicate effect cells", () => {
+  const expected = new Map([
+    ["__exactModuleResolve", "trusted-loader-source-acquisition"],
+    ["__exactModuleResolveMeta", "trusted-loader-source-acquisition"],
+    ["__exactNativeModuleResolve", "trusted-loader-source-acquisition"],
+    ["__exactNativeModuleResolveMeta", "trusted-loader-source-acquisition"],
+    ["global:Bun.which", "typed-operation-facade"],
+    ["global:Bun.write", "typed-operation-facade"],
+    ["global:Exact.which", "typed-operation-facade"],
+    ["global:Exact.write", "typed-operation-facade"],
+    [
+      "global:Ibex.fs.readHandle.[[return]].readFileSync",
+      "retained-object-wrapper",
+    ],
+    [
+      "global:Ibex.fs.readHandle.[[return]].readTextSync",
+      "retained-object-wrapper",
+    ],
+    ["global:import", "module-reachability-only"],
+    ["global:importModule", "module-reachability-only"],
+    ["global:require", "module-reachability-only"],
+    ["global:require.resolve", "module-reachability-only"],
+  ]);
+
+  for (const [name, rationaleId] of expected) {
+    const metadata = name.startsWith("global:")
+      ? { surfaceType: "global-api" }
+      : undefined;
+    expect(
+      classifyObservedSurface(surface("native-op", name, metadata), context)
+        .edge,
+      name,
+    ).toMatchObject({ classification: "non-capability", rationaleId });
+  }
+});
+
 function builtinExport(sourceKey, exportName, metadata = {}) {
   return surface(
     "builtin",
@@ -495,10 +531,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["fs:unbound-mutation"],
     ],
     [
-      "module resolution metadata lists only",
+      "module resolution metadata is acquired below the loader gate",
       surface("native-op", "__exactModuleResolveMeta"),
-      "effects",
-      ["fs:list"],
+      "non-capability",
+      [],
     ],
     [
       "inspector closed",
@@ -1179,18 +1215,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         globalApi("Ibex", memberName),
         context,
       );
-      expect(classified.edge.classification, memberName).toBe("effects");
-      expect(edgeActions(classified), memberName).toEqual(["fs:read"]);
-      expect(classified.edge.effectMode, memberName).toBe("conjunctive");
-      expect(classified.edge.lifetimeContract, memberName).toBe("file-handle");
-      expect(classified.edge.effectOwnerSource, memberName).toBe(
-        "descriptor-owner",
-      );
-      expect(classified.edge.principalSources, memberName).toEqual([
-        "descriptor-owner",
-        "frame-set",
-        "schedule-time",
-      ]);
+      expect(classified.edge, memberName).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "retained-object-wrapper",
+      });
     }
 
     for (const [memberName, rationaleId] of [
@@ -5475,10 +5503,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         edgeByObservedKey.get(`native-op:global:Ibex.${memberName}`),
         memberName,
       ).toMatchObject({
-        classification: "effects",
-        effectOwnerSource: "descriptor-owner",
-        lifetimeContract: "file-handle",
-        effects: [{ cap: "fs:read" }],
+        classification: "non-capability",
+        rationaleId: "retained-object-wrapper",
       });
     }
     for (const [observedKey, rationaleId] of [
