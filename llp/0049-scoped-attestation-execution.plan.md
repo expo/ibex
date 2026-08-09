@@ -1399,6 +1399,37 @@ f. **The v1.1 scope, re-opened on the executor-reachability axis.**
 > whose floor equals its authorable rows, i.e. carrying no out-of-family
 > debt.
 
+> **Attribution finding — 2026-08-08: `native-op` is the only surface that
+> gets credited, and this supersedes the candidate analysis above.** Two
+> observation spikes drove candidate E's four host-ABI resolvers and four
+> structurally distinct candidate C startup-env cells under a fresh armed
+> enforce Host and recorded every typed decision with the coverage edge it
+> attributes to. **All eight fail D2**: no decision names the observed
+> cell's own edge. E's decisions attribute to
+> `native-op.exactreadfile` / `loader.require.resolve`; C's ten observed
+> decisions all attribute to `native-op.exactgetenv`; the other three C
+> shapes emitted no typed decision at all. Evidence:
+> `llp/evidence/0049-observation-spike-e-hostabi-resolvers.json`,
+> `llp/evidence/0049-observation-spike-c-startup-env-92ac3c91….json`.
+>
+> With `__exactWhich` and the 41 withdrawn host-ABI primitives this is the
+> fourth confirmation of a single architectural fact. The enforcement is
+> sound; the coverage model has been declaring authorization on surfaces
+> that sit above the layer where the decision is actually made. **E, C, C2
+> and D are all disqualified** — every zero-poison candidate was startup-
+> or host-abi-based.
+>
+> **Author ruling — 2026-08-08:** pursue **A2** `{fs}×{native-op}` (54
+> cells, 137 authorable rows) by **auditing its 14 Lane C poisoned cells
+> to clear them**, which satisfies the standing zero-poison ruling rather
+> than relaxing it. Lane C clearance requires the closed-world source join
+> plus loaded-target absence evidence mapped to every credited row
+> (LLP 0044 §3); "no recorded public invocation path" is not itself proof
+> of unreachability. The broader model correction — withdrawing
+> mis-attributed declarations across every non-`native-op` surface kind —
+> is accepted as **follow-on work that must not block the first
+> advertisement**.
+
 ## 11. Evidence index
 
 Every phase adds its artifacts here as it closes; the plan is out of
