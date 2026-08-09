@@ -1384,6 +1384,43 @@ const nativeProjectFsPathAccessReadTemplate = () => {
     setup: [],
   });
 };
+const nativeProjectWhichSlashTemplate = () => {
+  const direct = nativeDirectListTemplate({
+    argumentsList: [literalArgument("/project/ref-check")],
+    pathComponents: ["ref-check"],
+    requiredSourceArity: 1,
+    allowStages: [
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "discovery",
+    ],
+  });
+  return Object.freeze({
+    ...direct,
+    expectedDecisionCounts: Object.freeze({
+      ...direct.expectedDecisionCounts,
+      "branch-selection": direct.expectedDecisionCounts.allow,
+    }),
+    expectedResults: Object.freeze({
+      ...direct.expectedResults,
+      "branch-selection": "return",
+    }),
+    expectedStringValues: Object.freeze(
+      Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "/project/ref-check",
+        ]),
+      ),
+    ),
+    expectedStages: Object.freeze({
+      ...direct.expectedStages,
+      "branch-selection": direct.expectedStages.allow,
+    }),
+  });
+};
 // Direct armed metadata probes on the native fs:list terminals that the
 // already-authored builtin carriers reach indirectly. Each takes the exact
 // authenticated /project path, resolves through the armed VFS, authorizes the
@@ -3620,6 +3657,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactWhich",
+    new Map([["slash-containing-command", nativeProjectWhichSlashTemplate()]]),
+  ],
+  [
     "__exactFsPathAsync",
     new Map([
       ["access-read", nativeProjectFsPathAccessReadTemplate()],
@@ -4525,6 +4566,11 @@ function nativePublicProbeForPlan({
           bindNativeSetupSources(setup, liveByObservedKey, target),
         ),
         expectedResult: template.expectedResults[scenario],
+        ...(template.expectedStringValues?.[scenario] !== undefined
+          ? {
+              expectedStringValue: template.expectedStringValues[scenario],
+            }
+          : {}),
         ...(template.expectedCleanup
           ? { expectedCleanup: template.expectedCleanup }
           : {}),

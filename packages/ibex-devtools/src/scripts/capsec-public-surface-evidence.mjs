@@ -1185,6 +1185,7 @@ const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactStat",
   "__exactStatfs",
   "__exactTruncate",
+  "__exactWhich",
   "__exactWriteFile",
 ]);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
@@ -7113,36 +7114,53 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.expectedCleanup !== undefined
     ) {
       throw new Error(
-        `${recipe.fixtureId}: builtin return cannot bind both a string and cleanup`,
+        `${recipe.fixtureId}: public return cannot bind both a string and cleanup`,
       );
     }
     if (authored.expectedStringValue !== undefined) {
+      const exactNativeWhichString =
+        authored.invocationSchema ===
+          "ibex/capsec-native-global-invocation/1" &&
+        authored.kind === "native-global-function" &&
+        authored.globalName === "__exactWhich";
       exactKeys(
         invocation.result,
-        [
-          "kind",
-          "moduleSpecifier",
-          "exportName",
-          "valueType",
-          "stringValue",
-        ],
-        `${recipe.fixtureId}: builtin string result`,
+        exactNativeWhichString
+          ? ["kind", "globalName", "valueType", "cleanup", "stringValue"]
+          : [
+              "kind",
+              "moduleSpecifier",
+              "exportName",
+              "valueType",
+              "stringValue",
+            ],
+        `${recipe.fixtureId}: public string result`,
       );
+      const exactBuiltinReadlinkString =
+        authored.invocationSchema ===
+        "ibex/capsec-builtin-export-invocation/1";
       if (
-        authored.invocationSchema !==
-          "ibex/capsec-builtin-export-invocation/1" ||
-        authored.kind !== "builtin-export-call" ||
-        authored.moduleSpecifier !== "node:fs" ||
-        authored.exportName !== "readlinkSync" ||
         typeof authored.expectedStringValue !== "string" ||
         authored.expectedStringValue.length === 0 ||
-        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
-        invocation.result.exportName !== authored.exportName ||
         invocation.result.valueType !== "string" ||
-        invocation.result.stringValue !== authored.expectedStringValue
+        invocation.result.stringValue !== authored.expectedStringValue ||
+        (!exactNativeWhichString &&
+          (!exactBuiltinReadlinkString ||
+            authored.kind !== "builtin-export-call" ||
+            authored.moduleSpecifier !== "node:fs" ||
+            authored.exportName !== "readlinkSync" ||
+            invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+            invocation.result.exportName !== authored.exportName)) ||
+        (exactNativeWhichString &&
+          (authored.arguments?.length !== 1 ||
+            authored.arguments[0]?.kind !== "json-literal" ||
+            authored.arguments[0]?.value !== authored.expectedStringValue ||
+            authored.expectedStringValue !== "/project/ref-check" ||
+            invocation.result.globalName !== authored.globalName ||
+            invocation.result.cleanup !== "none"))
       ) {
         throw new Error(
-          `${recipe.fixtureId}: builtin string return did not match its authored value`,
+          `${recipe.fixtureId}: public string return did not match its authored value`,
         );
       }
     }
@@ -7274,6 +7292,9 @@ function validateRuntimeInvocation(observation, recipe) {
           "globalName",
           "valueType",
           "cleanup",
+          ...(authored.expectedStringValue !== undefined
+            ? ["stringValue"]
+            : []),
           ...(armedEnvironmentEnumeration ? ["valuePropertyCount"] : []),
         ],
         `${recipe.fixtureId}: native call result`,
@@ -7287,7 +7308,11 @@ function validateRuntimeInvocation(observation, recipe) {
             invocation.result.valuePropertyCount !== 0 ||
             invocation.result.cleanup !== "none")) ||
         (authored.expectedCleanup !== undefined &&
-          invocation.result.cleanup !== authored.expectedCleanup)
+          invocation.result.cleanup !== authored.expectedCleanup) ||
+        (authored.expectedStringValue !== undefined &&
+          (authored.globalName !== "__exactWhich" ||
+            invocation.result.valueType !== "string" ||
+            invocation.result.stringValue !== authored.expectedStringValue))
       ) {
         throw new Error(
           `${recipe.fixtureId}: native call did not prove its authored cleanup`,

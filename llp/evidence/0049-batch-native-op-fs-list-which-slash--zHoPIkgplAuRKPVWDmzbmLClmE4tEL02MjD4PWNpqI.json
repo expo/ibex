@@ -1,0 +1,135 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-fs-list-which-slash-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactWhich logical slash-containing-command (6 rows)",
+  "sourceRevision": "base c4d9dfd9521ef73d4cdd42ce408c2c2308e04a35 plus independently reviewed seven-file implementation diff sha256 276d27be7d5945d726902f20fdf5e7beeca3fabec0a04ec7024f0c8c0d6188cd; this envelope and the two review artifacts are documentation over that exact implementation target",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Apartment MacBook Air fleet runner)",
+  "baselineCatalogDigest": "sha256-cY2t5jerfrwBMazy0ZwfRgXgR1eRWxrrOCToaSoeOxg",
+  "candidateCatalogDigest": "sha256--zHoPIkgplAuRKPVWDmzbmLClmE4tEL02MjD4PWNpqI",
+  "candidateRawSha256": "c4c20c3681368596fdea67352cd0cb56dd1b2f85a82ea11b4a9d536023645339",
+  "declaredAllowListDigest": "sha256-wR22LSNvWMnTpwjGoz9ulPIBxntPkO1md6wiT2BxiP8",
+  "allowListRawSha256": "c11db62d236f58c9d3a708c6a33f6e94f201c67b4f90ed6677ac224f607188ff",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-fs-list-which-slash.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fs-list-which-slash.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fs-list-which-slash.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 13 changes, 13 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -6, conditional-branch-selection-probe-not-authored -1, native-public-arguments-not-authored -6; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 308/308 fixtures, 20.02 s fixture execution; 4 target executions",
+    "batchSecondary": "PASS (exit 0), 340/340 fixtures, 22.86 s fixture execution; 2 target executions",
+    "productionEvidenceReplay": "PASS; 6/6 corrected observations rebuilt byte-for-byte through buildPublicFixtureEvidence; wrong backing-string and null-value mutations rejected"
+  },
+  "rowsClosed": 6,
+  "cells": [
+    "surface.native.op.exactwhich.0it66ce logical slash-containing-command (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "The slash-containing-command branch is complete. The six bare-command sibling rows remain unresolved and unclaimed; they additionally require exact principal-overlay PATH authority and setup.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3970 → 3976",
+    "unresolvedFixtures": "14690 → 14684",
+    "changedRows": "exactly 6 of 21784; 0 added, 0 removed; route, terminal, semantic edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine after the first physical correction, never guessed (LLP 0037 D3). Every successful row also pins the exact logical return string /project/ref-check.",
+    "returnRows": [
+      "requested:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:static-floor"
+    ],
+    "denyRows": [
+      "requested:fs:list:deny:principal-denial"
+    ],
+    "coverageEdge": "surface.native.op.exactwhich.0it66ce for every typed gate; native-op:__exactWhich is both public carrier and observed terminal",
+    "d1AndD2Confirmation": "There is no surplus capability: every observed effect is the declared fs:list executable-metadata action. The ambient-root discovery is the empty project-prefix traversal; the final static-floor discovery authenticates the exact target object. Neither discovery enumerates or returns directory entries, and no directory-list operation is excused as traversal surplus. Denial stops at the first requested decision."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/fs-list-which-slash-primary-v3-final.json",
+    "primaryRawSha256": "59c93203cc13ff465c171f170d4d614e5d3088c223ffa6138957dfada4677949",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/fs-list-which-slash-secondary-v3-final.json",
+    "secondaryRawSha256": "7c11c45b5493b19a0d6d00c0ffdec9cf08421ed91b3bc85fa47ddfa15cbbd76a",
+    "catalogBinding": "both envelopes bind sha256--zHoPIkgplAuRKPVWDmzbmLClmE4tEL02MjD4PWNpqI and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64",
+    "coverage": "6/6 target executions occur exactly once across disjoint shards (4 primary, 2 secondary), all passed; all five non-deny rows carry valueType string and stringValue /project/ref-check",
+    "secureCommandAudit": "all six target executions carry the exact command tokens --no-default-features --features standard,capsec-conformance-observer,openssl-crypto"
+  },
+  "correctionLoop": [
+    {
+      "iteration": 1,
+      "failure": "The first focused authoring test exposed that the reusable direct-list template emitted only five scenarios and omitted the conditional branch-selection row.",
+      "resolution": "Extended only the which-slash template with the sixth branch-selection decision count, result, and stage contract before strict generation."
+    },
+    {
+      "iteration": 2,
+      "failure": "The first physical primary batch rejected the guessed six-stage sequence; the bound engine observed requested, discovery, requested, repeat, discovery.",
+      "resolution": "Pinned the five observed stages exactly, confirmed both discoveries are path/object metadata rather than directory enumeration, regenerated strictly, and reran both physical shards."
+    },
+    {
+      "iteration": 3,
+      "failure": "The mandatory first adversarial review found the independent JavaScript denial set omitted __exactWhich (6/6 production replays rejected) and the successful return value was not retained or asserted exactly; verdict NOT READY.",
+      "resolution": "Added exact __exactWhich positive/near-miss accounts to the JavaScript consumer, authored expectedStringValue /project/ref-check, transported it only for exact-string native probes, asserted the exact global/argument/result shape and logical string independently in Rust and JavaScript, reran both physical shards, replayed 6/6, rejected wrong/null mutations, and obtained a fresh READY review."
+    }
+  ],
+  "environmentIncidents": [
+    "The initial physical correction run spent 60.67 s wall time including a remote Rust rebuild before exposing the five-stage sequence; no assertion was weakened.",
+    "Adding Rust result transport and validation moved two source-derived environment offsets. The canonical full vendored regeneration chain was run; check:drift and the 11-test inventory suite are green.",
+    "The exact-final full devtools suite retains the seven known failures recorded in issues/20260808-capsec-registry-drift-suite-red-on-main.md and the prior-class baseline; all seven identities are unchanged."
+  ],
+  "executorChanges": [
+    "The Rust batch validator admits the exact __exactWhich filesystem denial message, retains a stringValue only when the recipe authors an exact string, and accepts only the exact __exactWhich(/project/ref-check) result shape and unchanged logical value.",
+    "The independent JavaScript promotion consumer adds only __exactWhich to its closed denial set and independently requires the exact native global, literal argument, string result, logical value, and no cleanup.",
+    "The generated runtime environment inventory restamps only the two IBEX_CAPSEC_* byte offsets moved by the inserted Rust lines."
+  ],
+  "independentAdversarialReview": {
+    "preFixArtifact": "llp/reviews/0049-a2-native-fs-list-which-slash-executor.codex.md",
+    "preFixDiffSha256": "06758fe3d93833b17977c21dbdb028964e20ba0ce6026d6aa68bb15d3c00cb24",
+    "preFixVerdict": "NOT READY; the independent JavaScript consumer rejected 6/6 receipts and exact successful string results were not retained",
+    "finalArtifact": "llp/reviews/0049-a2-native-fs-list-which-slash-executor-final.codex.md",
+    "family": "OpenAI GPT-5 family via independent Codex workspace agent",
+    "reviewedBase": "c4d9dfd9521ef73d4cdd42ce408c2c2308e04a35",
+    "finalReviewedDiffSha256": "276d27be7d5945d726902f20fdf5e7beeca3fabec0a04ec7024f0c8c0d6188cd",
+    "verdict": "READY; 0 blockers, 0 material findings, 0 unaddressed minor findings",
+    "breakTests": "Independent detached-worktree mutations proved removal and widening fail in both Rust and JavaScript denial accounts; wrong backing-string and null-value mutations fail the Rust exact-result account and JavaScript production replay. All mutations were restored and all seven reviewed file hashes matched the shared final target."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 55,
+    "correctionLoopIterations": 3,
+    "batchPrimarySeconds": 20.02,
+    "batchSecondarySeconds": 22.86,
+    "batchTotalSeconds": 42.88,
+    "finalStrictRegenerationAndBothDiffGatesSeconds": 10.75,
+    "exactFinalFullDevtoolsSuiteSeconds": 334.95
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical final-v4 and v3 candidates reproduce both candidate and allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two IBEX_CAPSEC_* source byte offsets",
+    "focusedJavaScript": "PASS; 2 pass / 198 filtered; full recipe plus evidence files 196 pass / 4 known fail",
+    "focusedRust": "PASS; exact denial-name and string-result tests each 1 pass / 656 filtered with the exact secure feature vector",
+    "productionEvidenceReplay": "PASS; 6/6 byte-structural matches; wrong backing-string mutation rejected",
+    "referenceCheck": "PASS; 51 LLP docs, 2535 refs in 2014 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1398 pass / 7 fail versus prior-class baseline 1397 pass / 7 fail; the added which-slash recipe test accounts for the one additional pass and all seven failure identities are unchanged"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 119,
+    "endRows": 113,
+    "remainingGroups": 44,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 7,
+      "no-action": 17,
+      "fs:read+fs:write": 12,
+      "env:read+fs:list": 6
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. Six committed tranches will have closed 47 of the 160 real obligations. The honest remaining ledger is the prior 45-group ledger at /Users/ccheever/phase1-runs/campaign-a2/remaining-groups-after-access-read.json minus only the now-closed slash-containing-command group."
+  }
+}

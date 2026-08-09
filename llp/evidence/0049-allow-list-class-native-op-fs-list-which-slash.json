@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-fs-list-which-slash",
+  "templateClass": "surface.native.op.__exactWhich × logical slash-containing-command",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes only the six slash-containing-command rows of surface.native.op.exactwhich.0it66ce. The bare-command env:read + fs:list sibling is not declared or claimed. No route or terminal-set change is declared.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactwhich.0it66ce",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:1387-1423",
+      "proof": "Authored: nativeProjectWhichSlashTemplate invokes the exact /project/ref-check executable path, requires the exact fs:list metadata floor, and cannot enter the PATH-reading logical branch. The secure runtime resolves it through exactWhichArmed and returns only the virtual project spelling."
+    },
+    {
+      "edgeId": "surface.native.op.exactwhich.0it66ce",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3659-3662",
+      "proof": "The logical-branch registry emits source-bound ibex/capsec-native-global-invocation/1 probes for all six slash-containing-command scenarios through the reusable native executor."
+    },
+    {
+      "edgeId": "surface.native.op.exactwhich.0it66ce",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3659-3662",
+      "proof": "The branch-selection row physically supplies a slash-containing absolute virtual path. The bare sibling supplies a command name without slash and remains unclaimed."
+    }
+  ]
+}

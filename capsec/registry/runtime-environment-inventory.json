@@ -5039,7 +5039,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_executable_recipe_adapter_batch",
-          "sourceOffset": 37521,
+          "sourceOffset": 39232,
           "sourcePath": "src/bin/ibex/engine/capsec_conformance_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5351,7 +5351,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_executable_recipe_adapter_batch",
-          "sourceOffset": 37335,
+          "sourceOffset": 39046,
           "sourcePath": "src/bin/ibex/engine/capsec_conformance_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"

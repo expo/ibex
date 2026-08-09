@@ -2396,6 +2396,58 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors direct executable-path lookup without reading PATH", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactWhich" &&
+        recipe.fixtureId.includes(".logical.slash-containing-command."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "/project/ref-check" },
+      ]);
+      expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "fs:list",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "ref-check" }],
+            },
+          },
+        },
+      ]);
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactwhich.0it66ce",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "discovery",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 5,
+      );
+      if (recipe.scenario === "deny") {
+        expect(invocation).not.toHaveProperty("expectedStringValue");
+      } else {
+        expect(invocation.expectedStringValue).toBe("/project/ref-check");
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
   test("authors direct and asynchronous readlink carriers with mixed traversal denial", () => {
     const rows = recipes.recipes.filter((recipe) => {
       const invocation = recipe.publicSurfaceProbe?.invocation;

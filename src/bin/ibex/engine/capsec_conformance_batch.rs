@@ -175,6 +175,8 @@ struct NativePublicInvocation {
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_string_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_cleanup: Option<String>,
     expected_typed_stages: Vec<String>,
     /// Per-decision typed outcomes, pinned from the observed run, for
@@ -566,6 +568,7 @@ fn native_sqlite_file_setup_binding_is_exact() {
         required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
+        expected_string_value: None,
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
         expected_typed_outcomes: Vec::new(),
@@ -611,6 +614,7 @@ fn native_public_probe_serialization_preserves_omitted_optional_fields() {
         required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
+        expected_string_value: None,
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
         expected_typed_outcomes: Vec::new(),
@@ -621,6 +625,7 @@ fn native_public_probe_serialization_preserves_omitted_optional_fields() {
 
     let serialized = serde_json::to_value(invocation).expect("serialize native public probe");
     assert!(serialized.get("completion").is_none());
+    assert!(serialized.get("expectedStringValue").is_none());
     assert!(serialized.get("expectedCleanup").is_none());
 }
 
@@ -652,6 +657,7 @@ fn native_async_worker_terminal_account_is_exact() {
         required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
+        expected_string_value: None,
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
         expected_typed_outcomes: Vec::new(),
@@ -710,6 +716,7 @@ fn native_incidental_traversal_allowance_is_exact_and_fail_closed() {
         required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
+        expected_string_value: None,
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
         expected_typed_outcomes: Vec::new(),
@@ -955,6 +962,51 @@ fn native_filesystem_denial_message_allowance_is_exact_and_fail_closed() {
     ));
     assert!(!native_filesystem_denial_message_is_reviewed(
         "__exactFsLstatAsync"
+    ));
+    assert!(native_filesystem_denial_message_is_reviewed("__exactWhich"));
+    assert!(!native_filesystem_denial_message_is_reviewed(
+        "__exactWhichExtra"
+    ));
+}
+
+#[test]
+fn native_which_string_result_account_is_exact_and_fail_closed() {
+    let arguments = [NativeProbeArgument::JsonLiteral {
+        value: serde_json::json!("/project/ref-check"),
+    }];
+    let exact_result = serde_json::json!({
+        "kind": "return",
+        "globalName": "__exactWhich",
+        "valueType": "string",
+        "cleanup": "none",
+        "stringValue": "/project/ref-check",
+    });
+    assert!(native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
+
+    let mut wrong_result = exact_result.clone();
+    wrong_result["stringValue"] = serde_json::json!("/backing/project/ref-check");
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &arguments,
+        "/project/ref-check",
+        &wrong_result,
+    ));
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhichExtra",
+        &arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &arguments,
+        "/project/other",
+        &exact_result,
     ));
 }
 
@@ -1950,10 +2002,12 @@ fn native_invocation_script(
         "sqliteStatementHandle": setup_state.sqlite_statement_handle,
     });
     let script = format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}var out={{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};if(n===\"__exactGetAllEnv\"&&value!==null&&typeof value===\"object\"){{var envNames=Object.keys(value).sort();out.valuePropertyCount=envNames.length;out.enumeratedNames=envNames;out.enumeratedValues=envNames.map(function(envName){{return String(value[envName]);}});}}return out;}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var captureString={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}var out={{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};if(captureString){{out.stringValue=typeof value===\"string\"?value:null;}}if(n===\"__exactGetAllEnv\"&&value!==null&&typeof value===\"object\"){{var envNames=Object.keys(value).sort();out.valuePropertyCount=envNames.length;out.enumeratedNames=envNames;out.enumeratedValues=envNames.map(function(envName){{return String(value[envName]);}});}}return out;}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments"),
-        serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
+        serde_json::to_string(&cleanup_state).expect("serialize native cleanup state"),
+        serde_json::to_string(&invocation.expected_string_value.is_some())
+            .expect("serialize native string-capture requirement")
     );
     let callable_marker = "var f=globalThis[n];";
     assert_eq!(
@@ -2429,8 +2483,37 @@ fn native_filesystem_denial_message_is_reviewed(global_name: &str) -> bool {
             | "__exactStat"
             | "__exactStatfs"
             | "__exactTruncate"
+            | "__exactWhich"
             | "__exactWriteFile"
     )
+}
+
+fn native_string_result_matches_reviewed_expectation(
+    global_name: &str,
+    arguments: &[NativeProbeArgument],
+    expected_string_value: &str,
+    invocation_result: &serde_json::Value,
+) -> bool {
+    let exact_argument = matches!(
+        arguments,
+        [NativeProbeArgument::JsonLiteral { value }]
+            if value.as_str() == Some(expected_string_value)
+    );
+    let Some(result) = invocation_result.as_object() else {
+        return false;
+    };
+    global_name == "__exactWhich"
+        && expected_string_value == "/project/ref-check"
+        && exact_argument
+        && result.len() == 5
+        && ["kind", "globalName", "valueType", "cleanup", "stringValue"]
+            .iter()
+            .all(|key| result.contains_key(*key))
+        && invocation_result["kind"] == "return"
+        && invocation_result["globalName"] == global_name
+        && invocation_result["valueType"] == "string"
+        && invocation_result["cleanup"] == "none"
+        && invocation_result["stringValue"] == expected_string_value
 }
 
 fn validate_native_runtime_observation(
@@ -2647,6 +2730,18 @@ fn validate_native_runtime_observation(
                     invocation_result["cleanup"],
                     expected_cleanup.as_str(),
                     "{}: native public invocation did not prove its authored cleanup",
+                    recipe.fixture_id
+                );
+            }
+            if let Some(expected_string_value) = &invocation.expected_string_value {
+                assert!(
+                    native_string_result_matches_reviewed_expectation(
+                        &invocation.global_name,
+                        &invocation.arguments,
+                        expected_string_value,
+                        invocation_result,
+                    ),
+                    "{}: native public invocation did not return its exact authored string",
                     recipe.fixture_id
                 );
             }

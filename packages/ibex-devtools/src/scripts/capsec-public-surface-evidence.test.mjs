@@ -10041,6 +10041,7 @@ describe("CapSec public-surface promotion evidence", () => {
       "__exactStat",
       "__exactStatfs",
       "__exactTruncate",
+      "__exactWhich",
       "__exactWriteFile",
     ]) {
       expect(() =>
@@ -10052,6 +10053,11 @@ describe("CapSec public-surface promotion evidence", () => {
     expect(() =>
       validateNativeFilesystemDenialRecipeDescriptor(
         descriptor("__exactUnknownFsOperation", "filesystem policy denied"),
+      ),
+    ).toThrow(/unreviewed native denial expectation/);
+    expect(() =>
+      validateNativeFilesystemDenialRecipeDescriptor(
+        descriptor("__exactWhichExtra", "filesystem policy denied"),
       ),
     ).toThrow(/unreviewed native denial expectation/);
     expect(() =>
