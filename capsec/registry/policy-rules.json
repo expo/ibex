@@ -872,6 +872,11 @@
         "rationale": "This environment access is trusted launcher, bootstrap, or child-construction state rather than a package environment API. It has no JavaScript binding at the inventoried occurrence and therefore cannot honestly assert a package-principal typed environment decision."
       },
       {
+        "id": "typed-operation-facade",
+        "predicate": "public-or-bootstrap-facade-whose-every-external-effect-is-mediated-and-attributed-at-an-exact-inner-typed-operation-edge",
+        "rationale": "This façade owns public reachability but not a second authorization boundary. Every external effect is mediated and credited at the exact inner typed operation edge, so assigning the façade another effect cell would create an obligation that the runtime cannot emit."
+      },
+      {
         "id": "unbound-owned-resource",
         "predicate": "allocate-an-unbound-unconnected-resource-without-contacting-an-external-peer-or-namespace",
         "rationale": "Allocating an unbound local resource carries no external authority until a later bind, connect, transfer, or use operation."

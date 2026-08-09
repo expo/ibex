@@ -7239,8 +7239,12 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
           "ibex/capsec-global-callable-invocation/1",
       );
+      // The A2 Lane C audit withdraws duplicate effect credit from exact
+      // façades. One façade has an existing bounded authority-free invocation;
+      // its recipe remains executable under the corrected non-capability type.
+      // @ref LLP 0049#3-construction-rules — exact-string A2 seeding correction
       expect(callableRecipes).toHaveLength(
-        candidate.target.triple === "x86_64-pc-windows-msvc" ? 565 : 579,
+        candidate.target.triple === "x86_64-pc-windows-msvc" ? 566 : 580,
       );
       expect(
         callableRecipes.every((recipe) => {

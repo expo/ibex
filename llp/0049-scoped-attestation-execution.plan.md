@@ -5,6 +5,14 @@
 **Systems:** Security, Conformance, CI, Runtime, Tooling
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-08-06
+**Revised:** 2026-08-08 (Lane C A2 audit — all 14 poisoned cells were
+cleared as ill-typed duplicate façade/private-bridge effect cells. The
+closed-world join and armed loaded-target evidence map all 138 credited
+rows to their exact inner typed gate or secure armed closure. The strict
+152-entry route allow-list passed with zero unexplained or stale entries;
+terminal evidence changed on zero cells. Regenerated A2 is 40 cells, zero
+poisoned, and 137 authorable rows. Evidence is indexed in §11. This revision
+is UNREVIEWED.)
 **Revised:** 2026-08-07b (executor-reachability rebuild — a retained
 per-surface-kind measurement falsified the §6 claim the previous revision
 was built on, and both round-3 reviews (Fable NOT READY, one BLOCKER;
@@ -1430,6 +1438,23 @@ f. **The v1.1 scope, re-opened on the executor-reachability axis.**
 > is accepted as **follow-on work that must not block the first
 > advertisement**.
 
+> **Lane C A2 audit result — 2026-08-08: CLEARED 14 / AUTHORABLE 0 /
+> UNDETERMINED 0.** The closed-world source join found physical public
+> façades for ten cells, but no invocation path capable of emitting any of
+> the fourteen credited seed edges. `Exact.which` / `Bun.which` and
+> `Exact.write` / `Bun.write` close over exact inner native gates; the four
+> module façades close over the captured resolver and authenticated loader
+> gates; the two returned legacy-handle readers are hard-closed at the
+> secure armed boundary; and the four raw resolver globals are captured and
+> deleted before package execution. The armed loaded-target regression
+> confirmed the exact inner edge IDs, alias identities, raw-global absence,
+> and zero-decision handle refusals. Every one of the 138 credited rows is
+> mapped in the retained artifact. This was a seeding/model defect, not a
+> missing public-invocation inventory defect, so no inventory ticket was
+> filed. The exact-string correction regenerates A2 from **54 cells / 14
+> poisoned / 137 authorable rows** to **40 / 0 / 137**. Both required diff
+> gates and `check:drift` exit zero.
+
 ## 11. Evidence index
 
 Every phase adds its artifacts here as it closes; the plan is out of
@@ -1441,6 +1466,7 @@ compliance if a §3 rule 1 figure lacks a row.
 | LLP 0044 day-one scope measurement (superseded by 2026-08-05 re-measure) | llp/evidence/0044-scope-measurement-09e6aece….json | §2 |
 | representative batch timing (16.24 s) | llp/evidence/0044-batch-timing-501504f6….json | §6 |
 | paired allow-list worked example | llp/evidence/0045-allow-list-duplicate-definition-hygiene.json | §3 |
+| **Lane C A2 closed-world audit** — 14 cells and all 138 credited rows; CLEARED 14 / AUTHORABLE 0 / UNDETERMINED 0; A2 54 / 14 poisoned / 137 rows → 40 / 0 / 137 | `llp/evidence/0049-lanec-audit-a2-bdf8c0830f289761d3f99d9f57ad65c7c8849699ee4caa77abb4a7fdc44e1d34.json` (raw-file SHA-256 `bdf8c0830f289761d3f99d9f57ad65c7c8849699ee4caa77abb4a7fdc44e1d34`; baseline catalog `sha256-vCNYGlWKR7woDl-piD2Ae4BtZxMWmE46ovTG_VSWsYo`; candidate `sha256-jJZNbFdLXbS3C92g7RhbJmTIJXtgGFOoovo47a9XmRI`; allow-list `llp/evidence/0049-allow-list-lanec-audit-a2.json`) | §3 / §10(f) |
 | Phase 0 post-seeding scope measurement (fs+env+process unchanged: 610 / 537 clean / 73 poisoned / 3,927 rows) | llp/evidence/0049-scope-measurement-postseeding-df1da4b5….json | §4 |
 | Phase 0 seeding allow-list (rule 3, strict mode, 1,544 entries, 2,722/2,722 explained) | llp/evidence/0049-allow-list-phase0-seeding.json | §4 |
 | Phase 0 terminal allow-list (rule 7, 463 entries) | llp/evidence/0049-terminal-allow-list-phase0-seeding.json | §4 |
