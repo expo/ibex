@@ -1,0 +1,414 @@
+{
+  "schema": "ibex/llp-evidence/startup-environment-observation/1",
+  "measurement": "llp-0049-candidate-c-startup-environment-observation-spike",
+  "generatedDate": "2026-08-08",
+  "sourceRevision": "9633556d96a95b9afa6dbb82a99cc991901a40b5",
+  "target": {
+    "triple": "aarch64-apple-darwin",
+    "features": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ]
+  },
+  "scope": {
+    "scopeSchema": "ibex/capsec-scope/1",
+    "intensionalDefinition": {
+      "capabilityFamilies": [
+        "env"
+      ],
+      "surfaceKinds": [
+        "startup"
+      ]
+    },
+    "scopeDigest": "sha256-0VVmZTDzCK767A85aRK1RqQtyJzdIYempCyY-0NopP4",
+    "scopeCellMappingDigest": "sha256-2ny7YA_JyIoatyMfj-JOS0RKgXoggTL9By6n9ZddQnQ",
+    "scopeExpansionDiffDigest": "sha256-0G9dZ7v2-8uRqNulnqx8TaL3VT0CRXyu8qqShw9I5xI",
+    "expandedCellCount": 24,
+    "closureEdgeCount": 24,
+    "poisonedCellCount": 0
+  },
+  "purpose": "Observe whether structurally different candidate-C startup environment cells are honestly attributable before any probe is authored or any cell is closed.",
+  "selection": {
+    "sampleSize": 4,
+    "basis": "The sample deliberately spans four different source and mediation shapes rather than four easy static names.",
+    "cells": [
+      {
+        "cellId": "surface.startup.env.colorterm.1c641i4",
+        "shape": "plain static environment name consumed by startup TTY/color JavaScript",
+        "whySelected": "Represents the static-name family and exercises a real startup source already supported by the reviewed startup-environment executor."
+      },
+      {
+        "cellId": "surface.startup.env.dynamic.javascript.process.env.0g7t2rn",
+        "shape": "computed JavaScript process.env lookup",
+        "whySelected": "Represents the dynamic-name JavaScript family, whose key is selected by runtime behavior rather than a registry-fixed name."
+      },
+      {
+        "cellId": "surface.startup.env.exact.android.files.dir.0c1x0ei",
+        "shape": "platform-specific Android host-path projection with secure-runtime fallback closure",
+        "whySelected": "Represents a platform bridge and the widest conditional effect union in candidate C: env:read, env:write, fs:list, fs:read, and fs:write."
+      },
+      {
+        "cellId": "surface.startup.env.exact.compat.exec.argv.1eqpi8a",
+        "shape": "pre-engine Rust ambient read plus later child-environment propagation",
+        "whySelected": "Represents a non-JavaScript source outside Host interception and a conditional env:read/env:write propagation shape."
+      }
+    ]
+  },
+  "observationMethod": {
+    "hostPosture": "fresh production/enforce Host for every selected cell",
+    "principal": {
+      "kind": "root",
+      "identity": "project-root"
+    },
+    "policy": "root allow with per-name static-floor env:read grants for the static JavaScript observation; equivalent fresh armed Host installed for each remaining observation",
+    "environmentFixture": "Each selected environment variable was absent. The COLORTERM runtime also exercised its ordinary NO_COLOR, FORCE_COLOR, COLORTERM, and TERM reads under explicit per-name floor grants.",
+    "observationWindow": "Observer state was cleared immediately before the public source was driven. For the Android startup cell, observation began before runtime construction/load because the native-root source executes during load.",
+    "temporaryHarness": "A local observation-only Rust test drove the real public sources and printed raw typed decisions. It temporarily exposed build_exec_argv within the crate. Both changes were removed after capture; no table row, recipe, probe, registry entry, or harness code is committed.",
+    "command": "PATH=\"/Users/ccheever/.bun/bin:/opt/homebrew/bin:$PATH\" cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto spike_c_observes_startup_environment_decisions -- --nocapture --test-threads=1",
+    "commandResult": {
+      "exitCode": 0,
+      "testResult": "1 passed; 0 failed; 0 ignored; 0 measured; 649 filtered out",
+      "elapsedSeconds": 0.42,
+      "rawOutputLineCount": 1274,
+      "rawOutputByteCount": 45070,
+      "rawOutputSha256Hex": "df7692df6fc02fcdb7577e3c37780dc063c89c0e067e87d324de7b254b6cd8b3",
+      "rawOutputDigest": "sha256-33aS32_AL823V348N3gNwGPInA4GfofTJN57JUts2LM"
+    },
+    "decisionIdentity": {
+      "profile": "ibex/capsec/1",
+      "semanticCore": "capsec/semantics/1",
+      "vocabDigest": "sha256-Qt85kJntfGrrBX0arjXVFtSLboZ6vuoBtd70vQ8gMPs",
+      "registryDigest": "sha256-j9tUfBg0vtent18wxwdZ-3z3WNpP1LXqYi2-14gJprw",
+      "policyDigest": "sha256-f7mc7hfOqq1LzwtgBw5UtlrdrsgIB5byVqmJ8jUGBKc",
+      "armedSnapshotDigest": "sha256-RDk0KBGWTk55Ny9eA2XkWeHi7w7rp1ZdvSAs6_z0Sy4"
+    }
+  },
+  "observations": [
+    {
+      "cellId": "surface.startup.env.colorterm.1c641i4",
+      "drivenSource": "The real startup TTY color-support path with COLORTERM absent.",
+      "selectedBranch": "absent",
+      "selectedBranchDeclaredActionIds": [
+        "env:read"
+      ],
+      "cellEffectUnionActionIds": [
+        "env:read",
+        "stdio:write"
+      ],
+      "result": {
+        "kind": "return",
+        "value": true
+      },
+      "legacyDecisionCount": 0,
+      "typedDecisionCount": 10,
+      "typedDecisions": [
+        {
+          "order": 1,
+          "actionId": "env:read",
+          "stage": "requested",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000002",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"NO_COLOR\"}",
+          "resource": "NO_COLOR"
+        },
+        {
+          "order": 2,
+          "actionId": "env:read",
+          "stage": "commit",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000002",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"NO_COLOR\"}",
+          "resource": "NO_COLOR"
+        },
+        {
+          "order": 3,
+          "actionId": "env:read",
+          "stage": "requested",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000001",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"FORCE_COLOR\"}",
+          "resource": "FORCE_COLOR"
+        },
+        {
+          "order": 4,
+          "actionId": "env:read",
+          "stage": "commit",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000001",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"FORCE_COLOR\"}",
+          "resource": "FORCE_COLOR"
+        },
+        {
+          "order": 5,
+          "actionId": "env:read",
+          "stage": "requested",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000000",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"COLORTERM\"}",
+          "resource": "COLORTERM"
+        },
+        {
+          "order": 6,
+          "actionId": "env:read",
+          "stage": "commit",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000000",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"COLORTERM\"}",
+          "resource": "COLORTERM"
+        },
+        {
+          "order": 7,
+          "actionId": "env:read",
+          "stage": "requested",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000000",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"COLORTERM\"}",
+          "resource": "COLORTERM"
+        },
+        {
+          "order": 8,
+          "actionId": "env:read",
+          "stage": "commit",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000000",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"COLORTERM\"}",
+          "resource": "COLORTERM"
+        },
+        {
+          "order": 9,
+          "actionId": "env:read",
+          "stage": "requested",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000003",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"TERM\"}",
+          "resource": "TERM"
+        },
+        {
+          "order": 10,
+          "actionId": "env:read",
+          "stage": "commit",
+          "outcome": "allow",
+          "resolvedAuthorityStratum": "static-floor",
+          "sourceId": "principal.000000.floor.000003",
+          "coverageEdgeId": "surface.native.op.exactgetenv.0k6bv7a",
+          "atomicityGroup": "surface.native.op.exactgetenv.0k6bv7a.decision",
+          "operationId": "environment-read:0:{\"kind\":\"environment-name\",\"target\":\"principal-overlay\",\"name\":\"TERM\"}",
+          "resource": "TERM"
+        }
+      ],
+      "d1ToD4": {
+        "D1": {
+          "determination": "not-applicable-to-env-traversal; observed authority is sound but does not establish cell attribution",
+          "detail": "D1's sanctioned ambient fs:list traversal allowance is not involved. Every observed env:read resolved through an authored static floor."
+        },
+        "D2": {
+          "determination": "fail",
+          "ownCellEdgeNamedByAnyDecision": false,
+          "allSelectedBranchDeclaredActionsObserved": true,
+          "observedActionIds": [
+            "env:read"
+          ],
+          "allObservedActionsDeclaredOrExplainable": true,
+          "detail": "The absent branch's env:read was observed and there was no action surplus, but all ten decisions attributed exclusively to surface.native.op.exactgetenv.0k6bv7a. No decision named surface.startup.env.colorterm.1c641i4, so the startup cell cannot receive credit."
+        },
+        "D3": {
+          "determination": "pass",
+          "detail": "The ten-decision sequence was captured from the armed bound-engine run and was not inferred or hand-authored."
+        },
+        "D4": {
+          "determination": "not-evaluated",
+          "detail": "This was an allow-path env observation, not a deny-path open-then-act operation. The failed D2 already prevents authoring."
+        }
+      },
+      "honestlyCreditable": false,
+      "structuralObstacle": "The reviewed startup-environment executor already validates COLORTERM, but it explicitly accepts only the inner surface.native.op.exactgetenv.0k6bv7a edge. It therefore confirms the attribution mismatch rather than crediting the startup edge."
+    },
+    {
+      "cellId": "surface.startup.env.dynamic.javascript.process.env.0g7t2rn",
+      "drivenSource": "The real computed runtime-JavaScript environment read in the Headers invalid-name compatibility path, using EXACT_COMPAT_TEST as the computed key.",
+      "selectedBranch": null,
+      "selectedBranchDeclaredActionIds": [
+        "env:read"
+      ],
+      "cellEffectUnionActionIds": [
+        "env:read"
+      ],
+      "result": {
+        "kind": "return",
+        "value": true
+      },
+      "legacyDecisionCount": 0,
+      "typedDecisionCount": 0,
+      "typedDecisions": [],
+      "d1ToD4": {
+        "D1": {
+          "determination": "not-applicable-no-decision",
+          "detail": "No typed decision resolved through any authority stratum."
+        },
+        "D2": {
+          "determination": "fail",
+          "ownCellEdgeNamedByAnyDecision": false,
+          "allSelectedBranchDeclaredActionsObserved": false,
+          "observedActionIds": [],
+          "allObservedActionsDeclaredOrExplainable": true,
+          "detail": "The declared env:read was not observed and no decision named this cell's edge. The empty observed set contains no undeclared surplus, but that does not satisfy declared-action completeness."
+        },
+        "D3": {
+          "determination": "pass",
+          "detail": "The zero-decision result was captured from the armed bound-engine run."
+        },
+        "D4": {
+          "determination": "not-evaluated",
+          "detail": "No allow-path typed operation existed to carry into a deny-path check, and D2 already failed."
+        }
+      },
+      "honestlyCreditable": false,
+      "structuralObstacle": "In armed mode the exercised runtime source treats this bootstrap compatibility control as a fixed digest-bound value and returns before reaching process.env or a typed Host env boundary. The current executor has no reviewed mechanism for this dynamic shape."
+    },
+    {
+      "cellId": "surface.startup.env.exact.android.files.dir.0c1x0ei",
+      "drivenSource": "The real native-root Android storage host-path lookup during armed runtime load, with EXACT_ANDROID_FILES_DIR absent.",
+      "selectedBranch": "absent",
+      "selectedBranchDeclaredActionIds": [
+        "env:read"
+      ],
+      "cellEffectUnionActionIds": [
+        "env:read",
+        "env:write",
+        "fs:list",
+        "fs:read",
+        "fs:write"
+      ],
+      "result": {
+        "kind": "return",
+        "value": true
+      },
+      "legacyDecisionCount": 0,
+      "typedDecisionCount": 0,
+      "typedDecisions": [],
+      "d1ToD4": {
+        "D1": {
+          "determination": "not-applicable-no-decision",
+          "detail": "No typed decision resolved through any authority stratum."
+        },
+        "D2": {
+          "determination": "fail",
+          "ownCellEdgeNamedByAnyDecision": false,
+          "allSelectedBranchDeclaredActionsObserved": false,
+          "observedActionIds": [],
+          "allObservedActionsDeclaredOrExplainable": true,
+          "detail": "The absent branch's declared env:read was not observed and no decision named this cell's edge. There was no observed surplus."
+        },
+        "D3": {
+          "determination": "pass",
+          "detail": "The observation window began before runtime load; the zero-decision result is an observed result, not an inference."
+        },
+        "D4": {
+          "determination": "not-evaluated",
+          "detail": "No allow-path typed operation existed to carry into a deny-path check, and D2 already failed."
+        }
+      },
+      "honestlyCreditable": false,
+      "structuralObstacle": "On the Apple target the Android-native setter path cannot be driven. In an armed secure runtime, native-root detects the armed marker and closes the fallback, so it does not fall through to process.env.EXACT_ANDROID_FILES_DIR or HOME. Present and propagated branches, including their non-env effects, remain unobserved."
+    },
+    {
+      "cellId": "surface.startup.env.exact.compat.exec.argv.1eqpi8a",
+      "drivenSource": "The production Rust build_exec_argv source under an installed fresh armed Host, with EXACT_COMPAT_EXEC_ARGV absent.",
+      "selectedBranch": "absent",
+      "selectedBranchDeclaredActionIds": [
+        "env:read"
+      ],
+      "cellEffectUnionActionIds": [
+        "env:read",
+        "env:write"
+      ],
+      "result": {
+        "kind": "return",
+        "value": []
+      },
+      "legacyDecisionCount": 0,
+      "typedDecisionCount": 0,
+      "typedDecisions": [],
+      "d1ToD4": {
+        "D1": {
+          "determination": "not-applicable-no-decision",
+          "detail": "No typed decision resolved through any authority stratum."
+        },
+        "D2": {
+          "determination": "fail",
+          "ownCellEdgeNamedByAnyDecision": false,
+          "allSelectedBranchDeclaredActionsObserved": false,
+          "observedActionIds": [],
+          "allObservedActionsDeclaredOrExplainable": true,
+          "detail": "The absent branch's declared env:read was not observed and no decision named this cell's edge. There was no observed surplus."
+        },
+        "D3": {
+          "determination": "pass",
+          "detail": "The zero-decision result was captured while the production source ran under the armed Host."
+        },
+        "D4": {
+          "determination": "not-evaluated",
+          "detail": "No allow-path typed operation existed to carry into a deny-path check, and D2 already failed."
+        }
+      },
+      "honestlyCreditable": false,
+      "structuralObstacle": "build_exec_argv reads std::env directly before the engine-facing path and therefore bypasses Host interception. Later write/unset operations mutate an ordinary child environment object; exercising the full propagation branch would require a child-spawn executor, but cannot repair the missing env:read attribution."
+    }
+  ],
+  "executorAssessment": {
+    "promptOverlapCorrection": {
+      "statedPremise": "zero of candidate C's env names overlap EXPECTED_SOURCES",
+      "observedRepositoryState": "The current reviewed table overlaps eleven candidate-C names: NODE_DEBUG, EXACT_DEBUG_EMIT_LISTENER, TZ, EXACT_PIPELINE_DEBUG, EXACT_PIPELINE_STATE_DEBUG, COLUMNS, LINES, FORCE_COLOR, COLORTERM, NO_COLOR, and TERM.",
+      "impact": "The discrepancy does not improve attribution. The executor's typed-decision validator explicitly requires the auxiliary surface.native.op.exactgetenv.0k6bv7a edge, not the startup cell edge."
+    },
+    "unsupportedShapes": [
+      "computed dynamic JavaScript environment sources",
+      "Android-native host-path projection on an Apple observation target",
+      "pre-engine Rust std::env reads and child-environment propagation"
+    ],
+    "temporaryChangesRetained": false
+  },
+  "verdict": {
+    "candidate": "C",
+    "classification": "not-attributable-at-all-in-the-observed-structural-sample",
+    "authoringDisposition": "STOP",
+    "reason": "All four deliberately different shapes fail D2. The only cell that emitted typed decisions attributed every decision to the inner exactgetenv native-operation edge; the other three emitted no typed decisions and did not observe their declared env:read. No tested shape is a viable narrower attributable scope.",
+    "scopeOfClaim": "This spike directly observes four of twenty-four cells. It is sufficient to stop authoring candidate C as proposed, but it does not claim that each of the remaining twenty cells was individually executed.",
+    "probesAuthored": 0,
+    "cellsClosed": 0
+  },
+  "undetermined": [
+    "The remaining twenty candidate-C cells were not individually observed.",
+    "D4 deny behavior was not measured because every sampled cell had already failed allow-path D2 attribution.",
+    "The present and propagated branches of the Android and compat-exec-argv cells were not driven.",
+    "Whether the coverage model should be rewritten or a startup-level authorization boundary should be introduced is outside this observation-only spike."
+  ]
+}
