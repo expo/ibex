@@ -11,6 +11,8 @@ import {
   mergePublicBatchExecutions,
   nativeAsyncWorkerTerminal,
   nativeAsyncWorkerTerminals,
+  observedActionSetMatchesReviewedAccount,
+  reviewedNativeEarlyDenialActionPrefix,
   validateNativeFilesystemDenialRecipeDescriptor,
   validatePublicSurfaceExecutionArtifact,
   validateStartupEnvironmentRecipeDescriptor,
@@ -4405,6 +4407,62 @@ function callbackRuntimeObservation(recipe) {
 }
 
 describe("CapSec public-surface promotion evidence", () => {
+  test("admits only the observed bare-which early-denial action prefix", () => {
+    const authored = {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactWhich",
+      arguments: [{ kind: "json-literal", value: "ref-check" }],
+      expectedResult: "permission-denied",
+      expectedTypedDecisionCount: 1,
+      expectedTypedStages: ["requested"],
+      expectedActionIds: ["env:read", "fs:list"],
+    };
+    const exact = {
+      authored,
+      recipe: { scenario: "deny" },
+      observedActions: ["env:read"],
+    };
+    expect(reviewedNativeEarlyDenialActionPrefix(exact)).toBe(true);
+    expect(observedActionSetMatchesReviewedAccount(exact)).toBe(true);
+
+    for (const mutate of [
+      (value) => {
+        value.authored.globalName = "__exactWhichExtra";
+      },
+      (value) => {
+        value.authored.arguments[0].value = "/project/ref-check";
+      },
+      (value) => {
+        value.authored.expectedResult = "return";
+      },
+      (value) => {
+        value.authored.expectedTypedStages.push("commit");
+        value.authored.expectedTypedDecisionCount = 2;
+      },
+      (value) => {
+        value.authored.expectedActionIds = ["env:read"];
+      },
+      (value) => {
+        value.recipe.scenario = "allow";
+      },
+      (value) => {
+        value.observedActions = [];
+      },
+      (value) => {
+        value.observedActions = ["env:read", "fs:list"];
+      },
+      (value) => {
+        value.observedActions = ["env:read", "network:connect"];
+      },
+    ]) {
+      const nearby = structuredClone(exact);
+      mutate(nearby);
+      expect(reviewedNativeEarlyDenialActionPrefix(nearby)).toBe(false);
+      expect(observedActionSetMatchesReviewedAccount(nearby)).toBe(false);
+    }
+  });
+
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
     const execution = buildPublicFixtureEvidence({

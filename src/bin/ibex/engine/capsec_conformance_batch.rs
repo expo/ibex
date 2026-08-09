@@ -859,6 +859,130 @@ fn native_incidental_traversal_allowance_is_exact_and_fail_closed() {
 }
 
 #[test]
+fn native_which_early_denial_action_prefix_is_exact_and_fail_closed() {
+    let invocation = |global_name: &str,
+                      argument: &str,
+                      expected_result: &str,
+                      expected_stages: &[&str],
+                      expected_count: usize,
+                      expected_actions: &[&str]| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: vec![NativeProbeArgument::JsonLiteral {
+            value: serde_json::json!(argument),
+        }],
+        completion: None,
+        required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: expected_result.into(),
+        expected_string_value: None,
+        expected_cleanup: None,
+        expected_typed_stages: expected_stages
+            .iter()
+            .map(|stage| (*stage).into())
+            .collect(),
+        expected_typed_outcomes: Vec::new(),
+        expected_typed_decision_count: expected_count,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: expected_actions
+            .iter()
+            .map(|action| (*action).into())
+            .collect(),
+    };
+    let observed_prefix = BTreeSet::from(["env:read".to_owned()]);
+    let exact = invocation(
+        "__exactWhich",
+        "ref-check",
+        "permission-denied",
+        &["requested"],
+        1,
+        &["env:read", "fs:list"],
+    );
+    assert!(reviewed_native_early_denial_action_prefix(
+        &exact,
+        &observed_prefix
+    ));
+    assert!(native_observed_actions_are_reviewed(
+        &exact,
+        &observed_prefix
+    ));
+
+    for nearby in [
+        invocation(
+            "__exactWhichExtra",
+            "ref-check",
+            "permission-denied",
+            &["requested"],
+            1,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "/project/ref-check",
+            "permission-denied",
+            &["requested"],
+            1,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "ref-check",
+            "return",
+            &["requested"],
+            1,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "ref-check",
+            "permission-denied",
+            &["requested", "commit"],
+            2,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "ref-check",
+            "permission-denied",
+            &["requested"],
+            1,
+            &["env:read"],
+        ),
+    ] {
+        assert!(!reviewed_native_early_denial_action_prefix(
+            &nearby,
+            &observed_prefix
+        ));
+        assert!(!native_observed_actions_are_reviewed(
+            &nearby,
+            &observed_prefix
+        ));
+    }
+
+    for wrong_observed in [
+        BTreeSet::new(),
+        BTreeSet::from(["fs:list".to_owned()]),
+        BTreeSet::from(["env:read".to_owned(), "fs:list".to_owned()]),
+        BTreeSet::from(["env:read".to_owned(), "network:connect".to_owned()]),
+    ] {
+        assert!(!reviewed_native_early_denial_action_prefix(
+            &exact,
+            &wrong_observed
+        ));
+        assert!(!native_observed_actions_are_reviewed(
+            &exact,
+            &wrong_observed
+        ));
+    }
+}
+
+#[test]
 fn native_async_harness_fields_are_not_published_as_runtime_results() {
     let mut result = serde_json::json!({
         "kind": "return",
@@ -971,8 +1095,11 @@ fn native_filesystem_denial_message_allowance_is_exact_and_fail_closed() {
 
 #[test]
 fn native_which_string_result_account_is_exact_and_fail_closed() {
-    let arguments = [NativeProbeArgument::JsonLiteral {
+    let slash_arguments = [NativeProbeArgument::JsonLiteral {
         value: serde_json::json!("/project/ref-check"),
+    }];
+    let bare_arguments = [NativeProbeArgument::JsonLiteral {
+        value: serde_json::json!("ref-check"),
     }];
     let exact_result = serde_json::json!({
         "kind": "return",
@@ -983,7 +1110,13 @@ fn native_which_string_result_account_is_exact_and_fail_closed() {
     });
     assert!(native_string_result_matches_reviewed_expectation(
         "__exactWhich",
-        &arguments,
+        &slash_arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
+    assert!(native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &bare_arguments,
         "/project/ref-check",
         &exact_result,
     ));
@@ -992,20 +1125,29 @@ fn native_which_string_result_account_is_exact_and_fail_closed() {
     wrong_result["stringValue"] = serde_json::json!("/backing/project/ref-check");
     assert!(!native_string_result_matches_reviewed_expectation(
         "__exactWhich",
-        &arguments,
+        &slash_arguments,
         "/project/ref-check",
         &wrong_result,
     ));
     assert!(!native_string_result_matches_reviewed_expectation(
         "__exactWhichExtra",
-        &arguments,
+        &slash_arguments,
         "/project/ref-check",
         &exact_result,
     ));
     assert!(!native_string_result_matches_reviewed_expectation(
         "__exactWhich",
-        &arguments,
+        &slash_arguments,
         "/project/other",
+        &exact_result,
+    ));
+    let wrong_arguments = [NativeProbeArgument::JsonLiteral {
+        value: serde_json::json!("other-command"),
+    }];
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &wrong_arguments,
+        "/project/ref-check",
         &exact_result,
     ));
 }
@@ -2175,6 +2317,9 @@ fn native_observed_actions_are_reviewed(
     invocation: &NativePublicInvocation,
     observed_actions: &BTreeSet<String>,
 ) -> bool {
+    if native_requires_reviewed_early_denial_action_prefix(invocation) {
+        return reviewed_native_early_denial_action_prefix(invocation, observed_actions);
+    }
     let declared_actions = invocation
         .expected_action_ids
         .iter()
@@ -2184,6 +2329,33 @@ fn native_observed_actions_are_reviewed(
         && observed_actions.difference(&declared_actions).all(|extra| {
             extra == "fs:list" && reviewed_native_open_traversal_prefix(invocation).is_some()
         })
+}
+
+fn native_requires_reviewed_early_denial_action_prefix(
+    invocation: &NativePublicInvocation,
+) -> bool {
+    invocation.global_name == "__exactWhich"
+        && matches!(
+            invocation.arguments.as_slice(),
+            [NativeProbeArgument::JsonLiteral { value }]
+                if value.as_str() == Some("ref-check")
+        )
+        && invocation.expected_result == "permission-denied"
+}
+
+fn reviewed_native_early_denial_action_prefix(
+    invocation: &NativePublicInvocation,
+    observed_actions: &BTreeSet<String>,
+) -> bool {
+    // @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+    // A denied bare `which` stops after the PATH lookup, before filesystem
+    // discovery. Admit only the exact engine-observed prefix; all nearby
+    // globals, arguments, outcomes, sequences, and action sets fail closed.
+    native_requires_reviewed_early_denial_action_prefix(invocation)
+        && invocation.expected_typed_stages.as_slice() == ["requested"]
+        && invocation.expected_typed_decision_count == 1
+        && invocation.expected_action_ids.as_slice() == ["env:read", "fs:list"]
+        && observed_actions == &BTreeSet::from(["env:read".to_owned()])
 }
 
 fn native_decision_is_reviewed_open_traversal(
@@ -2494,17 +2666,23 @@ fn native_string_result_matches_reviewed_expectation(
     expected_string_value: &str,
     invocation_result: &serde_json::Value,
 ) -> bool {
-    let exact_argument = matches!(
-        arguments,
-        [NativeProbeArgument::JsonLiteral { value }]
-            if value.as_str() == Some(expected_string_value)
+    let [NativeProbeArgument::JsonLiteral { value }] = arguments else {
+        return false;
+    };
+    let Some(argument) = value.as_str() else {
+        return false;
+    };
+    let reviewed_lookup = matches!(
+        (argument, expected_string_value),
+        ("/project/ref-check", "/project/ref-check")
+            | ("ref-check", "/project/ref-check")
     );
     let Some(result) = invocation_result.as_object() else {
         return false;
     };
     global_name == "__exactWhich"
         && expected_string_value == "/project/ref-check"
-        && exact_argument
+        && reviewed_lookup
         && result.len() == 5
         && ["kind", "globalName", "valueType", "cleanup", "stringValue"]
             .iter()
@@ -3015,8 +3193,10 @@ fn validate_native_runtime_observation(
         if has_surplus_effect {
             assert!(
                 reviewed_open_traversal,
-                "{}: surplus native effect did not come from a reviewed traversal-stage fs:list operation",
-                recipe.fixture_id
+                "{}: surplus native effect did not come from a reviewed traversal-stage fs:list operation: expected {:?}, observed {:?}",
+                recipe.fixture_id,
+                invocation.expected_action_ids,
+                effects
             );
         }
         let ambient_project_prefix = !public_denial

@@ -1421,6 +1421,72 @@ const nativeProjectWhichSlashTemplate = () => {
     }),
   });
 };
+const nativeProjectWhichBareTemplate = () => {
+  const stages = [
+    "requested",
+    "commit",
+    "requested",
+    "discovery",
+    "requested",
+    "repeat",
+    "discovery",
+  ];
+  return Object.freeze({
+    actionIds: ["env:read", "fs:list"],
+    arguments: [literalArgument("ref-check")],
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedObservedActionIds: {
+      malformed: ["env:read", "fs:list"],
+    },
+    expectedResults: Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+        scenario,
+        "return",
+      ]).concat([["deny", "permission-denied"]]),
+    ),
+    expectedStages: nativeEffectStages(stages),
+    expectedStringValues: Object.freeze(
+      Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "/project/ref-check",
+        ]),
+      ),
+    ),
+    requiredFloor: [
+      {
+        cap: "env:read",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name: "PATH",
+        },
+      },
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("ref-check"),
+      },
+    ],
+    requiredSetupFloor: [
+      {
+        cap: "env:write",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name: "PATH",
+        },
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [
+      {
+        kind: "invoke-native-global",
+        globalName: "__exactSetEnv",
+        arguments: ["PATH", "/project"],
+      },
+    ],
+  });
+};
 // Direct armed metadata probes on the native fs:list terminals that the
 // already-authored builtin carriers reach indirectly. Each takes the exact
 // authenticated /project path, resolves through the armed VFS, authorizes the
@@ -3658,7 +3724,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactWhich",
-    new Map([["slash-containing-command", nativeProjectWhichSlashTemplate()]]),
+    new Map([
+      ["bare-command", nativeProjectWhichBareTemplate()],
+      ["slash-containing-command", nativeProjectWhichSlashTemplate()],
+    ]),
   ],
   [
     "__exactFsPathAsync",

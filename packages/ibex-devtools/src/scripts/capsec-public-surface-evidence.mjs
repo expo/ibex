@@ -7123,6 +7123,10 @@ function validateRuntimeInvocation(observation, recipe) {
           "ibex/capsec-native-global-invocation/1" &&
         authored.kind === "native-global-function" &&
         authored.globalName === "__exactWhich";
+      const reviewedNativeWhichArgument = new Set([
+        "/project/ref-check",
+        "ref-check",
+      ]).has(authored.arguments?.[0]?.value);
       exactKeys(
         invocation.result,
         exactNativeWhichString
@@ -7154,7 +7158,7 @@ function validateRuntimeInvocation(observation, recipe) {
         (exactNativeWhichString &&
           (authored.arguments?.length !== 1 ||
             authored.arguments[0]?.kind !== "json-literal" ||
-            authored.arguments[0]?.value !== authored.expectedStringValue ||
+            !reviewedNativeWhichArgument ||
             authored.expectedStringValue !== "/project/ref-check" ||
             invocation.result.globalName !== authored.globalName ||
             invocation.result.cleanup !== "none"))
@@ -9412,17 +9416,13 @@ export function validatePublicFixtureRuntimeObservation(
       );
     }
   }
-  const expectedActions =
-    authored.expectedResult === "absent" ? [] : authored.expectedActionIds;
   const observedActions = [...actions].sort(compareText);
-  const observedActionSet = new Set(observedActions);
-  const actionSetMatches = builtinOpenThenAct
-    ? expectedActions.every((action) => observedActionSet.has(action)) &&
-      observedActions.every(
-        (action) => expectedActions.includes(action) || action === "fs:list",
-      )
-    : canonicalJson(observedActions) ===
-      canonicalJson([...expectedActions].sort(compareText));
+  const actionSetMatches = observedActionSetMatchesReviewedAccount({
+    authored,
+    recipe,
+    observedActions,
+    builtinOpenThenAct,
+  });
   if (
     canonicalJson(stages) !== canonicalJson(authored.expectedTypedStages) ||
     !actionSetMatches ||
@@ -9570,6 +9570,66 @@ export function validatePublicFixtureRuntimeObservation(
     );
   }
   return terminalObservedKey;
+}
+
+export function reviewedNativeEarlyDenialActionPrefix({
+  authored,
+  recipe,
+  observedActions,
+}) {
+  // @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+  // This independently mirrors the bound executor's one reviewed early-deny
+  // prefix without sharing a table or accepting a general action subset.
+  return (
+    reviewedNativeEarlyDenialActionPrefixRequired({ authored, recipe }) &&
+    authored.expectedTypedDecisionCount === 1 &&
+    canonicalJson(authored.expectedTypedStages) ===
+      canonicalJson(["requested"]) &&
+    canonicalJson(authored.expectedActionIds) ===
+      canonicalJson(["env:read", "fs:list"]) &&
+    canonicalJson(observedActions) === canonicalJson(["env:read"])
+  );
+}
+
+export function reviewedNativeEarlyDenialActionPrefixRequired({
+  authored,
+  recipe,
+}) {
+  return (
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    authored.globalName === "__exactWhich" &&
+    canonicalJson(authored.arguments) ===
+      canonicalJson([{ kind: "json-literal", value: "ref-check" }]) &&
+    authored.expectedResult === "permission-denied" &&
+    recipe?.scenario === "deny"
+  );
+}
+
+export function observedActionSetMatchesReviewedAccount({
+  authored,
+  recipe,
+  observedActions,
+  builtinOpenThenAct = false,
+}) {
+  if (reviewedNativeEarlyDenialActionPrefixRequired({ authored, recipe })) {
+    return reviewedNativeEarlyDenialActionPrefix({
+      authored,
+      recipe,
+      observedActions,
+    });
+  }
+  const expectedActions =
+    authored.expectedResult === "absent" ? [] : authored.expectedActionIds;
+  const observedActionSet = new Set(observedActions);
+  return builtinOpenThenAct
+    ? expectedActions.every((action) => observedActionSet.has(action)) &&
+        observedActions.every(
+          (action) => expectedActions.includes(action) || action === "fs:list",
+        )
+    : canonicalJson(observedActions) ===
+        canonicalJson([...expectedActions].sort(compareText));
 }
 
 function validateExecution(execution, recipe, engineBinaryDigest, coverage) {

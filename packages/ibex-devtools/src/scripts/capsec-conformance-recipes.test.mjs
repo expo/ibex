@@ -2448,6 +2448,86 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors bare executable lookup through the exact principal PATH overlay", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactWhich" &&
+        recipe.fixtureId.includes(".logical.bare-command."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(recipe.actionIds).toEqual(["env:read", "fs:list"]);
+      expect(invocation.expectedActionIds).toEqual(["env:read", "fs:list"]);
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "ref-check" },
+      ]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "env:read",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "PATH",
+          },
+        },
+        {
+          cap: "fs:list",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "ref-check" }],
+            },
+          },
+        },
+      ]);
+      expect(invocation.requiredSetupFloor).toEqual([
+        {
+          cap: "env:write",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "PATH",
+          },
+        },
+      ]);
+      expect(invocation.setup).toEqual([
+        {
+          kind: "invoke-native-global",
+          globalName: "__exactSetEnv",
+          arguments: ["PATH", "/project"],
+        },
+      ]);
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactwhich.0it66ce",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : [
+              "requested",
+              "commit",
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "discovery",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 7,
+      );
+      if (recipe.scenario === "deny") {
+        expect(invocation).not.toHaveProperty("expectedStringValue");
+      } else {
+        expect(invocation.expectedStringValue).toBe("/project/ref-check");
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
   test("authors direct and asynchronous readlink carriers with mixed traversal denial", () => {
     const rows = recipes.recipes.filter((recipe) => {
       const invocation = recipe.publicSurfaceProbe?.invocation;
