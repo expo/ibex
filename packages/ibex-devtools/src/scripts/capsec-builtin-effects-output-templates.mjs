@@ -671,6 +671,10 @@ export function internalObserverActionStagesForEdge(edge) {
   const retainedPathRequestedList = new Set([
     "__exactFsReadFileAsync",
     "__exactFsWriteFileAsync",
+    // readlink retains and translates the path under incidental fs:list
+    // traversal while its declared operation remains fs:read.
+    // @ref LLP 0037#link-byte-read-and-translation-evidence-readlinksync
+    "__exactReadlink",
   ]).has(edge.surface.name);
   return [
     ...(actions.has("fs:list") || retainedPathRequestedList

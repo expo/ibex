@@ -1561,6 +1561,98 @@ const nativeProjectReadFileTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+// The direct and asynchronous readlink carriers share the engine-observed
+// fs-readlink lifecycle. The first four decisions retain the link through
+// ambient fs:list traversal, commit reads the stored link bytes under the
+// authored fs:read floor, and the final three decisions translate the target.
+// Denial therefore preserves the four allowed traversal decisions and refuses
+// only the fs:read commit.
+// @ref LLP 0037#link-byte-read-and-translation-evidence-readlinksync
+const nativeProjectReadlinkTemplate = ({ async = false } = {}) => {
+  const nonDenyScenarios = Object.freeze([
+    "allow",
+    "branch-selection",
+    "malformed",
+    "missing-attribution",
+    "wrong-principal",
+  ]);
+  const allowStages = Object.freeze([
+    "requested",
+    "discovery",
+    "requested",
+    "repeat",
+    "commit",
+    "discovery",
+    "requested",
+    "repeat",
+  ]);
+  const denyStages = Object.freeze(allowStages.slice(0, 5));
+  return Object.freeze({
+    actionIds: ["fs:read"],
+    arguments: async
+      ? [
+          literalArgument("readlink"),
+          literalArgument("CLAUDE.md"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]
+      : [literalArgument("CLAUDE.md")],
+    ...(async
+      ? {
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: [
+            "native-op:__exactReadlink",
+          ],
+        }
+      : {}),
+    expectedDecisionCounts: Object.freeze({
+      ...Object.fromEntries(
+        nonDenyScenarios.map((scenario) => [
+          scenario,
+          allowStages.length,
+        ]),
+      ),
+      deny: denyStages.length,
+    }),
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        nonDenyScenarios.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: Object.freeze({
+      ...Object.fromEntries(
+        nonDenyScenarios.map((scenario) => [
+          scenario,
+          allowStages,
+        ]),
+      ),
+      deny: denyStages,
+    }),
+    expectedTypedOutcomes: Object.freeze({
+      deny: ["allow", "allow", "allow", "allow", "deny"],
+    }),
+    reviewedIncidentalActionIds: ["fs:list"],
+    requiredFloor: [
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("CLAUDE.md"),
+      },
+    ],
+    requiredSourceArity: async ? 6 : 1,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
+};
 const nativeProjectMkdirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:write"],
@@ -2299,6 +2391,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactAccess", nativeProjectAccessTemplate()],
   ["__exactAppendFile", nativeProjectAppendFileTemplate()],
   ["__exactOpendir", nativeProjectOpendirTemplate()],
+  ["__exactReadlink", nativeProjectReadlinkTemplate()],
   ["__exactMkdir", nativeProjectMkdirTemplate()],
   ["__exactReaddir", nativeProjectReaddirTemplate()],
   ["__exactWriteFile", nativeProjectWriteFileTemplate()],
@@ -3322,6 +3415,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
     "__exactFsPathAsync",
     new Map([
+      ["readlink", nativeProjectReadlinkTemplate({ async: true })],
       [
         "mkdir",
         Object.freeze({
@@ -4095,7 +4189,10 @@ function nativePublicProbeForPlan({
     additionalAllowedCoverageEdges.push(additionalEdge);
   }
   const stageContractViolation = nativeExpectedStageContractViolation({
-    actionIds: plan.actionIds,
+    actionIds: canonicalSet([
+      ...plan.actionIds,
+      ...(template.reviewedIncidentalActionIds ?? []),
+    ]),
     expectedStages,
     semanticEffects: effectsForPlan(plan, coverageByEdge),
     coverageEdges: [

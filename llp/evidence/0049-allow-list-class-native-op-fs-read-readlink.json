@@ -1,0 +1,48 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-readlink",
+  "templateClass": "surface.native.op × [fs:read] (direct and asynchronous readlink carriers)",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared BEFORE candidate catalog generation. Closes surface.native.op.exactreadlink.1p5ozx1 (5 rows) and the readlink logical branch of surface.native.op.exactfspathasync.10cb78b (6 rows). The other fs:read cells remain outside this tranche. No route or terminal set changes are declared; the delta is exactly the residual-reason removals below.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactreadlink.1p5ozx1",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:1571-1655",
+      "proof": "Authored: nativeProjectReadlinkTemplate supplies the exact one-argument __exactReadlink invocation over the tracked project-relative symlink CLAUDE.md, an fs:read floor on that exact logical path, and the LLP 0037 mixed traversal/operation outcome contract. It is registered in NATIVE_PUBLIC_PROBE_TEMPLATES at capsec-conformance-recipes.mjs:2394. Enforcement site: src/engine/hermes_runtime_fs.cc:6421-6457 resolves the armed VFS path, opens it through openArmedLinkTarget(kFsSurfaceReadlink), and executes fsReadlinkArmedWork before returning the real stored link bytes."
+    },
+    {
+      "edgeId": "surface.native.op.exactreadlink.1p5ozx1",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2394",
+      "proof": "The same source-bound template emits an ibex/capsec-native-global-invocation/1 descriptor for all five direct scenarios. Its loaded-engine receipt validates the exact source descriptor, result shape, coverage edge, declared fs:read action, reviewed incidental fs:list traversal, per-decision authority stratum, and observed typed sequence."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3416-3419",
+      "proof": "Authored: the readlink logical branch selects nativeProjectReadlinkTemplate({async:true}), passing the exact six dispatcher arguments [\"readlink\",\"CLAUDE.md\",null,0,0,0] and retaining observation through event-loop quiescence. Enforcement site: src/engine/hermes_runtime_fs.cc:7680-7701 selects openArmedLinkTarget(kFsSurfaceReadlink), runs fsReadlinkArmedWork, and completes through startCommittedFsAsync on the real armed path."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3416-3419",
+      "proof": "The branch template emits an ibex/capsec-native-global-invocation/1 descriptor for all six logical-readlink scenarios, binds both the dispatcher edge and the source-selected __exactReadlink worker edge, and uses the same exact fs:read floor and LLP 0037 D1-D4 validator as the direct carrier."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3416-3419",
+      "proof": "The readlink branch-selection fixture is witnessed by the same literal-operation loaded-engine invocation. The first argument is exactly \"readlink\", so the physical dispatcher branch and its source-selected __exactReadlink terminal are observed rather than inferred."
+    }
+  ]
+}

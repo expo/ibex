@@ -2327,6 +2327,79 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors direct and asynchronous readlink carriers with mixed traversal denial", () => {
+    const rows = recipes.recipes.filter((recipe) => {
+      const invocation = recipe.publicSurfaceProbe?.invocation;
+      return (
+        invocation?.globalName === "__exactReadlink" ||
+        (invocation?.globalName === "__exactFsPathAsync" &&
+          recipe.fixtureId.includes(".logical.readlink."))
+      );
+    });
+    expect(rows).toHaveLength(11);
+    const allowStages = [
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "commit",
+      "discovery",
+      "requested",
+      "repeat",
+    ];
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      const asynchronous = invocation.globalName === "__exactFsPathAsync";
+      expect(invocation.expectedActionIds).toEqual(["fs:read"]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "fs:read",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "CLAUDE.md" }],
+            },
+          },
+        },
+      ]);
+      expect(invocation.arguments).toHaveLength(asynchronous ? 6 : 1);
+      expect(invocation.allowedCoverageEdgeIds).toEqual(
+        asynchronous
+          ? [
+              "surface.native.op.exactfspathasync.10cb78b",
+              "surface.native.op.exactreadlink.1p5ozx1",
+            ]
+          : ["surface.native.op.exactreadlink.1p5ozx1"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny" ? allowStages.slice(0, 5) : allowStages,
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 5 : 8,
+      );
+      if (recipe.scenario === "deny") {
+        expect(invocation.expectedTypedOutcomes).toEqual([
+          "allow",
+          "allow",
+          "allow",
+          "allow",
+          "deny",
+        ]);
+      } else {
+        expect(invocation.expectedTypedOutcomes).toBeUndefined();
+      }
+      if (asynchronous) {
+        expect(invocation.completion).toEqual({
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        });
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
   test("proves async directory creation through retained typed objects and owned cleanup", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

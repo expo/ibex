@@ -561,6 +561,7 @@ fn native_async_worker_terminal_account_is_exact() {
         [
             ("mkdir", "native-op:__exactMkdir"),
             ("readdir", "native-op:__exactReaddir"),
+            ("readlink", "native-op:__exactReadlink"),
             ("realpath", "native-op:__exactRealpath"),
             ("statfs", "native-op:__exactStatfs"),
             ("truncate", "native-op:__exactTruncate"),
@@ -615,6 +616,109 @@ fn native_async_worker_terminal_account_is_exact() {
         native_async_worker_terminal(&invocation("__exactFsPathAsync", serde_json::Value::Null,)),
         None
     );
+}
+
+#[test]
+fn native_incidental_traversal_allowance_is_exact_and_fail_closed() {
+    let invocation = |global_name: &str, operation: Option<&str>| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: operation
+            .map(|operation| NativeProbeArgument::JsonLiteral {
+                value: serde_json::json!(operation),
+            })
+            .into_iter()
+            .collect(),
+        completion: None,
+        required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_outcomes: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: vec!["fs:read".into()],
+    };
+    let declared_and_traversal = BTreeSet::from(["fs:list".into(), "fs:read".into()]);
+    let missing_declared = BTreeSet::from(["fs:list".into()]);
+    let unrelated_surplus =
+        BTreeSet::from(["fs:list".into(), "fs:read".into(), "network:connect".into()]);
+
+    let direct = invocation("__exactReadlink", None);
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&direct),
+        Some("fs-readlink:")
+    );
+    assert!(native_observed_actions_are_reviewed(
+        &direct,
+        &declared_and_traversal
+    ));
+    assert!(!native_observed_actions_are_reviewed(
+        &direct,
+        &missing_declared
+    ));
+    assert!(!native_observed_actions_are_reviewed(
+        &direct,
+        &unrelated_surplus
+    ));
+
+    let asynchronous = invocation("__exactFsPathAsync", Some("readlink"));
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&asynchronous),
+        Some("fs-readlink:")
+    );
+    assert!(native_observed_actions_are_reviewed(
+        &asynchronous,
+        &declared_and_traversal
+    ));
+
+    let wrong_branch = invocation("__exactFsPathAsync", Some("readdir"));
+    assert_eq!(reviewed_native_open_traversal_prefix(&wrong_branch), None);
+    assert!(!native_observed_actions_are_reviewed(
+        &wrong_branch,
+        &declared_and_traversal
+    ));
+
+    let traversal_decision = |stage: &str, operation_id: &str| {
+        serde_json::json!({
+            "decisionSet": {
+                "context": { "stage": stage },
+                "operationId": operation_id,
+            },
+        })
+    };
+    let list_effects = vec![serde_json::json!({ "cap": "fs:list" })];
+    assert!(native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("discovery", "fs-readlink:/project/CLAUDE.md"),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("commit", "fs-readlink:/project/CLAUDE.md"),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("discovery", "fs-readdir:/project"),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("discovery", "fs-readlink:/project/CLAUDE.md"),
+        &list_effects,
+        true,
+    ));
 }
 
 #[test]
@@ -1649,9 +1753,10 @@ struct NativeRuntimeValidation {
     execution_proof: serde_json::Value,
 }
 
-const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 5] = [
+const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 6] = [
     ("mkdir", "native-op:__exactMkdir"),
     ("readdir", "native-op:__exactReaddir"),
+    ("readlink", "native-op:__exactReadlink"),
     ("realpath", "native-op:__exactRealpath"),
     ("statfs", "native-op:__exactStatfs"),
     ("truncate", "native-op:__exactTruncate"),
@@ -1668,6 +1773,67 @@ fn native_async_worker_terminal(invocation: &NativePublicInvocation) -> Option<&
     NATIVE_ASYNC_WORKER_TERMINALS
         .iter()
         .find_map(|(candidate, terminal)| (*candidate == operation).then_some(*terminal))
+}
+
+fn reviewed_native_open_traversal_prefix(
+    invocation: &NativePublicInvocation,
+) -> Option<&'static str> {
+    if invocation.kind != "native-global-function"
+        || invocation.expected_action_ids.as_slice() != ["fs:read"]
+    {
+        return None;
+    }
+    match invocation.global_name.as_str() {
+        "__exactReadlink" => Some("fs-readlink:"),
+        "__exactFsPathAsync"
+            if matches!(
+                invocation.arguments.first(),
+                Some(NativeProbeArgument::JsonLiteral { value })
+                    if value.as_str() == Some("readlink")
+            ) =>
+        {
+            Some("fs-readlink:")
+        }
+        _ => None,
+    }
+}
+
+fn native_observed_actions_are_reviewed(
+    invocation: &NativePublicInvocation,
+    observed_actions: &BTreeSet<String>,
+) -> bool {
+    let declared_actions = invocation
+        .expected_action_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    declared_actions.is_subset(observed_actions)
+        && observed_actions
+            .difference(&declared_actions)
+            .all(|extra| {
+                extra == "fs:list" && reviewed_native_open_traversal_prefix(invocation).is_some()
+            })
+}
+
+fn native_decision_is_reviewed_open_traversal(
+    invocation: &NativePublicInvocation,
+    decision: &serde_json::Value,
+    effects: &[serde_json::Value],
+    public_denial: bool,
+) -> bool {
+    let Some(operation_prefix) = reviewed_native_open_traversal_prefix(invocation) else {
+        return false;
+    };
+    !public_denial
+        && !effects.is_empty()
+        && effects.iter().all(|effect| effect["cap"] == "fs:list")
+        && matches!(
+            decision["decisionSet"]["context"]["stage"].as_str(),
+            Some("requested" | "discovery" | "repeat")
+        )
+        && decision["decisionSet"]["operationId"]
+            .as_str()
+            .is_some_and(|operation_id| operation_id.starts_with(operation_prefix))
 }
 
 fn observed_typed_values(
@@ -1990,6 +2156,7 @@ fn validate_native_runtime_observation(
                         | "__exactReadFile"
                         | "__exactReaddir"
                         | "__exactRealpath"
+                        | "__exactReadlink"
                         | "__exactStat"
                         | "__exactStatfs"
                         | "__exactTruncate"
@@ -2412,8 +2579,30 @@ fn validate_native_runtime_observation(
         // so the authority stratum follows the per-decision outcome, not the
         // public result. @ref LLP 0037#denial-return-evidence-existssync
         let public_denial = expected_outcome == "deny";
-        let ambient_project_prefix =
-            !public_denial && uses_ambient_project_prefix_authority(invocation, effects);
+        let has_surplus_effect = effects.iter().any(|effect| {
+            effect["cap"].as_str().is_some_and(|action_id| {
+                !invocation
+                    .expected_action_ids
+                    .iter()
+                    .any(|expected| expected == action_id)
+            })
+        });
+        let reviewed_open_traversal = native_decision_is_reviewed_open_traversal(
+            invocation,
+            decision,
+            effects,
+            public_denial,
+        );
+        if has_surplus_effect {
+            assert!(
+                reviewed_open_traversal,
+                "{}: surplus native effect did not come from a reviewed traversal-stage fs:list operation",
+                recipe.fixture_id
+            );
+        }
+        let ambient_project_prefix = !public_denial
+            && (uses_ambient_project_prefix_authority(invocation, effects)
+                || reviewed_open_traversal);
         let (expected_stratum, expected_source_prefix) = if public_denial {
             ("principal-denial", Some("principal.000000.denial."))
         } else if ambient_project_prefix {
@@ -2471,8 +2660,11 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
     } else {
-        assert_eq!(
-            observed_actions.into_iter().collect::<Vec<_>>(),
+        assert!(
+            native_observed_actions_are_reviewed(invocation, &observed_actions),
+            "{}: observed actions {:?} exceed declared actions {:?} outside a reviewed native traversal",
+            recipe.fixture_id,
+            observed_actions,
             invocation.expected_action_ids
         );
     }
