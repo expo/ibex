@@ -9895,6 +9895,7 @@ describe("CapSec public-surface promotion evidence", () => {
       ...overrides,
     });
     const expected = new Map([
+      ["access", "native-op:__exactAccess"],
       ["mkdir", "native-op:__exactMkdir"],
       ["readdir", "native-op:__exactReaddir"],
       ["realpath", "native-op:__exactRealpath"],
@@ -9993,6 +9994,7 @@ describe("CapSec public-surface promotion evidence", () => {
     }
     expect(nativeAsyncWorkerTerminal(descriptor("mkdtemp"))).toBeNull();
     expect(nativeAsyncWorkerTerminal(descriptor("chmod"))).toBeNull();
+    expect(nativeAsyncWorkerTerminal(descriptor("access-read"))).toBeNull();
     expect(
       nativeAsyncWorkerTerminal(
         descriptor("unrelated", {
@@ -10004,6 +10006,11 @@ describe("CapSec public-surface promotion evidence", () => {
     expect(
       nativeAsyncWorkerTerminal(
         descriptor("mkdir", { globalName: "__exactMkdir" }),
+      ),
+    ).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("access", { globalName: "__exactAccess" }),
       ),
     ).toBeNull();
     expect(

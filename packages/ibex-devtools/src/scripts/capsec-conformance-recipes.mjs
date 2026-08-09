@@ -1341,6 +1341,49 @@ const nativeProjectStatfsTemplate = () =>
     requiredSourceArity: 1,
     setup: [],
   });
+const nativeProjectFsPathAccessReadTemplate = () => {
+  const stages = [
+    "requested",
+    "discovery",
+    "requested",
+    "repeat",
+    "repeat",
+    "repeat",
+  ];
+  return Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [
+      literalArgument("access"),
+      literalArgument("Cargo.toml"),
+      literalArgument(null),
+      literalArgument(0),
+      literalArgument(0),
+      literalArgument(0),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactAccess"],
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedResults: Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+        scenario,
+        "return",
+      ]).concat([["deny", "permission-denied"]]),
+    ),
+    expectedStages: nativeEffectStages(stages),
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 6,
+    setup: [],
+  });
+};
 // Direct armed metadata probes on the native fs:list terminals that the
 // already-authored builtin carriers reach indirectly. Each takes the exact
 // authenticated /project path, resolves through the armed VFS, authorizes the
@@ -3579,6 +3622,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
     "__exactFsPathAsync",
     new Map([
+      ["access-read", nativeProjectFsPathAccessReadTemplate()],
       ["readlink", nativeProjectReadlinkTemplate({ async: true })],
       [
         "mkdir",

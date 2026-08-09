@@ -2327,6 +2327,75 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors async access existence checks without claiming content authority", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync" &&
+        recipe.fixtureId.includes(".logical.access-read."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "access" },
+        { kind: "json-literal", value: "Cargo.toml" },
+        { kind: "json-literal", value: null },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ]);
+      expect(invocation).toMatchObject({
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedActionIds: ["fs:list"],
+        expectedDenyMessageFragment: "filesystem policy denied",
+        requiredFloor: [
+          {
+            cap: "fs:list",
+            resource: {
+              kind: "path-exact",
+              path: {
+                root: "project",
+                components: [{ encoding: "utf8", value: "Cargo.toml" }],
+              },
+            },
+          },
+        ],
+        sourceDescriptor: {
+          arity: 6,
+          globalName: "__exactFsPathAsync",
+          kind: "native-global-function",
+          sourceRef:
+            "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+        },
+      });
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactaccess.1a12cmn",
+        "surface.native.op.exactfspathasync.10cb78b",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 6,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
   test("authors direct and asynchronous readlink carriers with mixed traversal denial", () => {
     const rows = recipes.recipes.filter((recipe) => {
       const invocation = recipe.publicSurfaceProbe?.invocation;

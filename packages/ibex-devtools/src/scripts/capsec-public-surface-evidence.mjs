@@ -1191,6 +1191,7 @@ const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
 // dispatcher remains the public surface, while typed evidence must select its
 // exact source-chosen worker rather than any allowed auxiliary edge.
 const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
+  ["access", "native-op:__exactAccess"],
   ["mkdir", "native-op:__exactMkdir"],
   ["readdir", "native-op:__exactReaddir"],
   ["realpath", "native-op:__exactRealpath"],

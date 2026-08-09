@@ -629,6 +629,7 @@ fn native_async_worker_terminal_account_is_exact() {
     assert_eq!(
         NATIVE_ASYNC_WORKER_TERMINALS,
         [
+            ("access", "native-op:__exactAccess"),
             ("mkdir", "native-op:__exactMkdir"),
             ("readdir", "native-op:__exactReaddir"),
             ("readlink", "native-op:__exactReadlink"),
@@ -2043,7 +2044,11 @@ struct NativeRuntimeValidation {
     execution_proof: serde_json::Value,
 }
 
-const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 6] = [
+// Keep the carrier-to-worker account closed: each admitted operation must be
+// source-selected by __exactFsPathAsync and proven by a break-test below.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 7] = [
+    ("access", "native-op:__exactAccess"),
     ("mkdir", "native-op:__exactMkdir"),
     ("readdir", "native-op:__exactReaddir"),
     ("readlink", "native-op:__exactReadlink"),
@@ -2489,7 +2494,7 @@ fn validate_native_runtime_observation(
     // an async dispatcher or retained-object operation may observe its
     // source-selected worker, cleanup, or object-gate edge, but no unrelated
     // edge may be admitted by the authored recipe. FsPathAsync remains bound
-    // to the exact reviewed five-operation worker map above; in particular,
+    // to the closed source-selected worker map above; in particular,
     // mkdtemp cannot inherit mkdir's worker evidence.
     let windows_source = invocation.source_descriptor["sourceRef"]
         .as_str()
