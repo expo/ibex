@@ -816,6 +816,32 @@ and 7) → commit, retaining the batch evidence envelope as
 D2, confirm per family that every surplus `fs:list` is traversal-stage
 before pinning.
 
+### Retained-handle setup authority (2026-08-10)
+
+Retained filesystem and file-backed SQLite recipes use two distinct setup
+constructors behind one authority-separation rule. Principal 0 receives only
+the exact `requiredSetupFloor` and creates the real runtime-owned object before
+observation: `__exactFsOpen` creates a Hermes `FdEntry`, while
+`__exactSqliteOpen` (optionally followed by `__exactSqlitePrepare`) creates a
+file-backed SQLite registry entry. Principal 1 receives the exact probe floor
+and, for a deny row, its denial. Only the authenticated probe submission runs
+under the canonical `[0, 1]` constrained-principal intersection. The handle
+ownership check therefore still sees owner 0, while semantic authorization
+must satisfy both principals and principal 1's denial remains decisive. Setup
+and post-observation cleanup run root-only; the observer-only one-shot native
+constraint is cleared after the probe submission.
+
+The first proof class is retained `__exactFsFstatSync`: its bound-engine deny
+observation is one `repeat` `fs:list` decision with
+`principal.000001.denial.000000` as the decisive row. A focused native test
+separately opens and closes a real on-disk SQLite handle through the loaded
+globals. These are different object-construction mechanisms even though they
+share the principal split. Structurally they cover the 36 retained-FD rows and
+48 retained-SQLite rows; only the fstat deny row is authored by this batch, so
+the other 83 rows still require their ordinary per-class §6 authoring loops.
+No Phase 2 credit or authoritative promotion is claimed until the required
+independent adversarial review and break-tests accept the implementation.
+
 **Fan-out method — retrospective, from Phase 1's parallel run
 (2026-08-07).** Labeled "measured" through the 2026-08-07 revision; it is
 not a measurement in the §3 rule 1 sense — no sample, no comparison

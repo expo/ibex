@@ -14779,6 +14779,22 @@ extern "C" int ex_hermes_eval_lowered_session(
     structuredFault(result, structuredRuntimeDriveFault(drive.status()));
     return 0;
   }
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  std::unique_ptr<ScopedTypedPrincipalStack>
+      capsecConstrainedPrincipals;
+  if (runtime->capsec_next_evaluation_principals) {
+    auto principals = std::move(
+        *runtime->capsec_next_evaluation_principals);
+    runtime->capsec_next_evaluation_principals.reset();
+    try {
+      capsecConstrainedPrincipals =
+          std::make_unique<ScopedTypedPrincipalStack>(principals);
+    } catch (...) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    }
+  }
+#endif
   if (!runtime->armed) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
     return 0;
@@ -15170,6 +15186,68 @@ extern "C" int ex_hermes_eval_lowered_session(
   }
   return status;
 }
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Run one ordinary authenticated lowered-session submission under an exact
+// additional constrained-principal set. This is deliberately private and
+// observer-only: the request still crosses the production admission,
+// credential, ordinal, lowering, and result machinery, while retained-handle
+// setup can run earlier under its owner principal alone.
+// @ref LLP 0021#decision-staging-and-principal-semantics
+// @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+extern "C" int ibex_private_test_eval_lowered_session_with_principals(
+    ExactHermesRuntime* runtime,
+    const uint64_t* principal_ids,
+    size_t principal_count,
+    const ExHermesSessionCredential* credential,
+    uint32_t lowering_protocol_version,
+    const uint8_t* lowered_source,
+    size_t lowered_source_length,
+    const uint8_t* lowered_source_map,
+    size_t lowered_source_map_length,
+    const uint8_t* source_label,
+    size_t source_label_length,
+    const ExHermesSessionDeclaration* declarations,
+    size_t declaration_count,
+    const ExHermesSessionImportPlan* import_plan,
+    bool asynchronous,
+    ExHermesEvaluationResult* result) {
+  if (runtime == nullptr || principal_ids == nullptr ||
+      principal_count == 0 || principal_count > 256 ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->capsec_next_evaluation_principals) {
+    return -1;
+  }
+  for (size_t index = 1; index < principal_count; ++index) {
+    if (principal_ids[index - 1] >= principal_ids[index]) return -1;
+  }
+  try {
+    runtime->capsec_next_evaluation_principals = std::vector<uint64_t>(
+        principal_ids, principal_ids + principal_count);
+  } catch (...) {
+    return -1;
+  }
+  const int status = ex_hermes_eval_lowered_session(
+      runtime,
+      credential,
+      lowering_protocol_version,
+      lowered_source,
+      lowered_source_length,
+      lowered_source_map,
+      lowered_source_map_length,
+      source_label,
+      source_label_length,
+      declarations,
+      declaration_count,
+      import_plan,
+      asynchronous,
+      result);
+  // A refused drive cannot consume the one-shot value. Clear it here so no
+  // later submission can inherit authority constraints from a failed probe.
+  runtime->capsec_next_evaluation_principals.reset();
+  return status;
+}
+#endif
 
 // @abi-output ex_hermes_resume_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" int ex_hermes_resume_structured_session(
