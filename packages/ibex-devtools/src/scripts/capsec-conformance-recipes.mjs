@@ -2526,6 +2526,40 @@ const nativeRetainedFsFstatTemplate = () =>
     requiredSourceArity: 1,
     setup: fsReadFileSetup(),
   });
+// This first retained-SQLite authoring row is intentionally scenario-bounded.
+// It exercises both runtime-owned file database and statement handles without
+// claiming the other five rows in the logical branch before their bound-engine
+// sequences have been observed.
+// @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+// @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+const nativeRetainedSqliteGetTemplate = () => {
+  const fixture = ".ibex-capsec-sqlite-retained-get.sqlite";
+  const requiredFloor = [
+    {
+      cap: "fs:read",
+      resource: projectPathExactResource(fixture),
+    },
+  ];
+  return Object.freeze({
+    actionIds: ["fs:read"],
+    arguments: [
+      harnessSqliteStatementHandleArgument(),
+      literalArgument(null),
+    ],
+    authoredScenarios: ["allow"],
+    expectedCleanup:
+      "finalized-sqlite-statement-closed-db-removed-owned-file",
+    // Replaced only after the first bound-engine observation, per LLP 0037 D3.
+    expectedDecisionCounts: { allow: 0 },
+    expectedObservedActionIds: { allow: [] },
+    expectedResults: { allow: "return" },
+    expectedStages: { allow: [] },
+    requiredFloor,
+    requiredSetupFloor: requiredFloor,
+    requiredSourceArity: 2,
+    setup: sqliteFileHandleSetup(fixture, { withStatement: true }),
+  });
+};
 const nativeRetainedFsWriteTemplate = ({
   path,
   argumentsList = [],
@@ -3838,6 +3872,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
       ],
     ]),
   ],
+  ["__exactSqliteGet", new Map([["file", nativeRetainedSqliteGetTemplate()]])],
   [
     "__exactWhich",
     new Map([
@@ -4685,6 +4720,16 @@ function nativePublicProbeForPlan({
       unavailableReason: "native-public-source-descriptor-drift",
     };
   }
+  const logicalBranchTemplate =
+    NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
+      invocation.globalName,
+    )?.get(logicalBranchIdForPlan(plan, scenario)) ?? null;
+  const applicableLogicalBranchTemplate =
+    logicalBranchTemplate &&
+    (!logicalBranchTemplate.authoredScenarios ||
+      logicalBranchTemplate.authoredScenarios.includes(scenario))
+      ? logicalBranchTemplate
+      : null;
   const template =
     targetAbsence || structuralAbsence
       ? {
@@ -4696,9 +4741,7 @@ function nativePublicProbeForPlan({
           requiredSourceArity: invocation.arity,
           setup: [],
         }
-      : (NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
-          invocation.globalName,
-        )?.get(logicalBranchIdForPlan(plan, scenario)) ??
+      : (applicableLogicalBranchTemplate ??
         NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
         (plan.actionIds.length === 0 &&
         new Set(["branch-selection", "no-effect"]).has(scenario)

@@ -24,3 +24,6 @@ secrets.env
 
 # Local LLP run bookkeeping (ship runs etc.), matching the snapback convention
 .llp/
+
+# Harness-owned retained SQLite fixtures live inside the project VFS mount.
+/.ibex-capsec-sqlite-retained-*.sqlite*

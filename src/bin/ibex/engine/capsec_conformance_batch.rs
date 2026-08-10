@@ -576,7 +576,7 @@ fn native_sqlite_file_setup_is_real_and_bounded() {
 #[tokio::test(flavor = "current_thread")]
 async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
     let _lock = hermes_engine_test_lock().lock().await;
-    let path = "issues/.ibex-capsec-sqlite-retained-test.sqlite";
+    let path = ".ibex-capsec-sqlite-retained-test.sqlite";
     let selector = serde_json::json!({
         "cap": "fs:read",
         "resource": {
@@ -584,7 +584,6 @@ async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
             "path": {
                 "root": "project",
                 "components": [
-                    { "encoding": "utf8", "value": "issues" },
                     { "encoding": "utf8", "value": ".ibex-capsec-sqlite-retained-test.sqlite" }
                 ]
             }
@@ -595,6 +594,12 @@ async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
         "globalName": "__exactSqliteOpen",
         "arity": 2,
         "sourceRef": "src/engine/hermes_runtime_sqlite.cc#jsi-global:__exactSqliteOpen",
+    });
+    let prepare_source = serde_json::json!({
+        "kind": "native-global-function",
+        "globalName": "__exactSqlitePrepare",
+        "arity": 2,
+        "sourceRef": "src/engine/hermes_runtime_sqlite.cc#jsi-global:__exactSqlitePrepare",
     });
     let invocation = NativePublicInvocation {
         kind: "native-global-function".into(),
@@ -613,13 +618,21 @@ async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
         completion: None,
         required_floor: vec![selector.clone()],
         required_setup_floor: vec![selector],
-        setup: vec![NativeProbeSetup::SqliteFileDatabase {
-            global_name: "__exactSqliteOpen".into(),
-            path: path.into(),
-            options: serde_json::json!({ "readonly": true }),
-            source_descriptor_digest: tagged_value_digest(&open_source),
-            source_descriptor: open_source,
-        }],
+        setup: vec![
+            NativeProbeSetup::SqliteFileDatabase {
+                global_name: "__exactSqliteOpen".into(),
+                path: path.into(),
+                options: serde_json::json!({ "readonly": true }),
+                source_descriptor_digest: tagged_value_digest(&open_source),
+                source_descriptor: open_source,
+            },
+            NativeProbeSetup::SqliteFileStatement {
+                global_name: "__exactSqlitePrepare".into(),
+                sql: "SELECT value FROM ibex_capsec_probe".into(),
+                source_descriptor_digest: tagged_value_digest(&prepare_source),
+                source_descriptor: prepare_source,
+            },
+        ],
         expected_result: "return".into(),
         expected_string_value: None,
         expected_cleanup: None,
@@ -633,6 +646,19 @@ async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
     cleanup
         .files
         .extend(native_sqlite_owned_paths(path).map(Into::into));
+    for owned_path in native_sqlite_owned_paths(path) {
+        if let Err(error) = std::fs::remove_file(&owned_path) {
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::NotFound,
+                "clear retained SQLite test fixture {owned_path}: {error}"
+            );
+        }
+    }
+    assert!(
+        !std::path::Path::new(path).exists(),
+        "retained SQLite test path must be absent before the runtime open"
+    );
     let (host, _reset, snapshot_digest, probe_principals) =
         install_native_public_test_host(&invocation, None, false);
     assert_eq!(probe_principals.as_deref(), Some(&[0, 1][..]));
@@ -648,19 +674,55 @@ async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
         publications: AuthenticatedPublicationTracker::default(),
         probe_principals,
     };
+    let absent = engine
+        .eval_immediate(&setup_script(
+            "__exactSqliteOpen",
+            &[
+                serde_json::json!(path),
+                serde_json::json!({ "readonly": true }),
+            ],
+        ))
+        .await
+        .expect("attempt absent file-backed SQLite open")
+        .expect("absent file-backed SQLite open returned no result");
+    let absent: serde_json::Value =
+        serde_json::from_str(&absent).expect("absent SQLite result must be JSON");
+    assert_eq!(
+        absent["kind"], "throw",
+        "read-only SQLite open unexpectedly succeeded before its file existed: {absent}"
+    );
     let setup = run_native_setup(&mut engine, &invocation, None).await;
     let handle = setup
         .sqlite_database_handle
         .expect("file-backed setup did not return a native SQLite handle");
+    let statement = setup
+        .sqlite_statement_handle
+        .expect("file-backed setup did not return a native SQLite statement");
     assert_eq!(setup.sqlite_file_path.as_deref(), Some(path));
-    let closed = engine
-        .eval_immediate(&setup_script(
-            "__exactSqliteClose",
-            &[serde_json::json!(handle)],
+    let read = engine
+        .eval_immediate(&format!(
+            "JSON.stringify((function(){{try{{var result=globalThis.__exactSqliteGet({},null);return {{kind:\"return\",row:result.row}};}}catch(e){{return {{kind:\"throw\",errorMessage:String(e&&e.message||e)}};}}}})())",
+            serde_json::to_string(&statement).expect("serialize SQLite statement handle")
         ))
         .await
-        .expect("close real file-backed SQLite setup handle")
-        .expect("SQLite close returned no result");
+        .expect("read seeded row through native SQLite statement")
+        .expect("native SQLite get returned no result");
+    let read: serde_json::Value =
+        serde_json::from_str(&read).expect("native SQLite get result must be JSON");
+    assert_eq!(read["kind"], "return", "native SQLite get failed: {read}");
+    assert_eq!(
+        read["row"]["value"], "file-backed",
+        "returned native handle did not read the seeded on-disk row"
+    );
+    let closed = engine
+        .eval_immediate(&format!(
+            "JSON.stringify((function(){{try{{globalThis.__exactSqliteFinalize({});globalThis.__exactSqliteClose({});return {{kind:\"return\"}};}}catch(e){{return {{kind:\"throw\",errorMessage:String(e&&e.message||e)}};}}}})())",
+            serde_json::to_string(&statement).expect("serialize SQLite statement handle"),
+            serde_json::to_string(&handle).expect("serialize SQLite database handle")
+        ))
+        .await
+        .expect("close real file-backed SQLite setup handles")
+        .expect("SQLite cleanup returned no result");
     let closed: serde_json::Value = serde_json::from_str(&closed).unwrap();
     assert_eq!(closed["kind"], "return");
     engine.finish().expect("finish retained SQLite setup engine");
@@ -2008,15 +2070,15 @@ fn native_sqlite_file_path_is_owned(path: &str) -> bool {
         path,
         "target/ibex-capsec-sqlite-open-read.sqlite"
             | "target/ibex-capsec-sqlite-open-read-write.sqlite"
-            | "target/ibex-capsec-sqlite-retained-all.sqlite"
-            | "target/ibex-capsec-sqlite-retained-exec-read.sqlite"
-            | "target/ibex-capsec-sqlite-retained-exec-read-write.sqlite"
-            | "target/ibex-capsec-sqlite-retained-get.sqlite"
-            | "target/ibex-capsec-sqlite-retained-prepare.sqlite"
-            | "target/ibex-capsec-sqlite-retained-run-read.sqlite"
-            | "target/ibex-capsec-sqlite-retained-run-read-write.sqlite"
-            | "target/ibex-capsec-sqlite-retained-values.sqlite"
-            | "issues/.ibex-capsec-sqlite-retained-test.sqlite"
+            | ".ibex-capsec-sqlite-retained-all.sqlite"
+            | ".ibex-capsec-sqlite-retained-exec-read.sqlite"
+            | ".ibex-capsec-sqlite-retained-exec-read-write.sqlite"
+            | ".ibex-capsec-sqlite-retained-get.sqlite"
+            | ".ibex-capsec-sqlite-retained-prepare.sqlite"
+            | ".ibex-capsec-sqlite-retained-run-read.sqlite"
+            | ".ibex-capsec-sqlite-retained-run-read-write.sqlite"
+            | ".ibex-capsec-sqlite-retained-values.sqlite"
+            | ".ibex-capsec-sqlite-retained-test.sqlite"
     )
 }
 

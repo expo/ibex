@@ -1,0 +1,24 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-sqlite-get-retained",
+  "templateClass": "surface.native.op.__exactSqliteGet × file-backed retained statement × allow",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared before the retained candidate catalog used for evidence generation. Closes exactly the file-backed allow row for surface.native.op.exactsqliteget.1ihlki3. Root-only setup opens the seeded project file through loaded __exactSqliteOpen and prepares its SELECT through loaded __exactSqlitePrepare; the observed __exactSqliteGet then runs under the canonical owner-plus-probe principal intersection.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactsqliteget.1ihlki3",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2535-2562",
+      "proof": "Authored: the scenario-bounded retained SQLite template supplies the real statement handle returned by loaded __exactSqlitePrepare plus null bindings. It applies only to allow, leaving the other five file-backed rows unchanged until their own sequences are observed."
+    },
+    {
+      "edgeId": "surface.native.op.exactsqliteget.1ihlki3",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2535-2562",
+      "proof": "The setup database and statement are created by the loaded native globals against the harness-owned on-disk fixture. The probe passes only the returned numeric statement projection; runtime nonce, principal-0 ownership, and fresh repeat-stage authorization remain enforced by requireSqliteStatement and exactRequireArmedSqliteFile."
+    }
+  ]
+}

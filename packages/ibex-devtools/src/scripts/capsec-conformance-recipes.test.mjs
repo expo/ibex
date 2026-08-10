@@ -8610,6 +8610,88 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
+  test("executes one file-backed retained SQLite get row end to end", () => {
+    const row = recipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactSqliteGet" &&
+        recipe.fixtureId.includes(".logical.file.") &&
+        recipe.scenario === "allow",
+    );
+    expect(row).toMatchObject({
+      actionIds: ["fs:read"],
+      scenario: "allow",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          arguments: [
+            { kind: "harness-sqlite-statement-handle" },
+            { kind: "json-literal", value: null },
+          ],
+          expectedCleanup:
+            "finalized-sqlite-statement-closed-db-removed-owned-file",
+          requiredFloor: [
+            {
+              cap: "fs:read",
+              resource: {
+                kind: "path-exact",
+                path: {
+                  root: "project",
+                  components: [
+                    {
+                      encoding: "utf8",
+                      value: ".ibex-capsec-sqlite-retained-get.sqlite",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+          setup: [
+            {
+              kind: "sqlite-file-database",
+              globalName: "__exactSqliteOpen",
+              path: ".ibex-capsec-sqlite-retained-get.sqlite",
+              options: { readonly: true },
+            },
+            {
+              kind: "sqlite-file-statement",
+              globalName: "__exactSqlitePrepare",
+              sql: "SELECT value FROM ibex_capsec_probe",
+            },
+          ],
+        },
+      },
+    });
+    expect(row.publicSurfaceProbe.invocation.requiredSetupFloor).toEqual(
+      row.publicSurfaceProbe.invocation.requiredFloor,
+    );
+    expect(
+      row.publicSurfaceProbe.invocation.setup.every(
+        (setup) =>
+          setup.sourceDescriptorDigest.startsWith("sha256-") &&
+          setup.sourceDescriptor.kind === "native-global-function",
+      ),
+    ).toBe(true);
+
+    const unclaimedRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactSqliteGet" &&
+        recipe.fixtureId.includes(".logical.file.") &&
+        recipe.scenario !== "allow",
+    );
+    expect(unclaimedRows).toHaveLength(5);
+    expect(
+      unclaimedRows.every(
+        (recipe) =>
+          recipe.status !== "fully-executable" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes("native-public-arguments-not-authored"),
+      ),
+    ).toBe(true);
+  });
+
   test("authors exact on-disk SQLite open branches with owned setup", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
