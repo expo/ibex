@@ -20,6 +20,8 @@ use ibex_runtime::engine::evaluation::{
     ArmedSessionToken, CapabilityStratum, EngineFault, NativeErrorClass, SourceRequest,
     ThrowMetadata,
 };
+#[cfg(feature = "capsec-conformance-observer")]
+use ibex_runtime::engine::hermes_structured::evaluate_authenticated_stage1_with_constrained_principals;
 use ibex_runtime::engine::hermes_structured::{
     acknowledge_stage1_display, consume_authenticated_json,
     evaluate_authenticated_generated_stage1, evaluate_authenticated_stage1,
@@ -3741,6 +3743,114 @@ impl HermesEngine {
         }
         Ok(())
     }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    pub(crate) async fn evaluate_authenticated_with_constrained_principals(
+        &self,
+        session: &ArmedSessionToken,
+        request: SourceRequest,
+        constrained_principals: &[u64],
+    ) -> Result<AuthenticatedEvaluation> {
+        self.evaluate_authenticated_for_principals(session, request, Some(constrained_principals))
+            .await
+    }
+
+    async fn evaluate_authenticated_for_principals(
+        &self,
+        session: &ArmedSessionToken,
+        request: SourceRequest,
+        constrained_principals: Option<&[u64]>,
+    ) -> Result<AuthenticatedEvaluation> {
+        self.load_runtime().await?;
+        self.maybe_enable_debugger().await?;
+        self.ensure_thread()?;
+        let runtime = self.ensure_runtime().await?;
+        if matches!(&request, SourceRequest::JsonData(_)) {
+            if constrained_principals.is_some() {
+                anyhow::bail!(
+                    "conformance principal constraints require an executable source request"
+                );
+            }
+            let rendered = runtime
+                .with_runtime(|raw| unsafe {
+                    consume_authenticated_json(raw.cast(), session, request)
+                })?
+                .map_err(anyhow::Error::new)?;
+            return Ok(AuthenticatedEvaluation::Value {
+                display: AuthenticatedDisplay {
+                    kind: AuthenticatedDisplayKind::JsonData,
+                    text: rendered.to_string(),
+                    truncated: false,
+                },
+                receipt: None,
+            });
+        }
+
+        // Retained-handle conformance uses the same authenticated admission,
+        // lowering, ordinal, suspension, and receipt path. Only the native
+        // execution frame receives the extra principal intersection.
+        // @ref LLP 0021#decision-staging-and-principal-semantics
+        // @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+        let mut progress = runtime
+            .with_runtime(|raw| unsafe {
+                #[cfg(feature = "capsec-conformance-observer")]
+                if let Some(principals) = constrained_principals {
+                    return evaluate_authenticated_stage1_with_constrained_principals(
+                        raw.cast(),
+                        session,
+                        request,
+                        principals,
+                    );
+                }
+                #[cfg(not(feature = "capsec-conformance-observer"))]
+                debug_assert!(constrained_principals.is_none());
+                evaluate_authenticated_stage1(raw.cast(), session, request)
+            })?
+            .map_err(anyhow::Error::new)?;
+        let evaluation = loop {
+            match progress {
+                Stage1EvaluationProgress::Settled(evaluation) => break evaluation,
+                Stage1EvaluationProgress::Suspended(suspension) => {
+                    let (next_progress, executed, next_timer, now) =
+                        runtime.with_runtime(|raw| {
+                            let now = current_time_ms();
+                            let executed = unsafe { ex_hermes_poll(raw, now) };
+                            let next_timer = unsafe { ex_hermes_next_timer(raw) };
+                            let progress =
+                                unsafe { resume_authenticated_stage1(raw.cast(), suspension) };
+                            (progress, executed, next_timer, now)
+                        })?;
+                    progress = next_progress.map_err(anyhow::Error::new)?;
+                    if executed < -2 || executed == -1 {
+                        return Err(anyhow::anyhow!(
+                            "Hermes failed while driving a suspended authenticated evaluation"
+                        ));
+                    }
+                    if matches!(progress, Stage1EvaluationProgress::Suspended(_)) && executed == 0 {
+                        let wait = structured_settlement_wait(next_timer, now);
+                        wait_for_callback_or_sleep(wait).await;
+                    }
+                }
+            }
+        };
+        Ok(match evaluation.outcome {
+            Stage1EvaluationOutcome::Empty => AuthenticatedEvaluation::Empty,
+            Stage1EvaluationOutcome::Value { display, receipt } => AuthenticatedEvaluation::Value {
+                display: authenticated_display(display),
+                receipt: Some(receipt),
+            },
+            Stage1EvaluationOutcome::Throw { value, metadata } => {
+                AuthenticatedEvaluation::Throw(AuthenticatedThrow {
+                    value: authenticated_display(value),
+                    metadata: authenticated_throw_metadata(metadata),
+                })
+            }
+            Stage1EvaluationOutcome::Cancelled => AuthenticatedEvaluation::Cancelled,
+            Stage1EvaluationOutcome::Lifecycle { exit_code } => {
+                AuthenticatedEvaluation::Lifecycle(exit_code)
+            }
+        })
+    }
 }
 
 impl Drop for HermesEngine {
@@ -3933,87 +4043,8 @@ impl Engine for HermesEngine {
         session: &ArmedSessionToken,
         request: SourceRequest,
     ) -> Result<AuthenticatedEvaluation> {
-        self.load_runtime().await?;
-        self.maybe_enable_debugger().await?;
-        self.ensure_thread()?;
-        let runtime = self.ensure_runtime().await?;
-        if matches!(&request, SourceRequest::JsonData(_)) {
-            let rendered = runtime
-                .with_runtime(|raw| unsafe {
-                    consume_authenticated_json(raw.cast(), session, request)
-                })?
-                // Preserve the closed native fault type so the session
-                // adapter can distinguish a recoverable source refusal from
-                // a protocol/runtime fault without parsing text.
-                .map_err(anyhow::Error::new)?;
-            return Ok(AuthenticatedEvaluation::Value {
-                display: AuthenticatedDisplay {
-                    kind: AuthenticatedDisplayKind::JsonData,
-                    text: rendered.to_string(),
-                    truncated: false,
-                },
-                receipt: None,
-            });
-        }
-
-        // The safe adapter is the sole armed project-source route. It receives
-        // the live runtime only inside the owner-thread lock and returns a
-        // Stage-1 value whose handle is retained only behind an exact linear
-        // broker acknowledgement receipt.
-        // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
-        let mut progress = runtime
-            .with_runtime(|raw| unsafe {
-                evaluate_authenticated_stage1(raw.cast(), session, request)
-            })?
-            .map_err(anyhow::Error::new)?;
-        let evaluation = loop {
-            match progress {
-                Stage1EvaluationProgress::Settled(evaluation) => break evaluation,
-                Stage1EvaluationProgress::Suspended(suspension) => {
-                    // Pending TLA is a continuation state, not an outcome. Drive
-                    // one ready-work turn, ask native code whether the exact
-                    // unit settled, then park only until the next timer/callback.
-                    // There is deliberately no result timeout.
-                    // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
-                    let (next_progress, executed, next_timer, now) =
-                        runtime.with_runtime(|raw| {
-                            let now = current_time_ms();
-                            let executed = unsafe { ex_hermes_poll(raw, now) };
-                            let next_timer = unsafe { ex_hermes_next_timer(raw) };
-                            let progress =
-                                unsafe { resume_authenticated_stage1(raw.cast(), suspension) };
-                            (progress, executed, next_timer, now)
-                        })?;
-                    progress = next_progress.map_err(anyhow::Error::new)?;
-                    if executed < -2 || executed == -1 {
-                        return Err(anyhow::anyhow!(
-                            "Hermes failed while driving a suspended authenticated evaluation"
-                        ));
-                    }
-                    if matches!(progress, Stage1EvaluationProgress::Suspended(_)) && executed == 0 {
-                        let wait = structured_settlement_wait(next_timer, now);
-                        wait_for_callback_or_sleep(wait).await;
-                    }
-                }
-            }
-        };
-        Ok(match evaluation.outcome {
-            Stage1EvaluationOutcome::Empty => AuthenticatedEvaluation::Empty,
-            Stage1EvaluationOutcome::Value { display, receipt } => AuthenticatedEvaluation::Value {
-                display: authenticated_display(display),
-                receipt: Some(receipt),
-            },
-            Stage1EvaluationOutcome::Throw { value, metadata } => {
-                AuthenticatedEvaluation::Throw(AuthenticatedThrow {
-                    value: authenticated_display(value),
-                    metadata: authenticated_throw_metadata(metadata),
-                })
-            }
-            Stage1EvaluationOutcome::Cancelled => AuthenticatedEvaluation::Cancelled,
-            Stage1EvaluationOutcome::Lifecycle { exit_code } => {
-                AuthenticatedEvaluation::Lifecycle(exit_code)
-            }
-        })
+        self.evaluate_authenticated_for_principals(session, request, None)
+            .await
     }
 
     async fn evaluate_authenticated_generated(

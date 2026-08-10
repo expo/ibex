@@ -322,6 +322,25 @@ enum NativeProbeSetup {
     SqliteFile {
         path: String,
     },
+    SqliteFileDatabase {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        path: String,
+        options: serde_json::Value,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
+    SqliteFileStatement {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        sql: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
         global_name: String,
@@ -534,7 +553,9 @@ fn generated_derived_env_write_template_is_accepted_by_rust_registry() {
 fn native_sqlite_file_setup_is_real_and_bounded() {
     let path = "target/ibex-capsec-sqlite-open-read.sqlite";
     let mut cleanup = NativePublicFixtureCleanup::default();
-    cleanup.files.push(path.into());
+    cleanup
+        .files
+        .extend(native_sqlite_owned_paths(path).map(Into::into));
     create_native_sqlite_file_fixture(path);
 
     let connection =
@@ -550,6 +571,99 @@ fn native_sqlite_file_setup_is_real_and_bounded() {
         create_native_sqlite_file_fixture("target/ibex-capsec-sqlite-escaped.sqlite")
     });
     assert!(escaped.is_err(), "SQLite setup accepted an unowned path");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn retained_sqlite_setup_creates_a_real_file_backed_native_handle() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let path = "issues/.ibex-capsec-sqlite-retained-test.sqlite";
+    let selector = serde_json::json!({
+        "cap": "fs:read",
+        "resource": {
+            "kind": "path-exact",
+            "path": {
+                "root": "project",
+                "components": [
+                    { "encoding": "utf8", "value": "issues" },
+                    { "encoding": "utf8", "value": ".ibex-capsec-sqlite-retained-test.sqlite" }
+                ]
+            }
+        }
+    });
+    let open_source = serde_json::json!({
+        "kind": "native-global-function",
+        "globalName": "__exactSqliteOpen",
+        "arity": 2,
+        "sourceRef": "src/engine/hermes_runtime_sqlite.cc#jsi-global:__exactSqliteOpen",
+    });
+    let invocation = NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: "__exactSqliteExec".into(),
+        source_descriptor: serde_json::json!({
+            "kind": "native-global-function",
+            "globalName": "__exactSqliteExec",
+            "arity": 2,
+            "sourceRef": "src/engine/hermes_runtime_sqlite.cc#jsi-global:__exactSqliteExec",
+        }),
+        source_descriptor_digest: "unused-by-setup-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: vec![],
+        completion: None,
+        required_floor: vec![selector.clone()],
+        required_setup_floor: vec![selector],
+        setup: vec![NativeProbeSetup::SqliteFileDatabase {
+            global_name: "__exactSqliteOpen".into(),
+            path: path.into(),
+            options: serde_json::json!({ "readonly": true }),
+            source_descriptor_digest: tagged_value_digest(&open_source),
+            source_descriptor: open_source,
+        }],
+        expected_result: "return".into(),
+        expected_string_value: None,
+        expected_cleanup: None,
+        expected_typed_stages: vec![],
+        expected_typed_outcomes: vec![],
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: vec![],
+        expected_action_ids: vec![],
+    };
+    let mut cleanup = NativePublicFixtureCleanup::default();
+    cleanup
+        .files
+        .extend(native_sqlite_owned_paths(path).map(Into::into));
+    let (host, _reset, snapshot_digest, probe_principals) =
+        install_native_public_test_host(&invocation, None, false);
+    assert_eq!(probe_principals.as_deref(), Some(&[0, 1][..]));
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create retained SQLite setup engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load retained SQLite setup engine");
+    let mut engine = AuthenticatedNativeEngine {
+        host,
+        engine,
+        publications: AuthenticatedPublicationTracker::default(),
+        probe_principals,
+    };
+    let setup = run_native_setup(&mut engine, &invocation, None).await;
+    let handle = setup
+        .sqlite_database_handle
+        .expect("file-backed setup did not return a native SQLite handle");
+    assert_eq!(setup.sqlite_file_path.as_deref(), Some(path));
+    let closed = engine
+        .eval_immediate(&setup_script(
+            "__exactSqliteClose",
+            &[serde_json::json!(handle)],
+        ))
+        .await
+        .expect("close real file-backed SQLite setup handle")
+        .expect("SQLite close returned no result");
+    let closed: serde_json::Value = serde_json::from_str(&closed).unwrap();
+    assert_eq!(closed["kind"], "return");
+    engine.finish().expect("finish retained SQLite setup engine");
 }
 
 #[test]
@@ -1742,11 +1856,24 @@ fn native_public_floor(port: u16) -> serde_json::Value {
     })
 }
 
+fn native_uses_retained_handle_authority(invocation: &NativePublicInvocation) -> bool {
+    !invocation.required_setup_floor.is_empty()
+        && invocation.setup.iter().any(|setup| {
+            matches!(
+                setup,
+                NativeProbeSetup::FsReadFile { .. }
+                    | NativeProbeSetup::FsWriteFile { .. }
+                    | NativeProbeSetup::SqliteFileDatabase { .. }
+                    | NativeProbeSetup::SqliteFileStatement { .. }
+            )
+        })
+}
+
 fn install_native_public_test_host(
     invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
     deny: bool,
-) -> (crate::host::Host, HostResetGuard, String) {
+) -> (crate::host::Host, HostResetGuard, String, Option<Vec<u64>>) {
     let deniable_floor = if invocation.required_floor.is_empty() {
         listener_port
             .map(native_public_floor)
@@ -1770,24 +1897,51 @@ fn install_native_public_test_host(
         invocation.required_setup_floor.is_empty() || !invocation.setup.is_empty(),
         "a native public setup floor without a setup step grants unused authority"
     );
+    let retained_handle_setup = native_uses_retained_handle_authority(invocation);
+    if retained_handle_setup {
+        assert_eq!(
+            invocation.required_setup_floor, invocation.required_floor,
+            "a retained-handle setup floor must exactly match the probe floor"
+        );
+        assert!(
+            listener_port.is_none(),
+            "retained-handle setup does not admit a dynamic listener selector"
+        );
+    }
     let denials = if deny {
         deniable_floor.clone()
     } else {
         Vec::new()
     };
-    let floor: Vec<serde_json::Value> = deniable_floor
-        .iter()
-        .chain(invocation.required_setup_floor.iter())
-        .cloned()
-        .collect();
-    let uses_project_path = floor.iter().any(|selector| {
+    let floor: Vec<serde_json::Value> = if retained_handle_setup {
+        invocation.required_setup_floor.clone()
+    } else {
+        deniable_floor
+            .iter()
+            .chain(invocation.required_setup_floor.iter())
+            .cloned()
+            .collect()
+    };
+    let uses_project_path = floor.iter().chain(deniable_floor.iter()).any(|selector| {
         matches!(
             selector["resource"]["kind"].as_str(),
             Some("path-exact" | "path-tree")
         ) && selector["resource"]["path"]["root"] == "project"
     });
+    let package_floor = deniable_floor.clone();
     let mutate = move |value: &mut serde_json::Value| {
-        if !denials.is_empty() {
+        if retained_handle_setup {
+            // Principal 0 owns the real handle and receives only setup
+            // authority. Principal 1 constrains the probe and alone carries
+            // the denial. The evaluator intersects both principals, so setup
+            // authority cannot satisfy or erase the probe-time decision.
+            // @ref LLP 0021#decision-staging-and-principal-semantics
+            // @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+            value["principals"][0]["denials"] = serde_json::json!([]);
+            value["principals"][1]["floor"] = serde_json::Value::Array(package_floor);
+            value["principals"][1]["denials"] = serde_json::Value::Array(denials);
+            value["principals"][1]["escalationCeiling"] = serde_json::json!([]);
+        } else if !denials.is_empty() {
             value["principals"][0]["denials"] = serde_json::Value::Array(denials);
         }
     };
@@ -1812,7 +1966,23 @@ fn install_native_public_test_host(
         0,
         "native public test Host context token allocation"
     );
-    (host, HostResetGuard, digest)
+    let probe_principals = retained_handle_setup.then(|| {
+        let snapshot = host
+            .armed_snapshot()
+            .expect("retained-handle Host must carry an armed snapshot");
+        let package: capsec_semantics::model::Principal = serde_json::from_value(
+            snapshot.document()["principals"][1]["principal"].clone(),
+        )
+        .expect("retained-handle probe principal must deserialize");
+        assert!(package.is_package());
+        let package_id = u64::from(
+            host.conformance_observer_principal_id(&package)
+                .expect("retained-handle probe principal must be indexed"),
+        );
+        assert_ne!(package_id, 0, "probe principal cannot alias the root owner");
+        vec![0, package_id]
+    });
+    (host, HostResetGuard, digest, probe_principals)
 }
 
 fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
@@ -1833,21 +2003,42 @@ struct NativeSetupState {
     sqlite_file_path: Option<String>,
 }
 
-fn create_native_sqlite_file_fixture(path: &str) {
+fn native_sqlite_file_path_is_owned(path: &str) -> bool {
+    matches!(
+        path,
+        "target/ibex-capsec-sqlite-open-read.sqlite"
+            | "target/ibex-capsec-sqlite-open-read-write.sqlite"
+            | "target/ibex-capsec-sqlite-retained-all.sqlite"
+            | "target/ibex-capsec-sqlite-retained-exec-read.sqlite"
+            | "target/ibex-capsec-sqlite-retained-exec-read-write.sqlite"
+            | "target/ibex-capsec-sqlite-retained-get.sqlite"
+            | "target/ibex-capsec-sqlite-retained-prepare.sqlite"
+            | "target/ibex-capsec-sqlite-retained-run-read.sqlite"
+            | "target/ibex-capsec-sqlite-retained-run-read-write.sqlite"
+            | "target/ibex-capsec-sqlite-retained-values.sqlite"
+            | "issues/.ibex-capsec-sqlite-retained-test.sqlite"
+    )
+}
+
+fn native_sqlite_owned_paths(path: &str) -> [String; 4] {
     assert!(
-        matches!(
-            path,
-            "target/ibex-capsec-sqlite-open-read.sqlite"
-                | "target/ibex-capsec-sqlite-open-read-write.sqlite"
-        ),
+        native_sqlite_file_path_is_owned(path),
         "SQLite setup escaped its exact harness-owned paths"
     );
-    for owned_path in [
+    [
         path.to_owned(),
         format!("{path}-journal"),
         format!("{path}-shm"),
         format!("{path}-wal"),
-    ] {
+    ]
+}
+
+fn create_native_sqlite_file_fixture(path: &str) {
+    assert!(
+        native_sqlite_file_path_is_owned(path),
+        "SQLite setup escaped its exact harness-owned paths"
+    );
+    for owned_path in native_sqlite_owned_paths(path) {
         if let Err(error) = std::fs::remove_file(&owned_path) {
             assert_eq!(
                 error.kind(),
@@ -1886,10 +2077,23 @@ struct AuthenticatedNativeEngine {
     host: crate::host::Host,
     engine: HermesEngine,
     publications: AuthenticatedPublicationTracker,
+    probe_principals: Option<Vec<u64>>,
 }
 
 impl AuthenticatedNativeEngine {
     async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
+        self.eval_immediate_with_scope(source, false).await
+    }
+
+    async fn eval_probe_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
+        self.eval_immediate_with_scope(source, true).await
+    }
+
+    async fn eval_immediate_with_scope(
+        &mut self,
+        source: &str,
+        probe_scope: bool,
+    ) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
         self.drain_publications("before authenticated native-public evaluation")?;
@@ -1906,15 +2110,26 @@ impl AuthenticatedNativeEngine {
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
         let ordinal = request.submission_ordinal();
-        let evaluation = self
-            .engine
-            .evaluate_authenticated(&session, request)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "authenticated native-public submission {ordinal} failed: {error:#}"
-                )
-            });
+        let evaluation = if probe_scope {
+            if let Some(principals) = &self.probe_principals {
+                self.engine
+                    .evaluate_authenticated_with_constrained_principals(
+                        &session,
+                        request,
+                        principals,
+                    )
+                    .await
+            } else {
+                self.engine.evaluate_authenticated(&session, request).await
+            }
+        } else {
+            self.engine.evaluate_authenticated(&session, request).await
+        }
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "authenticated native-public submission {ordinal} failed: {error:#}"
+            )
+        });
         let publications = self.drain_publications("after authenticated native-public evaluation");
         let evaluation = match (evaluation, publications) {
             (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
@@ -2114,6 +2329,103 @@ async fn run_native_setup(
                 assert!(state.sqlite_file_path.is_none());
                 create_native_sqlite_file_fixture(path);
                 state.sqlite_file_path = Some(path.clone());
+            }
+            NativeProbeSetup::SqliteFileDatabase {
+                global_name,
+                path,
+                options,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                // Seed bytes with rusqlite, but create the retained handle by
+                // calling the loaded __exactSqliteOpen implementation. That
+                // crosses the armed VFS, checked-fd ABI, and Hermes SQLite
+                // registry and therefore records the real runtime nonce and
+                // principal-0 owner.
+                // @ref LLP 0021#handles-dynamic-authority-and-generations
+                // @ref LLP 0049#3-construction-rules
+                assert_eq!(global_name, "__exactSqliteOpen");
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 2);
+                assert!(native_sqlite_file_path_is_owned(path));
+                assert!(
+                    options == &serde_json::json!({ "readonly": true })
+                        || options
+                            == &serde_json::json!({ "create": false, "readwrite": true }),
+                    "file-backed SQLite setup options escaped reviewed read/read-write shapes"
+                );
+                assert!(state.sqlite_database_handle.is_none());
+                assert!(state.sqlite_file_path.is_none());
+                create_native_sqlite_file_fixture(path);
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!(path), options.clone()],
+                    ))
+                    .await
+                    .expect("execute file-backed SQLite database setup")
+                    .expect("file-backed SQLite database setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("file-backed SQLite database setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.sqlite_database_handle = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("file-backed SQLite setup must return a numeric handle"),
+                );
+                state.sqlite_file_path = Some(path.clone());
+            }
+            NativeProbeSetup::SqliteFileStatement {
+                global_name,
+                sql,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                assert_eq!(global_name, "__exactSqlitePrepare");
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 2);
+                assert!(matches!(
+                    sql.as_str(),
+                    "SELECT value FROM ibex_capsec_probe"
+                        | "UPDATE ibex_capsec_probe SET value = 'file-backed-updated'"
+                ));
+                assert!(state.sqlite_statement_handle.is_none());
+                assert!(state.sqlite_file_path.is_some());
+                let database_handle = state
+                    .sqlite_database_handle
+                    .expect("file-backed SQLite statement requires a database setup");
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!(database_handle), serde_json::json!(sql)],
+                    ))
+                    .await
+                    .expect("execute file-backed SQLite statement setup")
+                    .expect("file-backed SQLite statement setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("file-backed SQLite statement setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.sqlite_statement_handle = Some(
+                    result["handle"]
+                        .as_f64()
+                        .expect("file-backed SQLite statement setup must return a numeric handle"),
+                );
             }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
@@ -2922,6 +3234,7 @@ fn native_filesystem_denial_message_is_reviewed(global_name: &str) -> bool {
             | "__exactAppendFile"
             | "__exactFsOpen"
             | "__exactFsOpenAsync"
+            | "__exactFsFstatSync"
             | "__exactFsPathAsync"
             | "__exactFsReadFileAsync"
             | "__exactFsStatAsync"
@@ -3721,6 +4034,88 @@ fn validate_native_runtime_observation(
         } else {
             ("static-floor", Some("principal.000000.floor."))
         };
+        if native_uses_retained_handle_authority(invocation) {
+            let expected_package = serde_json::json!({
+                "kind": "package",
+                "name": "image-lib",
+                "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+                "locator": "image-lib@2.4.1",
+            });
+            if public_denial {
+                assert_eq!(
+                    authority_evidence.len(),
+                    1,
+                    "{}: retained-handle denial must name only the decisive package denial: {authority_evidence:?}",
+                    recipe.fixture_id
+                );
+                let authority = &authority_evidence[0];
+                assert_eq!(authority["principal"], expected_package);
+                assert_eq!(authority["stratum"], "principal-denial");
+                assert_eq!(authority["reason"], "principal-denial");
+                assert!(
+                    authority["sourceId"]
+                        .as_str()
+                        .is_some_and(|source| source.starts_with("principal.000001.denial.")),
+                    "{}: retained-handle denial escaped the probe principal: {authority}",
+                    recipe.fixture_id
+                );
+                assert!(
+                    authority["effectIndex"]
+                        .as_u64()
+                        .is_some_and(|index| index < effects.len() as u64),
+                    "{}: retained-handle denial named an invalid effect: {authority}",
+                    recipe.fixture_id
+                );
+            } else {
+                assert!(!ambient_project_prefix);
+                assert_eq!(
+                    authority_evidence.len(),
+                    effects.len() * 2,
+                    "{}: retained-handle allow must prove both owner and probe authority for every effect: {authority_evidence:?}",
+                    recipe.fixture_id
+                );
+                let expected_root = serde_json::json!({
+                    "kind": "root",
+                    "identity": "project-root",
+                });
+                let mut authority_rows = BTreeSet::new();
+                for authority in authority_evidence {
+                    let effect_index = authority["effectIndex"]
+                        .as_u64()
+                        .and_then(|index| usize::try_from(index).ok())
+                        .filter(|index| *index < effects.len())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{}: retained-handle authority row has an invalid effect index: {authority}",
+                                recipe.fixture_id
+                            )
+                        });
+                    let (principal_index, expected_source_prefix) =
+                        if authority["principal"] == expected_root {
+                            (0_usize, "principal.000000.floor.")
+                        } else {
+                            assert_eq!(authority["principal"], expected_package);
+                            (1_usize, "principal.000001.floor.")
+                        };
+                    assert!(
+                        authority_rows.insert((effect_index, principal_index)),
+                        "{}: retained-handle authority duplicated effect/principal row ({effect_index}, {principal_index})",
+                        recipe.fixture_id
+                    );
+                    assert_eq!(authority["stratum"], "static-floor");
+                    assert_eq!(authority["reason"], "static-floor");
+                    assert!(
+                        authority["sourceId"]
+                            .as_str()
+                            .is_some_and(|source| source.starts_with(expected_source_prefix)),
+                        "{}: retained-handle allow used the wrong authority source: {authority}",
+                        recipe.fixture_id
+                    );
+                }
+                assert_eq!(authority_rows.len(), effects.len() * 2);
+            }
+            continue;
+        }
         assert_eq!(
             authority_evidence.len(),
             effects.len(),
@@ -3954,7 +4349,9 @@ async fn execute_native_public_recipe(
     let arguments = materialize_native_arguments(invocation, listener_port, &setup_state);
     let mut fixture_cleanup = NativePublicFixtureCleanup::default();
     if let Some(path) = &setup_state.sqlite_file_path {
-        fixture_cleanup.files.push(path.into());
+        fixture_cleanup
+            .files
+            .extend(native_sqlite_owned_paths(path).map(Into::into));
     }
     let fs_path_async_directory_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (invocation.arguments.first(), invocation.arguments.get(1)) {
@@ -4142,7 +4539,7 @@ async fn execute_native_public_recipe(
             std::time::Duration::from_millis(completion.timeout_milliseconds),
             async {
                 let scheduled = engine
-                    .eval_immediate(&native_async_invocation_script(invocation, &arguments))
+                    .eval_probe_immediate(&native_async_invocation_script(invocation, &arguments))
                     .await?;
                 anyhow::ensure!(
                     matches!(scheduled.as_deref(), Some("scheduled" | "completed")),
@@ -4159,7 +4556,7 @@ async fn execute_native_public_recipe(
         .map_err(|error| anyhow::anyhow!("complete native public async invocation: {error:#}"))
     } else {
         engine
-            .eval_immediate(&native_invocation_script(
+            .eval_probe_immediate(&native_invocation_script(
                 invocation,
                 &arguments,
                 &setup_state,
@@ -4238,6 +4635,39 @@ async fn execute_native_public_recipe(
             invocation_result["cleanup"] =
                 serde_json::Value::String("closed-fs-file-descriptor".into());
         }
+    }
+    let retained_sqlite_operation = setup_state.sqlite_database_handle.is_some()
+        && matches!(
+            invocation.global_name.as_str(),
+            "__exactSqliteAll"
+                | "__exactSqliteExec"
+                | "__exactSqliteGet"
+                | "__exactSqlitePrepare"
+                | "__exactSqliteRun"
+                | "__exactSqliteValues"
+        );
+    if retained_sqlite_operation && invocation_result["kind"] != "return" {
+        let cleanup = engine
+            .eval_immediate(&format!(
+                "JSON.stringify((function(){{try{{var statement={};var database={};if(typeof statement===\"number\")globalThis.__exactSqliteFinalize(statement);globalThis.__exactSqliteClose(database);return {{kind:\"return\"}};}}catch(e){{return {{kind:\"throw\",errorMessage:String(e&&e.message||e)}};}}}})())",
+                serde_json::to_string(&setup_state.sqlite_statement_handle)
+                    .expect("serialize retained SQLite statement"),
+                serde_json::to_string(
+                    &setup_state
+                        .sqlite_database_handle
+                        .expect("retained SQLite cleanup requires a database")
+                )
+                .expect("serialize retained SQLite database")
+            ))
+            .await
+            .expect("close retained file-backed SQLite handles")
+            .expect("retained file-backed SQLite cleanup returned no result");
+        let cleanup: serde_json::Value = serde_json::from_str(&cleanup)
+            .expect("retained file-backed SQLite cleanup returned invalid JSON");
+        assert_eq!(
+            cleanup["kind"], "return",
+            "retained file-backed SQLite cleanup failed: {cleanup}"
+        );
     }
     if let Some(path) = &fs_path_async_directory_fixture {
         if invocation_result["kind"] == "return" {
@@ -4354,11 +4784,39 @@ async fn execute_native_public_recipe(
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
     }
     if let Some(path) = &setup_state.sqlite_file_path {
-        std::fs::remove_file(path).expect("remove on-disk SQLite setup fixture");
+        for owned_path in native_sqlite_owned_paths(path) {
+            if let Err(error) = std::fs::remove_file(&owned_path) {
+                assert_eq!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "remove on-disk SQLite setup fixture {owned_path}: {error}"
+                );
+            }
+        }
         if invocation_result["kind"] == "return" {
-            assert_eq!(invocation_result["cleanup"], "closed-sqlite-db");
-            invocation_result["cleanup"] =
-                serde_json::Value::String("closed-sqlite-db-removed-owned-file".into());
+            let cleanup = invocation_result["cleanup"]
+                .as_str()
+                .expect("successful on-disk SQLite probe must report handle cleanup");
+            let expected_cleanup = if retained_sqlite_operation
+                && matches!(
+                    invocation.global_name.as_str(),
+                    "__exactSqliteAll"
+                        | "__exactSqliteGet"
+                        | "__exactSqlitePrepare"
+                        | "__exactSqliteRun"
+                        | "__exactSqliteValues"
+                ) {
+                "finalized-sqlite-statement-closed-db"
+            } else {
+                "closed-sqlite-db"
+            };
+            assert_eq!(
+                cleanup, expected_cleanup,
+                "successful on-disk SQLite probe used an unexpected cleanup"
+            );
+            invocation_result["cleanup"] = serde_json::Value::String(format!(
+                "{cleanup}-removed-owned-file"
+            ));
         }
     }
     remove_native_async_harness_fields(&mut invocation_result);
@@ -5514,7 +5972,7 @@ async fn run_capsec_public_native_recipe_batch(
             let listener_port = listener
                 .as_ref()
                 .map(|listener| listener.local_addr().unwrap().port());
-            let (host, _reset, snapshot_digest) = install_native_public_test_host(
+            let (host, _reset, snapshot_digest, probe_principals) = install_native_public_test_host(
                 invocation,
                 listener_port,
                 recipe.scenario == "deny",
@@ -5529,6 +5987,7 @@ async fn run_capsec_public_native_recipe_batch(
                 host,
                 engine,
                 publications: AuthenticatedPublicationTracker::default(),
+                probe_principals,
             };
             let execution = execute_native_public_recipe(
                 &mut engine,

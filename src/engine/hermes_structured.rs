@@ -305,6 +305,25 @@ extern "C" {
         asynchronous: bool,
         result: *mut NativeEvaluationResult,
     ) -> i32;
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn ibex_private_test_eval_lowered_session_with_principals(
+        runtime: *mut HermesRuntimeOpaque,
+        principal_ids: *const u64,
+        principal_count: usize,
+        credential: *const NativeSessionCredential,
+        lowering_protocol_version: u32,
+        lowered_source: *const u8,
+        lowered_source_length: usize,
+        lowered_source_map: *const u8,
+        lowered_source_map_length: usize,
+        source_label: *const u8,
+        source_label_length: usize,
+        declarations: *const NativeSessionDeclaration,
+        declaration_count: usize,
+        import_plan: *const NativeSessionImportPlan,
+        asynchronous: bool,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
     fn ex_hermes_resume_structured_session(
         runtime: *mut HermesRuntimeOpaque,
         work_target_id: u64,
@@ -717,7 +736,7 @@ where
             })
         }
         AuthenticatedModuleGraphPreparation::LegacyRequired => unsafe {
-            evaluate_authenticated_inner_with_admission(request, None, admission)
+            evaluate_authenticated_inner_with_admission(request, None, None, admission)
                 .map(AuthenticatedModuleGraphAdmission::Legacy)
         },
     }
@@ -840,7 +859,42 @@ pub unsafe fn evaluate_authenticated(
     session: &ArmedSessionToken,
     request: SourceRequest,
 ) -> Result<StructuredEvaluationProgress, EngineFault> {
-    unsafe { evaluate_authenticated_inner(runtime, session, request, None) }
+    unsafe { evaluate_authenticated_inner(runtime, session, request, None, None) }
+}
+
+/// Evaluate one authenticated request under an exact additional principal
+/// intersection. This exists only in conformance-observer builds and preserves
+/// the ordinary authenticated admission and ordinal path.
+///
+/// # Safety
+///
+/// The runtime requirements are identical to [`evaluate_authenticated`].
+#[cfg(feature = "capsec-conformance-observer")]
+pub unsafe fn evaluate_authenticated_with_constrained_principals(
+    runtime: *mut c_void,
+    session: &ArmedSessionToken,
+    request: SourceRequest,
+    constrained_principals: &[u64],
+) -> Result<StructuredEvaluationProgress, EngineFault> {
+    if constrained_principals.is_empty()
+        || constrained_principals.len() > 256
+        || !constrained_principals
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+    {
+        return Err(EngineFault::Rejected(Arc::from(
+            "conformance principal constraints must be a nonempty canonical set",
+        )));
+    }
+    unsafe {
+        evaluate_authenticated_inner(
+            runtime,
+            session,
+            request,
+            None,
+            Some(constrained_principals),
+        )
+    }
 }
 
 /// Evaluate one native-verified, single-original CommonJS representation while
@@ -913,6 +967,7 @@ pub unsafe fn evaluate_authenticated_generated(
             session,
             request,
             Some((generated_source, generated_record)),
+            None,
         )
     }
 }
@@ -922,6 +977,7 @@ unsafe fn evaluate_authenticated_inner(
     session: &ArmedSessionToken,
     mut request: SourceRequest,
     generated: Option<(&[u8], &[u8])>,
+    constrained_principals: Option<&[u64]>,
 ) -> Result<StructuredEvaluationProgress, EngineFault> {
     if matches!(&request, SourceRequest::JsonData(_)) {
         return Err(EngineFault::Rejected(Arc::from(
@@ -948,7 +1004,14 @@ unsafe fn evaluate_authenticated_inner(
         )));
     }
     let admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };
-    unsafe { evaluate_authenticated_inner_with_admission(request, generated, admission) }
+    unsafe {
+        evaluate_authenticated_inner_with_admission(
+            request,
+            generated,
+            constrained_principals,
+            admission,
+        )
+    }
 }
 
 /// Continue an already-consumed native admission through the ordinary
@@ -957,6 +1020,7 @@ unsafe fn evaluate_authenticated_inner(
 unsafe fn evaluate_authenticated_inner_with_admission(
     request: SourceRequest,
     generated: Option<(&[u8], &[u8])>,
+    constrained_principals: Option<&[u64]>,
     mut admission: NativeAdmission,
 ) -> Result<StructuredEvaluationProgress, EngineFault> {
     let common_js_entry = matches!(
@@ -1115,22 +1179,50 @@ unsafe fn evaluate_authenticated_inner_with_admission(
         (request.text().as_bytes(), &[][..], false)
     };
     let status = unsafe {
-        ex_hermes_eval_lowered_session(
-            admission.runtime,
-            &admission.credential.native,
-            SESSION_LOWERING_PROTOCOL_VERSION,
-            native_source.as_ptr(),
-            native_source.len(),
-            native_source_map.as_ptr(),
-            native_source_map.len(),
-            source_label.as_ptr(),
-            source_label.len(),
-            declarations.as_ptr(),
-            declarations.len(),
-            &import_plan,
-            asynchronous,
-            native_result.raw_mut(),
-        )
+        #[cfg(feature = "capsec-conformance-observer")]
+        let evaluate = constrained_principals.map(|principals| {
+            ibex_private_test_eval_lowered_session_with_principals(
+                admission.runtime,
+                principals.as_ptr(),
+                principals.len(),
+                &admission.credential.native,
+                SESSION_LOWERING_PROTOCOL_VERSION,
+                native_source.as_ptr(),
+                native_source.len(),
+                native_source_map.as_ptr(),
+                native_source_map.len(),
+                source_label.as_ptr(),
+                source_label.len(),
+                declarations.as_ptr(),
+                declarations.len(),
+                &import_plan,
+                asynchronous,
+                native_result.raw_mut(),
+            )
+        });
+        #[cfg(not(feature = "capsec-conformance-observer"))]
+        let evaluate: Option<i32> = {
+            debug_assert!(constrained_principals.is_none());
+            None
+        };
+        evaluate.unwrap_or_else(|| {
+            ex_hermes_eval_lowered_session(
+                admission.runtime,
+                &admission.credential.native,
+                SESSION_LOWERING_PROTOCOL_VERSION,
+                native_source.as_ptr(),
+                native_source.len(),
+                native_source_map.as_ptr(),
+                native_source_map.len(),
+                source_label.as_ptr(),
+                source_label.len(),
+                declarations.as_ptr(),
+                declarations.len(),
+                &import_plan,
+                asynchronous,
+                native_result.raw_mut(),
+            )
+        })
     };
     if status == -1 {
         return Err(protocol(
@@ -1234,6 +1326,36 @@ pub unsafe fn evaluate_authenticated_stage1(
     request: SourceRequest,
 ) -> Result<Stage1EvaluationProgress, EngineFault> {
     match unsafe { evaluate_authenticated(runtime, session, request)? } {
+        StructuredEvaluationProgress::Settled(evaluation) => unsafe {
+            materialize_stage1(runtime, evaluation).map(Stage1EvaluationProgress::Settled)
+        },
+        StructuredEvaluationProgress::Suspended(suspension) => {
+            Ok(Stage1EvaluationProgress::Suspended(suspension))
+        }
+    }
+}
+
+/// Stage-1 form of
+/// [`evaluate_authenticated_with_constrained_principals`].
+///
+/// # Safety
+///
+/// The runtime requirements are identical to [`evaluate_authenticated`].
+#[cfg(feature = "capsec-conformance-observer")]
+pub unsafe fn evaluate_authenticated_stage1_with_constrained_principals(
+    runtime: *mut c_void,
+    session: &ArmedSessionToken,
+    request: SourceRequest,
+    constrained_principals: &[u64],
+) -> Result<Stage1EvaluationProgress, EngineFault> {
+    match unsafe {
+        evaluate_authenticated_with_constrained_principals(
+            runtime,
+            session,
+            request,
+            constrained_principals,
+        )?
+    } {
         StructuredEvaluationProgress::Settled(evaluation) => unsafe {
             materialize_stage1(runtime, evaluation).map(Stage1EvaluationProgress::Settled)
         },
@@ -2856,5 +2978,54 @@ mod tests {
             .expect_err("JSON data must never reach the evaluator");
         assert!(matches!(&error, EngineFault::Rejected(_)));
         assert!(error.to_string().contains("parsed, not evaluated"));
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn constrained_principals_are_rejected_before_admission_unless_canonical() {
+        use super::super::evaluation::{ExecutionMode, SubmissionSequence};
+        use capsec_semantics::model::{
+            Digest, LogicalPath, LogicalRoot, NonEmptyString, Principal,
+        };
+
+        let digest = || Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let session = ArmedSessionToken::from_authenticated_snapshot(
+            digest(),
+            Arc::from("AQIDBAUGBwgJCgsMDQ4PEA"),
+            Principal::Root {
+                identity: NonEmptyString::new("project-root").unwrap(),
+            },
+            super::super::evaluation::EntryKind::Eval,
+            Arc::from("ibex:eval"),
+            ExecutionMode::OneShot,
+            digest(),
+        )
+        .unwrap();
+
+        for principals in [&[][..], &[1, 1][..], &[2, 1][..]] {
+            let mut sequence = SubmissionSequence::new(session.clone()).unwrap();
+            let request = sequence
+                .mint_eval(LogicalPath {
+                    root: LogicalRoot::Project,
+                    components: Vec::new(),
+                    host_bound: None,
+                })
+                .unwrap()
+                .authorize_inline()
+                .bind_bytes(b"1".to_vec())
+                .into_request()
+                .unwrap();
+            let error = unsafe {
+                evaluate_authenticated_with_constrained_principals(
+                    ptr::null_mut(),
+                    &session,
+                    request,
+                    principals,
+                )
+            }
+            .expect_err("non-canonical conformance principal set reached native admission");
+            assert!(matches!(&error, EngineFault::Rejected(_)));
+            assert!(error.to_string().contains("nonempty canonical set"));
+        }
     }
 }

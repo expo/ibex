@@ -1,0 +1,118 @@
+{
+  "measurement": "llp-0049-a2-retained-handle-setup-native-fstat",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactFsFstatSync retained descriptor (1 newly authored row; 5-row class execution)",
+  "date": "2026-08-10",
+  "sourceRevision": "886536abb9b9bd5360b33ff8bd767c69c03cbd34 (physical catalog and batch source; tree fa17616a62f1252eaadfa614e723b592e87abc0d)",
+  "finalHandoffRevision": "cc80b6e863b0b373894469d381c4e1933be46743 (tree 2b80b2458bbd6827b2ccb3677af44250debf8b8c; runtime implementation unchanged, with reviewed-ingress assertions, generated dependents, and focused test correction)",
+  "baseRevision": "0ed858db53f5a733eb86e93c3ab27bd35f899804 (tree a7a992909a545ea31623c04bffaf7945607f409e)",
+  "implementationDiffSha256": "8a1a603085a8d3257edf26b71775c05982bd8b4a104ddf2c3d84328751554bd6 (base through cc80b6e86; excludes this evidence envelope)",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Mac Air fleet runner)",
+  "baselineCatalogDigest": "sha256-eRCmdI1vzZr-nsQNg-A6BM3YhZBYLLAHGeSTQ1NaAoI",
+  "candidateCatalogDigest": "sha256-9YEpHm_6-e24FK2Q9Q_VSr7wy6hkKyN_qRmf8cHXnwI",
+  "declaredAllowListDigest": "sha256-eSRLIefaZQu8BQRBpqo7WFOPW0pzJ89o0ic_o6d5nXU",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-fstat-retained.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fstat-retained.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fstat-retained.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 2 changes, 2 allow-listed, 0 unexplained, 0 stale; native-public-deny-scenario-not-authored -1 and public-surface-invocation-not-authored -1; lane cells unchanged",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 323/323 fixtures; 1 target execution",
+    "batchSecondary": "PASS (exit 0), 349/349 fixtures; 4 target executions"
+  },
+  "rowsClosed": 1,
+  "cells": [
+    "surface.native.op.exactfsfstatsync.1md7g19 retained descriptor deny"
+  ],
+  "classExecution": "All 5 __exactFsFstatSync fixture scenarios passed exactly once across the disjoint full shards. Four were already executable; this change newly authors only the deny row.",
+  "catalogDelta": {
+    "requiredFixtures": "21784 → 21784",
+    "fullyExecutableFixtures": "3999 → 4000",
+    "internallyVerifiedFixtures": "3124 → 3124",
+    "unresolvedFixtures": "14661 → 14660",
+    "changedRows": "exactly 1 of 21784; 0 added, 0 removed; route, terminal, edge, action, classification, and scenario fields preserved"
+  },
+  "authoritySeparation": {
+    "setup": "Principal 0 (project root) receives only requiredSetupFloor. Setup and cleanup evaluate root-only, before principal 1 is installed on the evaluation stack and outside typed observation.",
+    "probe": "The ordinary authenticated lowered-session admission path evaluates the probe under the one-shot canonical constrained-principal set [0, 1]. Principal 1 receives the exact probe floor plus the scenario denial; no setup authority is copied or delegated to it.",
+    "retainedOwner": "The source descriptor is returned by the real loaded __exactFsOpen global, so Hermes creates and retains its genuine FdEntry owned by principal 0. The probe supplies only that returned numeric projection; requireOwnedFd still verifies the runtime nonce and owner record.",
+    "denyArgument": "The retained effect owner remains principal 0, but conjunction over [0, 1] makes principal 1's exact denial decisive. The deny observation contains no root denial and no setup-only authority source.",
+    "lifetime": "The private observer-only native constraint is one-shot, consumed by the authenticated lowered evaluator, and cleared after the submission. Setup and post-observation cleanup cannot inherit it."
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine, never guessed. A temporary zero-count placeholder was replaced only after the physical observation.",
+    "allRows": "repeat:fs:list with finalObjectGeneration retained-descriptor-v1 and a runtime fd:* retainedHandle; effect owner project-root; constrained principals project-root plus image-lib@2.4.1",
+    "allowLikeRows": "allow with exactly principal.000000.floor.000000 and principal.000001.floor.000000 static-floor evidence",
+    "denyRow": "deny with exactly principal.000001.denial.000000 as principal-denial evidence; result Error: EACCES: filesystem policy denied, fstat '/project/Cargo.toml'",
+    "expectedTypedDecisionCount": 1,
+    "expectedTypedStages": [
+      "repeat"
+    ],
+    "expectedActionIds": [
+      "fs:list"
+    ]
+  },
+  "physicalEvidence": {
+    "baseline": "/Users/ccheever/phase1-runs/retained-handle/baseline.json (raw SHA-256 3837939a4232ef508ae7dcac247bb5f5cf7029fb6f82e6bc2b7a5c6635af008e)",
+    "candidate": "/Users/ccheever/phase1-runs/retained-handle/candidate-final.json (raw SHA-256 4eaf4d6fbaea80290be26c7b7cb42cbbebe5fa9c20102426a74172656ca2ee33)",
+    "primary": "/Users/ccheever/phase1-runs/retained-handle/fstat-full-primary.json (raw SHA-256 75887a9aedcc0bc3a1c1b3da6844869eaa2b3d83276379a36854bd14c01abb32)",
+    "secondary": "/Users/ccheever/phase1-runs/retained-handle/fstat-full-secondary.json (raw SHA-256 d27e46ca38b9d8c9d12be494dc2b0d93497a5b9a2aa6a6e5f0a91e0dd1417015)",
+    "allowListRawSha256": "79244b21e7da650bbc050441a6aa3b58538f5b4a7327cf68d2273fa3a7799d75",
+    "catalogBinding": "both envelopes bind candidate sha256-9YEpHm_6-e24FK2Q9Q_VSr7wy6hkKyN_qRmf8cHXnwI and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "coverage": "5/5 target executions occur exactly once across disjoint full shards (1 primary, 4 secondary), all passed",
+    "runner": "Mac Air fleet machine, detached bundle worktree /Users/ccheever/phase1-runs/retained-handle/worktree; real worktree-local target directory with external Cargo build output"
+  },
+  "correctionLoop": [
+    "The first allow-list draft used the fixture branch suffix 1xi8z6f instead of coverage edge surface.native.op.exactfsfstatsync.1md7g19. The strict route gate rejected it. The exact edge was corrected and committed before the retained final candidate was regenerated.",
+    "The first typed-sequence run deliberately used a zero-count placeholder. The bound engine observed one repeat fs:list decision, which was then pinned; the temporary diagnostic print was removed before final execution."
+  ],
+  "environmentIncidents": [
+    "The primary worktree's target directory is intentionally symlinked outside the mount. Full local shards therefore reached the pre-existing ERR_IBEX_OUTSIDE_MOUNT fixture condition. No selector or assertion was changed. Final full shards ran on the qualified Mac Air with a real worktree-local target directory and external Cargo build output.",
+    "The authenticated-ingress reviewed source ranges moved. The complete vendored regeneration chain was run, the exact source token and range digests were restamped with rationale, dependent registry/example/policy artifacts were regenerated, and check:drift returned exit 0.",
+    "The full devtools base at 0ed858db has exactly the seven failures recorded by issues/20260808-capsec-registry-drift-suite-red-on-main.md (1403 pass / 7 fail). The retained-fstat pin initially added one eighth failure; its assertion was tightened to the exact five-scenario set and passes focused."
+  ],
+  "sqliteConstructorProof": {
+    "status": "PASS",
+    "test": "engine::hermes::tests::capsec_conformance_batch::retained_sqlite_setup_creates_a_real_file_backed_native_handle",
+    "mechanism": "Seeds an on-disk file, opens it through the loaded __exactSqliteOpen global under root-only setup authority, retains the native registry handle, and closes it through loaded __exactSqliteClose.",
+    "credit": "Constructor proof only; no SQLite campaign row is claimed closed by this envelope."
+  },
+  "unblockEstimate": {
+    "structurallyUnblockedRows": 84,
+    "retainedFdRows": 36,
+    "fileBackedSqliteRows": 48,
+    "mechanismQualification": "The 84 share the authority split but not handle construction. FD rows use real __exactFsOpen-created Hermes FdEntry values. SQLite rows use distinct real __exactSqliteOpen registry handles and, where needed, __exactSqlitePrepare statement handles against on-disk files.",
+    "newlyClosedByThisBatch": 1,
+    "remainingAuthoringRows": 83
+  },
+  "independentAdversarialReview": {
+    "status": "REQUIRED_AND_PENDING",
+    "artifact": "OWED: llp/reviews/0049-a2-retained-handle-setup.<other-model-family>.md",
+    "reviewTarget": "final branch tip after this evidence and memo are committed",
+    "requiredBreakTests": [
+      "Attempt to run setup under [0,1] and prove the denial blocks handle creation.",
+      "Attempt to run the probe root-only and prove the decisive principal.000001.denial evidence assertion fails.",
+      "Replace the setup-returned descriptor with a raw host integer and prove ownership/nonce validation refuses it.",
+      "Replace the SQLite file setup with a memory database and prove the file-backed setup test fails.",
+      "Leak the one-shot principal override into cleanup or a second submission and prove the fail-closed checks detect it.",
+      "Widen __exactFsFstatSync denial selection to a sibling or prefix match and prove the exact recipe/validator tests fail."
+    ],
+    "verdict": "No verdict claimed. LLP 0049 §3 rule 11 remains undischarged until a separate model family performs and retains this review."
+  },
+  "finalVerification": {
+    "cargoTestLib": "PASS; 723 passed, 4 ignored, 0 failed",
+    "cargoCheckExactFeatures": "PASS; exit 0 (pre-existing warnings only)",
+    "focusedCanonicalPrincipalGuard": "PASS; 1 passed, 740 filtered, exact feature vector",
+    "focusedRealSqliteSetup": "PASS; 1 passed, 659 filtered, exact feature vector",
+    "focusedRecipe": "PASS; 1 passed, 115 filtered, exact five-scenario retained-fstat assertion",
+    "generatedDrift": "PASS; complete regenerate:vendored chain followed by check:drift exit 0",
+    "referenceCheck": "PASS; 51 LLP docs, 2548 refs in 2022 files, 0 errors, 1 unchecked",
+    "fullDevtoolsBaseline": "1403 pass / 7 fail at 0ed858db; exact seven named failures match the issue ledger",
+    "fullDevtoolsCandidate": "1403 pass / 7 fail; exact seven failure identities match the 0ed858db baseline, with no retained-handle regression"
+  }
+}

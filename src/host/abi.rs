@@ -1929,7 +1929,11 @@ pub(crate) fn resolve_manifest_builtin_internal_for_runner(
     )
 }
 
-#[cfg(any(test, feature = "module-runner"))]
+#[cfg(any(
+    test,
+    feature = "module-runner",
+    feature = "capsec-conformance-observer"
+))]
 pub(crate) fn module_runner_principal_id(
     principal: &capsec_semantics::model::Principal,
 ) -> anyhow::Result<u32> {

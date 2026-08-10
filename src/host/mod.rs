@@ -5121,7 +5121,11 @@ impl Host {
     /// Install the runtime-local numeric projection selected by the native
     /// graph owner. The semantic principal must already be an exact member of
     /// the immutable armed snapshot; choosing an id cannot mint authority.
-    #[cfg(any(test, feature = "module-runner"))]
+    #[cfg(any(
+        test,
+        feature = "module-runner",
+        feature = "capsec-conformance-observer"
+    ))]
     pub(crate) fn module_runner_principal_id(
         &self,
         principal: &capsec_semantics::model::Principal,
@@ -5154,6 +5158,18 @@ impl Host {
         let key = principal_id.to_string();
         mappings.insert(key, principal.clone());
         Ok(principal_id)
+    }
+
+    /// Resolve an immutable-snapshot principal to the native projection used
+    /// by observer-only constrained-principal break tests. This cannot add a
+    /// principal or authority and is absent from production feature sets.
+    // @ref LLP 0049#3-construction-rules
+    #[cfg(feature = "capsec-conformance-observer")]
+    pub fn conformance_observer_principal_id(
+        &self,
+        principal: &capsec_semantics::model::Principal,
+    ) -> anyhow::Result<u32> {
+        self.module_runner_principal_id(principal)
     }
 
     /// Import-graph gate: may the module identified by `module_id` load

@@ -778,6 +778,38 @@ const sqliteFileSetup = (path) => [
     path,
   },
 ];
+// File-retained SQLite probes must open the initialized fixture through the
+// loaded native global. This produces the real runtime-owned SQLite registry
+// entry; the optional prepare step derives a real statement from that same
+// file-backed database.
+// @ref LLP 0021#handles-dynamic-authority-and-generations
+// @ref LLP 0049#3-construction-rules
+const sqliteFileHandleSetup = (
+  path,
+  { writable = false, withStatement = false, writeStatement = false } = {},
+) => [
+  {
+    kind: "sqlite-file-database",
+    globalName: "__exactSqliteOpen",
+    path,
+    options: writable
+      ? { create: false, readwrite: true }
+      : { readonly: true },
+    requiredSourceArity: 2,
+  },
+  ...(withStatement
+    ? [
+        {
+          kind: "sqlite-file-statement",
+          globalName: "__exactSqlitePrepare",
+          sql: writeStatement
+            ? "UPDATE ibex_capsec_probe SET value = 'file-backed-updated'"
+            : "SELECT value FROM ibex_capsec_probe",
+          requiredSourceArity: 2,
+        },
+      ]
+    : []),
+];
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
 // retained filesystem controls receive a source-bound descriptor created by
 // the harness before the zero-decision invocation is observed.
@@ -2444,29 +2476,44 @@ const nativeRetainedFsFstatTemplate = () =>
     expectedCleanup: "closed-fs-file-descriptor",
     expectedDecisionCounts: {
       allow: 1,
+      deny: 1,
       malformed: 1,
       "missing-attribution": 1,
       "wrong-principal": 1,
     },
     expectedObservedActionIds: {
       allow: ["fs:list"],
+      deny: ["fs:list"],
       malformed: ["fs:list"],
       "missing-attribution": ["fs:list"],
       "wrong-principal": ["fs:list"],
     },
     expectedResults: {
       allow: "return",
+      deny: "permission-denied",
       malformed: "return",
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
     expectedStages: {
       allow: ["repeat"],
+      deny: ["repeat"],
       malformed: ["repeat"],
       "missing-attribution": ["repeat"],
       "wrong-principal": ["repeat"],
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSetupFloor: [
       {
         cap: "fs:list",
         resource: projectPathExactResource("Cargo.toml"),
@@ -4507,6 +4554,8 @@ function bindNativeSetupSources(setup, liveByObservedKey, target) {
     !new Set([
       "fs-read-file",
       "fs-write-file",
+      "sqlite-file-database",
+      "sqlite-file-statement",
       "sqlite-memory-database",
       "sqlite-memory-statement",
       "tcp-loopback-client",

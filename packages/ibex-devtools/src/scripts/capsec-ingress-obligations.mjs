@@ -99,7 +99,7 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
         "let mut admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };",
         "let preparation = match prepare(&request) {",
         "ex_hermes_structured_module_graph_begin(",
-        "evaluate_authenticated_inner_with_admission(request, None, admission)",
+        "evaluate_authenticated_inner_with_admission(request, None, None, admission)",
       ]),
       freezeEvidence("src/engine/hermes_runtime.cc", [
         "extern \"C\" uint32_t ex_hermes_structured_submission_admit(",
@@ -830,7 +830,10 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-3e99Kc5kboU7zFPvs8-YvBJf0FB-dZnol6EorlywWf4",
+      // Restamped 2026-08-10: the conformance-observer-only retained-handle
+      // entrypoint delegates to the ordinary authenticated lowered evaluator
+      // after installing a one-shot, canonical principal stack.
+      "sha256-ItRRcToWEU_fk-pqsgsqENGz1uTklZHCiJa6Tjha9fc",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",
@@ -844,13 +847,17 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "lowered-session-protocol",
       "use super::session_lowering::{",
       "pub struct StructuredEvaluation {",
-      "sha256-5SMphAyc8CTKlFWUuwgmp2AkjMmRk2XJnK-XSAhak1c",
+      // Restamped 2026-08-10: the observer-only constrained-principal ABI is
+      // declared alongside the unchanged authenticated lowered-session ABI.
+      "sha256-PBg5RlI1dVdOOG6_Nrl_3emvpTJVZjuMPl_b1eeenSo",
     ),
     freezeReviewedRange(
       "authenticated-lowering-adapter",
       "pub unsafe fn admit_prepare_authenticated_module_graph<T, F>(",
       "/// Poll the nonblocking native settlement state for one exact suspended",
-      "sha256-tewuyRf15sG7xlkkpLdaackVlr9w6A5prAnB9WRQbBU",
+      // Restamped 2026-08-10: observer builds may add an exact canonical
+      // principal intersection after ordinary authenticated admission.
+      "sha256-JaSVdgR8v2jhcQ0jDy6bI3iBj5LevVbeF76e2NjoGM8",
     ),
   ]),
   "src/engine/session_lowering.rs": Object.freeze([

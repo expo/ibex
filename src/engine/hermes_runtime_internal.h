@@ -437,6 +437,15 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
   uint64_t host_context_id{0};
   uint64_t runtime_nonce{0};
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  // One authenticated lowered-session submission may opt into an additional
+  // constrained-principal intersection in observer builds. The private C
+  // wrapper installs and clears this value around the ordinary authenticated
+  // evaluator, so production entrypoints cannot retain or select it.
+  // @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+  std::optional<std::vector<uint64_t>>
+      capsec_next_evaluation_principals;
+#endif
   // Armed runtimes bind their authenticated `/project` namespace before any
   // bootstrap code runs. This bit makes partial construction and normal
   // teardown idempotently close the exact generation.
