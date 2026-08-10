@@ -1185,12 +1185,14 @@ const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactStat",
   "__exactStatfs",
   "__exactTruncate",
+  "__exactWhich",
   "__exactWriteFile",
 ]);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // dispatcher remains the public surface, while typed evidence must select its
 // exact source-chosen worker rather than any allowed auxiliary edge.
 const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
+  ["access", "native-op:__exactAccess"],
   ["mkdir", "native-op:__exactMkdir"],
   ["readdir", "native-op:__exactReaddir"],
   ["realpath", "native-op:__exactRealpath"],
@@ -1259,13 +1261,19 @@ export function nativeAsyncWorkerTerminal(authored) {
   return terminals?.length === 1 ? terminals[0] : null;
 }
 
-export function validateNativeFilesystemDenialRecipeDescriptor(authored) {
+export function validateNativeFilesystemDenialRecipeDescriptor(
+  authored,
+  recipe,
+) {
+  const reviewedFilesystemPolicyDenial =
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) &&
+    authored.expectedDenyMessageFragment === "filesystem policy denied";
   if (
-    authored?.invocationSchema !==
-      "ibex/capsec-native-global-invocation/1" ||
-    authored.kind !== "native-global-function" ||
-    !NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) ||
-    authored.expectedDenyMessageFragment !== "filesystem policy denied"
+    !reviewedFilesystemPolicyDenial &&
+    !reviewedNativeClosedFilesystemMutation({ authored, recipe })
   ) {
     throw new Error("unreviewed native denial expectation");
   }
@@ -3517,7 +3525,7 @@ function validateRuntimeInvocation(observation, recipe) {
       }
       if (hasTopLevelDenyFragment) {
         try {
-          validateNativeFilesystemDenialRecipeDescriptor(authored);
+          validateNativeFilesystemDenialRecipeDescriptor(authored, recipe);
         } catch {
           throw new Error(
             `${recipe.fixtureId}: unreviewed native denial expectation`,
@@ -7112,36 +7120,57 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.expectedCleanup !== undefined
     ) {
       throw new Error(
-        `${recipe.fixtureId}: builtin return cannot bind both a string and cleanup`,
+        `${recipe.fixtureId}: public return cannot bind both a string and cleanup`,
       );
     }
     if (authored.expectedStringValue !== undefined) {
+      const exactNativeWhichString =
+        authored.invocationSchema ===
+          "ibex/capsec-native-global-invocation/1" &&
+        authored.kind === "native-global-function" &&
+        authored.globalName === "__exactWhich";
+      const reviewedNativeWhichArgument = new Set([
+        "/project/ref-check",
+        "ref-check",
+      ]).has(authored.arguments?.[0]?.value);
       exactKeys(
         invocation.result,
-        [
-          "kind",
-          "moduleSpecifier",
-          "exportName",
-          "valueType",
-          "stringValue",
-        ],
-        `${recipe.fixtureId}: builtin string result`,
+        exactNativeWhichString
+          ? ["kind", "globalName", "valueType", "cleanup", "stringValue"]
+          : [
+              "kind",
+              "moduleSpecifier",
+              "exportName",
+              "valueType",
+              "stringValue",
+            ],
+        `${recipe.fixtureId}: public string result`,
       );
+      const exactBuiltinReadlinkString =
+        authored.invocationSchema ===
+        "ibex/capsec-builtin-export-invocation/1";
       if (
-        authored.invocationSchema !==
-          "ibex/capsec-builtin-export-invocation/1" ||
-        authored.kind !== "builtin-export-call" ||
-        authored.moduleSpecifier !== "node:fs" ||
-        authored.exportName !== "readlinkSync" ||
         typeof authored.expectedStringValue !== "string" ||
         authored.expectedStringValue.length === 0 ||
-        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
-        invocation.result.exportName !== authored.exportName ||
         invocation.result.valueType !== "string" ||
-        invocation.result.stringValue !== authored.expectedStringValue
+        invocation.result.stringValue !== authored.expectedStringValue ||
+        (!exactNativeWhichString &&
+          (!exactBuiltinReadlinkString ||
+            authored.kind !== "builtin-export-call" ||
+            authored.moduleSpecifier !== "node:fs" ||
+            authored.exportName !== "readlinkSync" ||
+            invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+            invocation.result.exportName !== authored.exportName)) ||
+        (exactNativeWhichString &&
+          (authored.arguments?.length !== 1 ||
+            authored.arguments[0]?.kind !== "json-literal" ||
+            !reviewedNativeWhichArgument ||
+            authored.expectedStringValue !== "/project/ref-check" ||
+            invocation.result.globalName !== authored.globalName ||
+            invocation.result.cleanup !== "none"))
       ) {
         throw new Error(
-          `${recipe.fixtureId}: builtin string return did not match its authored value`,
+          `${recipe.fixtureId}: public string return did not match its authored value`,
         );
       }
     }
@@ -7273,6 +7302,9 @@ function validateRuntimeInvocation(observation, recipe) {
           "globalName",
           "valueType",
           "cleanup",
+          ...(authored.expectedStringValue !== undefined
+            ? ["stringValue"]
+            : []),
           ...(armedEnvironmentEnumeration ? ["valuePropertyCount"] : []),
         ],
         `${recipe.fixtureId}: native call result`,
@@ -7286,7 +7318,11 @@ function validateRuntimeInvocation(observation, recipe) {
             invocation.result.valuePropertyCount !== 0 ||
             invocation.result.cleanup !== "none")) ||
         (authored.expectedCleanup !== undefined &&
-          invocation.result.cleanup !== authored.expectedCleanup)
+          invocation.result.cleanup !== authored.expectedCleanup) ||
+        (authored.expectedStringValue !== undefined &&
+          (authored.globalName !== "__exactWhich" ||
+            invocation.result.valueType !== "string" ||
+            invocation.result.stringValue !== authored.expectedStringValue))
       ) {
         throw new Error(
           `${recipe.fixtureId}: native call did not prove its authored cleanup`,
@@ -7591,6 +7627,19 @@ function validateRuntimeInvocation(observation, recipe) {
     const authoredFragment =
       authored.expectedDenyMessageFragment ??
       authored.publicAccess?.expectedDenyMessageFragment;
+    if (
+      reviewedNativeClosedFilesystemMutationRequired({ authored, recipe }) &&
+      (!reviewedNativeClosedFilesystemMutation({ authored, recipe }) ||
+        !reviewedNativeClosedFilesystemMutationResult({
+          authored,
+          recipe,
+          result: invocation.result,
+        }))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: closed native filesystem mutation account drifted`,
+      );
+    }
     const expectedFragment = authoredFragment ?? "Permission denied";
     const errorMessage = invocation.result.errorMessage;
     const fragmentMatched =
@@ -9386,17 +9435,13 @@ export function validatePublicFixtureRuntimeObservation(
       );
     }
   }
-  const expectedActions =
-    authored.expectedResult === "absent" ? [] : authored.expectedActionIds;
   const observedActions = [...actions].sort(compareText);
-  const observedActionSet = new Set(observedActions);
-  const actionSetMatches = builtinOpenThenAct
-    ? expectedActions.every((action) => observedActionSet.has(action)) &&
-      observedActions.every(
-        (action) => expectedActions.includes(action) || action === "fs:list",
-      )
-    : canonicalJson(observedActions) ===
-      canonicalJson([...expectedActions].sort(compareText));
+  const actionSetMatches = observedActionSetMatchesReviewedAccount({
+    authored,
+    recipe,
+    observedActions,
+    builtinOpenThenAct,
+  });
   if (
     canonicalJson(stages) !== canonicalJson(authored.expectedTypedStages) ||
     !actionSetMatches ||
@@ -9434,6 +9479,7 @@ export function validatePublicFixtureRuntimeObservation(
         authored.operation?.kind ===
           "process-event-lifecycle-no-effect" &&
         ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
+      reviewedNativeClosedFilesystemMutation({ authored, recipe }) ||
       (recipe.classification === "effects" &&
         recipe.actionIds.length === 0 &&
         ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
@@ -9544,6 +9590,280 @@ export function validatePublicFixtureRuntimeObservation(
     );
   }
   return terminalObservedKey;
+}
+
+export function reviewedNativeEarlyDenialActionPrefix({
+  authored,
+  recipe,
+  observedActions,
+}) {
+  // @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+  // This independently mirrors the bound executor's one reviewed early-deny
+  // prefix without sharing a table or accepting a general action subset.
+  return (
+    reviewedNativeEarlyDenialActionPrefixRequired({ authored, recipe }) &&
+    authored.expectedTypedDecisionCount === 1 &&
+    canonicalJson(authored.expectedTypedStages) ===
+      canonicalJson(["requested"]) &&
+    canonicalJson(authored.expectedActionIds) ===
+      canonicalJson(["env:read", "fs:list"]) &&
+    canonicalJson(observedActions) === canonicalJson(["env:read"])
+  );
+}
+
+export function reviewedNativeClosedFilesystemMutationRequired({
+  authored,
+  recipe,
+}) {
+  const operation = authored?.arguments?.[0];
+  const directRecursiveMkdir =
+    authored?.globalName === "__exactMkdir" &&
+    canonicalJson(authored.arguments) ===
+      canonicalJson([
+        {
+          kind: "json-literal",
+          value: "target/ibex-capsec-mkdir-recursive-closed",
+        },
+        { kind: "json-literal", value: true },
+        { kind: "json-literal", value: -1 },
+      ]);
+  const asyncClosedMutation =
+    operation?.kind === "json-literal" &&
+    ((authored?.globalName === "__exactFsFdAsync" &&
+      ["fchmod", "fchown", "futimes"].includes(operation.value)) ||
+      (authored?.globalName === "__exactFsPathAsync" &&
+        [
+          "chown",
+          "copyfile",
+          "copyfile_excl",
+          "lchmod",
+          "lchown",
+          "link",
+          "lutime",
+          "mkdir",
+          "mkdtemp",
+          "rename",
+          "rmdir",
+          "symlink",
+          "unlink",
+        ].includes(operation.value)));
+  return (
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    recipe?.classification === "closed" &&
+    recipe?.scenario === "branch-selection" &&
+    (directRecursiveMkdir || asyncClosedMutation)
+  );
+}
+
+export function reviewedNativeClosedFilesystemMutation({ authored, recipe }) {
+  if (
+    !reviewedNativeClosedFilesystemMutationRequired({ authored, recipe }) ||
+    authored.expectedResult !== "permission-denied" ||
+    authored.expectedDenyMessageFragment !==
+      "EPERM: operation not permitted" ||
+    authored.expectedTypedDecisionCount !== 0 ||
+    canonicalJson(authored.expectedTypedStages) !== canonicalJson([]) ||
+    canonicalJson(authored.expectedActionIds) !== canonicalJson([]) ||
+    canonicalJson(authored.requiredFloor) !== canonicalJson([]) ||
+    canonicalJson(authored.requiredSetupFloor ?? []) !== canonicalJson([]) ||
+    canonicalJson(authored.setup) !== canonicalJson([]) ||
+    (authored.globalName === "__exactMkdir"
+      ? authored.completion !== undefined
+      : canonicalJson(authored.completion) !==
+        canonicalJson({
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        }))
+  ) {
+    return false;
+  }
+  const literalArguments = authored.arguments.map((argument) =>
+    argument?.kind === "json-literal" ? argument.value : Symbol.for("invalid"),
+  );
+  if (literalArguments.some((value) => value === Symbol.for("invalid"))) {
+    return false;
+  }
+  if (authored.globalName === "__exactMkdir") {
+    return (
+      canonicalJson(literalArguments) ===
+      canonicalJson([
+        "target/ibex-capsec-mkdir-recursive-closed",
+        true,
+        -1,
+      ])
+    );
+  }
+  if (authored.globalName === "__exactFsFdAsync") {
+    const expected = new Map([
+      ["fchmod", ["fchmod", 42, 0o600, 0]],
+      ["fchown", ["fchown", 42, 0, 0]],
+      ["futimes", ["futimes", 42, 0, 0]],
+    ]).get(literalArguments[0]);
+    return canonicalJson(literalArguments) === canonicalJson(expected);
+  }
+  const expected = new Map([
+    [
+      "chown",
+      ["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0],
+    ],
+    [
+      "copyfile",
+      [
+        "copyfile",
+        "target/ibex-capsec-closed-copyfile-source",
+        "target/ibex-capsec-closed-copyfile-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "copyfile_excl",
+      [
+        "copyfile_excl",
+        "target/ibex-capsec-closed-copyfile-excl-source",
+        "target/ibex-capsec-closed-copyfile-excl-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "lchmod",
+      ["lchmod", "target/ibex-capsec-closed-lchmod", null, 0o600, 0, 0],
+    ],
+    [
+      "lchown",
+      ["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0],
+    ],
+    [
+      "link",
+      [
+        "link",
+        "target/ibex-capsec-closed-link-source",
+        "target/ibex-capsec-closed-link-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "lutime",
+      ["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0],
+    ],
+    [
+      "mkdir",
+      [
+        "mkdir",
+        "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+        null,
+        1,
+        -1,
+        0,
+      ],
+    ],
+    [
+      "mkdtemp",
+      ["mkdtemp", "target/ibex-capsec-closed-mkdtemp-", null, 0, 0, 0],
+    ],
+    [
+      "rename",
+      [
+        "rename",
+        "target/ibex-capsec-closed-rename-source",
+        "target/ibex-capsec-closed-rename-destination",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "rmdir",
+      ["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0],
+    ],
+    [
+      "symlink",
+      [
+        "symlink",
+        "closed-symlink-target",
+        "target/ibex-capsec-closed-symlink",
+        0,
+        0,
+        0,
+      ],
+    ],
+    [
+      "unlink",
+      ["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0],
+    ],
+  ]).get(literalArguments[0]);
+  return canonicalJson(literalArguments) === canonicalJson(expected);
+}
+
+export function reviewedNativeClosedFilesystemMutationResult({
+  authored,
+  recipe,
+  result,
+}) {
+  if (
+    !reviewedNativeClosedFilesystemMutation({ authored, recipe }) ||
+    !hasExactKeys(result, ["kind", "globalName", "errorName", "errorMessage"])
+  ) {
+    return false;
+  }
+  const operation =
+    authored.globalName === "__exactMkdir"
+      ? "mkdir"
+      : authored.arguments[0].value;
+  return (
+    result.kind === "throw" &&
+    result.globalName === authored.globalName &&
+    result.errorName === "Error" &&
+    result.errorMessage === `EPERM: operation not permitted, ${operation}`
+  );
+}
+
+export function reviewedNativeEarlyDenialActionPrefixRequired({
+  authored,
+  recipe,
+}) {
+  return (
+    authored?.invocationSchema ===
+      "ibex/capsec-native-global-invocation/1" &&
+    authored.kind === "native-global-function" &&
+    authored.globalName === "__exactWhich" &&
+    canonicalJson(authored.arguments) ===
+      canonicalJson([{ kind: "json-literal", value: "ref-check" }]) &&
+    authored.expectedResult === "permission-denied" &&
+    recipe?.scenario === "deny"
+  );
+}
+
+export function observedActionSetMatchesReviewedAccount({
+  authored,
+  recipe,
+  observedActions,
+  builtinOpenThenAct = false,
+}) {
+  if (reviewedNativeEarlyDenialActionPrefixRequired({ authored, recipe })) {
+    return reviewedNativeEarlyDenialActionPrefix({
+      authored,
+      recipe,
+      observedActions,
+    });
+  }
+  const expectedActions =
+    authored.expectedResult === "absent" ? [] : authored.expectedActionIds;
+  const observedActionSet = new Set(observedActions);
+  return builtinOpenThenAct
+    ? expectedActions.every((action) => observedActionSet.has(action)) &&
+        observedActions.every(
+          (action) => expectedActions.includes(action) || action === "fs:list",
+        )
+    : canonicalJson(observedActions) ===
+        canonicalJson([...expectedActions].sort(compareText));
 }
 
 function validateExecution(execution, recipe, engineBinaryDigest, coverage) {

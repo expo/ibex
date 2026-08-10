@@ -1,0 +1,131 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-fs-path-async-access-read-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactFsPathAsync logical access-read (6 rows)",
+  "sourceRevision": "base 52abebaed00852bdda31a805e17b9faac0e9b6f3 plus independently reviewed seven-file diff sha256 f508e5f58753bb7ac7a8a1c4c7714ba74c3d40ce5a3d0b310e59ff4f8d5c7177; this envelope and the two review artifacts are documentation over that exact implementation target",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Apartment MacBook Air fleet runner)",
+  "baselineCatalogDigest": "sha256-_yqPRp_GvFXSjrFkfHb1NLQeSXQmV5qVGxUVh8raQnM",
+  "candidateCatalogDigest": "sha256-cY2t5jerfrwBMazy0ZwfRgXgR1eRWxrrOCToaSoeOxg",
+  "candidateRawSha256": "f6978ed72d9bbaf23aad86827a8e355dd576edfb9cb3d3c22cb2f88c40880895",
+  "declaredAllowListDigest": "sha256-B0_z4ef7YxBCDs_62eKuAHI4vuEDe4XEnnD6otgJCjk",
+  "allowListRawSha256": "074ff3e1e7fb6310420ecffad9e2ae007238bee1037b85c49e70faa2d8090a39",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-fs-path-async-access-read.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fs-path-async-access-read.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fs-path-async-access-read.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 13 changes, 13 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -6, conditional-branch-selection-probe-not-authored -1, native-public-arguments-not-authored -6; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 304/304 fixtures, 19.56 s fixture execution; 3 target executions",
+    "batchSecondary": "PASS (exit 0), 338/338 fixtures, 24.16 s fixture execution; 3 target executions",
+    "productionEvidenceReplay": "PASS; independent reviewer rebuilt and byte-compared 6/6 retained observations through buildPublicFixtureEvidence"
+  },
+  "rowsClosed": 6,
+  "cells": [
+    "surface.native.op.exactfspathasync.10cb78b logical access-read (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "The exact logical access-read template class is complete. The six access-write sibling rows remain unresolved and unclaimed. On this Apple target, the retained-descriptor worker deliberately fails closed for R_OK/W_OK because AT_EMPTY_PATH is unavailable; those rows need separate adjudication and are not borrowed into this class.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3964 → 3970",
+    "unresolvedFixtures": "14696 → 14690",
+    "changedRows": "exactly 6 of 21784; 0 added, 0 removed; route, terminal, semantic edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). The provisional six-stage sequence matched the first physical observation; the correction loop instead discovered that the async carrier must bind its source-selected __exactAccess worker edge in both independent validators.",
+    "returnRows": [
+      "requested:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor"
+    ],
+    "denyRows": [
+      "requested:fs:list:deny:principal-denial"
+    ],
+    "coverageEdge": "surface.native.op.exactaccess.1a12cmn for every typed gate; native-op:__exactFsPathAsync remains the public carrier",
+    "d1AndD2Confirmation": "There is no surplus capability: every observed effect is the declared fs:list existence-metadata action. No fs:read or fs:write decision appears. Discovery alone uses ambient-root; all other successful decisions use the authored static floor, and denial stops at the first requested decision. No directory listing is performed or excused as traversal surplus."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/fs-path-async-access-read-primary-air-v4-final.json",
+    "primaryRawSha256": "aa2facfb19151902cef9f6142cd3b5cb4ef88cd72f027b25710a3a3cd24df5eb",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/fs-path-async-access-read-secondary-air-v2-final.json",
+    "secondaryRawSha256": "6f605df6c8edaa834b10e7d08f940340a7027e12852282b679549d9f886b9010",
+    "catalogBinding": "both envelopes bind sha256-cY2t5jerfrwBMazy0ZwfRgXgR1eRWxrrOCToaSoeOxg and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64",
+    "coverage": "6/6 target executions occur exactly once across disjoint shards (3 primary, 3 secondary), all passed",
+    "secureCommandAudit": "all six target executions carry the exact command tokens --no-default-features --features standard,capsec-conformance-observer,openssl-crypto"
+  },
+  "correctionLoop": [
+    {
+      "iteration": 1,
+      "failure": "The first physical batch stopped at the first access-read row because the typed decisions used the unbound source-selected worker edge surface.native.op.exactaccess.1a12cmn.",
+      "resolution": "Added __exactAccess as the recipe's exact auxiliary edge and added literal access -> native-op:__exactAccess to the Rust executor's closed FsPathAsync worker map, with positive and negative exact-account tests."
+    },
+    {
+      "iteration": 2,
+      "failure": "The mandatory pre-fix adversarial review replayed the real receipts through the independent JavaScript production evidence consumer and found 6/6 rejected because its separate closed worker map still omitted access; verdict NOT READY.",
+      "resolution": "Added only the literal access worker mapping to the JavaScript closed map, added near-miss and wrong-global negatives, corrected the stale count-specific Rust comment, regenerated source offsets, replayed 6/6 successfully, and obtained a fresh independent READY review with removal/widening break-tests in both validators."
+    }
+  ],
+  "environmentIncidents": [
+    "The first in-flight primary invocation produced no evidence file, so it was rerun with bounded retained logging; that clean run exposed the unbound-worker correction above. No assertion was weakened.",
+    "Adding Rust lines moved two source-derived environment offsets. The canonical full vendored regeneration chain was run, and check:drift plus the 11-test inventory suite are green.",
+    "An independent review cleanup temporarily restored the pre-regeneration inventory file in the shared worktree. This was detected before acceptance; the complete generator chain and every affected check were rerun on the final target.",
+    "The exact-final full devtools suite retains the seven known failures recorded in issues/20260808-capsec-registry-drift-suite-red-on-main.md and the prior-class baseline; their identities are unchanged."
+  ],
+  "executorChanges": [
+    "The Rust native batch validator adds the exact literal access -> native-op:__exactAccess entry to its closed __exactFsPathAsync source-selected worker map; its exact-account test still rejects null, unrelated operations, and wrong globals.",
+    "The independent JavaScript promotion evidence validator adds the same exact literal mapping; its test rejects access-read, a direct __exactAccess global, unrelated operations, wrong globals, and non-literal arguments.",
+    "The generated runtime environment inventory restamps only the two IBEX_CAPSEC_* byte offsets moved by the inserted Rust lines."
+  ],
+  "independentAdversarialReview": {
+    "preFixArtifact": "llp/reviews/0049-a2-native-fs-path-async-access-read-executor.codex.md",
+    "preFixDiffSha256": "f8a7356c53fa4a60639b3e67fe39e5e391361a184d161b0c0ceee022263c2fe1",
+    "preFixVerdict": "NOT READY; production evidence replay rejected 6/6 receipts because the independent JavaScript worker map omitted access",
+    "finalArtifact": "llp/reviews/0049-a2-native-fs-path-async-access-read-executor-final.codex.md",
+    "family": "OpenAI GPT-5 family via independent Codex workspace agents",
+    "reviewedBase": "52abebaed00852bdda31a805e17b9faac0e9b6f3",
+    "finalReviewedDiffSha256": "f508e5f58753bb7ac7a8a1c4c7714ba74c3d40ce5a3d0b310e59ff4f8d5c7177",
+    "verdict": "READY; 0 blockers, 0 material findings, 0 unaddressed minor findings",
+    "breakTests": "Independent detached-worktree mutations proved that removing access from either validator fails its positive account/replay, adding access-read to either validator fails the exact/near-miss account, and widening the global guard in either validator fails the wrong-global account. All mutations were restored and all seven reviewed file hashes matched the shared final target."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 53,
+    "correctionLoopIterations": 2,
+    "batchPrimarySeconds": 19.56,
+    "batchSecondarySeconds": 24.16,
+    "batchTotalSeconds": 43.72,
+    "finalStrictRegenerationAndBothDiffGatesSeconds": 10.7,
+    "exactFinalFullDevtoolsSuiteSeconds": 329.75
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical across the pre-review, post-correction, post-regeneration, and exact-final candidates, reproducing both candidate and allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two IBEX_CAPSEC_* source byte offsets",
+    "focusedJavaScript": "PASS; recipe test 1 pass / 111 filtered and evidence-validator tests 2 pass / 85 filtered",
+    "focusedRust": "PASS; 1 pass / 655 filtered with the exact secure feature vector",
+    "referenceCheck": "PASS; 51 LLP docs, 2535 refs in 2012 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1397 pass / 7 fail versus prior-class baseline 1396 pass / 7 fail; the added access-read fixture accounts for the one additional pass and all seven failure identities are unchanged"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 125,
+    "endRows": 119,
+    "remainingGroups": 45,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 13,
+      "no-action": 17,
+      "fs:read+fs:write": 12,
+      "env:read+fs:list": 6
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. Five committed tranches will have closed 41 of the 160 real obligations. The exact remaining-group ledger is /Users/ccheever/phase1-runs/campaign-a2/remaining-groups-after-access-read.json."
+  }
+}

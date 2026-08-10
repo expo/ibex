@@ -1,0 +1,121 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-fs-write-file-async-path-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactFsWriteFileAsync logical path (6 rows)",
+  "sourceRevision": "d6c32469ed21bc6fd489dcc963fa8720734c3843 (detached exact review target; tree 0f1c4d509058a6a54e4fc4fc78650bbc59523fd1; the landing commit differs only by evidence/review retention and generated source offsets)",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Mac Air fleet runner)",
+  "baselineCatalogDigest": "sha256-PtfRaTT3gcL8sQG33ZJJKurCwxPs1wsh17L7ZvXbypk",
+  "candidateCatalogDigest": "sha256-ufiaNsMFnU2Y-h0gn94cBWrg1fyGNxN9AmMK93NdpVw",
+  "declaredAllowListDigest": "sha256-6_wYBtPOaRIDfSaa_XVxtd1lQm-6nhtLVU_ied47mnA",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-fs-write-file-async-path.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fs-write-file-async-path.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fs-write-file-async-path.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 13 changes, 13 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -6, conditional-branch-selection-probe-not-authored -1, native-public-arguments-not-authored -6; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 300/300 fixtures, 18.89 s fixture execution; 5 target executions",
+    "batchSecondary": "PASS (exit 0), 330/330 fixtures, 21.34 s fixture execution; 1 target execution"
+  },
+  "rowsClosed": 6,
+  "cells": [
+    "surface.native.op.exactfswritefileasync.0fv6zp9 logical path (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "The exact __exactFsWriteFileAsync logical-path template class is complete. Thirty other fs:write rows remain in different native globals and logical branches; they require their own paired templates, observed sequences, and physical batches.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3952 → 3958",
+    "unresolvedFixtures": "14708 → 14702",
+    "changedRows": "exactly 6 of 21784; 0 added, 0 removed; route, terminal, edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). The first physical correction removed a guessed deny-row commit: the real deny terminates at fs:write discovery.",
+    "returnRows": [
+      "requested:fs:list:allow:ambient-root",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "repeat:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "discovery:fs:write:allow:static-floor",
+      "commit:fs:write:allow:static-floor",
+      "repeat:fs:write:allow:static-floor"
+    ],
+    "denyRows": [
+      "requested:fs:list:allow:ambient-root",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "repeat:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "discovery:fs:write:deny:principal-denial"
+    ],
+    "d1AndD2Confirmation": "All six surplus fs:list decisions per execution carry a fs-write-file-async: operation ID and use only requested, discovery, or repeat stages during the path walk. None is a commit, none returns directory entries, and the operation's only effect floor is fs:write. Successful rows return undefined only after exact byte equality is checked, then the Rust harness removes the exact owned file and publishes removed-owned-file. Deny throws before commit, leaves the path absent, and publishes no cleanup marker. This is LLP 0037 D1/D2 traversal attribution, not a real directory-listing effect."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/fs-write-file-async-primary-air-v7-final.json",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/fs-write-file-async-secondary-air-v3-final.json",
+    "catalogBinding": "both envelopes bind sha256-ufiaNsMFnU2Y-h0gn94cBWrg1fyGNxN9AmMK93NdpVw and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64",
+    "coverage": "6/6 target executions occur exactly once across disjoint shards (5 primary, 1 secondary), all passed"
+  },
+  "correctionLoop": [
+    "Iteration 1: the existing async harness rejected the native-global-result argument producer. Added fail-closed support for exactly __exactStringToUtf8Bytes with exactly the campaign literal; no general producer execution was enabled.",
+    "Iteration 2: the native denial-message validator did not yet admit __exactFsWriteFileAsync. Added that exact global to the existing filesystem-denial family.",
+    "Iteration 3: the provisional template incorrectly put traversal fs:list into the required floor. Physical authority evidence showed ambient-root traversal, so D1/D2 review corrected the semantic floor to fs:write only.",
+    "Iteration 4: the provisional deny sequence guessed an eighth commit decision. The bound engine observed seven decisions ending at denied fs:write discovery; the observed sequence was pinned exactly per LLP 0037 D3. No assertion was weakened."
+  ],
+  "environmentIncidents": [
+    "The first final-review attempt could not read external evidence because of the review runner's directory permission boundary. Read-only copies were placed under the ignored target/a2-review-evidence directory and a fresh review session completed against the same exact Git tree.",
+    "The full devtools suite retained the seven known failures recorded in issues/20260808-capsec-registry-drift-suite-red-on-main.md; their identities match the prior-class same-commit baseline."
+  ],
+  "executorChanges": [
+    "The async argument materializer accepts only a native-global-result from __exactStringToUtf8Bytes with exactly one literal ibex-capsec-async-write-file argument, and records producer throws rather than fabricating bytes.",
+    "The incidental traversal allowance is restricted to __exactFsWriteFileAsync, the exact harness-owned output path, exact expected actions [fs:write], the fs-write-file-async: operation prefix, and reviewed traversal stages.",
+    "Preparation removes only the exact stale owned file and registers cleanup. Finalization checks exact bytes on return, removes the file, publishes removed-owned-file, and rejects any deny-row physical-state change."
+  ],
+  "independentAdversarialReview": {
+    "artifact": "llp/reviews/0049-a2-native-fs-write-file-async-path-executor.claude.md",
+    "family": "Claude (Anthropic Sonnet 4.6), via OpenCode CLI",
+    "reviewedRevision": "d6c32469ed21bc6fd489dcc963fa8720734c3843",
+    "reviewedTree": "0f1c4d509058a6a54e4fc4fc78650bbc59523fd1",
+    "reviewedDiffSha256": "99c8329da01223714f35946990d6aef649092714a179c4faf866db7b84ba38ee",
+    "verdict": "READY; 0 blockers, 0 material findings, 3 informational notes",
+    "breakTests": "5 of 5 load-bearing mutations caused a credited focused test to fail: widened path boundary, weakened producer literal, removed action-ID guard, weakened exact-byte postcondition, and removed cleanup registration. Every mutation was reverted and both baselines ended green in a clean detached worktree."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 95,
+    "correctionLoopIterations": 4,
+    "batchPrimarySeconds": 18.89,
+    "batchSecondarySeconds": 21.34,
+    "batchTotalSeconds": 40.23,
+    "finalStrictRegenerationAndBothDiffGatesSeconds": 10.5
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical to the retained pre-review candidate and reproduced both candidate and allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two pre-existing IBEX_CAPSEC_* source offsets shifted by the inserted Rust lines",
+    "focusedJavaScript": "PASS; 1 pass, 109 filtered, 0 fail",
+    "focusedRust": "PASS; native_async_ 4 pass / 651 filtered and exact incidental traversal 1 pass / 654 filtered, both with the exact secure feature vector; the lifecycle's three emitted panics are expected caught fail-closed cases",
+    "referenceCheck": "PASS; 51 LLP docs, 2533 refs in 2008 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1395 pass / 7 fail versus prior-class baseline 1394 pass / 7 fail; the added async write-file fixture accounts for the one additional pass and all seven failure identities are unchanged from issues/20260808-capsec-registry-drift-suite-red-on-main.md"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 137,
+    "endRows": 131,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 25,
+      "no-action": 17,
+      "fs:read+fs:write": 12,
+      "env:read+fs:list": 6
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. The readlink, SQLite-open, and async write-file path tranches have closed 29 of the 160 real obligations."
+  }
+}

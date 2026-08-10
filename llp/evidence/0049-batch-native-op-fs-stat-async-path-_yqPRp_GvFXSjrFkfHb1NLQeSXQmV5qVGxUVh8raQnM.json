@@ -1,0 +1,113 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-fs-stat-async-path-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactFsStatAsync logical path (6 rows)",
+  "sourceRevision": "a162466417e3724ee5890b3592a717a34f23313a (physical execution and full adversarial review target; tree 262bcfa2fd6c449675eaa293d3403e501890aa6d). Final source review target 6587099be4756041ba6bcf8b3321fea9fdd2f181, tree a2b3101cf921e26b977d5e9ba4c32c47700a14de, differs only by a corrected reference-annotation comment and generated environment-inventory offsets; an independent addendum verified semantic identity and returned READY.",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Mac Air fleet runner)",
+  "baselineCatalogDigest": "sha256-ufiaNsMFnU2Y-h0gn94cBWrg1fyGNxN9AmMK93NdpVw",
+  "candidateCatalogDigest": "sha256-_yqPRp_GvFXSjrFkfHb1NLQeSXQmV5qVGxUVh8raQnM",
+  "declaredAllowListDigest": "sha256-XBsA7uh7z1rDSBqnbxeKEr_CqpSwsKwYG30AeR7HvIA",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-fs-stat-async-path.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fs-stat-async-path.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fs-stat-async-path.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 13 changes, 13 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -6, conditional-branch-selection-probe-not-authored -1, native-public-arguments-not-authored -6; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 301/301 fixtures, 19.38 s fixture execution; 1 target execution",
+    "batchSecondary": "PASS (exit 0), 335/335 fixtures, 22.14 s fixture execution; 5 target executions"
+  },
+  "rowsClosed": 6,
+  "cells": [
+    "surface.native.op.exactfsstatasync.0b0hr8s logical path (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "The exact __exactFsStatAsync logical-path template class is complete. Its six retained-descriptor rows remain unresolved and are not claimed; they require retained setup before the denied principal is installed, which the current executor ordering cannot honestly provide.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3958 → 3964",
+    "unresolvedFixtures": "14702 → 14696",
+    "changedRows": "exactly 6 of 21784; 0 added, 0 removed; route, terminal, edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). The provisional sequence matched the first physical observation, so no correction iteration was required.",
+    "returnRows": [
+      "requested:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor"
+    ],
+    "denyRows": [
+      "requested:fs:list:deny:principal-denial"
+    ],
+    "d1AndD2Confirmation": "There is no surplus fs:list set: fs:list is the direct metadata operation's semantic floor. All six non-deny decisions and the deny decision are therefore operation decisions, not incidental traversal being excused. No fs:read or fs:write decision appears. Discovery alone uses ambient-root; all other successful decisions use static-floor."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/fs-stat-async-path-primary-air-v3-final.json",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/fs-stat-async-path-secondary-air-v2-final.json",
+    "catalogBinding": "both envelopes bind sha256-_yqPRp_GvFXSjrFkfHb1NLQeSXQmV5qVGxUVh8raQnM and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64",
+    "coverage": "6/6 target executions occur exactly once across disjoint shards (1 primary, 5 secondary), all passed",
+    "secureCommandAudit": "all six target executions carry the exact command tokens --no-default-features --features standard,capsec-conformance-observer,openssl-crypto"
+  },
+  "correctionLoop": [],
+  "environmentIncidents": [
+    "The primary computer's symlinked target fixture directory made an unrelated, pre-existing __exactAppendFile wrong-principal case resolve outside the test mount. No assertion was changed. The final physical runs used the qualified Apartment MacBook Air with a real worktree-local target fixture directory and passed both complete shards.",
+    "The first independent review worktree needed explicit shared Hermes build paths. After those read-only build inputs were supplied, its focused baseline and all break-tests completed; the worktree was clean afterward.",
+    "The first local ref-check found that the newly added reference annotation named a nonexistent fragment. The comment anchor was corrected, and a fresh independent addendum verified the exact final source target was semantically identical to the READY-reviewed target.",
+    "The full devtools suite retained the seven known failures recorded in issues/20260808-capsec-registry-drift-suite-red-on-main.md and the campaign baseline; their identities match the prior-class same-tree baseline."
+  ],
+  "executorChanges": [
+    "The filesystem denial-message validator now factors its reviewed global-name set into one exact predicate and admits __exactFsStatAsync only by exact equality.",
+    "The focused Rust test requires the exact global and rejects both __exactFsStatAsyncExtra and the unreviewed __exactFsLstatAsync sibling."
+  ],
+  "independentAdversarialReview": {
+    "artifact": "llp/reviews/0049-a2-native-fs-stat-async-path-executor.claude.md",
+    "addendum": "llp/reviews/0049-a2-native-fs-stat-async-path-executor-addendum.claude.md",
+    "family": "Claude (Anthropic Sonnet 4.6), via two independent OpenCode CLI sessions",
+    "reviewedRevision": "a162466417e3724ee5890b3592a717a34f23313a",
+    "reviewedTree": "262bcfa2fd6c449675eaa293d3403e501890aa6d",
+    "reviewedDiffSha256": "7c1bebbd3e9da7f3946f0ab7e45a2e8b703140650e1d31a5712acc6ab61ea6f3",
+    "finalReviewedRevision": "6587099be4756041ba6bcf8b3321fea9fdd2f181",
+    "finalReviewedTree": "a2b3101cf921e26b977d5e9ba4c32c47700a14de",
+    "finalReviewedDiffSha256": "9e3939fcb668c75546b635fa17f3484cd8c1ddc518232d1fa1c84ff0a3cb992e",
+    "verdict": "READY in the full review and READY in the final-target addendum; 0 blockers and 0 material findings",
+    "breakTests": "Removing __exactFsStatAsync failed the positive assertion; widening the predicate to __exactFsStatAsyncExtra or __exactFsLstatAsync failed the negative assertion; deleting the test body passed trivially and was credited as proof that independent source review is necessary. Every mutation was reverted and the review worktree ended clean."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 50,
+    "correctionLoopIterations": 0,
+    "batchPrimarySeconds": 19.38,
+    "batchSecondarySeconds": 22.14,
+    "batchTotalSeconds": 41.52,
+    "finalStrictRegenerationAndBothDiffGatesSeconds": 10.6
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical to the retained pre-review candidate and reproduced both candidate and allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two IBEX_CAPSEC_* source offsets shifted by the inserted Rust lines",
+    "focusedJavaScript": "PASS; 1 pass, 110 filtered, 0 fail",
+    "focusedRust": "PASS; 1 pass, 655 filtered, exact secure feature vector",
+    "referenceCheck": "PASS; 51 LLP docs, 2534 refs in 2010 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1396 pass / 7 fail versus prior-class baseline 1395 pass / 7 fail; the added async-stat fixture accounts for the one additional pass and all seven failure identities are unchanged"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 131,
+    "endRows": 125,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 19,
+      "no-action": 17,
+      "fs:read+fs:write": 12,
+      "env:read+fs:list": 6
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. The readlink, SQLite-open, async write-file path, and async stat path tranches have closed 35 of the 160 real obligations."
+  }
+}

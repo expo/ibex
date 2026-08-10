@@ -1,0 +1,135 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-env-read-fs-list-which-bare-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactWhich logical bare-command (6 rows)",
+  "sourceRevision": "base 52a7f61276ed1cc50921499400b29bc1892dc927 plus independently reviewed seven-file implementation diff sha256 d1d21c11ca1e8b2d80a58c4ed33bd0cc2b442dfb488c25bcc85e801f706923a6; this envelope and the two review artifacts document that exact implementation target",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Apartment MacBook Air fleet runner)",
+  "baselineCatalogDigest": "sha256--zHoPIkgplAuRKPVWDmzbmLClmE4tEL02MjD4PWNpqI",
+  "candidateCatalogDigest": "sha256-Yqenf9cBCh57flKqrJWc266ihly5w3cD-VBOYDW9RpY",
+  "candidateRawSha256": "4119432be2e56c607bfb4273c3336c5102d9533c9400c2fae1932e95b3ddd2d6",
+  "declaredAllowListDigest": "sha256-5A4uWaO0IEaB5xNu_1WcgLyTMpOXlryGHRbSLZuhIPY",
+  "allowListRawSha256": "e40e2e59a3b4204681e7136eff559c80bc9332939796bc861d16d22d9ba120f6",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-env-read-fs-list-which-bare.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-env-read-fs-list-which-bare.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-env-read-fs-list-which-bare.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 13 changes, 13 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -6, conditional-branch-selection-probe-not-authored -1, native-public-arguments-not-authored -6; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 312/312 fixtures, 19.65 s fixture execution; 4 target executions",
+    "batchSecondary": "PASS (exit 0), 342/342 fixtures, 22.06 s fixture execution; 2 target executions",
+    "productionEvidenceReplay": "PASS; 6/6 final v5 observations rebuilt byte-for-byte through buildPublicFixtureEvidence; wrong denial action, narrowed denial declaration, and wrong logical string mutations rejected"
+  },
+  "rowsClosed": 6,
+  "cells": [
+    "surface.native.op.exactwhich.0it66ce logical bare-command (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "The bare-command branch is complete. The slash-containing-command sibling was closed in the preceding class, so the A2 __exactWhich cell has no remaining rows.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3976 → 3982",
+    "unresolvedFixtures": "14684 → 14678",
+    "changedRows": "exactly 6 of 21784; 0 added, 0 removed; route, terminal, semantic edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine after physical execution, never guessed (LLP 0037 D3). Every successful row also pins the exact logical return string /project/ref-check.",
+    "returnRows": [
+      "requested:env:read:allow:static-floor",
+      "commit:env:read:allow:static-floor",
+      "requested:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:static-floor"
+    ],
+    "denyRows": [
+      "requested:env:read:deny:principal-denial"
+    ],
+    "coverageEdge": "surface.native.op.exactwhich.0it66ce for every typed gate; native-op:__exactWhich is both public carrier and observed terminal",
+    "d1AndD2Confirmation": "The two env:read decisions authenticate the principal PATH overlay. Every fs:list operation has an fs-which identity and represents executable-path traversal, candidate discovery, or final-object metadata for project/ref-check. None performs readdir or returns directory entries; no genuine listing is excused as traversal surplus. Denial stops at the first requested environment decision."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/env-read-fs-list-which-bare-primary-v5-final.json",
+    "primaryRawSha256": "628e4ce1314f063a3494d0d0218e4c4b0307199753f459f58bfc2a1cde32048f",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/env-read-fs-list-which-bare-secondary-v5-final.json",
+    "secondaryRawSha256": "2dab4790eee403d4673c6578baf8141db5b7792f6b2c137c713f9fdfa9376add",
+    "catalogBinding": "both envelopes bind sha256-Yqenf9cBCh57flKqrJWc266ihly5w3cD-VBOYDW9RpY and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64",
+    "coverage": "6/6 target executions occur exactly once across disjoint shards (4 primary, 2 secondary), all passed; all five non-deny rows carry valueType string and stringValue /project/ref-check",
+    "secureCommandAudit": "both physical commands contain the exact tokens --no-default-features --features standard,capsec-conformance-observer,openssl-crypto"
+  },
+  "correctionLoop": [
+    {
+      "iteration": 1,
+      "failure": "The first physical denial stopped after env:read as expected, but the generic action validator required the complete declared env:read + fs:list set to have been observed.",
+      "resolution": "Added an exact bare-which early-denial prefix account, bound independently to the native global, literal argument, result, scenario, stage, declared actions, and observed action prefix."
+    },
+    {
+      "iteration": 2,
+      "failure": "The malformed physical row observed both env:read and fs:list, while the generic adapter expectation exposed only env:read.",
+      "resolution": "Authored the malformed row's complete observed action set without changing its typed sequence or weakening the validator."
+    },
+    {
+      "iteration": 3,
+      "failure": "The mandatory first adversarial review proved a narrowed denial declaration [env:read] could fail the exact helper and then pass generic equality in both production consumers; verdict NOT READY.",
+      "resolution": "Classified the protected denial subject before inspecting its action account and returned the exact helper result without generic fallthrough in both Rust and JavaScript. Added production-wrapper negatives, reran both physical shards and the full replay, and obtained a fresh READY review."
+    }
+  ],
+  "environmentIncidents": [
+    "The final correction moved two source-derived runtime environment offsets. The canonical full vendored regeneration chain was run; check:drift and the 11-test inventory suite are green.",
+    "The exact-final full devtools suite retains the seven known failures recorded in issues/20260808-capsec-registry-drift-suite-red-on-main.md and the prior-class baseline; all seven identities are unchanged."
+  ],
+  "executorChanges": [
+    "The Rust batch consumer admits only the exact bare __exactWhich(ref-check) early-denial action prefix and prevents that subject from falling through to generic action equality.",
+    "The independent JavaScript promotion consumer mirrors the mandatory exact-subject branch and independently binds the literal argument, denial shape, full declared action account, observed prefix, and exact logical string.",
+    "The generated runtime environment inventory restamps only the two IBEX_CAPSEC_* byte offsets moved by the Rust validator."
+  ],
+  "independentAdversarialReview": {
+    "preFixArtifact": "llp/reviews/0049-a2-native-env-read-fs-list-which-bare-executor.codex.md",
+    "preFixDiffSha256": "ad4f35d44ae6d44dbcdbbfe2d24b0374b62d2822f0d55194f44958d112529bc0",
+    "preFixVerdict": "NOT READY; narrowed declared actions fell through generic equality in both production consumers",
+    "finalArtifact": "llp/reviews/0049-a2-native-env-read-fs-list-which-bare-executor-final.codex.md",
+    "finalArtifactRawSha256": "6c6050d6b0bcb195dca783535400a391e7306f04650021082481b0d7c3406ea8",
+    "family": "OpenAI GPT-5 family via independent Codex workspace agent",
+    "reviewedBase": "52a7f61276ed1cc50921499400b29bc1892dc927",
+    "finalReviewedDiffSha256": "d1d21c11ca1e8b2d80a58c4ed33bd0cc2b442dfb488c25bcc85e801f706923a6",
+    "verdict": "READY; 0 blockers, 0 material findings, 0 unaddressed minor findings",
+    "breakTests": "Independent mutations proved branch removal reopens the old narrowed-declaration defect; narrowed/widened action accounts, bare string-pair removal, returned-string-check removal, and wrong-global widening each fail under both applicable production consumers and the exact secure Rust feature vector. All mutations were restored and the reviewed diff hash reverified."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 58,
+    "correctionLoopIterations": 3,
+    "batchPrimarySeconds": 19.65,
+    "batchSecondarySeconds": 22.06,
+    "batchTotalSeconds": 41.71,
+    "exactFinalFullDevtoolsSuiteSeconds": 336.97
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical final-v4 and v3 candidates reproduce the candidate and embedded allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two IBEX_CAPSEC_* source byte offsets",
+    "focusedJavaScript": "PASS; exact early-denial test 1 pass / 87 filtered, 20 expectations; independent combined review run 2 pass / 200 filtered, 93 expectations",
+    "focusedRust": "PASS; exact early-denial and string-result tests 2 pass / 656 filtered with the exact secure feature vector",
+    "productionEvidenceReplay": "PASS; 6/6 byte-structural matches; wrong denial action, narrowed declaration, and wrong string mutations rejected",
+    "referenceCheck": "PASS; 51 LLP docs, 2537 refs in 2016 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1400 pass / 7 fail versus the pre-correction class run 1400 pass / 7 fail; all seven failure identities are unchanged and the final negatives add ten expectations"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 113,
+    "endRows": 107,
+    "remainingGroups": 43,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 7,
+      "no-action": 17,
+      "fs:read+fs:write": 12
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. Seven committed tranches close 53 of the 160 real obligations. The honest remaining ledger is /Users/ccheever/phase1-runs/campaign-a2/remaining-groups-after-access-read.json minus the now-closed slash-containing-command and bare-command groups."
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-readlink-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × [fs:read] — project readlink carriers (partial action class: 11 of 52 rows)",
+  "sourceRevision": "663985e3d70363ca4eaf76cabecf8ca3e4ab49fe (detached exact review target; tree ced3f6ecd3c1bcb2bd30a8b19f7afd8d64c969d8)",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Mac Air fleet runner)",
+  "baselineCatalogDigest": "sha256-XkjP5IRITyFdVXuLkcHLH5HcXD-6cArOrcB5vux1s5U",
+  "candidateCatalogDigest": "sha256-kwENCdZonb5Cz8-TGxpMvVrpde0HFCNL__LcA9itnRI",
+  "declaredAllowListDigest": "sha256-yhptbWZGG9Fb97NaAjp9hd9e8LCkCaQCc_UoceRjUk8",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-fs-read-readlink.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-fs-read-readlink.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-fs-read-readlink.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 23 changes, 23 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -11, conditional-branch-selection-probe-not-authored -1, native-public-arguments-not-authored -11; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 291 fixtures, 81.28 s wall / 19.73 s fixture execution",
+    "batchSecondary": "PASS (exit 0), 321 fixtures, 22.18 s wall / 21.72 s fixture execution"
+  },
+  "rowsClosed": 11,
+  "cells": [
+    "surface.native.op.exactreadlink.1p5ozx1 (5 rows: allow, deny, malformed, missing-attribution, wrong-principal)",
+    "surface.native.op.exactfspathasync.10cb78b logical readlink branch (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "41 fs:read rows remain: 5 retained-descriptor/read shapes whose deny setup is not expressible under the current setup-floor mechanism, plus 36 exact_sqlite file-read rows requiring real on-disk database setup. Neither remainder was claimed by this readlink template.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3929 → 3940",
+    "unresolvedFixtures": "14731 → 14720",
+    "changedRows": "exactly 11 of 21784; 0 added, 0 removed; route, terminal, edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). The provisional sequence matched all 11 physical executions, so no correction loop was needed.",
+    "allowShapedRows": [
+      "requested:fs:list:allow:ambient-root",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "repeat:fs:list:allow:ambient-root",
+      "commit:fs:read:allow:static-floor",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "repeat:fs:list:allow:ambient-root"
+    ],
+    "denyRows": [
+      "requested:fs:list:allow:ambient-root",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "repeat:fs:list:allow:ambient-root",
+      "commit:fs:read:deny:principal-denial"
+    ],
+    "d1AndD2Confirmation": "Across the 11 executions, all 71 surplus fs:list decisions are requested/discovery/repeat-stage allows, use fs-readlink: operation IDs, and are credited only to ambient-root. Their resources are no-follow path occurrences used to traverse to/read the link; no directory entries or listing result are observed. Every commit-stage decision is the declared semantic fs:read action, credited to static-floor on allow-shaped rows or principal-denial on deny rows. The Rust validator now enforces the exact carrier, action set, stage, operation prefix, outcome, and authority shape."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/readlink-primary-air-v2.json",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/readlink-secondary-air-v2.json",
+    "catalogBinding": "both envelopes bind sha256-kwENCdZonb5Cz8-TGxpMvVrpde0HFCNL__LcA9itnRI and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64"
+  },
+  "correctionLoop": [],
+  "environmentIncidents": [
+    "The local campaign worktree's target symlink is outside the authenticated VFS mount, so the first local attempt failed on the pre-existing __exactAppendFile fixture with ERR_IBEX_OUTSIDE_MOUNT before reaching any new row. The physical rerun moved to the documented arm64 fleet machine with a real target directory; this was not a template correction.",
+    "The first remote build attempt lacked the ignored ios/Frameworks link and stopped before evidence production. Adding the declared environment link resolved it; this was not a template correction."
+  ],
+  "executorChanges": [
+    "The native executor accepts incidental fs:list only when the invocation declares exactly fs:read and is either direct __exactReadlink or __exactFsPathAsync with literal first argument readlink.",
+    "Every surplus decision must be an allow-shaped requested/discovery/repeat fs:list decision whose operation ID begins fs-readlink:; commit-stage, denied, wrong-prefix, wrong-carrier, missing-declared-action, and unrelated-capability cases fail closed.",
+    "The async worker-terminal account now binds the readlink logical branch to native-op:__exactReadlink."
+  ],
+  "independentAdversarialReview": {
+    "artifact": "llp/reviews/0049-a2-native-readlink-executor.claude.md",
+    "family": "Claude (Anthropic Sonnet)",
+    "reviewedRevision": "663985e3d70363ca4eaf76cabecf8ca3e4ab49fe",
+    "reviewedTree": "ced3f6ecd3c1bcb2bd30a8b19f7afd8d64c969d8",
+    "verdict": "READY; 0 blockers, 0 material findings, 2 minor notes",
+    "breakTests": "4 of 4 load-bearing mutations caused the credited focused fixture to fail; every mutation was reverted and both baselines ended green in a clean tree"
+  },
+  "timings": {
+    "authoringWallClockMinutes": 65,
+    "correctionLoopIterations": 0,
+    "batchPrimarySeconds": 81.28,
+    "batchSecondarySeconds": 22.18,
+    "batchTotalSeconds": 103.46,
+    "catalogRegenSeconds": 10.49
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical to the retained candidate and reproduced both candidate and allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two pre-existing IBEX_CAPSEC_* source offsets shifted by the inserted Rust lines",
+    "focusedJavaScript": "PASS; 1 pass, 107 filtered, 0 fail",
+    "focusedRust": "PASS; 1 pass, 650 filtered, 0 fail with the exact secure feature vector",
+    "referenceCheck": "PASS; 51 LLP docs, 2529 refs in 2005 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1393 pass / 7 fail versus baseline 1392 pass / 7 fail; the added readlink fixture accounts for the one additional pass and all seven failure identities are unchanged from issues/20260808-capsec-registry-drift-suite-red-on-main.md"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "endRows": 149,
+    "note": "The complete-cell rule raised the true start floor by 23 rows before authoring began; this tranche closes 11 of the 160 real obligations."
+  }
+}

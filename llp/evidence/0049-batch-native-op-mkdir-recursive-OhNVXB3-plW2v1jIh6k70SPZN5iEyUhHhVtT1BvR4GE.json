@@ -1,0 +1,123 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-mkdir-recursive-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op __exactMkdir × recursive branch-selection (1 row)",
+  "sourceRevision": "base 477e00697426a660a8024b600ca5d24903a33c5d plus independently reviewed seven-file implementation diff sha256 fd7fd53ca6455103eeb95217642456b3aa0752dc8e747013fd7b31dc581bb51b; this envelope and the retained review artifact document that exact implementation target",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Apartment MacBook Air fleet runner)",
+  "baselineCatalogDigest": "sha256-HgfaOHXr8RcI_aVAsI1PynCogv3mjR0gfGp2DRGz3G0",
+  "candidateCatalogDigest": "sha256-OhNVXB3-plW2v1jIh6k70SPZN5iEyUhHhVtT1BvR4GE",
+  "candidateRawSha256": "bd0094220ecf61914242e75bd0f2dde6a0485168fe3f694e89f85e458645081b",
+  "declaredAllowListDigest": "sha256-asbbYDXh2YjJkUl-xhp3L6UQt__zvzw7oTE8nzmrplM",
+  "allowListRawSha256": "6ac6db6035e1d988c991497ec61a772fa510b7fff3bf3c3ba1313c9f39aba653",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-mkdir-recursive.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-mkdir-recursive.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-mkdir-recursive.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 3 changes, 3 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -1, native-public-source-descriptor-drift -1, closed-surface-denial-probe-not-authored -1; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 323/323 fixtures, 20.06 s fixture execution; 1 target execution",
+    "batchSecondary": "PASS (exit 0), 348/348 fixtures, 22.41 s fixture execution; 0 target executions",
+    "productionEvidenceReplay": "PASS; 1/1 final observation rebuilt byte-for-byte through buildPublicFixtureEvidence; wrong path, recursive flag, mode, action, count, completion, error suffix, global, and widened-result mutations rejected"
+  },
+  "rowsClosed": 1,
+  "cells": [
+    "surface.native.op.exactmkdir.021eaz0 direct logical recursive branch-selection (1 row)"
+  ],
+  "classRemainder": "The direct recursive no-action branch is complete. The six non-recursive effect scenarios were already executable and remain byte-identical. The separate __exactFsPathAsync recursive-mkdir selector was completed by the prior closed-mutations class and is not borrowed by this row.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3998 → 3999",
+    "unresolvedFixtures": "14662 → 14661",
+    "changedRows": "exactly 1 of 21784; 0 added, 0 removed; route, terminal, semantic edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine after physical execution, never guessed (LLP 0037 D3). The target observed the empty sequence because the loaded direct recursive branch refuses synchronously before path conversion or capability work.",
+    "allRows": [],
+    "coverageEdges": [
+      "surface.native.op.exactmkdir.021eaz0"
+    ],
+    "d1AndD2Confirmation": "The target observation contains zero typed decisions and zero legacy observations. No fs:list decision exists, surplus or otherwise, so the LLP 0037 D2 traversal-stage check is vacuous. The result is the exact synchronous four-key throw EPERM: operation not permitted, mkdir. This is a source-branch refusal account, not a new attribution pattern outside D1–D4."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/mkdir-recursive-primary-v1.json",
+    "primaryRawSha256": "646567ea4147652ff5be1cf5cd85b25b367c0eced7d36c9773d5e1abec87f725",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/mkdir-recursive-secondary-v1.json",
+    "secondaryRawSha256": "12d2e36dbd23b1d2bdaf7580d90ffc6cc59e3c2162fce03a1ca4ee2e5721fdb9",
+    "catalogBinding": "both envelopes bind sha256-OhNVXB3-plW2v1jIh6k70SPZN5iEyUhHhVtT1BvR4GE and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y; final-v2 is byte-identical to the physically executed v1 catalog",
+    "target": "aarch64",
+    "coverage": "the target execution occurs exactly once across disjoint shards (1 primary, 0 secondary), passed, and reports the exact four-key Error throw EPERM: operation not permitted, mkdir with zero typed and legacy decisions",
+    "secureCommandAudit": "both physical commands contain the exact tokens --no-default-features --features standard,capsec-conformance-observer,openssl-crypto",
+    "fixtureExecutionSeconds": "20.06 primary + 22.41 secondary = 42.47 total",
+    "commandWallSeconds": "28.96 primary + 22.56 secondary = 51.52 total"
+  },
+  "correctionLoop": [
+    {
+      "iteration": 1,
+      "failure": "The exact-final full suite's existing direct-mkdir effect test selected every __exactMkdir invocation, so it incorrectly consumed the newly authored recursive denial row and became an eighth failure.",
+      "resolution": "Narrowed that test to its stated non-recursive class with the explicit recursive=false argument. Its exact argument, authority-floor, typed-stage, action, and cleanup assertions were retained. The recursive row has a separate exact denial test, and the full suite returned to the same seven known failure identities."
+    }
+  ],
+  "environmentIncidents": [
+    "The Rust consumer moved two source-derived runtime environment offsets. The canonical full vendored regeneration chain was run; check:drift is green and the inventory diff is offset-only.",
+    "The first full-suite pass exposed the overly broad non-recursive mkdir test selector as an eighth failure. After its exact branch selector was restored, the final suite is 1403 pass / 7 fail and every failing identity matches the prior-class same-tree baseline in issues/20260808-capsec-registry-drift-suite-red-on-main.md.",
+    "The independent review's isolated worktree used explicit checked-in Hermes framework/header paths and EXACT_ALLOW_FALLBACK=1 as build plumbing; it retained the exact secure Rust feature vector and reported no product finding."
+  ],
+  "executorChanges": [
+    "The recipe generator selects an exact logical-branch template before the unchanged route-wide __exactMkdir template. Only the recursive descriptor receives the synchronous zero-decision closed account; the six non-recursive rows are byte-identical.",
+    "The Rust batch consumer validates only the exact direct three-literal argument tuple, absent completion, empty authority/evidence account, exact EPERM mkdir result, and reviewed zero-decision admission.",
+    "The independent JavaScript promotion consumer mirrors the exact subject, tuple, completion absence, result, and zero-decision constraints without sharing the Rust implementation.",
+    "The generated runtime environment inventory restamps only the two IBEX_CAPSEC_* source byte offsets moved by the Rust validator."
+  ],
+  "independentAdversarialReview": {
+    "artifact": "llp/reviews/0049-a2-native-mkdir-recursive-executor.codex.md",
+    "artifactRawSha256": "cfc6925c43c704278b230fe3ba4b8fc1ffaf701ea4162d91de3cf2fd86dbec4e",
+    "family": "OpenAI GPT-5 family via independent Codex workspace agent",
+    "reviewedBase": "477e00697426a660a8024b600ca5d24903a33c5d",
+    "reviewedDiffSha256": "fd7fd53ca6455103eeb95217642456b3aa0752dc8e747013fd7b31dc581bb51b",
+    "reviewedTargetTree": "4710bc5745c3718bb5cc8f07d2f69e29c9efd65e",
+    "verdict": "READY; 0 blockers, 0 material findings, 0 unaddressed minor findings",
+    "breakTests": "Removing logical-template precedence restored the three unresolved residuals; JavaScript account, action/count, result-shape, and zero-decision widenings failed the required negatives; Rust tuple and result-suffix widenings failed exact negatives; removing direct recursive mkdir from Rust zero-decision admission made the physical primary batch fail exactly the target execution. All isolated mutations were restored and the implementation diff hash reverified."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 50,
+    "correctionLoopIterations": 1,
+    "batchPrimarySeconds": 20.06,
+    "batchSecondarySeconds": 22.41,
+    "batchTotalSeconds": 42.47,
+    "exactFinalFullDevtoolsSuiteSeconds": 309.91
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; final-v2 is byte-identical to physically executed v1 and reproduces the candidate and embedded allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two IBEX_CAPSEC_* source byte offsets",
+    "focusedJavaScript": "PASS; exact recursive and non-recursive recipe tests plus promotion tests",
+    "focusedRust": "PASS; exact closed-mutation account test 1 pass / 658 filtered with the exact secure feature vector",
+    "productionEvidenceReplay": "PASS; 1/1 byte-structural match and all supplied or independently added mutations rejected",
+    "referenceCheck": "PASS; 51 LLP docs, 2538 refs, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1403 pass / 7 fail versus prior-class 1402 pass / 7 fail; all seven failure identities are unchanged, and the one new class test accounts for the pass-count increase"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 91,
+    "endRows": 90,
+    "remainingGroups": 26,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 30,
+      "fs:list": 7,
+      "fs:read+fs:write": 12,
+      "no-action": 0
+    },
+    "remainingByStop": {
+      "retained-descriptor-setup-unavailable-after-denial": 36,
+      "retained-sqlite-handle-setup-unavailable-after-denial": 48,
+      "macos-access-write-worker-lacks-required-descriptor-semantics": 6
+    },
+    "note": "Nine committed tranches close 70 of the 160 real obligations. All 90 remaining rows reached a documented stop: executor construction is required before another class can honestly close."
+  }
+}

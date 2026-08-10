@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-mkdir-recursive",
+  "templateClass": "surface.native.op __exactMkdir × recursive branch-selection",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes only the direct __exactMkdir recursive branch-selection row by binding the logical branch to a synchronous native invocation that the loaded implementation refuses with EPERM before path conversion or lookup. The non-recursive branch and the separate __exactFsPathAsync recursive-mkdir selector are unchanged. No route or terminal-set change is declared.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactmkdir.021eaz0",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-source-descriptor-drift",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3638-3655,4650-4653",
+      "proof": "Logical-branch template selection now precedes the route-wide __exactMkdir template, so the recursive source descriptor binds its own exact three-argument invocation while the non-recursive descriptor continues to use the existing route-wide template."
+    },
+    {
+      "edgeId": "surface.native.op.exactmkdir.021eaz0",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3638-3655,4650-4653",
+      "proof": "The source-bound recursive row invokes __exactMkdir through the physical native executor with the exact path, recursive flag, and mode, expects zero typed decisions, and binds the loaded implementation's EPERM result."
+    },
+    {
+      "edgeId": "surface.native.op.exactmkdir.021eaz0",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "closed-surface-denial-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:866-890,3638-3655",
+      "proof": "The real loaded global proves the recursive branch closed before path conversion or lookup: it emits no typed decision, performs no filesystem effect, and throws the platform EPERM message synchronously."
+    }
+  ]
+}

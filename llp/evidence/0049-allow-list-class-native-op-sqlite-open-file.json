@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-sqlite-open-file",
+  "templateClass": "surface.native.op.__exactSqliteOpen × file-read/file-read-write",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared BEFORE candidate catalog generation. Closes all 12 rows in the file-read and file-read-write logical cells of surface.native.op.exactsqliteopen.0a20llh. The exact public invocation opens a harness-owned, genuinely initialized on-disk SQLite database through the armed VFS and checked-fd host ABI. No route or terminal-set change is declared; the delta is exactly the residual-reason removals below.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactsqliteopen.0a20llh",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:1964-2010",
+      "proof": "Authored: nativeProjectSqliteOpenTemplate supplies an exact target/ibex-capsec-sqlite-open-*.sqlite path and source-selected readonly or existing-file readwrite options. The Rust sqlite-file setup initializes a real database with rusqlite before observation, then the loaded __exactSqliteOpen body resolves that same project path and calls exactOpenArmedSqliteFile plus ex_host_sqlite_open_checked_fd (src/engine/hermes_runtime_sqlite.cc:745-797)."
+    },
+    {
+      "edgeId": "surface.native.op.exactsqliteopen.0a20llh",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3467-3476",
+      "proof": "The logical-branch registry emits source-bound ibex/capsec-native-global-invocation/1 probes for all six scenarios in each file branch. The executor requires the exact typed action set and pinned stages, verifies the real return or typed denial, closes the returned database handle, removes only its bounded fixture path, and records the loaded-engine receipt."
+    },
+    {
+      "edgeId": "surface.native.op.exactsqliteopen.0a20llh",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3467-3476",
+      "proof": "Each branch-selection row is physically selected by its authored options: {readonly:true} selects file-read and {create:false,readwrite:true} selects file-read-write. Both operate on an existing initialized database, so branch evidence is executed rather than inferred."
+    }
+  ]
+}

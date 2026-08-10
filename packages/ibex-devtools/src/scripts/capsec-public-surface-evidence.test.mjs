@@ -11,6 +11,10 @@ import {
   mergePublicBatchExecutions,
   nativeAsyncWorkerTerminal,
   nativeAsyncWorkerTerminals,
+  observedActionSetMatchesReviewedAccount,
+  reviewedNativeClosedFilesystemMutation,
+  reviewedNativeClosedFilesystemMutationResult,
+  reviewedNativeEarlyDenialActionPrefix,
   validateNativeFilesystemDenialRecipeDescriptor,
   validatePublicSurfaceExecutionArtifact,
   validateStartupEnvironmentRecipeDescriptor,
@@ -4405,6 +4409,272 @@ function callbackRuntimeObservation(recipe) {
 }
 
 describe("CapSec public-surface promotion evidence", () => {
+  test("admits only exact closed native filesystem mutation branches", () => {
+    const authored = (globalName, values, { async = true } = {}) => ({
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName,
+      arguments: values.map((value) => ({ kind: "json-literal", value })),
+      ...(async
+        ? {
+            completion: {
+              kind: "event-loop-quiescence",
+              timeoutMilliseconds: 1_000,
+            },
+          }
+        : {}),
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "permission-denied",
+      expectedDenyMessageFragment: "EPERM: operation not permitted",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      expectedActionIds: [],
+    });
+    const recipe = {
+      classification: "closed",
+      scenario: "branch-selection",
+    };
+    const exactCases = [
+      [
+        "__exactMkdir",
+        ["target/ibex-capsec-mkdir-recursive-closed", true, -1],
+        false,
+      ],
+      ["__exactFsFdAsync", ["fchmod", 42, 0o600, 0]],
+      ["__exactFsFdAsync", ["fchown", 42, 0, 0]],
+      ["__exactFsFdAsync", ["futimes", 42, 0, 0]],
+      [
+        "__exactFsPathAsync",
+        ["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "copyfile",
+          "target/ibex-capsec-closed-copyfile-source",
+          "target/ibex-capsec-closed-copyfile-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "copyfile_excl",
+          "target/ibex-capsec-closed-copyfile-excl-source",
+          "target/ibex-capsec-closed-copyfile-excl-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["lchmod", "target/ibex-capsec-closed-lchmod", null, 0o600, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "link",
+          "target/ibex-capsec-closed-link-source",
+          "target/ibex-capsec-closed-link-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "mkdir",
+          "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+          null,
+          1,
+          -1,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["mkdtemp", "target/ibex-capsec-closed-mkdtemp-", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "rename",
+          "target/ibex-capsec-closed-rename-source",
+          "target/ibex-capsec-closed-rename-destination",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0],
+      ],
+      [
+        "__exactFsPathAsync",
+        [
+          "symlink",
+          "closed-symlink-target",
+          "target/ibex-capsec-closed-symlink",
+          0,
+          0,
+          0,
+        ],
+      ],
+      [
+        "__exactFsPathAsync",
+        ["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0],
+      ],
+    ];
+    for (const [globalName, values, async = true] of exactCases) {
+      const operation = globalName === "__exactMkdir" ? "mkdir" : values[0];
+      const exact = {
+        authored: authored(globalName, values, { async }),
+        recipe,
+      };
+      expect(
+        reviewedNativeClosedFilesystemMutation(exact),
+      ).toBe(true);
+      expect(
+        reviewedNativeClosedFilesystemMutationResult({
+          ...exact,
+          result: {
+            kind: "throw",
+            globalName,
+            errorName: "Error",
+            errorMessage: `EPERM: operation not permitted, ${operation}`,
+          },
+        }),
+      ).toBe(true);
+    }
+
+    const exact = {
+      authored: authored("__exactFsFdAsync", ["fchmod", 42, 0o600, 0]),
+      recipe,
+    };
+    for (const mutate of [
+      (value) => {
+        value.authored.globalName = "__exactFsFdAsyncExtra";
+      },
+      (value) => {
+        value.authored.arguments[1].value = 43;
+      },
+      (value) => {
+        value.authored.expectedDenyMessageFragment = "Permission denied";
+      },
+      (value) => {
+        value.authored.expectedActionIds = ["fs:write"];
+      },
+      (value) => {
+        value.authored.expectedTypedDecisionCount = 1;
+      },
+      (value) => {
+        value.authored.requiredFloor = [{ cap: "fs:write" }];
+      },
+      (value) => {
+        value.recipe.classification = "effects";
+      },
+      (value) => {
+        value.recipe.scenario = "closed";
+      },
+    ]) {
+      const nearby = structuredClone(exact);
+      mutate(nearby);
+      expect(reviewedNativeClosedFilesystemMutation(nearby)).toBe(false);
+    }
+    expect(
+      reviewedNativeClosedFilesystemMutationResult({
+        ...exact,
+        result: {
+          kind: "throw",
+          globalName: "__exactFsFdAsync",
+          errorName: "Error",
+          errorMessage: "EPERM: operation not permitted, fchown",
+        },
+      }),
+    ).toBe(false);
+    const wrongRecursivePath = {
+      authored: authored(
+        "__exactMkdir",
+        ["target/ibex-capsec-mkdir-recursive-nearby", true, -1],
+        { async: false },
+      ),
+      recipe,
+    };
+    expect(
+      reviewedNativeClosedFilesystemMutation(wrongRecursivePath),
+    ).toBe(false);
+  });
+
+  test("admits only the observed bare-which early-denial action prefix", () => {
+    const authored = {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactWhich",
+      arguments: [{ kind: "json-literal", value: "ref-check" }],
+      expectedResult: "permission-denied",
+      expectedTypedDecisionCount: 1,
+      expectedTypedStages: ["requested"],
+      expectedActionIds: ["env:read", "fs:list"],
+    };
+    const exact = {
+      authored,
+      recipe: { scenario: "deny" },
+      observedActions: ["env:read"],
+    };
+    expect(reviewedNativeEarlyDenialActionPrefix(exact)).toBe(true);
+    expect(observedActionSetMatchesReviewedAccount(exact)).toBe(true);
+
+    for (const mutate of [
+      (value) => {
+        value.authored.globalName = "__exactWhichExtra";
+      },
+      (value) => {
+        value.authored.arguments[0].value = "/project/ref-check";
+      },
+      (value) => {
+        value.authored.expectedResult = "return";
+      },
+      (value) => {
+        value.authored.expectedTypedStages.push("commit");
+        value.authored.expectedTypedDecisionCount = 2;
+      },
+      (value) => {
+        value.authored.expectedActionIds = ["env:read"];
+      },
+      (value) => {
+        value.recipe.scenario = "allow";
+      },
+      (value) => {
+        value.observedActions = [];
+      },
+      (value) => {
+        value.observedActions = ["env:read", "fs:list"];
+      },
+      (value) => {
+        value.observedActions = ["env:read", "network:connect"];
+      },
+    ]) {
+      const nearby = structuredClone(exact);
+      mutate(nearby);
+      expect(reviewedNativeEarlyDenialActionPrefix(nearby)).toBe(false);
+      expect(observedActionSetMatchesReviewedAccount(nearby)).toBe(false);
+    }
+  });
+
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
     const execution = buildPublicFixtureEvidence({
@@ -9895,6 +10165,7 @@ describe("CapSec public-surface promotion evidence", () => {
       ...overrides,
     });
     const expected = new Map([
+      ["access", "native-op:__exactAccess"],
       ["mkdir", "native-op:__exactMkdir"],
       ["readdir", "native-op:__exactReaddir"],
       ["realpath", "native-op:__exactRealpath"],
@@ -9993,6 +10264,7 @@ describe("CapSec public-surface promotion evidence", () => {
     }
     expect(nativeAsyncWorkerTerminal(descriptor("mkdtemp"))).toBeNull();
     expect(nativeAsyncWorkerTerminal(descriptor("chmod"))).toBeNull();
+    expect(nativeAsyncWorkerTerminal(descriptor("access-read"))).toBeNull();
     expect(
       nativeAsyncWorkerTerminal(
         descriptor("unrelated", {
@@ -10004,6 +10276,11 @@ describe("CapSec public-surface promotion evidence", () => {
     expect(
       nativeAsyncWorkerTerminal(
         descriptor("mkdir", { globalName: "__exactMkdir" }),
+      ),
+    ).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("access", { globalName: "__exactAccess" }),
       ),
     ).toBeNull();
     expect(
@@ -10034,6 +10311,7 @@ describe("CapSec public-surface promotion evidence", () => {
       "__exactStat",
       "__exactStatfs",
       "__exactTruncate",
+      "__exactWhich",
       "__exactWriteFile",
     ]) {
       expect(() =>
@@ -10045,6 +10323,11 @@ describe("CapSec public-surface promotion evidence", () => {
     expect(() =>
       validateNativeFilesystemDenialRecipeDescriptor(
         descriptor("__exactUnknownFsOperation", "filesystem policy denied"),
+      ),
+    ).toThrow(/unreviewed native denial expectation/);
+    expect(() =>
+      validateNativeFilesystemDenialRecipeDescriptor(
+        descriptor("__exactWhichExtra", "filesystem policy denied"),
       ),
     ).toThrow(/unreviewed native denial expectation/);
     expect(() =>

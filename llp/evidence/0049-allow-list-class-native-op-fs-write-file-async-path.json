@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-fs-write-file-async-path",
+  "templateClass": "surface.native.op.__exactFsWriteFileAsync × logical path",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes the six logical-path rows of surface.native.op.exactfswritefileasync.0fv6zp9. The retained-descriptor sibling is not declared or claimed. No route or terminal-set change is declared; the delta is exactly the residual-reason removals below.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactfswritefileasync.0fv6zp9",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2178-2237",
+      "proof": "Authored: nativeProjectFsWriteFileAsyncTemplate supplies the exact six-argument path branch, including a bounded byte producer, default create/truncate flags, fixed mode, disabled flush, and no presented handle. The exact path is target/ibex-capsec-fswritefileasync-path; the loaded __exactFsWriteFileAsync path branch calls openArmedWriteTarget and fsWriteFileArmedWork in src/engine/hermes_runtime_fs.cc:7229-7323."
+    },
+    {
+      "edgeId": "surface.native.op.exactfswritefileasync.0fv6zp9",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3450-3453",
+      "proof": "The logical-branch registry emits source-bound ibex/capsec-native-global-invocation/1 probes for all six path scenarios. The executor retains observation through event-loop quiescence, accepts fs:list only under its exact D2 open-traversal contract, verifies the fs:write semantic action and observed sequence, reads the exact final bytes, and removes only its bounded fixture path."
+    },
+    {
+      "edgeId": "surface.native.op.exactfswritefileasync.0fv6zp9",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3450-3453",
+      "proof": "The branch-selection row is physically selected by the first argument's exact path string rather than a numeric retained descriptor. The real loaded branch opens, writes, and closes the authenticated path on the worker before quiescence."
+    }
+  ]
+}

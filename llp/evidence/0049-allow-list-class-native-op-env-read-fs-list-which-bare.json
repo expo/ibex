@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-env-read-fs-list-which-bare",
+  "templateClass": "surface.native.op.__exactWhich × logical bare-command",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes only the six bare-command rows of surface.native.op.exactwhich.0it66ce. The slash-containing sibling was closed by the immediately preceding class. No route or terminal-set change is declared.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactwhich.0it66ce",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:1424-1489",
+      "proof": "Authored: nativeProjectWhichBareTemplate seeds only the principal PATH overlay with /project, invokes the bare command ref-check, requires the exact env:read PATH plus fs:list project/ref-check floor, and binds the unchanged logical result /project/ref-check."
+    },
+    {
+      "edgeId": "surface.native.op.exactwhich.0it66ce",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3725-3731",
+      "proof": "The logical-branch registry emits source-bound ibex/capsec-native-global-invocation/1 probes for all six bare-command scenarios through the reusable native executor."
+    },
+    {
+      "edgeId": "surface.native.op.exactwhich.0it66ce",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3725-3731",
+      "proof": "The branch-selection row physically supplies a command with no slash and seeds PATH in the principal overlay, forcing the env:read plus fs:list logical branch rather than the already-authored direct-path sibling."
+    }
+  ]
+}

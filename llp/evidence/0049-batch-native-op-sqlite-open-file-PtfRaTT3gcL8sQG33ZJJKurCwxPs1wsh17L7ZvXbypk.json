@@ -1,0 +1,109 @@
+{
+  "measurement": "llp-0049-campaign-a2-native-sqlite-open-file-batch",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × on-disk SQLite open (12 rows: file-read and file-read-write)",
+  "sourceRevision": "e920a678ee5d3ed07c2fcb32d5739108d678d25b (detached exact review target; tree 752c2f0c48e5d14580a441fcfdc564d0405494e8; the landing commit differs only by evidence/review retention, generated source offsets, and corrected reference-anchor spelling)",
+  "date": "2026-08-09",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin, Mac Air fleet runner)",
+  "baselineCatalogDigest": "sha256-kwENCdZonb5Cz8-TGxpMvVrpde0HFCNL__LcA9itnRI",
+  "candidateCatalogDigest": "sha256-PtfRaTT3gcL8sQG33ZJJKurCwxPs1wsh17L7ZvXbypk",
+  "declaredAllowListDigest": "sha256-WIiMoo18xGbpR7eb913aDoUV6yczwpfCJuiZHgPzNcM",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-sqlite-open-file.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-sqlite-open-file.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-sqlite-open-file.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 26 changes, 26 allow-listed, 0 unexplained, 0 stale; residualReasonDeltaWholeCatalog: public-surface-invocation-not-authored -12, conditional-branch-selection-probe-not-authored -2, native-public-arguments-not-authored -12; lane cells unchanged (B 528 / C 1326 / D 32)",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 295/295 fixtures, 18.48 s fixture execution; 4 target executions",
+    "batchSecondary": "PASS (exit 0), 329/329 fixtures, 21.45 s fixture execution; 8 target executions"
+  },
+  "rowsClosed": 12,
+  "cells": [
+    "surface.native.op.exactsqliteopen.0a20llh logical file-read (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)",
+    "surface.native.op.exactsqliteopen.0a20llh logical file-read-write (6 rows: allow, branch-selection, deny, malformed, missing-attribution, wrong-principal)"
+  ],
+  "classRemainder": "The distinct retained-handle SQLite executor class remains 48 rows: 36 fs:read rows across __exactSqliteAll, __exactSqliteGet, __exactSqlitePrepare, __exactSqliteValues, __exactSqliteExec, and __exactSqliteRun, plus 12 fs:read+fs:write rows across __exactSqliteExec and __exactSqliteRun. Setup currently runs after the denied host is installed, and a retained SQLite handle cannot be honestly opened under the deny row's principal denial. Invalid handles and in-memory substitutes do not exercise the file-backed path, so none of those 48 rows is claimed here.",
+  "catalogDelta": {
+    "fullyExecutableFixtures": "3940 → 3952",
+    "unresolvedFixtures": "14720 → 14708",
+    "changedRows": "exactly 12 of 21784; 0 added, 0 removed; route, terminal, edge, action, classification, and scenario fields preserved"
+  },
+  "observedTypedSequence": {
+    "note": "Pinned from the bound engine, never guessed (LLP 0037 D3). The provisional sequence matched all 12 physical executions, so no correction loop was needed.",
+    "returnRows": [
+      "requested:fs:list:allow:static-floor",
+      "discovery:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:ambient-root",
+      "repeat:fs:list:allow:ambient-root",
+      "requested:fs:list:allow:static-floor",
+      "repeat:fs:list:allow:static-floor",
+      "commit:fs:read[:fs:write]:allow:static-floor"
+    ],
+    "denyRows": [
+      "requested:fs:list:deny:principal-denial"
+    ],
+    "d1AndD2Confirmation": "Every fs:list decision has a sqlite-open: operation ID and a requested, discovery, or repeat stage in the authenticated VFS open walk. No fs:list decision occurs at commit and no directory entries or enumeration result are returned. The final commit is fs:read for readonly or the conjunction fs:read+fs:write for readwrite. Non-deny rows return a numeric SQLite handle, __exactSqliteClose closes it, and the Rust harness removes its exact owned database before publishing closed-sqlite-db-removed-owned-file. Deny stops at the first traversal request and observes no later operation action."
+  },
+  "physicalEvidence": {
+    "primary": "/Users/ccheever/phase1-runs/campaign-a2/sqlite-open-primary-air-v3-final.json",
+    "secondary": "/Users/ccheever/phase1-runs/campaign-a2/sqlite-open-secondary-air-v3-final.json",
+    "catalogBinding": "both envelopes bind sha256-PtfRaTT3gcL8sQG33ZJJKurCwxPs1wsh17L7ZvXbypk and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "target": "aarch64",
+    "coverage": "12/12 target executions occur exactly once across disjoint shards (4 primary, 8 secondary), all passed"
+  },
+  "correctionLoop": [],
+  "environmentIncidents": [
+    "The first attempted final remote output path already existed, and the owned-artifact creator failed closed with AlreadyExists after executing the shard. A fresh exact output path was used; no assertion, recipe, or evidence was weakened.",
+    "The locally installed Claude CLI lacked an authenticated session. The independent review was run instead by the authenticated OpenCode provider with Claude Sonnet 4.6 in a fresh detached worktree."
+  ],
+  "executorChanges": [
+    "NativeProbeSetup gains a sqlite-file variant restricted to exactly two harness-owned target paths and exactly __exactSqliteOpen's first argument.",
+    "The setup creates and seeds a genuine SQLite database with rusqlite; a focused test reopens it read-only and queries the seeded table, rejecting empty-file false credit.",
+    "Cleanup requires the native returned handle to close before the Rust harness removes the exact owned database and publishes the combined cleanup marker."
+  ],
+  "independentAdversarialReview": {
+    "artifact": "llp/reviews/0049-a2-native-sqlite-open-executor.claude.md",
+    "family": "Claude (Anthropic Sonnet 4.6), via OpenCode CLI",
+    "reviewedRevision": "e920a678ee5d3ed07c2fcb32d5739108d678d25b",
+    "reviewedTree": "752c2f0c48e5d14580a441fcfdc564d0405494e8",
+    "reviewedDiffSha256": "6221f9aefeab151ba5be3939ba066bd945bc9b97728bac97cbd73a370b852ff4",
+    "verdict": "READY; 0 blockers, 0 material findings, 2 minor notes",
+    "breakTests": "4 of 4 load-bearing mutations caused the credited focused fixture to fail: empty database, widened path allowlist, weakened invocation/path binding, and weakened cleanup marker. Every mutation was reverted and both baselines ended green in a clean detached worktree."
+  },
+  "timings": {
+    "authoringWallClockMinutes": 60,
+    "correctionLoopIterations": 0,
+    "batchPrimarySeconds": 18.48,
+    "batchSecondarySeconds": 21.45,
+    "batchTotalSeconds": 39.93,
+    "catalogRegenSeconds": 9.60
+  },
+  "finalVerification": {
+    "strictRegeneration": "PASS; byte-identical to the retained pre-review candidate and reproduced both candidate and allow-list digests",
+    "generatedDrift": "PASS after the canonical full regeneration chain; only runtime-environment-inventory.json moved, restamping two pre-existing IBEX_CAPSEC_* source offsets shifted by the inserted Rust lines",
+    "focusedJavaScript": "PASS; 1 pass, 108 filtered, 0 fail",
+    "focusedRust": "PASS; 2 pass, 651 filtered, 0 fail with the exact secure feature vector (the bounded escape case emits an expected caught panic)",
+    "referenceCheck": "PASS; 51 LLP docs, 2531 refs in 2006 files, 0 errors, 1 unchecked",
+    "fullDevtoolsSuite": "1394 pass / 7 fail versus prior-class baseline 1393 pass / 7 fail; the added SQLite-open fixture accounts for the one additional pass and all seven failure identities are unchanged from issues/20260808-capsec-registry-drift-suite-red-on-main.md"
+  },
+  "a2Worklist": {
+    "advertisedStartRows": 137,
+    "completeCellStartRows": 160,
+    "classStartRows": 149,
+    "endRows": 137,
+    "remainingByActionSet": {
+      "fs:read": 41,
+      "fs:write": 36,
+      "fs:list": 25,
+      "no-action": 17,
+      "fs:read+fs:write": 12,
+      "env:read+fs:list": 6
+    },
+    "note": "The complete-cell rule raised the true campaign floor by 23 rows before authoring began. The readlink and SQLite-open tranches have closed 23 of the 160 real obligations."
+  }
+}

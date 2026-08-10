@@ -175,6 +175,8 @@ struct NativePublicInvocation {
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_string_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_cleanup: Option<String>,
     expected_typed_stages: Vec<String>,
     /// Per-decision typed outcomes, pinned from the observed run, for
@@ -316,6 +318,9 @@ enum NativeProbeSetup {
         source_descriptor: serde_json::Value,
         #[serde(rename = "sourceDescriptorDigest")]
         source_descriptor_digest: String,
+    },
+    SqliteFile {
+        path: String,
     },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
@@ -526,6 +531,74 @@ fn generated_derived_env_write_template_is_accepted_by_rust_registry() {
 }
 
 #[test]
+fn native_sqlite_file_setup_is_real_and_bounded() {
+    let path = "target/ibex-capsec-sqlite-open-read.sqlite";
+    let mut cleanup = NativePublicFixtureCleanup::default();
+    cleanup.files.push(path.into());
+    create_native_sqlite_file_fixture(path);
+
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("reopen SQLite setup read-only");
+    let value: String = connection
+        .query_row("SELECT value FROM ibex_capsec_probe", [], |row| row.get(0))
+        .expect("read seeded SQLite setup row");
+    assert_eq!(value, "file-backed");
+    drop(connection);
+
+    let escaped = std::panic::catch_unwind(|| {
+        create_native_sqlite_file_fixture("target/ibex-capsec-sqlite-escaped.sqlite")
+    });
+    assert!(escaped.is_err(), "SQLite setup accepted an unowned path");
+}
+
+#[test]
+fn native_sqlite_file_setup_binding_is_exact() {
+    let invocation = |global_name: &str, argument: serde_json::Value| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: vec![NativeProbeArgument::JsonLiteral { value: argument }],
+        completion: None,
+        required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_string_value: None,
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_outcomes: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    };
+    let path = "target/ibex-capsec-sqlite-open-read.sqlite";
+    assert!(native_sqlite_file_setup_is_bound(
+        &invocation("__exactSqliteOpen", serde_json::json!(path)),
+        path,
+    ));
+    assert!(!native_sqlite_file_setup_is_bound(
+        &invocation("__exactSqliteExec", serde_json::json!(path)),
+        path,
+    ));
+    assert!(!native_sqlite_file_setup_is_bound(
+        &invocation(
+            "__exactSqliteOpen",
+            serde_json::json!("target/another.sqlite"),
+        ),
+        path,
+    ));
+    assert!(!native_sqlite_file_setup_is_bound(
+        &invocation("__exactSqliteOpen", serde_json::Value::Null),
+        path,
+    ));
+}
+
+#[test]
 fn native_public_probe_serialization_preserves_omitted_optional_fields() {
     let invocation = NativePublicInvocation {
         kind: "native-global-function".into(),
@@ -541,6 +614,7 @@ fn native_public_probe_serialization_preserves_omitted_optional_fields() {
         required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
+        expected_string_value: None,
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
         expected_typed_outcomes: Vec::new(),
@@ -551,6 +625,7 @@ fn native_public_probe_serialization_preserves_omitted_optional_fields() {
 
     let serialized = serde_json::to_value(invocation).expect("serialize native public probe");
     assert!(serialized.get("completion").is_none());
+    assert!(serialized.get("expectedStringValue").is_none());
     assert!(serialized.get("expectedCleanup").is_none());
 }
 
@@ -559,8 +634,10 @@ fn native_async_worker_terminal_account_is_exact() {
     assert_eq!(
         NATIVE_ASYNC_WORKER_TERMINALS,
         [
+            ("access", "native-op:__exactAccess"),
             ("mkdir", "native-op:__exactMkdir"),
             ("readdir", "native-op:__exactReaddir"),
+            ("readlink", "native-op:__exactReadlink"),
             ("realpath", "native-op:__exactRealpath"),
             ("statfs", "native-op:__exactStatfs"),
             ("truncate", "native-op:__exactTruncate"),
@@ -580,6 +657,7 @@ fn native_async_worker_terminal_account_is_exact() {
         required_setup_floor: Vec::new(),
         setup: Vec::new(),
         expected_result: "return".into(),
+        expected_string_value: None,
         expected_cleanup: None,
         expected_typed_stages: Vec::new(),
         expected_typed_outcomes: Vec::new(),
@@ -618,6 +696,293 @@ fn native_async_worker_terminal_account_is_exact() {
 }
 
 #[test]
+fn native_incidental_traversal_allowance_is_exact_and_fail_closed() {
+    let invocation = |global_name: &str, operation: Option<&str>| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: operation
+            .map(|operation| NativeProbeArgument::JsonLiteral {
+                value: serde_json::json!(operation),
+            })
+            .into_iter()
+            .collect(),
+        completion: None,
+        required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_string_value: None,
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_outcomes: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: vec!["fs:read".into()],
+    };
+    let declared_and_traversal = BTreeSet::from(["fs:list".into(), "fs:read".into()]);
+    let missing_declared = BTreeSet::from(["fs:list".into()]);
+    let unrelated_surplus =
+        BTreeSet::from(["fs:list".into(), "fs:read".into(), "network:connect".into()]);
+
+    let direct = invocation("__exactReadlink", None);
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&direct),
+        Some("fs-readlink:")
+    );
+    assert!(native_observed_actions_are_reviewed(
+        &direct,
+        &declared_and_traversal
+    ));
+    assert!(!native_observed_actions_are_reviewed(
+        &direct,
+        &missing_declared
+    ));
+    assert!(!native_observed_actions_are_reviewed(
+        &direct,
+        &unrelated_surplus
+    ));
+
+    let asynchronous = invocation("__exactFsPathAsync", Some("readlink"));
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&asynchronous),
+        Some("fs-readlink:")
+    );
+    assert!(native_observed_actions_are_reviewed(
+        &asynchronous,
+        &declared_and_traversal
+    ));
+
+    let wrong_branch = invocation("__exactFsPathAsync", Some("readdir"));
+    assert_eq!(reviewed_native_open_traversal_prefix(&wrong_branch), None);
+    assert!(!native_observed_actions_are_reviewed(
+        &wrong_branch,
+        &declared_and_traversal
+    ));
+
+    let mut write_file = invocation(
+        "__exactFsWriteFileAsync",
+        Some("target/ibex-capsec-fswritefileasync-path"),
+    );
+    write_file.expected_action_ids = vec!["fs:write".into()];
+    let declared_write_and_traversal = BTreeSet::from(["fs:list".into(), "fs:write".into()]);
+    assert_eq!(
+        native_async_write_file_fixture_path(&write_file),
+        Some("target/ibex-capsec-fswritefileasync-path")
+    );
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&write_file),
+        Some("fs-write-file-async:")
+    );
+    assert!(native_observed_actions_are_reviewed(
+        &write_file,
+        &declared_write_and_traversal
+    ));
+    let mut wrong_write_path = invocation(
+        "__exactFsWriteFileAsync",
+        Some("target/not-owned-by-this-fixture"),
+    );
+    wrong_write_path.expected_action_ids = vec!["fs:write".into()];
+    assert_eq!(
+        native_async_write_file_fixture_path(&wrong_write_path),
+        None
+    );
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&wrong_write_path),
+        None
+    );
+    let mut wrong_write_action = invocation(
+        "__exactFsWriteFileAsync",
+        Some("target/ibex-capsec-fswritefileasync-path"),
+    );
+    wrong_write_action.expected_action_ids = vec!["fs:list".into()];
+    assert_eq!(
+        reviewed_native_open_traversal_prefix(&wrong_write_action),
+        None
+    );
+
+    let traversal_decision = |stage: &str, operation_id: &str| {
+        serde_json::json!({
+            "decisionSet": {
+                "context": { "stage": stage },
+                "operationId": operation_id,
+            },
+        })
+    };
+    let list_effects = vec![serde_json::json!({ "cap": "fs:list" })];
+    assert!(native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("discovery", "fs-readlink:/project/CLAUDE.md"),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("commit", "fs-readlink:/project/CLAUDE.md"),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("discovery", "fs-readdir:/project"),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &direct,
+        &traversal_decision("discovery", "fs-readlink:/project/CLAUDE.md"),
+        &list_effects,
+        true,
+    ));
+    assert!(native_decision_is_reviewed_open_traversal(
+        &write_file,
+        &traversal_decision(
+            "repeat",
+            "fs-write-file-async:/project/target/ibex-capsec-fswritefileasync-path",
+        ),
+        &list_effects,
+        false,
+    ));
+    assert!(!native_decision_is_reviewed_open_traversal(
+        &write_file,
+        &traversal_decision(
+            "commit",
+            "fs-write-file-async:/project/target/ibex-capsec-fswritefileasync-path",
+        ),
+        &list_effects,
+        false,
+    ));
+}
+
+#[test]
+fn native_which_early_denial_action_prefix_is_exact_and_fail_closed() {
+    let invocation = |global_name: &str,
+                      argument: &str,
+                      expected_result: &str,
+                      expected_stages: &[&str],
+                      expected_count: usize,
+                      expected_actions: &[&str]| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: vec![NativeProbeArgument::JsonLiteral {
+            value: serde_json::json!(argument),
+        }],
+        completion: None,
+        required_floor: Vec::new(),
+        required_setup_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: expected_result.into(),
+        expected_string_value: None,
+        expected_cleanup: None,
+        expected_typed_stages: expected_stages
+            .iter()
+            .map(|stage| (*stage).into())
+            .collect(),
+        expected_typed_outcomes: Vec::new(),
+        expected_typed_decision_count: expected_count,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: expected_actions
+            .iter()
+            .map(|action| (*action).into())
+            .collect(),
+    };
+    let observed_prefix = BTreeSet::from(["env:read".to_owned()]);
+    let exact = invocation(
+        "__exactWhich",
+        "ref-check",
+        "permission-denied",
+        &["requested"],
+        1,
+        &["env:read", "fs:list"],
+    );
+    assert!(reviewed_native_early_denial_action_prefix(
+        &exact,
+        &observed_prefix
+    ));
+    assert!(native_observed_actions_are_reviewed(
+        &exact,
+        &observed_prefix
+    ));
+
+    for nearby in [
+        invocation(
+            "__exactWhichExtra",
+            "ref-check",
+            "permission-denied",
+            &["requested"],
+            1,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "/project/ref-check",
+            "permission-denied",
+            &["requested"],
+            1,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "ref-check",
+            "return",
+            &["requested"],
+            1,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "ref-check",
+            "permission-denied",
+            &["requested", "commit"],
+            2,
+            &["env:read", "fs:list"],
+        ),
+        invocation(
+            "__exactWhich",
+            "ref-check",
+            "permission-denied",
+            &["requested"],
+            1,
+            &["env:read"],
+        ),
+    ] {
+        assert!(!reviewed_native_early_denial_action_prefix(
+            &nearby,
+            &observed_prefix
+        ));
+        assert!(!native_observed_actions_are_reviewed(
+            &nearby,
+            &observed_prefix
+        ));
+    }
+
+    for wrong_observed in [
+        BTreeSet::new(),
+        BTreeSet::from(["fs:list".to_owned()]),
+        BTreeSet::from(["env:read".to_owned(), "fs:list".to_owned()]),
+        BTreeSet::from(["env:read".to_owned(), "network:connect".to_owned()]),
+    ] {
+        assert!(!reviewed_native_early_denial_action_prefix(
+            &exact,
+            &wrong_observed
+        ));
+        assert!(!native_observed_actions_are_reviewed(
+            &exact,
+            &wrong_observed
+        ));
+    }
+}
+
+#[test]
 fn native_async_harness_fields_are_not_published_as_runtime_results() {
     let mut result = serde_json::json!({
         "kind": "return",
@@ -631,6 +996,441 @@ fn native_async_harness_fields_are_not_published_as_runtime_results() {
 
     assert!(result.get("resultString").is_none());
     assert_eq!(result["cleanup"], "removed-owned-file");
+}
+
+#[test]
+fn native_async_argument_producer_is_exact_and_fail_closed() {
+    let supported = serde_json::json!({
+        "kind": "native-global-result",
+        "globalName": "__exactStringToUtf8Bytes",
+        "arguments": [{
+            "kind": "json-literal",
+            "value": "ibex-capsec-async-write-file"
+        }]
+    });
+    assert!(native_async_argument_is_supported(&supported));
+
+    let mut wrong_producer = supported.clone();
+    wrong_producer["globalName"] = serde_json::json!("__exactUtf8BytesToString");
+    assert!(!native_async_argument_is_supported(&wrong_producer));
+
+    let mut wrong_argument = supported.clone();
+    wrong_argument["arguments"][0]["value"] = serde_json::json!("different-bytes");
+    assert!(!native_async_argument_is_supported(&wrong_argument));
+
+    let mut extra_argument = supported;
+    extra_argument["arguments"] = serde_json::json!([
+        {"kind": "json-literal", "value": "ibex-capsec-async-write-file"},
+        {"kind": "json-literal", "value": "extra"}
+    ]);
+    assert!(!native_async_argument_is_supported(&extra_argument));
+    assert!(!native_async_argument_is_supported(
+        &serde_json::json!({"kind": "native-global-result-property"})
+    ));
+}
+
+#[test]
+fn native_async_write_file_fixture_lifecycle_is_exact_and_fail_closed() {
+    let path = NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH;
+    let mut cleanup = NativePublicFixtureCleanup::default();
+    prepare_native_async_write_file_fixture(path, &mut cleanup);
+    assert_eq!(cleanup.files, [std::path::PathBuf::from(path)]);
+    assert!(!std::path::Path::new(path).exists());
+
+    std::fs::write(path, b"wrong-bytes").expect("write wrong async write-file fixture bytes");
+    let mut returned = serde_json::json!({ "kind": "return" });
+    let wrong_bytes = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        finalize_native_async_write_file_fixture(path, &mut returned);
+    }));
+    assert!(
+        wrong_bytes.is_err(),
+        "async write-file accepted wrong bytes"
+    );
+
+    std::fs::write(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES)
+        .expect("write exact async write-file fixture bytes");
+    finalize_native_async_write_file_fixture(path, &mut returned);
+    assert_eq!(returned["cleanup"], "removed-owned-file");
+    assert!(!std::path::Path::new(path).exists());
+
+    std::fs::write(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES)
+        .expect("write forbidden denied async write-file fixture state");
+    let mut denied = serde_json::json!({ "kind": "throw" });
+    let denied_state = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        finalize_native_async_write_file_fixture(path, &mut denied);
+    }));
+    assert!(
+        denied_state.is_err(),
+        "denied async write-file accepted changed physical state"
+    );
+    std::fs::remove_file(path).expect("remove forbidden denied async write-file fixture state");
+    finalize_native_async_write_file_fixture(path, &mut denied);
+    assert!(denied.get("cleanup").is_none());
+
+    let escaped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prepare_native_async_write_file_fixture("target/not-owned-by-this-fixture", &mut cleanup);
+    }));
+    assert!(
+        escaped.is_err(),
+        "async write-file cleanup accepted an unowned path"
+    );
+}
+
+#[test]
+fn native_filesystem_denial_message_allowance_is_exact_and_fail_closed() {
+    assert!(native_filesystem_denial_message_is_reviewed(
+        "__exactFsStatAsync"
+    ));
+    assert!(!native_filesystem_denial_message_is_reviewed(
+        "__exactFsStatAsyncExtra"
+    ));
+    assert!(!native_filesystem_denial_message_is_reviewed(
+        "__exactFsLstatAsync"
+    ));
+    assert!(native_filesystem_denial_message_is_reviewed("__exactWhich"));
+    assert!(!native_filesystem_denial_message_is_reviewed(
+        "__exactWhichExtra"
+    ));
+}
+
+#[test]
+fn native_closed_filesystem_mutation_account_is_exact_and_fail_closed() {
+    let invocation =
+        |global_name: &str, arguments: Vec<serde_json::Value>| NativePublicInvocation {
+            kind: "native-global-function".into(),
+            global_name: global_name.into(),
+            source_descriptor: serde_json::json!({}),
+            source_descriptor_digest: "sha256-test".into(),
+            public_access: None,
+            public_access_digest: None,
+            expected_deny_message_fragment: Some("EPERM: operation not permitted".into()),
+            arguments: arguments
+                .into_iter()
+                .map(|value| NativeProbeArgument::JsonLiteral { value })
+                .collect(),
+            completion: (global_name != "__exactMkdir").then_some(NativeProbeCompletion {
+                kind: "event-loop-quiescence".into(),
+                timeout_milliseconds: 1_000,
+            }),
+            required_floor: Vec::new(),
+            required_setup_floor: Vec::new(),
+            setup: Vec::new(),
+            expected_result: "permission-denied".into(),
+            expected_string_value: None,
+            expected_cleanup: None,
+            expected_typed_stages: Vec::new(),
+            expected_typed_outcomes: Vec::new(),
+            expected_typed_decision_count: 0,
+            allowed_coverage_edge_ids: Vec::new(),
+            expected_action_ids: Vec::new(),
+        };
+    let exact_cases = [
+        (
+            "__exactMkdir",
+            serde_json::json!(["target/ibex-capsec-mkdir-recursive-closed", true, -1]),
+        ),
+        (
+            "__exactFsFdAsync",
+            serde_json::json!(["fchmod", 42, 0o600, 0]),
+        ),
+        ("__exactFsFdAsync", serde_json::json!(["fchown", 42, 0, 0])),
+        ("__exactFsFdAsync", serde_json::json!(["futimes", 42, 0, 0])),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "copyfile",
+                "target/ibex-capsec-closed-copyfile-source",
+                "target/ibex-capsec-closed-copyfile-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "copyfile_excl",
+                "target/ibex-capsec-closed-copyfile-excl-source",
+                "target/ibex-capsec-closed-copyfile-excl-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "lchmod",
+                "target/ibex-capsec-closed-lchmod",
+                null,
+                0o600,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "link",
+                "target/ibex-capsec-closed-link-source",
+                "target/ibex-capsec-closed-link-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "mkdir",
+                "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+                null,
+                1,
+                -1,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "mkdtemp",
+                "target/ibex-capsec-closed-mkdtemp-",
+                null,
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "rename",
+                "target/ibex-capsec-closed-rename-source",
+                "target/ibex-capsec-closed-rename-destination",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!([
+                "symlink",
+                "closed-symlink-target",
+                "target/ibex-capsec-closed-symlink",
+                0,
+                0,
+                0
+            ]),
+        ),
+        (
+            "__exactFsPathAsync",
+            serde_json::json!(["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0]),
+        ),
+    ];
+    for (global_name, arguments) in exact_cases {
+        let operation = if global_name == "__exactMkdir" {
+            "mkdir".to_owned()
+        } else {
+            arguments[0]
+                .as_str()
+                .expect("closed mutation operation")
+                .to_owned()
+        };
+        let exact_invocation = invocation(
+            global_name,
+            arguments
+                .as_array()
+                .expect("closed mutation arguments")
+                .clone(),
+        );
+        assert!(native_closed_filesystem_mutation_is_reviewed(
+            "closed",
+            "branch-selection",
+            &exact_invocation,
+        ));
+        assert!(native_closed_filesystem_mutation_result_is_reviewed(
+            "closed",
+            "branch-selection",
+            &exact_invocation,
+            &serde_json::json!({
+                "kind": "throw",
+                "globalName": global_name,
+                "errorName": "Error",
+                "errorMessage": format!("EPERM: operation not permitted, {operation}"),
+            }),
+        ));
+    }
+
+    let exact = || {
+        invocation(
+            "__exactFsFdAsync",
+            serde_json::json!(["fchmod", 42, 0o600, 0])
+                .as_array()
+                .unwrap()
+                .clone(),
+        )
+    };
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "effects",
+        "branch-selection",
+        &exact(),
+    ));
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "closed",
+        &exact(),
+    ));
+    let mut nearby = exact();
+    nearby.global_name = "__exactFsFdAsyncExtra".into();
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let mut nearby = exact();
+    nearby.expected_deny_message_fragment = Some("Permission denied".into());
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let mut nearby = exact();
+    nearby.expected_action_ids.push("fs:write".into());
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let mut nearby = exact();
+    nearby.expected_typed_decision_count = 1;
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &nearby,
+    ));
+    let wrong_descriptor = invocation(
+        "__exactFsFdAsync",
+        serde_json::json!(["fchmod", 43, 0o600, 0])
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &wrong_descriptor,
+    ));
+    let wrong_path = invocation(
+        "__exactFsPathAsync",
+        serde_json::json!(["unlink", "target/not-reviewed", null, 0, 0, 0])
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &wrong_path,
+    ));
+    let wrong_recursive_path = invocation(
+        "__exactMkdir",
+        serde_json::json!(["target/ibex-capsec-mkdir-recursive-nearby", true, -1])
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert!(!native_closed_filesystem_mutation_is_reviewed(
+        "closed",
+        "branch-selection",
+        &wrong_recursive_path,
+    ));
+    assert!(!native_closed_filesystem_mutation_result_is_reviewed(
+        "closed",
+        "branch-selection",
+        &exact(),
+        &serde_json::json!({
+            "kind": "throw",
+            "globalName": "__exactFsFdAsync",
+            "errorName": "Error",
+            "errorMessage": "EPERM: operation not permitted, fchown",
+        }),
+    ));
+}
+
+#[test]
+fn native_which_string_result_account_is_exact_and_fail_closed() {
+    let slash_arguments = [NativeProbeArgument::JsonLiteral {
+        value: serde_json::json!("/project/ref-check"),
+    }];
+    let bare_arguments = [NativeProbeArgument::JsonLiteral {
+        value: serde_json::json!("ref-check"),
+    }];
+    let exact_result = serde_json::json!({
+        "kind": "return",
+        "globalName": "__exactWhich",
+        "valueType": "string",
+        "cleanup": "none",
+        "stringValue": "/project/ref-check",
+    });
+    assert!(native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &slash_arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
+    assert!(native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &bare_arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
+
+    let mut wrong_result = exact_result.clone();
+    wrong_result["stringValue"] = serde_json::json!("/backing/project/ref-check");
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &slash_arguments,
+        "/project/ref-check",
+        &wrong_result,
+    ));
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhichExtra",
+        &slash_arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &slash_arguments,
+        "/project/other",
+        &exact_result,
+    ));
+    let wrong_arguments = [NativeProbeArgument::JsonLiteral {
+        value: serde_json::json!("other-command"),
+    }];
+    assert!(!native_string_result_matches_reviewed_expectation(
+        "__exactWhich",
+        &wrong_arguments,
+        "/project/ref-check",
+        &exact_result,
+    ));
 }
 
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
@@ -1030,6 +1830,49 @@ struct NativeSetupState {
     tcp_loopback_client_handle: Option<f64>,
     sqlite_database_handle: Option<f64>,
     sqlite_statement_handle: Option<f64>,
+    sqlite_file_path: Option<String>,
+}
+
+fn create_native_sqlite_file_fixture(path: &str) {
+    assert!(
+        matches!(
+            path,
+            "target/ibex-capsec-sqlite-open-read.sqlite"
+                | "target/ibex-capsec-sqlite-open-read-write.sqlite"
+        ),
+        "SQLite setup escaped its exact harness-owned paths"
+    );
+    for owned_path in [
+        path.to_owned(),
+        format!("{path}-journal"),
+        format!("{path}-shm"),
+        format!("{path}-wal"),
+    ] {
+        if let Err(error) = std::fs::remove_file(&owned_path) {
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::NotFound,
+                "clear stale SQLite setup fixture {owned_path}: {error}"
+            );
+        }
+    }
+    let connection = rusqlite::Connection::open(path).expect("create on-disk SQLite setup");
+    connection
+        .execute_batch(
+            "CREATE TABLE ibex_capsec_probe (value TEXT NOT NULL);\n\
+             INSERT INTO ibex_capsec_probe (value) VALUES ('file-backed');",
+        )
+        .expect("seed on-disk SQLite setup");
+    drop(connection);
+}
+
+fn native_sqlite_file_setup_is_bound(invocation: &NativePublicInvocation, path: &str) -> bool {
+    invocation.global_name == "__exactSqliteOpen"
+        && matches!(
+            invocation.arguments.first(),
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some(path)
+        )
 }
 
 /// Test-only armed engine facade for source-derived native-global probes.
@@ -1258,6 +2101,19 @@ async fn run_native_setup(
                         .expect("native writable setup must return a numeric descriptor"),
                 );
                 state.fs_file_path = Some(path.clone());
+            }
+            NativeProbeSetup::SqliteFile { path } => {
+                // The fixture is a genuine on-disk database, while the
+                // observed __exactSqliteOpen remains solely responsible for
+                // the typed VFS walk and checked-fd SQLite open under test.
+                // @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+                assert!(
+                    native_sqlite_file_setup_is_bound(invocation, path),
+                    "SQLite setup is not bound to the observed open path"
+                );
+                assert!(state.sqlite_file_path.is_none());
+                create_native_sqlite_file_fixture(path);
+                state.sqlite_file_path = Some(path.clone());
             }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
@@ -1569,10 +2425,12 @@ fn native_invocation_script(
         "sqliteStatementHandle": setup_state.sqlite_statement_handle,
     });
     let script = format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}var out={{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};if(n===\"__exactGetAllEnv\"&&value!==null&&typeof value===\"object\"){{var envNames=Object.keys(value).sort();out.valuePropertyCount=envNames.length;out.enumeratedNames=envNames;out.enumeratedValues=envNames.map(function(envName){{return String(value[envName]);}});}}return out;}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var captureString={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}var out={{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};if(captureString){{out.stringValue=typeof value===\"string\"?value:null;}}if(n===\"__exactGetAllEnv\"&&value!==null&&typeof value===\"object\"){{var envNames=Object.keys(value).sort();out.valuePropertyCount=envNames.length;out.enumeratedNames=envNames;out.enumeratedValues=envNames.map(function(envName){{return String(value[envName]);}});}}return out;}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments"),
-        serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
+        serde_json::to_string(&cleanup_state).expect("serialize native cleanup state"),
+        serde_json::to_string(&invocation.expected_string_value.is_some())
+            .expect("serialize native string-capture requirement")
     );
     let callable_marker = "var f=globalThis[n];";
     assert_eq!(
@@ -1613,6 +2471,23 @@ fn native_async_result_take_script() -> String {
     )
 }
 
+fn native_async_argument_is_supported(argument: &serde_json::Value) -> bool {
+    match argument["kind"].as_str() {
+        Some("json-literal" | "harness-uint8-array-list") => true,
+        Some("native-global-result") => {
+            argument["globalName"] == "__exactStringToUtf8Bytes"
+                && argument["arguments"].as_array().is_some_and(|arguments| {
+                    arguments.as_slice()
+                        == [serde_json::json!({
+                            "kind": "json-literal",
+                            "value": "ibex-capsec-async-write-file"
+                        })]
+                })
+        }
+        _ => false,
+    }
+}
+
 fn native_async_invocation_script(
     invocation: &NativePublicInvocation,
     arguments: &[serde_json::Value],
@@ -1623,12 +2498,9 @@ fn native_async_invocation_script(
         .expect("async native invocation requires a completion contract");
     assert_eq!(completion.kind, "event-loop-quiescence");
     assert_eq!(completion.timeout_milliseconds, 1_000);
-    assert!(arguments.iter().all(|argument| matches!(
-        argument["kind"].as_str(),
-        Some("json-literal" | "harness-uint8-array-list")
-    )));
+    assert!(arguments.iter().all(native_async_argument_is_supported));
     format!(
-        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});throw new Error(\"unsupported async native fixture argument: \"+String(spec&&spec.kind));}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});if(spec.kind===\"native-global-result\"){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}throw new Error(\"unsupported async native fixture argument: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(error){{record({{kind:\"argument-throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
@@ -1649,9 +2521,14 @@ struct NativeRuntimeValidation {
     execution_proof: serde_json::Value,
 }
 
-const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 5] = [
+// Keep the carrier-to-worker account closed: each admitted operation must be
+// source-selected by __exactFsPathAsync and proven by a break-test below.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 7] = [
+    ("access", "native-op:__exactAccess"),
     ("mkdir", "native-op:__exactMkdir"),
     ("readdir", "native-op:__exactReaddir"),
+    ("readlink", "native-op:__exactReadlink"),
     ("realpath", "native-op:__exactRealpath"),
     ("statfs", "native-op:__exactStatfs"),
     ("truncate", "native-op:__exactTruncate"),
@@ -1668,6 +2545,119 @@ fn native_async_worker_terminal(invocation: &NativePublicInvocation) -> Option<&
     NATIVE_ASYNC_WORKER_TERMINALS
         .iter()
         .find_map(|(candidate, terminal)| (*candidate == operation).then_some(*terminal))
+}
+
+fn reviewed_native_open_traversal_prefix(
+    invocation: &NativePublicInvocation,
+) -> Option<&'static str> {
+    if invocation.kind != "native-global-function" {
+        return None;
+    }
+    match invocation.global_name.as_str() {
+        "__exactReadlink" if invocation.expected_action_ids.as_slice() == ["fs:read"] => {
+            Some("fs-readlink:")
+        }
+        "__exactFsPathAsync"
+            if invocation.expected_action_ids.as_slice() == ["fs:read"]
+                && matches!(
+                    invocation.arguments.first(),
+                    Some(NativeProbeArgument::JsonLiteral { value })
+                        if value.as_str() == Some("readlink")
+                ) =>
+        {
+            Some("fs-readlink:")
+        }
+        "__exactFsWriteFileAsync"
+            if invocation.expected_action_ids.as_slice() == ["fs:write"]
+                && native_async_write_file_fixture_path(invocation).is_some() =>
+        {
+            Some("fs-write-file-async:")
+        }
+        _ => None,
+    }
+}
+
+const NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH: &str = "target/ibex-capsec-fswritefileasync-path";
+const NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES: &[u8] = b"ibex-capsec-async-write-file";
+
+fn native_async_write_file_fixture_path(invocation: &NativePublicInvocation) -> Option<&str> {
+    if invocation.global_name != "__exactFsWriteFileAsync" {
+        return None;
+    }
+    match invocation.arguments.first() {
+        Some(NativeProbeArgument::JsonLiteral { value })
+            if value.as_str() == Some(NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH) =>
+        {
+            value.as_str()
+        }
+        _ => None,
+    }
+}
+
+fn native_observed_actions_are_reviewed(
+    invocation: &NativePublicInvocation,
+    observed_actions: &BTreeSet<String>,
+) -> bool {
+    if native_requires_reviewed_early_denial_action_prefix(invocation) {
+        return reviewed_native_early_denial_action_prefix(invocation, observed_actions);
+    }
+    let declared_actions = invocation
+        .expected_action_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    declared_actions.is_subset(observed_actions)
+        && observed_actions.difference(&declared_actions).all(|extra| {
+            extra == "fs:list" && reviewed_native_open_traversal_prefix(invocation).is_some()
+        })
+}
+
+fn native_requires_reviewed_early_denial_action_prefix(
+    invocation: &NativePublicInvocation,
+) -> bool {
+    invocation.global_name == "__exactWhich"
+        && matches!(
+            invocation.arguments.as_slice(),
+            [NativeProbeArgument::JsonLiteral { value }]
+                if value.as_str() == Some("ref-check")
+        )
+        && invocation.expected_result == "permission-denied"
+}
+
+fn reviewed_native_early_denial_action_prefix(
+    invocation: &NativePublicInvocation,
+    observed_actions: &BTreeSet<String>,
+) -> bool {
+    // @ref LLP 0037#d3--observed-typed-sequences-are-pinned-from-a-run-never-authored-by-hand
+    // A denied bare `which` stops after the PATH lookup, before filesystem
+    // discovery. Admit only the exact engine-observed prefix; all nearby
+    // globals, arguments, outcomes, sequences, and action sets fail closed.
+    native_requires_reviewed_early_denial_action_prefix(invocation)
+        && invocation.expected_typed_stages.as_slice() == ["requested"]
+        && invocation.expected_typed_decision_count == 1
+        && invocation.expected_action_ids.as_slice() == ["env:read", "fs:list"]
+        && observed_actions == &BTreeSet::from(["env:read".to_owned()])
+}
+
+fn native_decision_is_reviewed_open_traversal(
+    invocation: &NativePublicInvocation,
+    decision: &serde_json::Value,
+    effects: &[serde_json::Value],
+    public_denial: bool,
+) -> bool {
+    let Some(operation_prefix) = reviewed_native_open_traversal_prefix(invocation) else {
+        return false;
+    };
+    !public_denial
+        && !effects.is_empty()
+        && effects.iter().all(|effect| effect["cap"] == "fs:list")
+        && matches!(
+            decision["decisionSet"]["context"]["stage"].as_str(),
+            Some("requested" | "discovery" | "repeat")
+        )
+        && decision["decisionSet"]["operationId"]
+            .as_str()
+            .is_some_and(|operation_id| operation_id.starts_with(operation_prefix))
 }
 
 fn observed_typed_values(
@@ -1924,6 +2914,262 @@ fn uses_ambient_project_prefix_authority(
         })
 }
 
+fn native_filesystem_denial_message_is_reviewed(global_name: &str) -> bool {
+    matches!(
+        global_name,
+        "__exactAccess"
+            | "__exactOpendir"
+            | "__exactAppendFile"
+            | "__exactFsOpen"
+            | "__exactFsOpenAsync"
+            | "__exactFsPathAsync"
+            | "__exactFsReadFileAsync"
+            | "__exactFsStatAsync"
+            | "__exactFsWriteFileAsync"
+            | "__exactLstat"
+            | "__exactMkdir"
+            | "__exactReadFile"
+            | "__exactReaddir"
+            | "__exactRealpath"
+            | "__exactReadlink"
+            | "__exactSqliteOpen"
+            | "__exactStat"
+            | "__exactStatfs"
+            | "__exactTruncate"
+            | "__exactWhich"
+            | "__exactWriteFile"
+    )
+}
+
+fn native_closed_filesystem_mutation_is_reviewed(
+    classification: &str,
+    scenario: &str,
+    invocation: &NativePublicInvocation,
+) -> bool {
+    // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified —
+    // these loaded native branches refuse with EPERM before path lookup or
+    // descriptor validation, and therefore must emit no capability decision.
+    if classification != "closed"
+        || scenario != "branch-selection"
+        || invocation.kind != "native-global-function"
+        || invocation.expected_result != "permission-denied"
+        || invocation.expected_deny_message_fragment.as_deref()
+            != Some("EPERM: operation not permitted")
+        || !invocation.required_floor.is_empty()
+        || !invocation.required_setup_floor.is_empty()
+        || !invocation.setup.is_empty()
+        || !invocation.expected_typed_stages.is_empty()
+        || !invocation.expected_typed_outcomes.is_empty()
+        || invocation.expected_typed_decision_count != 0
+        || !invocation.expected_action_ids.is_empty()
+        || if invocation.global_name == "__exactMkdir" {
+            invocation.completion.is_some()
+        } else {
+            invocation.completion.as_ref().is_none_or(|completion| {
+                completion.kind != "event-loop-quiescence"
+                    || completion.timeout_milliseconds != 1_000
+            })
+        }
+    {
+        return false;
+    }
+    let Some(arguments) = invocation
+        .arguments
+        .iter()
+        .map(|argument| match argument {
+            NativeProbeArgument::JsonLiteral { value } => Some(value.clone()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    if invocation.global_name == "__exactMkdir" {
+        return arguments
+            == vec![
+                serde_json::json!("target/ibex-capsec-mkdir-recursive-closed"),
+                serde_json::json!(true),
+                serde_json::json!(-1),
+            ];
+    }
+    if invocation.global_name == "__exactFsFdAsync" {
+        return matches!(
+            arguments.as_slice(),
+            [operation, descriptor, first, second]
+                if descriptor == &serde_json::json!(42)
+                    && second == &serde_json::json!(0)
+                    && matches!(
+                        operation.as_str(),
+                        Some("fchmod" | "fchown" | "futimes")
+                    )
+                    && match operation.as_str() {
+                        Some("fchmod") => first == &serde_json::json!(0o600),
+                        Some("fchown" | "futimes") => first == &serde_json::json!(0),
+                        _ => false,
+                    }
+        );
+    }
+    if invocation.global_name != "__exactFsPathAsync" || arguments.len() != 6 {
+        return false;
+    }
+    let expected = match arguments[0].as_str() {
+        Some("chown") => {
+            serde_json::json!(["chown", "target/ibex-capsec-closed-chown", null, 0, 0, 0])
+        }
+        Some("copyfile") => serde_json::json!([
+            "copyfile",
+            "target/ibex-capsec-closed-copyfile-source",
+            "target/ibex-capsec-closed-copyfile-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("copyfile_excl") => serde_json::json!([
+            "copyfile_excl",
+            "target/ibex-capsec-closed-copyfile-excl-source",
+            "target/ibex-capsec-closed-copyfile-excl-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("lchmod") => serde_json::json!([
+            "lchmod",
+            "target/ibex-capsec-closed-lchmod",
+            null,
+            0o600,
+            0,
+            0
+        ]),
+        Some("lchown") => {
+            serde_json::json!(["lchown", "target/ibex-capsec-closed-lchown", null, 0, 0, 0])
+        }
+        Some("link") => serde_json::json!([
+            "link",
+            "target/ibex-capsec-closed-link-source",
+            "target/ibex-capsec-closed-link-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("lutime") => {
+            serde_json::json!(["lutime", "target/ibex-capsec-closed-lutime", null, 0, 0, 0])
+        }
+        Some("mkdir") => serde_json::json!([
+            "mkdir",
+            "target/ibex-capsec-fspathasync-closed-mkdir-recursive",
+            null,
+            1,
+            -1,
+            0
+        ]),
+        Some("mkdtemp") => serde_json::json!([
+            "mkdtemp",
+            "target/ibex-capsec-closed-mkdtemp-",
+            null,
+            0,
+            0,
+            0
+        ]),
+        Some("rename") => serde_json::json!([
+            "rename",
+            "target/ibex-capsec-closed-rename-source",
+            "target/ibex-capsec-closed-rename-destination",
+            0,
+            0,
+            0
+        ]),
+        Some("rmdir") => {
+            serde_json::json!(["rmdir", "target/ibex-capsec-closed-rmdir", null, 0, 0, 0])
+        }
+        Some("symlink") => serde_json::json!([
+            "symlink",
+            "closed-symlink-target",
+            "target/ibex-capsec-closed-symlink",
+            0,
+            0,
+            0
+        ]),
+        Some("unlink") => {
+            serde_json::json!(["unlink", "target/ibex-capsec-closed-unlink", null, 0, 0, 0])
+        }
+        _ => return false,
+    };
+    expected
+        .as_array()
+        .is_some_and(|expected| expected == &arguments)
+}
+
+fn native_closed_filesystem_mutation_result_is_reviewed(
+    classification: &str,
+    scenario: &str,
+    invocation: &NativePublicInvocation,
+    invocation_result: &serde_json::Value,
+) -> bool {
+    if !native_closed_filesystem_mutation_is_reviewed(classification, scenario, invocation) {
+        return false;
+    }
+    let operation = if invocation.global_name == "__exactMkdir" {
+        "mkdir"
+    } else {
+        let Some(operation) = invocation
+            .arguments
+            .first()
+            .and_then(|argument| match argument {
+                NativeProbeArgument::JsonLiteral { value } => value.as_str(),
+                _ => None,
+            })
+        else {
+            return false;
+        };
+        operation
+    };
+    let Some(result) = invocation_result.as_object() else {
+        return false;
+    };
+    result.len() == 4
+        && ["kind", "globalName", "errorName", "errorMessage"]
+            .iter()
+            .all(|key| result.contains_key(*key))
+        && invocation_result["kind"] == "throw"
+        && invocation_result["globalName"] == invocation.global_name
+        && invocation_result["errorName"] == "Error"
+        && invocation_result["errorMessage"]
+            == format!("EPERM: operation not permitted, {operation}")
+}
+
+fn native_string_result_matches_reviewed_expectation(
+    global_name: &str,
+    arguments: &[NativeProbeArgument],
+    expected_string_value: &str,
+    invocation_result: &serde_json::Value,
+) -> bool {
+    let [NativeProbeArgument::JsonLiteral { value }] = arguments else {
+        return false;
+    };
+    let Some(argument) = value.as_str() else {
+        return false;
+    };
+    let reviewed_lookup = matches!(
+        (argument, expected_string_value),
+        ("/project/ref-check", "/project/ref-check") | ("ref-check", "/project/ref-check")
+    );
+    let Some(result) = invocation_result.as_object() else {
+        return false;
+    };
+    global_name == "__exactWhich"
+        && expected_string_value == "/project/ref-check"
+        && reviewed_lookup
+        && result.len() == 5
+        && ["kind", "globalName", "valueType", "cleanup", "stringValue"]
+            .iter()
+            .all(|key| result.contains_key(*key))
+        && invocation_result["kind"] == "return"
+        && invocation_result["globalName"] == global_name
+        && invocation_result["valueType"] == "string"
+        && invocation_result["cleanup"] == "none"
+        && invocation_result["stringValue"] == expected_string_value
+}
+
 fn validate_native_runtime_observation(
     recipe: &Recipe,
     probe: &PublicSurfaceProbe,
@@ -1970,31 +3216,22 @@ fn validate_native_runtime_observation(
             assert!(invocation.public_access.is_none());
             assert!(invocation.public_access_digest.is_none());
             if let Some(fragment) = invocation.expected_deny_message_fragment.as_deref() {
-                assert_eq!(fragment, "filesystem policy denied");
-                assert!(matches!(
-                    invocation.global_name.as_str(),
-                    // Direct armed list terminals: both refuse through
-                    // openArmedListTarget / throwFsAsyncResult, the same
-                    // EACCES "filesystem policy denied" refusal the other
-                    // path-taking natives raise
-                    // (src/engine/hermes_runtime_fs.cc:1288, :2370, :2409).
-                    "__exactAccess"
-                        | "__exactOpendir"
-                        | "__exactAppendFile"
-                        | "__exactFsOpen"
-                        | "__exactFsOpenAsync"
-                        | "__exactFsPathAsync"
-                        | "__exactFsReadFileAsync"
-                        | "__exactLstat"
-                        | "__exactMkdir"
-                        | "__exactReadFile"
-                        | "__exactReaddir"
-                        | "__exactRealpath"
-                        | "__exactStat"
-                        | "__exactStatfs"
-                        | "__exactTruncate"
-                        | "__exactWriteFile"
-                ));
+                if fragment == "EPERM: operation not permitted" {
+                    assert!(native_closed_filesystem_mutation_is_reviewed(
+                        &recipe.classification,
+                        &recipe.scenario,
+                        invocation,
+                    ));
+                } else {
+                    assert_eq!(fragment, "filesystem policy denied");
+                    // Direct armed list terminals refuse through
+                    // openArmedListTarget / throwFsAsyncResult with this exact
+                    // EACCES message. Keep the accepted public-global set closed.
+                    // @ref LLP 0049#3-construction-rules — reviewed evidence sets stay closed
+                    assert!(native_filesystem_denial_message_is_reviewed(
+                        invocation.global_name.as_str()
+                    ));
+                }
             }
         }
     }
@@ -2002,7 +3239,7 @@ fn validate_native_runtime_observation(
     // an async dispatcher or retained-object operation may observe its
     // source-selected worker, cleanup, or object-gate edge, but no unrelated
     // edge may be admitted by the authored recipe. FsPathAsync remains bound
-    // to the exact reviewed five-operation worker map above; in particular,
+    // to the closed source-selected worker map above; in particular,
     // mkdtemp cannot inherit mkdir's worker evidence.
     let windows_source = invocation.source_descriptor["sourceRef"]
         .as_str()
@@ -2014,7 +3251,17 @@ fn validate_native_runtime_observation(
             NativeProbeSetup::FsReadFile { .. } | NativeProbeSetup::FsWriteFile { .. }
         )
     });
-    let auxiliary_allowed_terminal = if !target_absence
+    let closed_filesystem_mutation = native_closed_filesystem_mutation_is_reviewed(
+        &recipe.classification,
+        &recipe.scenario,
+        invocation,
+    );
+    // These exact branches refuse in __exactFsPathAsync before dispatch. In
+    // particular, recursive mkdir must not inherit __exactMkdir's worker edge
+    // merely because its operation selector is "mkdir".
+    let auxiliary_allowed_terminal = if closed_filesystem_mutation {
+        None
+    } else if !target_absence
         && ((retained_descriptor_setup
             && matches!(
                 invocation.global_name.as_str(),
@@ -2043,7 +3290,9 @@ fn validate_native_runtime_observation(
     // identities throughout. An admitted setup edge is therefore not
     // automatically the selected terminal.
     // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
-    let source_selected_auxiliary_terminals = if !target_absence
+    let source_selected_auxiliary_terminals = if closed_filesystem_mutation {
+        None
+    } else if !target_absence
         && !windows_source
         && retained_descriptor_setup
         && invocation.global_name == "__exactFsReadFileAsync"
@@ -2155,6 +3404,18 @@ fn validate_native_runtime_observation(
                     invocation_result["cleanup"],
                     expected_cleanup.as_str(),
                     "{}: native public invocation did not prove its authored cleanup",
+                    recipe.fixture_id
+                );
+            }
+            if let Some(expected_string_value) = &invocation.expected_string_value {
+                assert!(
+                    native_string_result_matches_reviewed_expectation(
+                        &invocation.global_name,
+                        &invocation.arguments,
+                        expected_string_value,
+                        invocation_result,
+                    ),
+                    "{}: native public invocation did not return its exact authored string",
                     recipe.fixture_id
                 );
             }
@@ -2270,6 +3531,22 @@ fn validate_native_runtime_observation(
                 "{}: denied public native invocation threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
+            if native_closed_filesystem_mutation_is_reviewed(
+                &recipe.classification,
+                &recipe.scenario,
+                invocation,
+            ) {
+                assert!(
+                    native_closed_filesystem_mutation_result_is_reviewed(
+                        &recipe.classification,
+                        &recipe.scenario,
+                        invocation,
+                        invocation_result,
+                    ),
+                    "{}: closed native filesystem mutation returned the wrong exact EPERM account: {invocation_result}",
+                    recipe.fixture_id
+                );
+            }
             serde_json::json!({
                 "kind": "typed-permission-denial",
                 "bodyEntered": true,
@@ -2340,8 +3617,7 @@ fn validate_native_runtime_observation(
     );
     assert!(
         invocation.expected_typed_outcomes.is_empty()
-            || invocation.expected_typed_outcomes.len()
-                == invocation.expected_typed_decision_count,
+            || invocation.expected_typed_outcomes.len() == invocation.expected_typed_decision_count,
         "{}: pinned typed outcomes must cover every expected decision",
         recipe.fixture_id
     );
@@ -2412,8 +3688,32 @@ fn validate_native_runtime_observation(
         // so the authority stratum follows the per-decision outcome, not the
         // public result. @ref LLP 0037#denial-return-evidence-existssync
         let public_denial = expected_outcome == "deny";
-        let ambient_project_prefix =
-            !public_denial && uses_ambient_project_prefix_authority(invocation, effects);
+        let has_surplus_effect = effects.iter().any(|effect| {
+            effect["cap"].as_str().is_some_and(|action_id| {
+                !invocation
+                    .expected_action_ids
+                    .iter()
+                    .any(|expected| expected == action_id)
+            })
+        });
+        let reviewed_open_traversal = native_decision_is_reviewed_open_traversal(
+            invocation,
+            decision,
+            effects,
+            public_denial,
+        );
+        if has_surplus_effect {
+            assert!(
+                reviewed_open_traversal,
+                "{}: surplus native effect did not come from a reviewed traversal-stage fs:list operation: expected {:?}, observed {:?}",
+                recipe.fixture_id,
+                invocation.expected_action_ids,
+                effects
+            );
+        }
+        let ambient_project_prefix = !public_denial
+            && (uses_ambient_project_prefix_authority(invocation, effects)
+                || reviewed_open_traversal);
         let (expected_stratum, expected_source_prefix) = if public_denial {
             ("principal-denial", Some("principal.000000.denial."))
         } else if ambient_project_prefix {
@@ -2471,8 +3771,11 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
     } else {
-        assert_eq!(
-            observed_actions.into_iter().collect::<Vec<_>>(),
+        assert!(
+            native_observed_actions_are_reviewed(invocation, &observed_actions),
+            "{}: observed actions {:?} exceed declared actions {:?} outside a reviewed native traversal",
+            recipe.fixture_id,
+            observed_actions,
             invocation.expected_action_ids
         );
     }
@@ -2490,7 +3793,13 @@ fn validate_native_runtime_observation(
             (recipe.classification == "non-capability" && recipe.scenario == "non-capability")
                 || (recipe.classification == "effects"
                     && recipe.action_ids.is_empty()
-                    && matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect")),
+                    && matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect"))
+                || native_closed_filesystem_mutation_result_is_reviewed(
+                    &recipe.classification,
+                    &recipe.scenario,
+                    invocation,
+                    invocation_result,
+                ),
             "{}: a zero-decision public invocation did not select a reviewed zero-effect branch",
             recipe.fixture_id
         );
@@ -2545,6 +3854,39 @@ impl Drop for NativePublicFixtureCleanup {
         for path in self.directories.iter().rev() {
             let _ = std::fs::remove_dir(path);
         }
+    }
+}
+
+fn prepare_native_async_write_file_fixture(path: &str, cleanup: &mut NativePublicFixtureCleanup) {
+    assert_eq!(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH);
+    // This exact path is the complete ownership boundary for stale-file
+    // removal and cleanup. Another invocation of the same global cannot
+    // borrow the fixture under a different path.
+    // @ref LLP 0049#3-construction-rules
+    cleanup.files.push(path.into());
+    if let Err(error) = std::fs::remove_file(path) {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::NotFound,
+            "clear stale owned async write-file fixture {path}: {error}"
+        );
+    }
+}
+
+fn finalize_native_async_write_file_fixture(path: &str, invocation_result: &mut serde_json::Value) {
+    assert_eq!(path, NATIVE_ASYNC_WRITE_FILE_FIXTURE_PATH);
+    if invocation_result["kind"] == "return" {
+        assert_eq!(
+            std::fs::read(path).expect("read async write-file fixture"),
+            NATIVE_ASYNC_WRITE_FILE_FIXTURE_BYTES
+        );
+        std::fs::remove_file(path).expect("remove async write-file fixture");
+        invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
+    } else {
+        assert!(
+            !std::path::Path::new(path).exists(),
+            "denied async write-file invocation changed physical state"
+        );
     }
 }
 
@@ -2611,6 +3953,9 @@ async fn execute_native_public_recipe(
     let setup_state = run_native_setup(engine, invocation, listener_port).await;
     let arguments = materialize_native_arguments(invocation, listener_port, &setup_state);
     let mut fixture_cleanup = NativePublicFixtureCleanup::default();
+    if let Some(path) = &setup_state.sqlite_file_path {
+        fixture_cleanup.files.push(path.into());
+    }
     let fs_path_async_directory_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (invocation.arguments.first(), invocation.arguments.get(1)) {
             (
@@ -2674,6 +4019,11 @@ async fn execute_native_public_recipe(
     if let Some(path) = &direct_write_file_fixture {
         assert_eq!(path, "target/ibex-capsec-write-file");
         let _ = std::fs::remove_file(path);
+    }
+    let async_write_file_fixture =
+        native_async_write_file_fixture_path(invocation).map(str::to_owned);
+    if let Some(path) = &async_write_file_fixture {
+        prepare_native_async_write_file_fixture(path, &mut fixture_cleanup);
     }
     let direct_append_file_fixture = if invocation.global_name == "__exactAppendFile" {
         match invocation.arguments.first() {
@@ -2914,6 +4264,9 @@ async fn execute_native_public_recipe(
             invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
     }
+    if let Some(path) = &async_write_file_fixture {
+        finalize_native_async_write_file_fixture(path, &mut invocation_result);
+    }
     if let Some(path) = &direct_append_file_fixture {
         let expected = if invocation_result["kind"] == "return" {
             b"ibex-capsec-append-prefix:ibex-capsec-append-suffix".as_slice()
@@ -2999,6 +4352,14 @@ async fn execute_native_public_recipe(
             invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
+    }
+    if let Some(path) = &setup_state.sqlite_file_path {
+        std::fs::remove_file(path).expect("remove on-disk SQLite setup fixture");
+        if invocation_result["kind"] == "return" {
+            assert_eq!(invocation_result["cleanup"], "closed-sqlite-db");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("closed-sqlite-db-removed-owned-file".into());
+        }
     }
     remove_native_async_harness_fields(&mut invocation_result);
     let typed_decisions = observed_typed_values(&session_id, typed);

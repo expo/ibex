@@ -772,6 +772,12 @@ const sqliteMemorySetup = (withStatement = false) => [
       ]
     : []),
 ];
+const sqliteFileSetup = (path) => [
+  {
+    kind: "sqlite-file",
+    path,
+  },
+];
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
 // retained filesystem controls receive a source-bound descriptor created by
 // the harness before the zero-decision invocation is observed.
@@ -856,6 +862,31 @@ const nativeConditionalNoEffectTemplate = (
     expectedStages: { "branch-selection": [], "no-effect": [] },
     requiredSourceArity,
     setup,
+  });
+const nativeClosedFilesystemMutationTemplate = (
+  requiredSourceArity,
+  argumentsList,
+  { async = true } = {},
+) =>
+  Object.freeze({
+    actionIds: [],
+    arguments: argumentsList,
+    expectedDecisionCounts: { "branch-selection": 0 },
+    expectedResults: { "branch-selection": "permission-denied" },
+    expectedDenyMessageFragment: "EPERM: operation not permitted",
+    expectedStages: { "branch-selection": [] },
+    requiredFloor: [],
+    requiredSourceArity,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    ...(async
+      ? {
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+        }
+      : {}),
   });
 const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
@@ -1335,6 +1366,152 @@ const nativeProjectStatfsTemplate = () =>
     requiredSourceArity: 1,
     setup: [],
   });
+const nativeProjectFsPathAccessReadTemplate = () => {
+  const stages = [
+    "requested",
+    "discovery",
+    "requested",
+    "repeat",
+    "repeat",
+    "repeat",
+  ];
+  return Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [
+      literalArgument("access"),
+      literalArgument("Cargo.toml"),
+      literalArgument(null),
+      literalArgument(0),
+      literalArgument(0),
+      literalArgument(0),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactAccess"],
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedResults: Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+        scenario,
+        "return",
+      ]).concat([["deny", "permission-denied"]]),
+    ),
+    expectedStages: nativeEffectStages(stages),
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 6,
+    setup: [],
+  });
+};
+const nativeProjectWhichSlashTemplate = () => {
+  const direct = nativeDirectListTemplate({
+    argumentsList: [literalArgument("/project/ref-check")],
+    pathComponents: ["ref-check"],
+    requiredSourceArity: 1,
+    allowStages: [
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "discovery",
+    ],
+  });
+  return Object.freeze({
+    ...direct,
+    expectedDecisionCounts: Object.freeze({
+      ...direct.expectedDecisionCounts,
+      "branch-selection": direct.expectedDecisionCounts.allow,
+    }),
+    expectedResults: Object.freeze({
+      ...direct.expectedResults,
+      "branch-selection": "return",
+    }),
+    expectedStringValues: Object.freeze(
+      Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "/project/ref-check",
+        ]),
+      ),
+    ),
+    expectedStages: Object.freeze({
+      ...direct.expectedStages,
+      "branch-selection": direct.expectedStages.allow,
+    }),
+  });
+};
+const nativeProjectWhichBareTemplate = () => {
+  const stages = [
+    "requested",
+    "commit",
+    "requested",
+    "discovery",
+    "requested",
+    "repeat",
+    "discovery",
+  ];
+  return Object.freeze({
+    actionIds: ["env:read", "fs:list"],
+    arguments: [literalArgument("ref-check")],
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedObservedActionIds: {
+      malformed: ["env:read", "fs:list"],
+    },
+    expectedResults: Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+        scenario,
+        "return",
+      ]).concat([["deny", "permission-denied"]]),
+    ),
+    expectedStages: nativeEffectStages(stages),
+    expectedStringValues: Object.freeze(
+      Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "/project/ref-check",
+        ]),
+      ),
+    ),
+    requiredFloor: [
+      {
+        cap: "env:read",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name: "PATH",
+        },
+      },
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("ref-check"),
+      },
+    ],
+    requiredSetupFloor: [
+      {
+        cap: "env:write",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name: "PATH",
+        },
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [
+      {
+        kind: "invoke-native-global",
+        globalName: "__exactSetEnv",
+        arguments: ["PATH", "/project"],
+      },
+    ],
+  });
+};
 // Direct armed metadata probes on the native fs:list terminals that the
 // already-authored builtin carriers reach indirectly. Each takes the exact
 // authenticated /project path, resolves through the armed VFS, authorizes the
@@ -1561,6 +1738,98 @@ const nativeProjectReadFileTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+// The direct and asynchronous readlink carriers share the engine-observed
+// fs-readlink lifecycle. The first four decisions retain the link through
+// ambient fs:list traversal, commit reads the stored link bytes under the
+// authored fs:read floor, and the final three decisions translate the target.
+// Denial therefore preserves the four allowed traversal decisions and refuses
+// only the fs:read commit.
+// @ref LLP 0037#link-byte-read-and-translation-evidence-readlinksync
+const nativeProjectReadlinkTemplate = ({ async = false } = {}) => {
+  const nonDenyScenarios = Object.freeze([
+    "allow",
+    "branch-selection",
+    "malformed",
+    "missing-attribution",
+    "wrong-principal",
+  ]);
+  const allowStages = Object.freeze([
+    "requested",
+    "discovery",
+    "requested",
+    "repeat",
+    "commit",
+    "discovery",
+    "requested",
+    "repeat",
+  ]);
+  const denyStages = Object.freeze(allowStages.slice(0, 5));
+  return Object.freeze({
+    actionIds: ["fs:read"],
+    arguments: async
+      ? [
+          literalArgument("readlink"),
+          literalArgument("CLAUDE.md"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]
+      : [literalArgument("CLAUDE.md")],
+    ...(async
+      ? {
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: [
+            "native-op:__exactReadlink",
+          ],
+        }
+      : {}),
+    expectedDecisionCounts: Object.freeze({
+      ...Object.fromEntries(
+        nonDenyScenarios.map((scenario) => [
+          scenario,
+          allowStages.length,
+        ]),
+      ),
+      deny: denyStages.length,
+    }),
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        nonDenyScenarios.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: Object.freeze({
+      ...Object.fromEntries(
+        nonDenyScenarios.map((scenario) => [
+          scenario,
+          allowStages,
+        ]),
+      ),
+      deny: denyStages,
+    }),
+    expectedTypedOutcomes: Object.freeze({
+      deny: ["allow", "allow", "allow", "allow", "deny"],
+    }),
+    reviewedIncidentalActionIds: ["fs:list"],
+    requiredFloor: [
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("CLAUDE.md"),
+      },
+    ],
+    requiredSourceArity: async ? 6 : 1,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
+};
 const nativeProjectMkdirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:write"],
@@ -1858,6 +2127,52 @@ const nativeProjectFsOpenTemplate = ({
       : {}),
   });
 };
+// A file-backed SQLite open uses the same authenticated retained-component
+// walk as a direct descriptor open, but has no extra facade access-class
+// request. The harness provisions a real SQLite database before observation;
+// the public operation still opens that exact file through
+// exactOpenArmedSqliteFile and the checked-fd host ABI.
+// @ref LLP 0049#6-phase-2--the-authoring-campaign-parallel-with-phase-1
+const nativeProjectSqliteOpenTemplate = ({ writable = false } = {}) => {
+  const fixture = writable
+    ? "ibex-capsec-sqlite-open-read-write.sqlite"
+    : "ibex-capsec-sqlite-open-read.sqlite";
+  const actionIds = writable
+    ? ["fs:list", "fs:read", "fs:write"]
+    : ["fs:list", "fs:read"];
+  const stages = existingProjectChildStages("commit");
+  return Object.freeze({
+    actionIds,
+    arguments: [
+      literalArgument(`target/${fixture}`),
+      literalArgument(
+        writable
+          ? { create: false, readwrite: true }
+          : { readonly: true },
+      ),
+    ],
+    expectedCleanup: "closed-sqlite-db-removed-owned-file",
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedObservedActionIds: { malformed: actionIds },
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: nativeEffectStages(stages),
+    requiredFloor: actionIds.map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", fixture),
+    })),
+    requiredSourceArity: 2,
+    setup: sqliteFileSetup(`target/${fixture}`),
+  });
+};
 const nativeRetainedFsReadTemplate = () =>
   Object.freeze({
     actionIds: ["fs:read"],
@@ -2025,6 +2340,100 @@ const nativeProjectFsReadFileAsyncTemplate = () => {
       },
     },
     requiredSourceArity: 4,
+  });
+};
+const nativeProjectFsStatAsyncPathTemplate = () => {
+  const pathStat = nativeProjectStatTemplate();
+  const stages = [...pathStat.expectedStages.allow, "repeat"];
+  return Object.freeze({
+    ...pathStat,
+    arguments: [
+      literalArgument("Cargo.toml"),
+      literalArgument("stat"),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedDecisionCounts: nativeEffectDecisionCounts(stages.length),
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedStages: nativeEffectStages(stages),
+    requiredSourceArity: 3,
+  });
+};
+// The public branch owns the bytes and the exact missing project child. The
+// semantic cell is fs:write-only; fs:list decisions are retained separately as
+// authenticated open traversal and must satisfy the executor's D2 validator.
+// @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
+const nativeProjectFsWriteFileAsyncTemplate = () => {
+  const stages = missingProjectChildStages("commit", "repeat");
+  const denyStages = missingProjectChildStages();
+  return Object.freeze({
+    actionIds: ["fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-fswritefileasync-path"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-async-write-file"),
+      ]),
+      literalArgument(null),
+      literalArgument(0o600),
+      literalArgument(false),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          stages.length,
+        ]),
+      ),
+      deny: denyStages.length,
+    }),
+    expectedResults: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+          scenario,
+          "return",
+        ]),
+      ),
+      deny: "permission-denied",
+    }),
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: Object.freeze({
+      ...Object.fromEntries(
+        NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [scenario, stages]),
+      ),
+      deny: denyStages,
+    }),
+    expectedTypedOutcomes: Object.freeze({
+      deny: ["allow", "allow", "allow", "allow", "allow", "allow", "deny"],
+    }),
+    reviewedIncidentalActionIds: ["fs:list"],
+    requiredFloor: [
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(
+          "target",
+          "ibex-capsec-fswritefileasync-path",
+        ),
+      },
+    ],
+    requiredSourceArity: 6,
+    setup: [],
   });
 };
 const nativeRetainedFsFstatTemplate = () =>
@@ -2299,6 +2708,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactAccess", nativeProjectAccessTemplate()],
   ["__exactAppendFile", nativeProjectAppendFileTemplate()],
   ["__exactOpendir", nativeProjectOpendirTemplate()],
+  ["__exactReadlink", nativeProjectReadlinkTemplate()],
   ["__exactMkdir", nativeProjectMkdirTemplate()],
   ["__exactReaddir", nativeProjectReaddirTemplate()],
   ["__exactWriteFile", nativeProjectWriteFileTemplate()],
@@ -3227,6 +3637,23 @@ function nativeEffectStages(nonDenyStages) {
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
+    "__exactMkdir",
+    new Map([
+      [
+        "recursive",
+        nativeClosedFilesystemMutationTemplate(
+          3,
+          [
+            literalArgument("target/ibex-capsec-mkdir-recursive-closed"),
+            literalArgument(true),
+            literalArgument(-1),
+          ],
+          { async: false },
+        ),
+      ],
+    ]),
+  ],
+  [
     "__exactGetAllEnv",
     new Map([
       [
@@ -3246,6 +3673,14 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactFsWriteFileAsync",
+    new Map([["path", nativeProjectFsWriteFileAsyncTemplate()]]),
+  ],
+  [
+    "__exactFsStatAsync",
+    new Map([["path", nativeProjectFsStatAsyncPathTemplate()]]),
+  ],
+  [
     "__exactFsFdAsync",
     new Map([
       [
@@ -3255,6 +3690,33 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           operation: "fsync",
           argumentsList: [literalArgument(0), literalArgument(0)],
         }),
+      ],
+      [
+        "fchmod",
+        nativeClosedFilesystemMutationTemplate(4, [
+          literalArgument("fchmod"),
+          literalArgument(42),
+          literalArgument(0o600),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "fchown",
+        nativeClosedFilesystemMutationTemplate(4, [
+          literalArgument("fchown"),
+          literalArgument(42),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "futimes",
+        nativeClosedFilesystemMutationTemplate(4, [
+          literalArgument("futimes"),
+          literalArgument(42),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
       ],
     ]),
   ],
@@ -3320,8 +3782,172 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactSqliteOpen",
+    new Map([
+      ["file-read", nativeProjectSqliteOpenTemplate()],
+      [
+        "file-read-write",
+        nativeProjectSqliteOpenTemplate({ writable: true }),
+      ],
+    ]),
+  ],
+  [
+    "__exactWhich",
+    new Map([
+      ["bare-command", nativeProjectWhichBareTemplate()],
+      ["slash-containing-command", nativeProjectWhichSlashTemplate()],
+    ]),
+  ],
+  [
     "__exactFsPathAsync",
     new Map([
+      [
+        "chown",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("chown"),
+          literalArgument("target/ibex-capsec-closed-chown"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "copyfile",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("copyfile"),
+          literalArgument("target/ibex-capsec-closed-copyfile-source"),
+          literalArgument("target/ibex-capsec-closed-copyfile-destination"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "copyfile-excl",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("copyfile_excl"),
+          literalArgument("target/ibex-capsec-closed-copyfile-excl-source"),
+          literalArgument(
+            "target/ibex-capsec-closed-copyfile-excl-destination",
+          ),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "lchmod",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("lchmod"),
+          literalArgument("target/ibex-capsec-closed-lchmod"),
+          literalArgument(null),
+          literalArgument(0o600),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "lchown",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("lchown"),
+          literalArgument("target/ibex-capsec-closed-lchown"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "link",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("link"),
+          literalArgument("target/ibex-capsec-closed-link-source"),
+          literalArgument("target/ibex-capsec-closed-link-destination"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "lutime",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("lutime"),
+          literalArgument("target/ibex-capsec-closed-lutime"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "mkdir-recursive",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("mkdir"),
+          literalArgument("target/ibex-capsec-fspathasync-closed-mkdir-recursive"),
+          literalArgument(null),
+          literalArgument(1),
+          literalArgument(-1),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "mkdtemp",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("mkdtemp"),
+          literalArgument("target/ibex-capsec-closed-mkdtemp-"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "rename",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("rename"),
+          literalArgument("target/ibex-capsec-closed-rename-source"),
+          literalArgument("target/ibex-capsec-closed-rename-destination"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "rmdir",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("rmdir"),
+          literalArgument("target/ibex-capsec-closed-rmdir"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "symlink",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("symlink"),
+          literalArgument("closed-symlink-target"),
+          literalArgument("target/ibex-capsec-closed-symlink"),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      [
+        "unlink",
+        nativeClosedFilesystemMutationTemplate(6, [
+          literalArgument("unlink"),
+          literalArgument("target/ibex-capsec-closed-unlink"),
+          literalArgument(null),
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(0),
+        ]),
+      ],
+      ["access-read", nativeProjectFsPathAccessReadTemplate()],
+      ["readlink", nativeProjectReadlinkTemplate({ async: true })],
       [
         "mkdir",
         Object.freeze({
@@ -4021,10 +4647,10 @@ function nativePublicProbeForPlan({
           requiredSourceArity: invocation.arity,
           setup: [],
         }
-      : (NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
-        NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
+      : (NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
           invocation.globalName,
         )?.get(logicalBranchIdForPlan(plan, scenario)) ??
+        NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
         (plan.actionIds.length === 0 &&
         new Set(["branch-selection", "no-effect"]).has(scenario)
           ? NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES.get(invocation.globalName)
@@ -4095,7 +4721,10 @@ function nativePublicProbeForPlan({
     additionalAllowedCoverageEdges.push(additionalEdge);
   }
   const stageContractViolation = nativeExpectedStageContractViolation({
-    actionIds: plan.actionIds,
+    actionIds: canonicalSet([
+      ...plan.actionIds,
+      ...(template.reviewedIncidentalActionIds ?? []),
+    ]),
     expectedStages,
     semanticEffects: effectsForPlan(plan, coverageByEdge),
     coverageEdges: [
@@ -4220,6 +4849,11 @@ function nativePublicProbeForPlan({
           bindNativeSetupSources(setup, liveByObservedKey, target),
         ),
         expectedResult: template.expectedResults[scenario],
+        ...(template.expectedStringValues?.[scenario] !== undefined
+          ? {
+              expectedStringValue: template.expectedStringValues[scenario],
+            }
+          : {}),
         ...(template.expectedCleanup
           ? { expectedCleanup: template.expectedCleanup }
           : {}),

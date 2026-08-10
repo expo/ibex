@@ -561,14 +561,14 @@ describe("exact-target CapSec executable recipes", () => {
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally. The three
     // branch-local filesystem closures use the closed-surface harness, while
-    // the direct non-recursive mkdir branch and retained async reads add native
-    // selection proofs. Five direct environment writes bind the exact armed
+    // the direct mkdir branches and retained async reads add native selection
+    // proofs. Five direct environment writes bind the exact armed
     // __exactSetEnv source and principal-overlay resource. The LLP 0049
     // Phase 2 calibration tranche adds sixteen more: six armed
     // whole-environment enumeration receipts on the nonempty logical branch
     // and five each for the direct __exactAccess and __exactOpendir list
     // terminals.
-    expect(nativePublicFixtures).toHaveLength(578);
+    expect(nativePublicFixtures).toHaveLength(579);
     expect(
       nativePublicFixtures
         .filter(
@@ -2327,6 +2327,280 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors async access existence checks without claiming content authority", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync" &&
+        recipe.fixtureId.includes(".logical.access-read."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "access" },
+        { kind: "json-literal", value: "Cargo.toml" },
+        { kind: "json-literal", value: null },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ]);
+      expect(invocation).toMatchObject({
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedActionIds: ["fs:list"],
+        expectedDenyMessageFragment: "filesystem policy denied",
+        requiredFloor: [
+          {
+            cap: "fs:list",
+            resource: {
+              kind: "path-exact",
+              path: {
+                root: "project",
+                components: [{ encoding: "utf8", value: "Cargo.toml" }],
+              },
+            },
+          },
+        ],
+        sourceDescriptor: {
+          arity: 6,
+          globalName: "__exactFsPathAsync",
+          kind: "native-global-function",
+          sourceRef:
+            "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+        },
+      });
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactaccess.1a12cmn",
+        "surface.native.op.exactfspathasync.10cb78b",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 6,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("authors direct executable-path lookup without reading PATH", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactWhich" &&
+        recipe.fixtureId.includes(".logical.slash-containing-command."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "/project/ref-check" },
+      ]);
+      expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "fs:list",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "ref-check" }],
+            },
+          },
+        },
+      ]);
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactwhich.0it66ce",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "discovery",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 5,
+      );
+      if (recipe.scenario === "deny") {
+        expect(invocation).not.toHaveProperty("expectedStringValue");
+      } else {
+        expect(invocation.expectedStringValue).toBe("/project/ref-check");
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("authors bare executable lookup through the exact principal PATH overlay", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactWhich" &&
+        recipe.fixtureId.includes(".logical.bare-command."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(recipe.actionIds).toEqual(["env:read", "fs:list"]);
+      expect(invocation.expectedActionIds).toEqual(["env:read", "fs:list"]);
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "ref-check" },
+      ]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "env:read",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "PATH",
+          },
+        },
+        {
+          cap: "fs:list",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "ref-check" }],
+            },
+          },
+        },
+      ]);
+      expect(invocation.requiredSetupFloor).toEqual([
+        {
+          cap: "env:write",
+          resource: {
+            kind: "environment-name",
+            target: "principal-overlay",
+            name: "PATH",
+          },
+        },
+      ]);
+      expect(invocation.setup).toEqual([
+        {
+          kind: "invoke-native-global",
+          globalName: "__exactSetEnv",
+          arguments: ["PATH", "/project"],
+        },
+      ]);
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactwhich.0it66ce",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : [
+              "requested",
+              "commit",
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "discovery",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 7,
+      );
+      if (recipe.scenario === "deny") {
+        expect(invocation).not.toHaveProperty("expectedStringValue");
+      } else {
+        expect(invocation.expectedStringValue).toBe("/project/ref-check");
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("authors direct and asynchronous readlink carriers with mixed traversal denial", () => {
+    const rows = recipes.recipes.filter((recipe) => {
+      const invocation = recipe.publicSurfaceProbe?.invocation;
+      return (
+        invocation?.globalName === "__exactReadlink" ||
+        (invocation?.globalName === "__exactFsPathAsync" &&
+          recipe.fixtureId.includes(".logical.readlink."))
+      );
+    });
+    expect(rows).toHaveLength(11);
+    const allowStages = [
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "commit",
+      "discovery",
+      "requested",
+      "repeat",
+    ];
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      const asynchronous = invocation.globalName === "__exactFsPathAsync";
+      expect(invocation.expectedActionIds).toEqual(["fs:read"]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "fs:read",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "CLAUDE.md" }],
+            },
+          },
+        },
+      ]);
+      expect(invocation.arguments).toHaveLength(asynchronous ? 6 : 1);
+      expect(invocation.allowedCoverageEdgeIds).toEqual(
+        asynchronous
+          ? [
+              "surface.native.op.exactfspathasync.10cb78b",
+              "surface.native.op.exactreadlink.1p5ozx1",
+            ]
+          : ["surface.native.op.exactreadlink.1p5ozx1"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny" ? allowStages.slice(0, 5) : allowStages,
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 5 : 8,
+      );
+      if (recipe.scenario === "deny") {
+        expect(invocation.expectedTypedOutcomes).toEqual([
+          "allow",
+          "allow",
+          "allow",
+          "allow",
+          "deny",
+        ]);
+      } else {
+        expect(invocation.expectedTypedOutcomes).toBeUndefined();
+      }
+      if (asynchronous) {
+        expect(invocation.completion).toEqual({
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        });
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
   test("proves async directory creation through retained typed objects and owned cleanup", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
@@ -2404,8 +2678,31 @@ describe("exact-target CapSec executable recipes", () => {
       rows.find((recipe) => recipe.scenario === "branch-selection"),
     ).toMatchObject({
       classification: "closed",
-      status: "unresolved",
-      publicSurfaceProbe: null,
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          globalName: "__exactFsPathAsync",
+          arguments: [
+            { kind: "json-literal", value: "mkdtemp" },
+            {
+              kind: "json-literal",
+              value: "target/ibex-capsec-closed-mkdtemp-",
+            },
+            { kind: "json-literal", value: null },
+            { kind: "json-literal", value: 0 },
+            { kind: "json-literal", value: 0 },
+            { kind: "json-literal", value: 0 },
+          ],
+          expectedDenyMessageFragment: "EPERM: operation not permitted",
+          expectedResult: "permission-denied",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+          expectedActionIds: [],
+          requiredFloor: [],
+          setup: [],
+        },
+      },
     });
   });
 
@@ -2697,7 +2994,8 @@ describe("exact-target CapSec executable recipes", () => {
   test("creates a direct native directory only under an exact owned floor", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
-        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactMkdir",
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactMkdir" &&
+        recipe.publicSurfaceProbe.invocation.arguments[1]?.value === false,
     );
     expect(rows).toHaveLength(6);
     for (const recipe of rows) {
@@ -3263,7 +3561,8 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
-        "__exactFsFdAsync",
+          "__exactFsFdAsync" &&
+        recipe.fixtureId.includes(".logical.durability-write."),
     );
     expect(rows).toHaveLength(5);
     for (const recipe of rows) {
@@ -3333,6 +3632,140 @@ describe("exact-target CapSec executable recipes", () => {
         .filter((recipe) => recipe.scenario === "closed")
         .every((recipe) => recipe.status === "fully-executable"),
     ).toBe(true);
+    const closedBranchRows = closedMetadataRows.filter(
+      (recipe) => recipe.scenario === "branch-selection",
+    );
+    expect(closedBranchRows).toHaveLength(3);
+    for (const recipe of closedBranchRows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      const branch = recipe.fixtureId.match(
+        /\.logical\.(fchmod|fchown|futimes)\./u,
+      )?.[1];
+      expect(branch).toBeDefined();
+      expect(invocation).toMatchObject({
+        globalName: "__exactFsFdAsync",
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedResult: "permission-denied",
+        expectedDenyMessageFragment: "EPERM: operation not permitted",
+        expectedActionIds: [],
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        requiredFloor: [],
+        setup: [],
+      });
+      expect(invocation.arguments).toHaveLength(4);
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: branch,
+      });
+      expect(invocation.arguments[1]).toEqual({
+        kind: "json-literal",
+        value: 42,
+      });
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("physically refuses every closed async path-mutation branch before lookup", () => {
+    const operationByBranch = new Map([
+      ["chown", "chown"],
+      ["copyfile", "copyfile"],
+      ["copyfile-excl", "copyfile_excl"],
+      ["lchmod", "lchmod"],
+      ["lchown", "lchown"],
+      ["link", "link"],
+      ["lutime", "lutime"],
+      ["mkdir-recursive", "mkdir"],
+      ["mkdtemp", "mkdtemp"],
+      ["rename", "rename"],
+      ["rmdir", "rmdir"],
+      ["symlink", "symlink"],
+      ["unlink", "unlink"],
+    ]);
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.classification === "closed" &&
+        recipe.scenario === "branch-selection" &&
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync",
+    );
+    expect(rows).toHaveLength(operationByBranch.size);
+    for (const recipe of rows) {
+      const entry = [...operationByBranch.entries()].find(([branch]) =>
+        recipe.fixtureId.includes(`.logical.${branch}.`),
+      );
+      expect(entry).toBeDefined();
+      const [, operation] = entry;
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedResult: "permission-denied",
+        expectedDenyMessageFragment: "EPERM: operation not permitted",
+        expectedActionIds: [],
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        requiredFloor: [],
+        setup: [],
+      });
+      expect(invocation.arguments).toHaveLength(6);
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: operation,
+      });
+      if (operation === "mkdir") {
+        expect(invocation.arguments[3]).toEqual({
+          kind: "json-literal",
+          value: 1,
+        });
+      }
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("physically refuses direct recursive mkdir before path lookup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactmkdir.") &&
+        recipe.fixtureId.includes(".logical.recursive.") &&
+        recipe.scenario === "branch-selection",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      classification: "closed",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          globalName: "__exactMkdir",
+          arguments: [
+            {
+              kind: "json-literal",
+              value: "target/ibex-capsec-mkdir-recursive-closed",
+            },
+            { kind: "json-literal", value: true },
+            { kind: "json-literal", value: -1 },
+          ],
+          expectedResult: "permission-denied",
+          expectedDenyMessageFragment: "EPERM: operation not permitted",
+          expectedActionIds: [],
+          expectedTypedStages: [],
+          expectedTypedDecisionCount: 0,
+          requiredFloor: [],
+          setup: [],
+        },
+      },
+    });
+    expect(rows[0].publicSurfaceProbe.invocation).not.toHaveProperty(
+      "completion",
+    );
   });
 
   test("flushes retained writable descriptors and removes their owned files", () => {
@@ -8163,6 +8596,234 @@ describe("exact-target CapSec executable recipes", () => {
             0 &&
           recipe.publicSurfaceProbe.invocation.expectedActionIds.length === 0,
       ),
+    ).toBe(true);
+  });
+
+  test("authors exact on-disk SQLite open branches with owned setup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactSqliteOpen" &&
+        ["file-read", "file-read-write"].some((branch) =>
+          recipe.fixtureId.includes(`.logical.${branch}.`),
+        ),
+    );
+    expect(rows).toHaveLength(12);
+    expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
+      true,
+    );
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.length === 1 &&
+          recipe.publicSurfaceProbe.invocation.setup[0].kind ===
+            "sqlite-file" &&
+          recipe.publicSurfaceProbe.invocation.expectedCleanup ===
+            "closed-sqlite-db-removed-owned-file",
+      ),
+    ).toBe(true);
+    expect(
+      rows
+        .filter((recipe) => recipe.scenario !== "deny")
+        .every(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation
+              .expectedTypedDecisionCount === 7,
+        ),
+    ).toBe(true);
+    for (const writable of [false, true]) {
+      const branch = writable ? "file-read-write" : "file-read";
+      const branchRows = rows.filter((recipe) =>
+        recipe.fixtureId.includes(`.logical.${branch}.`),
+      );
+      const path = `target/ibex-capsec-sqlite-open-${writable ? "read-write" : "read"}.sqlite`;
+      const actions = writable
+        ? ["fs:list", "fs:read", "fs:write"]
+        : ["fs:list", "fs:read"];
+      expect(branchRows.map((recipe) => recipe.scenario).sort()).toEqual([
+        "allow",
+        "branch-selection",
+        "deny",
+        "malformed",
+        "missing-attribution",
+        "wrong-principal",
+      ]);
+      expect(
+        branchRows.every((recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          return (
+            canonicalJson(recipe.actionIds) === canonicalJson(actions) &&
+            invocation.arguments[0].kind === "json-literal" &&
+            invocation.arguments[0].value === path &&
+            canonicalJson(invocation.arguments[1]) ===
+              canonicalJson({
+                kind: "json-literal",
+                value: writable
+                  ? { create: false, readwrite: true }
+                  : { readonly: true },
+              }) &&
+            invocation.setup[0].path === path &&
+            canonicalJson(invocation.expectedActionIds) ===
+              canonicalJson(
+                recipe.scenario === "deny" ? ["fs:list"] : actions,
+              ) &&
+            canonicalJson(invocation.expectedTypedStages) ===
+              canonicalJson(
+                recipe.scenario === "deny"
+                  ? ["requested"]
+                  : [
+                      "requested",
+                      "discovery",
+                      "requested",
+                      "repeat",
+                      "requested",
+                      "repeat",
+                      "commit",
+                    ],
+              )
+          );
+        }),
+      ).toBe(true);
+    }
+  });
+
+  test("authors the path branch of async whole-file writes with owned cleanup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsWriteFileAsync" &&
+        recipe.fixtureId.includes(".logical.path."),
+    );
+    expect(rows).toHaveLength(6);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "branch-selection",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    expect(
+      rows.every((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return (
+          recipe.status === "fully-executable" &&
+          canonicalJson(recipe.actionIds) === canonicalJson(["fs:write"]) &&
+          invocation.arguments.length === 6 &&
+          canonicalJson(invocation.arguments[0]) ===
+            canonicalJson({
+              kind: "json-literal",
+              value: "target/ibex-capsec-fswritefileasync-path",
+            }) &&
+          invocation.arguments[1].kind === "native-global-result" &&
+          invocation.arguments[1].globalName ===
+            "__exactStringToUtf8Bytes" &&
+          invocation.arguments[1].arguments[0].value ===
+            "ibex-capsec-async-write-file" &&
+          invocation.arguments[2].value === null &&
+          invocation.arguments[3].value === 0o600 &&
+          invocation.arguments[4].value === false &&
+          invocation.arguments[5].value === null &&
+          invocation.completion.kind === "event-loop-quiescence" &&
+          invocation.expectedCleanup === "removed-owned-file" &&
+          invocation.setup.length === 0 &&
+          canonicalJson(invocation.expectedActionIds) ===
+            canonicalJson(["fs:write"]) &&
+          invocation.expectedTypedDecisionCount ===
+            (recipe.scenario === "deny" ? 7 : 9) &&
+          canonicalJson(invocation.expectedTypedOutcomes) ===
+            canonicalJson(
+              recipe.scenario === "deny"
+                ? [
+                    "allow",
+                    "allow",
+                    "allow",
+                    "allow",
+                    "allow",
+                    "allow",
+                    "deny",
+                  ]
+                : undefined,
+            ) &&
+          canonicalJson(invocation.expectedTypedStages) ===
+            canonicalJson(
+              recipe.scenario === "deny"
+                ? [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "requested",
+                    "requested",
+                    "discovery",
+                  ]
+                : [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "requested",
+                    "requested",
+                    "discovery",
+                    "commit",
+                    "repeat",
+                  ],
+            )
+        );
+      }),
+    ).toBe(true);
+  });
+
+  test("authors the path branch of async stat with worker reauthorization", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsStatAsync" &&
+        recipe.fixtureId.includes(".logical.path."),
+    );
+    expect(rows).toHaveLength(6);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "branch-selection",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    expect(
+      rows.every((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return (
+          recipe.status === "fully-executable" &&
+          canonicalJson(recipe.actionIds) === canonicalJson(["fs:list"]) &&
+          canonicalJson(invocation.arguments) ===
+            canonicalJson([
+              { kind: "json-literal", value: "Cargo.toml" },
+              { kind: "json-literal", value: "stat" },
+              { kind: "json-literal", value: null },
+            ]) &&
+          invocation.completion.kind === "event-loop-quiescence" &&
+          invocation.completion.timeoutMilliseconds === 1_000 &&
+          invocation.setup.length === 0 &&
+          canonicalJson(invocation.expectedActionIds) ===
+            canonicalJson(["fs:list"]) &&
+          invocation.expectedTypedDecisionCount ===
+            (recipe.scenario === "deny" ? 1 : 6) &&
+          canonicalJson(invocation.expectedTypedStages) ===
+            canonicalJson(
+              recipe.scenario === "deny"
+                ? ["requested"]
+                : [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "repeat",
+                    "repeat",
+                  ],
+            )
+        );
+      }),
     ).toBe(true);
   });
 

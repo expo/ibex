@@ -1,0 +1,32 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-fs-path-async-access-read",
+  "templateClass": "surface.native.op.__exactFsPathAsync × logical access-read",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared AFTER authoring the template and BEFORE candidate catalog generation. Closes only the six access-read rows of surface.native.op.exactfspathasync.10cb78b. The access-write sibling is not declared or claimed. No route or terminal-set change is declared; the delta is exactly the residual-reason removals below.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-arguments-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:1344-1385",
+      "proof": "Authored: nativeProjectFsPathAccessReadTemplate supplies the exact access dispatcher operation, Cargo.toml path, F_OK mode 0, null unused path, bounded remaining arguments, event-loop quiescence, and the exact fs:list existence-metadata floor. The armed source selects openArmedListTarget and fsAccessArmedWork without requesting read or write content authority (src/engine/hermes_runtime_fs.cc:7657-7680)."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3622-3625",
+      "proof": "The logical-branch registry emits source-bound ibex/capsec-native-global-invocation/1 probes for all six access-read scenarios. The reusable async executor retains observation through event-loop quiescence and checks the exact action, result, cleanup, and typed sequence."
+    },
+    {
+      "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "conditional-branch-selection-probe-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:3622-3625",
+      "proof": "The branch-selection row physically selects the access dispatcher with its exact first argument and selects the non-writable branch with F_OK mode 0; the access-write sibling requires W_OK mode 2 and remains unclaimed."
+    }
+  ]
+}
