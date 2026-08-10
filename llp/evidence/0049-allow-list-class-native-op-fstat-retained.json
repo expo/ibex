@@ -1,0 +1,24 @@
+{
+  "measurement": "llp-0049-phase2-a2-native-fstat-retained",
+  "templateClass": "surface.native.op.__exactFsFstatSync × retained descriptor",
+  "gate": "LLP 0049 §3 rule 3 (paired allow-list, strict mode)",
+  "note": "Declared BEFORE candidate catalog generation. Closes the single residual deny row for surface.native.op.exactfsfstatsync.1xi8z6f. Setup opens Cargo.toml through the real __exactFsOpen implementation under a root-only setup floor, creating the genuine Hermes FdEntry. The observed __exactFsFstatSync probe is then evaluated under the root owner intersected with an independently denied package principal.",
+  "entries": [
+    {
+      "edgeId": "surface.native.op.exactfsfstatsync.1xi8z6f",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "native-public-deny-scenario-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2439-2481",
+      "proof": "Authored: the retained-fstat template declares a deny expectation only after the bound-engine observation identifies its exact typed sequence. The executor requires the denial evidence to name principal.000001.denial while the retained FdEntry remains owned by principal 0."
+    },
+    {
+      "edgeId": "surface.native.op.exactfsfstatsync.1xi8z6f",
+      "field": "residualReasons",
+      "direction": "removed",
+      "value": "public-surface-invocation-not-authored",
+      "sourceSpan": "packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs:2439-2481",
+      "proof": "The source-bound invocation receives only the numeric projection of the descriptor returned by real __exactFsOpen setup; requireOwnedFd still authenticates the runtime nonce and principal-0 ownership record. Setup runs before observation under requiredSetupFloor, while only the invocation uses the canonical [owner, denied probe] principal intersection."
+    }
+  ]
+}
