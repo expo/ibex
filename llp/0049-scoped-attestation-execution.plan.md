@@ -829,18 +829,32 @@ under the canonical `[0, 1]` constrained-principal intersection. The handle
 ownership check therefore still sees owner 0, while semantic authorization
 must satisfy both principals and principal 1's denial remains decisive. Setup
 and post-observation cleanup run root-only; the observer-only one-shot native
-constraint is cleared after the probe submission.
+constraint is cleared after the probe submission. The retained-deny proof
+installs `[0, 1]` through the observer-only
+`ibex_private_test_eval_lowered_session_with_principals` hook as a stand-in for
+frame attribution, so it certifies evaluator conjunction and repeat-stage
+retained-handle authorization, not the production attribution path itself.
 
 The first proof class is retained `__exactFsFstatSync`: its bound-engine deny
 observation is one `repeat` `fs:list` decision with
 `principal.000001.denial.000000` as the decisive row. A focused native test
-separately opens and closes a real on-disk SQLite handle through the loaded
-globals. These are different object-construction mechanisms even though they
-share the principal split. Structurally they cover the 36 retained-FD rows and
-48 retained-SQLite rows; only the fstat deny row is authored by this batch, so
-the other 83 rows still require their ordinary per-class §6 authoring loops.
-No Phase 2 credit or authoritative promotion is claimed until the required
-independent adversarial review and break-tests accept the implementation.
+proves file backing by first refusing a read-only open of an absent owned path
+and then reading the seeded row through the statement handle returned by the
+loaded globals. The first file-backed SQLite row, retained
+`__exactSqliteGet` allow, also completes this section's ordinary authoring loop
+through `execute_native_public_recipe` and
+`validate_native_runtime_observation`. These are different
+object-construction mechanisms even though they share the principal split.
+
+The derivable executor-capability set is 61 rows, not the previously asserted
+84: 13 retained-descriptor deny rows at the pre-constructor baseline (the
+enumerated globals and fixture ids are retained in the two batch envelopes),
+plus 48 non-fully-executable file-backed SQLite rows selected from
+`__exactSqlite{All,Exec,Get,Prepare,Run,Values}`. Two rows are demonstrated and
+closed: retained fstat deny and file-backed SQLite get allow. The remaining 12
+FD-deny and 47 SQLite rows are a 59-row authoring backlog, not closure credit.
+No authoritative promotion is claimed: Phase 2 evidence remains diagnostic,
+and the fix revision still requires independent adversarial re-review.
 
 **Fan-out method — retrospective, from Phase 1's parallel run
 (2026-08-07).** Labeled "measured" through the 2026-08-07 revision; it is
@@ -1499,8 +1513,9 @@ compliance if a §3 rule 1 figure lacks a row.
 | Phase 0 post-fix catalog digest (`22,505 / 3,926 / 3,124 / 15,455`; network Lane B 284 → 216) | `sha256-sMzObEF9jpCF5fpgJ4FIigkj05e2-FjFsrNqj9t3mhQ` (re-derivable by regen at the Phase 0 commit) | §4 |
 | calibration tranche report (authoring slope + inventory growth rate) | llp/evidence/0049-calibration-tranche-report.json (2 of 5 planned classes completed to the full gate standard, 16 rows; 1 class stopped on an enforcement defect; the other 2 candidate classes were rejected as executor-construction work, not authoring) | §6 |
 | Phase 2 calibration close scope measurement (3,927 → 3,911 rows / 491 → 488 surfaces / 80 → 79 classes) | llp/evidence/0049-scope-measurement-phase2-calibration-close.json (catalog `sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs`) | §6 |
-| per-batch evidence envelopes | llp/evidence/0049-batch-`<template-class>`-`<digest>`.json — landed: `native-op-env-read-5EaSZ…` (6 rows), `native-op-fs-list-dzsLtl…` (10 rows), `native-op-fstat-retained-9YEp…` (1 newly authored row; independent review pending) | §6 |
-| per-class paired allow-lists (rule 3, strict mode) | llp/evidence/0049-allow-list-class-native-op-env-read.json, llp/evidence/0049-allow-list-class-native-op-fs-list.json | §6 |
+| per-batch evidence envelopes | llp/evidence/0049-batch-`<template-class>`-`<digest>`.json — landed: `native-op-env-read-5EaSZ…` (6 rows), `native-op-fs-list-dzsLtl…` (10 rows), `native-op-fstat-retained-9YEp…` (1 newly authored row; reviewed NOT READY, flip set applied), `native-op-sqlite-get-retained-n3v05…` (1 newly authored row; independent re-review pending) | §6 |
+| per-class paired allow-lists (rule 3, strict mode) | llp/evidence/0049-allow-list-class-native-op-env-read.json, llp/evidence/0049-allow-list-class-native-op-fs-list.json, llp/evidence/0049-allow-list-class-native-op-fstat-retained.json, llp/evidence/0049-allow-list-class-native-op-sqlite-get-retained.json | §6 |
+| retained-handle independent review | llp/reviews/0049-a2-retained-handle-setup-executor.fable.md — `NOT READY`; FD authority separation accepted, four-item SQLite/count/disclosure flip set applied at the subsequent fix revision; re-review still owed | §3 rule 11 / §6 |
 | **per-surface-kind executor capability matrix** — the source of every §6.1/§6.2/§10(f) figure (3,911 rows by tier: T3 200 / T2 1,171 / T1 757 / T0 1,783; 2,540 behind new executor construction; 197 process-touching rows; 0 fully-executable `process:*` recipes in 22,505) | llp/evidence/0049-executor-capability-matrix-ff9b303171350b36604359a8eb026d88a32d3248703d004c62b712a46623acd7.json (schema `ibex/llp-evidence/executor-capability-matrix/1`, generated at HEAD `322b4260d`, catalog `sha256-SsTA9juFohEIIckHaQ0q_LRxlH1C9CcfhzlAnWtRYBs`) | §6.1 |
 | LLP 0044 day-one 89%-clean scope selection (457 of 513 cells certifiable) — the one-axis measurement §6.2 says is necessary and not sufficient | llp/evidence/0044-scope-measurement-09e6aece….json | §6.2 |
 | Phase 1 implementation review + break-tests (§3 rule 11 discharge) | **OWED** — llp/reviews/0049-phase1-implementation.`<family>`.md; not yet retained, so rule 11 is undischarged for Phase 1 and the §5.3 gate-code figures are withdrawn rather than restated | §5.3 |

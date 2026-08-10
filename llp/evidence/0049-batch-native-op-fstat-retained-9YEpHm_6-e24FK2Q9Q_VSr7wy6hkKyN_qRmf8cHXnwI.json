@@ -77,35 +77,42 @@
     "The full devtools base at 0ed858db has exactly the seven failures recorded by issues/20260808-capsec-registry-drift-suite-red-on-main.md (1403 pass / 7 fail). The retained-fstat pin initially added one eighth failure; its assertion was tightened to the exact five-scenario set and passes focused."
   ],
   "sqliteConstructorProof": {
-    "status": "PASS",
+    "status": "SUPERSEDED_BY_RUNTIME-BACKED_FIX",
     "test": "engine::hermes::tests::capsec_conformance_batch::retained_sqlite_setup_creates_a_real_file_backed_native_handle",
-    "mechanism": "Seeds an on-disk file, opens it through the loaded __exactSqliteOpen global under root-only setup authority, retains the native registry handle, and closes it through loaded __exactSqliteClose.",
-    "credit": "Constructor proof only; no SQLite campaign row is claimed closed by this envelope."
+    "originalFinding": "The independent review proved that the version at this envelope's source revision still passed after :memory: substitution and therefore did not establish file backing.",
+    "fixedMechanism": "At ceb1fffdc the test first requires a loaded read-only open of an absent owned path to throw, then seeds the on-disk database and reads row.value=file-backed through loaded __exactSqliteGet on the returned statement handle. Substituting :memory: now fails; the restored test passes.",
+    "fixEvidence": "llp/evidence/0049-batch-native-op-sqlite-get-retained-n3v05lY4mk8RLjxhNi_jMOoLQSYV5UNxyAEhQTynJgY.json",
+    "credit": "No SQLite row is claimed closed by this historical fstat envelope. The separate SQLite get envelope claims exactly one executed row."
   },
-  "unblockEstimate": {
-    "structurallyUnblockedRows": 84,
-    "retainedFdRows": 36,
-    "fileBackedSqliteRows": 48,
-    "mechanismQualification": "The 84 share the authority split but not handle construction. FD rows use real __exactFsOpen-created Hermes FdEntry values. SQLite rows use distinct real __exactSqliteOpen registry handles and, where needed, __exactSqlitePrepare statement handles against on-disk files.",
+  "unblockAccounting": {
+    "withdrawnClaim": "84 structurally unblocked rows (36 retained FD + 48 SQLite) is withdrawn because the 36-row FD component was not catalog-derivable.",
+    "derivableCapabilitySet": 61,
+    "retainedFdRowsAtPreConstructorBaseline": 13,
+    "retainedFdDerivation": "At catalog sha256-eRCmdI1vzZr-nsQNg-A6BM3YhZBYLLAHGeSTQ1NaAoI, select status != fully-executable, residualReasons containing native-public-deny-scenario-not-authored, and the 13 retained-descriptor globals enumerated in the SQLite get fix envelope. The selector returns 13 exact fixture ids, including this fstat deny row.",
+    "fileBackedSqliteRowsAtPreFixBaseline": 48,
+    "fileBackedSqliteDerivation": "At catalog sha256-RWm6FXLTRMlnQ-KFk9ujhKVfXy4s0u7kL3JVzuI_MEc, select status != fully-executable and terminalObservedKey matching native-op:__exactSqlite(All|Exec|Get|Prepare|Run|Values). The selector returns 48 rows.",
+    "demonstratedAndClosedAcrossBothEnvelopes": 2,
     "newlyClosedByThisBatch": 1,
-    "remainingAuthoringRows": 83
+    "remainingAuthoringBacklogAfterSqliteGetFix": 59,
+    "detail": "Twelve retained-FD deny rows and 47 file-backed SQLite rows remain. They receive no closure credit until their ordinary per-class LLP 0049 §6 loops execute."
   },
   "independentAdversarialReview": {
-    "status": "REQUIRED_AND_PENDING",
-    "artifact": "OWED: llp/reviews/0049-a2-retained-handle-setup.<other-model-family>.md",
-    "reviewTarget": "final branch tip after this evidence and memo are committed",
+    "status": "NOT_READY_FLIP_SET_APPLIED_REREVIEW_PENDING",
+    "artifact": "llp/reviews/0049-a2-retained-handle-setup-executor.fable.md",
+    "reviewedRevision": "157a23f6fb4e6d9948725cc9327db93bfc843174",
+    "verdict": "NOT READY. The review accepted the FD authority-separation property and required four SQLite/count/disclosure flips. The author has applied those flips at a later revision; no independent re-review verdict is claimed.",
+    "fixEvidence": "llp/evidence/0049-batch-native-op-sqlite-get-retained-n3v05lY4mk8RLjxhNi_jMOoLQSYV5UNxyAEhQTynJgY.json",
     "requiredBreakTests": [
       "Attempt to run setup under [0,1] and prove the denial blocks handle creation.",
       "Attempt to run the probe root-only and prove the decisive principal.000001.denial evidence assertion fails.",
       "Replace the setup-returned descriptor with a raw host integer and prove ownership/nonce validation refuses it.",
-      "Replace the SQLite file setup with a memory database and prove the file-backed setup test fails.",
+      "Replace the SQLite file setup with a memory database and prove the file-backed setup test fails — PASS at the fix revision: expected failure captured, then reverted and restored pass captured in the fix evidence envelope.",
       "Leak the one-shot principal override into cleanup or a second submission and prove the fail-closed checks detect it.",
       "Widen __exactFsFstatSync denial selection to a sibling or prefix match and prove the exact recipe/validator tests fail."
-    ],
-    "verdict": "No verdict claimed. LLP 0049 §3 rule 11 remains undischarged until a separate model family performs and retains this review."
+    ]
   },
   "finalVerification": {
-    "cargoTestLib": "PASS; 723 passed, 4 ignored, 0 failed",
+    "cargoTestLib": "Historical author run reported 723 passed, 4 ignored, 0 failed but did not retain its feature vector. The independent reviewer measured 737 passed, 4 ignored, 0 failed under --no-default-features --features standard,capsec-conformance-observer,openssl-crypto. Current fix verification is recorded in the SQLite get fix envelope.",
     "cargoCheckExactFeatures": "PASS; exit 0 (pre-existing warnings only)",
     "focusedCanonicalPrincipalGuard": "PASS; 1 passed, 740 filtered, exact feature vector",
     "focusedRealSqliteSetup": "PASS; 1 passed, 659 filtered, exact feature vector",

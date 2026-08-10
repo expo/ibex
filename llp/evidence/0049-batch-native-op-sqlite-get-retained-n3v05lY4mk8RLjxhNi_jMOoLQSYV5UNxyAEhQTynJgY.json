@@ -1,0 +1,148 @@
+{
+  "measurement": "llp-0049-a2-retained-handle-setup-native-sqlite-get",
+  "gate": "LLP 0049 §6 (per-template-class authoring loop) and §3 rules 1, 3, 6, 7, 9, 11",
+  "templateClass": "surface.native.op × __exactSqliteGet file-backed retained statement (1 newly authored allow row)",
+  "date": "2026-08-10",
+  "sourceRevision": "ceb1fffdc566f3c9e7504caf149b63f646651ac4 (physical catalog, constructor proof, and batch source; tree 923d286e94db4463dcac38b55fd4b37668d07fc5)",
+  "baseRevision": "80d35c05a15f3463e1cc996588babc267bd451d8 (origin/main including the NOT READY review; tree 174aef787c88467b7f8491ddce119a8f05196ee5)",
+  "implementationDiffSha256": "8c19b5a89f93cd9c6f33b117ba34c7220a64105c2aca6f506245d38c41ba2ff9 (origin/main through ceb1fffdc; excludes this evidence envelope and LLP correction)",
+  "boundEngine": "sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y (checked-in patched hermesvm, aarch64-apple-darwin)",
+  "baselineCatalogDigest": "sha256-RWm6FXLTRMlnQ-KFk9ujhKVfXy4s0u7kL3JVzuI_MEc",
+  "candidateCatalogDigest": "sha256-n3v05lY4mk8RLjxhNi_jMOoLQSYV5UNxyAEhQTynJgY",
+  "declaredAllowListDigest": "sha256-L6cDNy1PPxGJTzIovyFm07-moVyU7r87ax7HgumNUTc",
+  "allowList": "llp/evidence/0049-allow-list-class-native-op-sqlite-get-retained.json",
+  "commands": [
+    "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --declared-allow-list llp/evidence/0049-allow-list-class-native-op-sqlite-get-retained.json --output <candidate>",
+    "node scripts/llp0045-route-evidence-diff.mjs --baseline <baseline> --candidate <candidate> --scope all --allow-list llp/evidence/0049-allow-list-class-native-op-sqlite-get-retained.json",
+    "node scripts/capsec-terminal-evidence-diff.mjs --baseline <baseline> --candidate <candidate>",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_primary_batch -- --test-threads=1 --nocapture",
+    "IBEX_CAPSEC_RECIPE_CATALOG=<candidate> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --no-default-features --features standard,capsec-conformance-observer,openssl-crypto capsec_public_native_secondary_batch -- --test-threads=1 --nocapture"
+  ],
+  "gates": {
+    "routeEvidenceDiff": "PASS (exit 0); 2 changes, 2 allow-listed, 0 unexplained, 0 stale; native-public-arguments-not-authored -1 and public-surface-invocation-not-authored -1; lane cells unchanged",
+    "terminalEvidenceDiff": "PASS (exit 0); 0 deltas on 0 cells",
+    "batchPrimary": "PASS (exit 0), 324/324 fixtures; target row passed once as fixture 172",
+    "batchSecondary": "PASS (exit 0), 349/349 fixtures"
+  },
+  "rowsClosed": 1,
+  "cells": [
+    "surface.native.op.exactsqliteget.1ihlki3 file-backed retained statement allow"
+  ],
+  "catalogDelta": {
+    "requiredFixtures": "21784 → 21784",
+    "fullyExecutableFixtures": "4000 → 4001",
+    "internallyVerifiedFixtures": "3124 → 3124",
+    "unresolvedFixtures": "14660 → 14659",
+    "changedRows": "exactly 1 of 21784; 0 added, 0 removed; route, terminal, edge, action, classification, and scenario fields preserved"
+  },
+  "fileBackingProof": {
+    "status": "PASS",
+    "test": "engine::hermes::tests::capsec_conformance_batch::retained_sqlite_setup_creates_a_real_file_backed_native_handle",
+    "absentPathObservation": "Before fixture creation, the loaded __exactSqliteOpen is called read-only on the deliberately absent owned path and must return kind=throw.",
+    "positiveObservation": "After rusqlite seeds the on-disk database, setup opens it through the loaded __exactSqliteOpen, prepares SELECT value FROM ibex_capsec_probe through loaded __exactSqlitePrepare, and reads row.value=file-backed through loaded __exactSqliteGet on the returned statement handle.",
+    "cleanup": "The statement and database are finalized/closed through loaded globals. End-to-end batch cleanup requires the primary database file to exist and be removed; only journal, shm, and wal tolerate NotFound.",
+    "memoryMutation": {
+      "mutation": "Substitute :memory: for the path argument passed to the loaded __exactSqliteOpen while retaining the declared path and disk seeding.",
+      "result": "EXPECTED FAILURE (exit 101): file-backed SQLite statement setup must return a numeric handle, because the in-memory database has no seeded table.",
+      "log": "/Users/ccheever/phase1-runs/retained-fix/sqlite-memory-break-test.log",
+      "rawSha256": "924230ae9fbd7bb143c0ca16f63cd8081999b29ba5aca8800df77bebbf1d7049"
+    },
+    "postRestore": {
+      "result": "PASS (exit 0): 1 passed, 0 failed, 659 filtered out under the exact secure feature vector.",
+      "log": "/Users/ccheever/phase1-runs/retained-fix/sqlite-file-backed-restored-pass.log",
+      "rawSha256": "e938c32ffd5c324964e2c70809a65cc545e7b111e8f2519359c3ce4dda379208"
+    }
+  },
+  "runtimeObservation": {
+    "fixtureId": "enforcement.src.engine.hermes.runtime.sqlite.cc.exactsqliteget.1m9dszh.logical.file.allow",
+    "evidenceDigest": "sha256-WHqGWsUhd3JwG7ZqIxRZdIzCWO3mBn7MHvg0A7DtxKE",
+    "result": "return with cleanup finalized-sqlite-statement-closed-db-removed-owned-file",
+    "typedSequence": "exactly one repeat:fs:read allow decision",
+    "resource": "path-occurrence for project/.ibex-capsec-sqlite-retained-get.sqlite; objectState existing; finalObjectGeneration retained-descriptor-v1; runtime fd:* retainedHandle",
+    "constrainedPrincipals": "exactly project-root and image-lib@2.4.1",
+    "evidenceRows": "exactly two static-floor rows for the one effect: principal.000000.floor.000000 and principal.000001.floor.000000",
+    "setup": "Catalog and evidence contain both sqlite-file-database and sqlite-file-statement setup values, proving construction and cleanup are reachable through execute_native_public_recipe and validate_native_runtime_observation."
+  },
+  "authoritySeparation": {
+    "setup": "Principal 0 receives only requiredSetupFloor, which is exactly equal to requiredFloor. Database open and statement preparation run root-only before typed observation.",
+    "probe": "The observer-only one-shot hook installs canonical constrained principals [0,1] for the authenticated probe submission. This stands in for frame attribution; the row certifies evaluator conjunction and repeat-stage retained-handle authorization, not the production attribution path.",
+    "retainedOwner": "The loaded __exactSqliteOpen and __exactSqlitePrepare globals create genuine runtime registry handles owned by principal 0; the probe supplies only the returned numeric statement handle.",
+    "lifetime": "The private constraint is one-shot and cleanup runs after it is cleared."
+  },
+  "unblockAccounting": {
+    "withdrawnClaim": "84 structurally unblocked rows (36 retained FD + 48 SQLite) is withdrawn because 36 is not catalog-derivable.",
+    "derivableCapabilitySet": 61,
+    "demonstratedAndClosed": 2,
+    "remainingAuthoringBacklog": 59,
+    "retainedFd": {
+      "baselineCatalogDigest": "sha256-eRCmdI1vzZr-nsQNg-A6BM3YhZBYLLAHGeSTQ1NaAoI",
+      "selector": "status != fully-executable; residualReasons contains native-public-deny-scenario-not-authored; terminalObservedKey is one of the 13 retained-descriptor globals enumerated below",
+      "preConstructorRows": 13,
+      "closed": 1,
+      "remaining": 12,
+      "fixtureIds": [
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1mm0qw2.logical.descriptor.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm.deny"
+      ]
+    },
+    "fileBackedSqlite": {
+      "baselineCatalogDigest": "sha256-RWm6FXLTRMlnQ-KFk9ujhKVfXy4s0u7kL3JVzuI_MEc",
+      "selector": "status != fully-executable; terminalObservedKey matches native-op:__exactSqlite(All|Exec|Get|Prepare|Run|Values)",
+      "baselineRows": 48,
+      "closed": 1,
+      "remaining": 47,
+      "distribution": {
+        "__exactSqliteAll": 6,
+        "__exactSqliteExec": 12,
+        "__exactSqliteGet": 6,
+        "__exactSqlitePrepare": 6,
+        "__exactSqliteRun": 12,
+        "__exactSqliteValues": 6
+      }
+    },
+    "creditRule": "Only the two executed rows are closure credit. The 59 remaining rows still require their ordinary LLP 0049 §6 per-class loops."
+  },
+  "physicalEvidence": {
+    "baseline": "/Users/ccheever/phase1-runs/retained-fix/baseline-origin-main.json (raw SHA-256 e630c98830c164001c9af93af8479c448b75739942cb6aebefb3344cbf1fc17d)",
+    "candidate": "/Users/ccheever/phase1-runs/retained-fix/candidate.json (raw SHA-256 4f45e6a24e745b48ee49fb5a455dde5e2f6bba02c0cf5811f3b2f9aab519c202)",
+    "primary": "/Users/ccheever/phase1-runs/retained-fix/native-primary.json (raw SHA-256 3fa4f2f43f7b764c08a881135fbfe50566bf2d0937598f31b902b5578b3f1ec2)",
+    "secondary": "/Users/ccheever/phase1-runs/retained-fix/native-secondary.json (raw SHA-256 47bc6f254f251aa7359780268f485a4da48cd0dacde990a0d70969632de1894a)",
+    "allowListRawSha256": "2fa703372d4f3f11894f3228bf2166d3bfa6a15c94eebf3b6b1ec782e98d5137",
+    "catalogBinding": "both batch envelopes bind candidate sha256-n3v05lY4mk8RLjxhNi_jMOoLQSYV5UNxyAEhQTynJgY and loaded engine sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y",
+    "coverage": "673/673 fixtures passed across disjoint full shards; the target execution occurs exactly once",
+    "runner": "detached evidence worktree /Users/ccheever/phase1-runs/retained-handle/worktree with a real worktree-local target directory; symlinked patched Hermes, node_modules, and tools/hermes preserved"
+  },
+  "correctionLoop": [
+    "The first bound-engine run deliberately used a zero-count placeholder. It reached the new row and reported one repeat fs:read decision; those exact values were pinned before the final catalog was generated.",
+    "A standard worktree with target symlinked outside the VFS mount reproduced ERR_IBEX_OUTSIDE_MOUNT. Anticipatory SQLite fixtures were moved to ignored, mount-local project-root paths; the final full shards used the qualified evidence worktree's real target directory."
+  ],
+  "independentAdversarialReview": {
+    "status": "REQUIRED_AND_PENDING_REREVIEW",
+    "priorArtifact": "llp/reviews/0049-a2-retained-handle-setup-executor.fable.md",
+    "priorVerdict": "NOT READY",
+    "disposition": "This envelope records the author-applied flip set and claims no independent verdict. The FD authority-separation findings from the prior review were preserved without redesign."
+  },
+  "finalVerification": {
+    "catalogRecheck": "PASS; post-regeneration candidate is byte-identical (raw SHA-256 4f45e6a24e745b48ee49fb5a455dde5e2f6bba02c0cf5811f3b2f9aab519c202) and retains digest sha256-n3v05lY4mk8RLjxhNi_jMOoLQSYV5UNxyAEhQTynJgY",
+    "focusedRecipe": "PASS; 1 passed, 116 filtered out",
+    "focusedRealSqliteSetup": "PASS after mutation restore; 1 passed, 659 filtered out under --no-default-features --features standard,capsec-conformance-observer,openssl-crypto",
+    "fullNativeBatches": "PASS; primary 324/324 and secondary 349/349 under the exact secure feature vector",
+    "cargoTestLib": "PASS serially under --no-default-features --features standard,capsec-conformance-observer,openssl-crypto; 737 passed, 0 failed, 4 ignored. An initial parallel run had 736 pass / 1 unrelated host temp-fixture failure / 4 ignored; that exact test passed in isolation before the full serial pass. Logs are retained rather than hiding the incident.",
+    "cargoCheckExactFeatures": "PASS; exit 0, pre-existing warnings only (log raw SHA-256 66711d5272fb3d078558094267ba6dd78ce05615ba18f9e424c0132431405592)",
+    "generatedDrift": "PASS after the complete regenerate:vendored chain; only capsec/registry/runtime-environment-inventory.json changed, updating two source offsets caused by the added Rust test. check:drift exit 0 (log raw SHA-256 4314fac4241e2b2d016edfea71a15730e3b2657af47528f675ce8dd57fa698c1)",
+    "referenceCheck": "PASS; 51 LLP docs, 2550 refs in 2025 files, 0 errors, 1 unchecked (log raw SHA-256 4addd9940c075fe1495b9731d2e9871d8cfb011088d7da63f92be78f41d78b58)",
+    "fullDevtoolsBaseline": "origin/main 80d35c05a: 1403 pass / 7 fail across 1410 tests; log raw SHA-256 0e4e5b746d1338f83e040a757535d0332a8a34a27598b2ff2f4838547cb2c64f",
+    "fullDevtoolsCandidate": "1404 pass / 7 fail across 1411 tests; log raw SHA-256 0093933927b0d63bb28a778a273e4a16db9e4e5578ec19b1144e85a150279d3c. The normalized seven-failure identity files are byte-identical with raw SHA-256 af4501165dbbbffc8d5fe186ae46e9463f45b1dbe6ccbeadb5dd04c7d54479cd; the added SQLite recipe test accounts for the one extra pass."
+  }
+}
