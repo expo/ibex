@@ -3511,7 +3511,13 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.globalName ===
         "__exactFsFstatSync",
     );
-    expect(rows).toHaveLength(4);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
     for (const recipe of rows) {
       const invocation = recipe.publicSurfaceProbe.invocation;
       expect(invocation.arguments).toEqual([
@@ -3524,6 +3530,7 @@ describe("exact-target CapSec executable recipes", () => {
         "fs:list",
         "fs:read",
       ]);
+      expect(invocation.requiredSetupFloor).toEqual(invocation.requiredFloor);
       expect(invocation.expectedTypedStages).toEqual(["repeat"]);
       expect(invocation.expectedTypedDecisionCount).toBe(1);
       expect(invocation.expectedCleanup).toBe("closed-fs-file-descriptor");
@@ -3535,7 +3542,13 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.globalName ===
         "__exactFsFstatSync",
     );
-    expect(windowsRows).toHaveLength(4);
+    expect(windowsRows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
     for (const recipe of windowsRows) {
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual([
         "repeat",
@@ -3546,15 +3559,13 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }
-    const denied = recipes.recipes.find(
-      (recipe) =>
-        recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
-        recipe.scenario === "deny",
+    const denied = rows.find((recipe) => recipe.scenario === "deny");
+    expect(denied.publicSurfaceProbe.invocation.expectedResult).toBe(
+      "permission-denied",
     );
-    expect(denied.publicSurfaceProbe).toBeNull();
-    expect(denied.residualReasons).toContain(
-      "native-public-deny-scenario-not-authored",
-    );
+    expect(denied.publicSurfaceProbe.invocation.expectedActionIds).toEqual([
+      "fs:list",
+    ]);
   });
 
   test("executes async retained durability without overclaiming metadata", () => {

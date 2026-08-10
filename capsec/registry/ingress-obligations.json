@@ -158,7 +158,7 @@
             "let mut admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };",
             "let preparation = match prepare(&request) {",
             "ex_hermes_structured_module_graph_begin(",
-            "evaluate_authenticated_inner_with_admission(request, None, admission)"
+            "evaluate_authenticated_inner_with_admission(request, None, None, admission)"
           ]
         },
         {

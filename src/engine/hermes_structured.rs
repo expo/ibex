@@ -3005,7 +3005,7 @@ mod tests {
         for principals in [&[][..], &[1, 1][..], &[2, 1][..]] {
             let mut sequence = SubmissionSequence::new(session.clone()).unwrap();
             let request = sequence
-                .mint_repl(LogicalPath {
+                .mint_eval(LogicalPath {
                     root: LogicalRoot::Project,
                     components: Vec::new(),
                     host_bound: None,
