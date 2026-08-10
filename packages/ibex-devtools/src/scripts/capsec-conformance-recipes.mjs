@@ -2549,11 +2549,11 @@ const nativeRetainedSqliteGetTemplate = () => {
     authoredScenarios: ["allow"],
     expectedCleanup:
       "finalized-sqlite-statement-closed-db-removed-owned-file",
-    // Replaced only after the first bound-engine observation, per LLP 0037 D3.
-    expectedDecisionCounts: { allow: 0 },
-    expectedObservedActionIds: { allow: [] },
+    // Pinned from the first bound-engine observation, per LLP 0037 D3.
+    expectedDecisionCounts: { allow: 1 },
+    expectedObservedActionIds: { allow: ["fs:read"] },
     expectedResults: { allow: "return" },
-    expectedStages: { allow: [] },
+    expectedStages: { allow: ["repeat"] },
     requiredFloor,
     requiredSetupFloor: requiredFloor,
     requiredSourceArity: 2,

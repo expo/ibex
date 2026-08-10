@@ -8631,6 +8631,9 @@ describe("exact-target CapSec executable recipes", () => {
           ],
           expectedCleanup:
             "finalized-sqlite-statement-closed-db-removed-owned-file",
+          expectedActionIds: ["fs:read"],
+          expectedTypedDecisionCount: 1,
+          expectedTypedStages: ["repeat"],
           requiredFloor: [
             {
               cap: "fs:read",

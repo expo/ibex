@@ -4846,7 +4846,10 @@ async fn execute_native_public_recipe(
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
     }
     if let Some(path) = &setup_state.sqlite_file_path {
-        for owned_path in native_sqlite_owned_paths(path) {
+        let [primary_path, journal_path, shm_path, wal_path] = native_sqlite_owned_paths(path);
+        std::fs::remove_file(&primary_path)
+            .expect("remove primary on-disk SQLite setup fixture");
+        for owned_path in [journal_path, shm_path, wal_path] {
             if let Err(error) = std::fs::remove_file(&owned_path) {
                 assert_eq!(
                     error.kind(),
