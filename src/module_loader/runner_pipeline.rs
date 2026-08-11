@@ -263,7 +263,7 @@ struct PreparedGraphCandidateTableIndexV2 {
     digest: Digest,
 }
 
-struct SourceGraphRecordV1 {
+pub(crate) struct SourceGraphRecordV1 {
     /// Native-only resolver path. This is never serialized into a prepared
     /// artifact or crossed into JavaScript.
     // @ref LLP 0023#6-path-bearing-observables — private native paths cannot become realm-visible labels
@@ -3397,8 +3397,10 @@ pub(crate) struct CommittedPublicationAdmissionV1 {
     /// Carriers admitted under carrier v2's `hermes-bytecode` encoding
     /// (Exact LLP 0413 §10 Phase 3). Receipts name the encoding split so a
     /// "parse-free" claim is checkable against what was actually admitted.
+    #[cfg_attr(not(feature = "dev-committed-embedder"), allow(dead_code))]
     pub(crate) hbc_carrier_count: usize,
     /// Carriers admitted under `javascript-factory-table`.
+    #[cfg_attr(not(feature = "dev-committed-embedder"), allow(dead_code))]
     pub(crate) javascript_carrier_count: usize,
 }
 

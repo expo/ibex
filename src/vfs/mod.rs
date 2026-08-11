@@ -248,6 +248,7 @@ impl VfsError {
         )
     }
 
+    #[cfg(windows)]
     fn unmappable_link(operation: &str, path: Arc<str>) -> Self {
         Self::new(
             VfsReason::UnmappableLink,
@@ -2283,6 +2284,7 @@ impl CommittedPath {
 #[derive(Clone, Copy)]
 enum RetainedFinalAccess {
     AppendOnly,
+    #[cfg_attr(not(windows), allow(dead_code))]
     Directory,
     LinkMetadata,
     Metadata,
@@ -2772,6 +2774,7 @@ impl AuthenticatedFileDescriptor {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum AuthenticatedDirectoryEntry {
     Utf8(String),
+    #[cfg_attr(not(windows), allow(dead_code))]
     MalformedBytes(Vec<u8>),
 }
 
@@ -4306,7 +4309,7 @@ impl VirtualFileSystem {
         self.commit_no_follow_with_access(discovered, RetainedFinalAccess::LinkMetadata)
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(windows)]
     fn commit_directory_no_follow(
         &self,
         discovered: DiscoveredPath,
