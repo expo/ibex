@@ -273,6 +273,10 @@ if [[ "$app_bound" -eq 1 ]]; then
     --worker-broker-corpus "$repo_root/tests/fixtures/restricted-worker/broker-corpus.canonical.json"
   )
 fi
+# Bash 3.2 + `set -u` treats "${empty[@]}" as unbound. The app-bound extras
+# are optional; expand them only when present so the default v1 path runs on
+# macOS /bin/bash.
+# @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
 cargo run --quiet --release --bin ibex-sfe-contract --features "$contract_features" -- \
   --target "$target_triple" \
   --minimum-platform "$minimum_platform" \
@@ -280,7 +284,7 @@ cargo run --quiet --release --bin ibex-sfe-contract --features "$contract_featur
   --hermesc "$hermesc_path" \
   --hermes "$hermes_path" \
   "${static_archive_arguments[@]}" \
-  "${contract_extra_arguments[@]}" \
+  ${contract_extra_arguments[@]+"${contract_extra_arguments[@]}"} \
   --output "$contract_path" > "$contract_report"
 
 producer_target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
@@ -371,7 +375,7 @@ cargo run --quiet --release --package ibex-sfe-catalog --bin ibex-sfe-catalog --
   --stub "$stub_core" \
   --hermesc "$hermesc_path" \
   --catalogs-dir "$catalog_store" \
-  "${catalog_extra_arguments[@]}" > "$catalog_report"
+  ${catalog_extra_arguments[@]+"${catalog_extra_arguments[@]}"} > "$catalog_report"
 catalog_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["catalogDigest"])' "$catalog_report")"
 catalog_root="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["catalogRoot"])' "$catalog_report")"
 catalog_key="${catalog_digest#sha256-}"
