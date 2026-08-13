@@ -43,6 +43,14 @@ receipt below.
 - Remaining: publish the exact installation artifacts and repeat the clean
   install-to-recipient receipt beginning from that publication.
 
+## Regression — 2026-08-13
+
+A current-source macOS kit at `de3eb770b` failed `check-sfe-release-kit.sh`
+on the first `ibex policy generate`: packaged `loadAndValidateContract`
+called `readArtifactSourceFoundationDocuments`, which requires Git. That
+path is checkout-only. Packaged authoring now reads the same foundation
+documents from the digest-admitted toolchain tree.
+
 The official reproducibility receipt uses catalog
 `sha256-NP7lppy-B3NLsTpcSkxDR7DOftNnRXJuMhX8rtAJP8g`, contract
 `sha256-mWVeON5BnOGOf3pg8dwJvZDT4SPowvrdRVY8MGmwikk`, policy toolchain

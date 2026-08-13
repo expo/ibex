@@ -405,6 +405,7 @@ const FOUNDATION_DOCUMENT_PATHS = Object.freeze({
   targetAdvertisements: "capsec/generated/target-advertisements.json",
   targetAttestations: "capsec/conformance/target-attestations.json",
 });
+const POLICY_TOOLCHAIN_MANIFEST_SCHEMA = "ibex/sfe-policy-toolchain/1";
 const PROMOTION_CATALOG_VERSIONS = Object.freeze({
   "ibex/portable-engine-promotion-admission-catalog/1": Object.freeze({
     admissionSchema: "ibex/portable-engine-promotion-admission/1",
@@ -487,6 +488,51 @@ function readTrackedJsonAtRevision(repositoryRoot, revision, relativePath) {
  * @ref LLP 0021#a9-appendix--the-scope-digest-join-matrix — M18 pins 9/14
  * authenticate advertisements and attestations at one artifact-source revision.
  */
+export function packagedPolicyToolchainRoot(repositoryRoot = repoRoot) {
+  const manifestPath = path.join(repositoryRoot, "manifest.json");
+  let stats;
+  try {
+    stats = fs.lstatSync(manifestPath);
+  } catch {
+    return null;
+  }
+  if (!stats.isFile()) {
+    return null;
+  }
+  const manifest = parseJsonStrict(
+    fs.readFileSync(manifestPath),
+    "packaged policy toolchain manifest",
+  );
+  return manifest?.schema === POLICY_TOOLCHAIN_MANIFEST_SCHEMA
+    ? repositoryRoot
+    : null;
+}
+
+/**
+ * Checkout-free SFE policy authoring reads the same foundation documents from
+ * the digest-admitted packaged tree. Git ancestry is the checkout contract;
+ * the toolchain digest is the packaged contract.
+ *
+ * @ref LLP 0047#8-milestone-5--distribution-and-usability
+ */
+export function readContractFoundationDocuments(repositoryRoot = repoRoot) {
+  if (packagedPolicyToolchainRoot(repositoryRoot)) {
+    return Object.freeze({
+      sourceRevision: null,
+      targetAdvertisements: readJsonStrict(
+        path.join(
+          repositoryRoot,
+          FOUNDATION_DOCUMENT_PATHS.targetAdvertisements,
+        ),
+      ),
+      targetAttestations: readJsonStrict(
+        path.join(repositoryRoot, FOUNDATION_DOCUMENT_PATHS.targetAttestations),
+      ),
+    });
+  }
+  return readArtifactSourceFoundationDocuments(repositoryRoot);
+}
+
 export function readArtifactSourceFoundationDocuments(
   repositoryRoot = repoRoot,
 ) {
@@ -3715,7 +3761,7 @@ export function loadAndValidateContract() {
   const {
     targetAdvertisements,
     targetAttestations,
-  } = readArtifactSourceFoundationDocuments();
+  } = readContractFoundationDocuments();
   validateWith(
     ajv,
     SCHEMA_IDS.definitions,

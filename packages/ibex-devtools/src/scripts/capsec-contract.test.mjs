@@ -30,6 +30,7 @@ import {
   parseJsonStrict,
   portableDiagnosticPath,
   readArtifactSourceFoundationDocuments,
+  readContractFoundationDocuments,
   renderLegacyReconciliation,
   runContractCheck,
   validateArmedSnapshotSemantics,
@@ -255,6 +256,53 @@ describe("LLP 0021 capsec contract", () => {
       ).toThrow(/admission digest does not bind/);
     } finally {
       fs.rmSync(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("reads foundation documents from a packaged policy toolchain without Git", () => {
+    const toolchainRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "ibex-sfe-policy-toolchain-"),
+    );
+    try {
+      const digest = "sha256-5eCSWbcKaBKK9BBMugU7zOfApZbcy0psV1pYs5dCAe0";
+      const advertisements = {
+        targetAdvertisementSchema: "ibex/capsec-target-advertisements/1",
+        profile: "ibex/capsec/1",
+        targetCellsRawContentDigest: digest,
+        advertisements: [],
+      };
+      const attestations = {
+        targetAttestationSchema: "ibex/capsec-target-attestations/1",
+        profile: "ibex/capsec/1",
+        attestations: [],
+      };
+      writeJson(path.join(toolchainRoot, "manifest.json"), {
+        schema: "ibex/sfe-policy-toolchain/1",
+        target: "aarch64-apple-darwin",
+        runnerKind: "bun",
+        runner: "bin/bun",
+        script: "packages/ibex-devtools/src/scripts/generate-policy.mjs",
+        entries: [],
+        toolchainDigest: digest,
+      });
+      writeJson(
+        path.join(toolchainRoot, "capsec/generated/target-advertisements.json"),
+        advertisements,
+      );
+      writeJson(
+        path.join(
+          toolchainRoot,
+          "capsec/conformance/target-attestations.json",
+        ),
+        attestations,
+      );
+      expect(readContractFoundationDocuments(toolchainRoot)).toEqual({
+        sourceRevision: null,
+        targetAdvertisements: advertisements,
+        targetAttestations: attestations,
+      });
+    } finally {
+      fs.rmSync(toolchainRoot, { recursive: true, force: true });
     }
   });
 
