@@ -382,6 +382,26 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Replica A is the publication candidate. The duplicate replica still
+      # uploads receipts for the strict comparator without doubling the
+      # installable kit archive.
+      - name: Pack catalog-pinned release kit
+        if: matrix.replica == 'a'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/ibex-sfe-release-kit.tar.gz" ibex-sfe-release-kit
+          ls -lh "$RUNNER_TEMP/ibex-sfe-release-kit.tar.gz"
+
+      - name: Upload catalog-pinned release kit
+        if: matrix.replica == 'a'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfe-release-kit-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ibex-sfe-release-kit.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload clean-builder reproducibility evidence
         uses: actions/upload-artifact@v4
         with:
