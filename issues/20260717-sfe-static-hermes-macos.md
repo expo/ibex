@@ -75,8 +75,8 @@ measurement against it, and explicit lean/full register ratification.
 ## Maintenance reconciliation — 2026-08-05
 
 The full static artifact is the implemented and physically reproduced release
-shape. This ticket now shares its only remaining gate with
-`20260717-sfe-measured-budgets.md`: accept the numeric budget, measure the
-current full artifact, and record the result. Any future lean artifact is an
-optimization candidate rather than an unrecorded prerequisite for the
-implemented full-static release shape.
+shape. Register item 6 is ratified to that full-static variant. This ticket now
+shares its only remaining gate with `20260717-sfe-measured-budgets.md`: measure
+the current full artifact against `config/sfe-performance-budgets.json` and
+record the result. Any future lean artifact is an optimization candidate rather
+than a v1 prerequisite.

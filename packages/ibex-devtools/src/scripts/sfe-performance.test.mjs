@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   SFE_PERFORMANCE_ARTIFACT_INSPECTION_SCHEMA,
@@ -306,6 +309,22 @@ test('refuses budget drift, low sample counts, contention, and summary drift', (
       budgetDigest: fourth.budgetDigest,
     }),
     /does not match its raw samples/u,
+  );
+});
+
+test('accepts the committed two-tuple release budget document', () => {
+  const budgetPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../../../config/sfe-performance-budgets.json',
+  );
+  const bytes = readFileSync(budgetPath, 'utf8');
+  const budgets = JSON.parse(bytes);
+  validateSfePerformanceBudgets(budgets);
+  assert.equal(canonicalJson(budgets), bytes);
+  assert.equal(budgets.status, 'accepted');
+  assert.equal(
+    budgets.targets['aarch64-apple-darwin'].factoryTableDisposition,
+    'undecided-pending-measurement',
   );
 });
 

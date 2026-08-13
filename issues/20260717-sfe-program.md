@@ -163,8 +163,8 @@ items above. The matching macOS two-builder comparison passed at `2a611b4f`,
 and LLP 0047's four author decisions are resolved. Ambient standalone v1 now
 remains open for the release actions that have not yet produced durable
 published evidence: publish and reinstall the exact catalog-pinned artifacts,
-obtain the macOS notarization ticket, accept numeric size/startup budgets and
-record both target measurements, and retain the mandatory clean CI receipts on
-the published revision. Disk-free arming, compiled CapSec environment/mount
+obtain the macOS notarization ticket, record both target measurements against
+the accepted `config/sfe-performance-budgets.json` blob, and retain the
+mandatory clean CI receipts on the published revision. Disk-free arming, compiled CapSec environment/mount
 semantics, and the first successful target advertisement remain separate v1.1
 work and do not block ambient v1.

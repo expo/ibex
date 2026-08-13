@@ -162,7 +162,12 @@ its packaged toolchain refuses instead of finding a checkout fallback. A
 candidate-kit receipt also removes an isolated producer installation before
 transferring only a two-module TypeScript Fetch executable to a second
 compatible host, where it runs without Ibex or Hermes. Publication of the
-exact installation artifacts remains release work. An official Ubuntu 22.04
+exact installation artifacts remains release work: archive each host-target
+kit (`ibex`, `ibex-sfe-catalog`, the catalog tarball, and
+`ibex-policy-toolchain-<digest>`), publish those archives from a clean
+committed revision, reinstall from that publication on a clean machine, and
+repeat the installed-user receipt. Do not treat a checkout-built kit as the
+published artifact. An official Ubuntu 22.04
 GLIBC 2.35 builder/recipient exercise has repeated the same test with only the
 final executable copied into a fresh recipient root and no Ibex, Hermes,
 source, catalog, or Ibex cache present. Two physical Ubuntu 22.04 builders also
@@ -254,14 +259,21 @@ bun run benchmark:sfe-release -- \
   --factory-table-output 'HELLO_OK' \
   --target aarch64-apple-darwin \
   --write /path/to/sfe-performance-macos.json
+
+Compile the two HBC inputs from the committed fixtures
+`tests/fixtures/sfe-release/hello/main.mjs` and
+`tests/fixtures/sfe-release/large-graph/entry.mjs` with the same catalog-pinned
+release `ibex` that will be measured. The large-graph entry statically imports
+forty modules so its authenticated record count meets the precommitted minimum.
 ```
 
 The normal release producer continues to refuse factory-table output. The
 factory-table input above is therefore an explicitly diagnostic development
 artifact, not something that may be substituted into a release kit. Supplying
 `--host-contention-observed` preserves the measurements but makes the gate
-fail; such a report is provenance, not release evidence. Numeric budgets and
-final measurements have not yet been selected or recorded.
+fail; such a report is provenance, not release evidence. The accepted two-tuple
+budget is `config/sfe-performance-budgets.json`. Final host measurements against
+that blob remain release evidence and have not been recorded yet.
 
 Build that diagnostic input with the same full static Hermes archive family as
 the target release stub, but through the deliberately non-release development

@@ -15,6 +15,7 @@ on:
       - "build.rs"
       - "rust-toolchain.toml"
       - "config/module-transform.json"
+      - "config/sfe-performance-budgets.json"
       - "issues/20260717-oxc-dual-produce-report.md"
       - "llp/0001-target-platforms-and-ci-matrix.rfc.md"
       - "llp/0002-host-embedding-abi.spec.md"

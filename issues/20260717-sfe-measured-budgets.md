@@ -58,10 +58,11 @@ from one catalog/stub/producer family, while the comparison input is the
 development-only factory-table producer. Substituted binaries, undersized
 "large" graphs, and release-provenance factory inputs refuse.
 
-No numeric budget document has been authored and no final measurement has
-been collected. The ticket therefore remains open pending author register
-items 3, 6, and 7, a committed two-tuple budget, and uncontended reports from
-both release hosts. `scripts/build-sfe-diagnostic-factory-table.sh` now closes
+The accepted two-tuple budget is now `config/sfe-performance-budgets.json`
+(register items 6 and 7 recorded 2026-08-13). No final host measurement has
+been collected. The ticket therefore remains open pending uncontended reports
+from both release hosts and the post-measurement factory-table disposition
+(register item 3). `scripts/build-sfe-diagnostic-factory-table.sh` now closes
 the fixture-construction prerequisite without weakening the release producer:
 it builds against the explicitly supplied static Hermes archive family,
 requires development provenance and the diagnostic target contract, verifies

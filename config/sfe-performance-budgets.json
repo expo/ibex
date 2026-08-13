@@ -1,0 +1,53 @@
+{
+  "schema": "ibex/sfe-performance-budgets/1",
+  "status": "accepted",
+  "approval": {
+    "approvedBy": "Charlie Cheever",
+    "approvedAt": "2026-08-13",
+    "rationale": "First-release ceilings accepted to unblock LLP 0047 section 9 measurement. Size maxima implement LLP 0029's documented hypothesis that a hello executable stays under deno compile's ~65 MB, with headroom on the large-graph and diagnostic factory-table lanes. Startup maxima are first-release regression gates under the named uncontrolled OS-cache protocol, not competitive claims. Dynamic-dependency maxima are closed system-library counts: Apple system libraries on macOS, and the Linux DT_NEEDED allowlist plus the vdso/loader lines ldd may report. factoryTableDisposition stays undecided-pending-measurement so this acceptance does not promote that carrier."
+  },
+  "targets": {
+    "aarch64-apple-darwin": {
+      "minimumSamples": 5,
+      "startupProtocol": "fresh-process-os-cache-uncontrolled-v1",
+      "factoryTableDisposition": "undecided-pending-measurement",
+      "fixtureConstraints": {
+        "helloHbcMaximumRecords": 5,
+        "largeGraphHbcMinimumRecords": 40,
+        "helloFactoryTableMaximumRecords": 5
+      },
+      "maximums": {
+        "helloHbcExecutableBytes": 67108864,
+        "largeGraphHbcExecutableBytes": 83886080,
+        "helloFactoryTableExecutableBytes": 75497472,
+        "helloHbcFreshProcessMedianMs": 2000,
+        "helloHbcRelocatedCopyAndLaunchMedianMs": 4000,
+        "largeGraphHbcFreshProcessMedianMs": 3000,
+        "inspectionFreshProcessMedianMs": 2500,
+        "helloFactoryTableFreshProcessMedianMs": 2500,
+        "dynamicDependenciesPerExecutable": 32
+      }
+    },
+    "x86_64-unknown-linux-gnu": {
+      "minimumSamples": 5,
+      "startupProtocol": "fresh-process-os-cache-uncontrolled-v1",
+      "factoryTableDisposition": "undecided-pending-measurement",
+      "fixtureConstraints": {
+        "helloHbcMaximumRecords": 5,
+        "largeGraphHbcMinimumRecords": 40,
+        "helloFactoryTableMaximumRecords": 5
+      },
+      "maximums": {
+        "helloHbcExecutableBytes": 67108864,
+        "largeGraphHbcExecutableBytes": 83886080,
+        "helloFactoryTableExecutableBytes": 75497472,
+        "helloHbcFreshProcessMedianMs": 2000,
+        "helloHbcRelocatedCopyAndLaunchMedianMs": 4000,
+        "largeGraphHbcFreshProcessMedianMs": 3000,
+        "inspectionFreshProcessMedianMs": 2500,
+        "helloFactoryTableFreshProcessMedianMs": 2500,
+        "dynamicDependenciesPerExecutable": 12
+      }
+    }
+  }
+}

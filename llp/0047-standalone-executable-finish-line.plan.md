@@ -5,6 +5,9 @@
 **Systems:** Build, Distribution, Runtime, Module Loader, CapSec, Product
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-01
+**Revised:** 2026-08-13 (the accepted two-tuple performance budget is
+`config/sfe-performance-budgets.json`; remaining §9 work is publication,
+notarization, host measurements against that blob, and durable CI receipts)
 **Revised:** 2026-08-05 (maintenance reconciliation: the macOS two-builder
 comparison and all §12 decisions are complete; ambient-v1 release work is now
 publication, notarization, accepted performance budgets/measurements, and
@@ -1009,7 +1012,7 @@ not satisfy that downstream contract.
 | Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
 | LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
 | LLP 0048 external-script worker | **Substantially implemented; acceptance/evidence open** | App-bound formats, source admission, parent bridge, restricted-worker construction, broker lifecycle, policy/evidence fixtures, reporting, and compile surface exist. The complete host-portable, planted-secret, lifecycle/ceiling, and exact-tuple evidence gate remains open and is not implied by any M0–M5 completion row. |
-| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, Linux audit, and the strict two-physical-Mac comparator pass. Gatekeeper still requires notarization credentials/ticket. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
+| Distribution + precommitted performance | **Open — release evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, Linux audit, and the strict two-physical-Mac comparator pass. Gatekeeper still requires notarization credentials/ticket. Numeric ceilings are accepted in `config/sfe-performance-budgets.json`; uncontended host measurements against that blob remain. |
 
 Milestone 5's recipient-side disclosure choice is resolved by the authenticated
 `--ibex-info` path. Release artifacts must keep its first-position, escape,

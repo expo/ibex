@@ -5,6 +5,9 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-13 (register item 7 decided: accepted two-tuple
+performance ceilings live in `config/sfe-performance-budgets.json`; item 6
+ratifies the implemented full-static stub as the v1 engine variant)
 **Revised:** 2026-08-03 (the app-bound rotation now also includes catalog V2
 and a target-specific restricted-worker advertisement/evidence artifact whose
 digest is cross-bound by StubContractV4, CompilePlanV2, inspection V4, and
@@ -1218,8 +1221,10 @@ one-file-closure, unsupported-tuple-refusal, and rebuild-boundary acceptance.
    provenance cannot enter a release kit; `ibex compile --carrier
    factory-table` remains a hard refusal. Its startup protocol explicitly
    records that it does not evict the OS page cache. Synthetic pass/refusal
-   vectors are part of the standalone foundation gate. No numeric budget or
-   final measurement has been recorded, so this phase remains open.
+   vectors are part of the standalone foundation gate. Register item 7 is
+   decided: the accepted two-tuple budget is
+   `config/sfe-performance-budgets.json`. Final host measurements against that
+   blob remain open, so this phase is not closed.
 
 **Author-decision register:** (1) stdio/cwd implicit vs
 policy-explicit (blocks `Accepted`); (2) **resolved 2026-08-01:** the initial
@@ -1238,10 +1243,14 @@ catalog rows tracked in
 issues/20260728-capsec-public-surface-evidence-backlog.md; (5)
 **resolved 2026-07-18:** Snapback does not pull Windows or macOS x64 ahead of
 the v1 catalog order; LLP 0031 keeps them deferred pending exact artifacts and
-evidence; (6) lean-vs-full
-engine variant (decided by phase-1 measurement, ratified by author);
-(7) the phase-7 budget numbers, fixed before measurement (blocks
-phase-7 entry); (8) publisher-statement key custody and trust policy
+evidence; (6) **resolved 2026-08-13:** v1 ships the full-static Hermes stub
+already used by the cataloged release kits; a lean variant remains an
+optimization candidate and is not a v1 prerequisite;
+(7) **resolved 2026-08-13:** first-release size, startup, and
+dynamic-dependency ceilings are accepted in
+`config/sfe-performance-budgets.json` before measurement (phase-7 entry is
+unblocked; phase-7 exit still requires the two-tuple reports);
+(8) publisher-statement key custody and trust policy
 (who signs, what identities are trusted, especially on Linux where no
 platform signature exists — blocks calling the third
 `inspect-executable` state "authenticated" rather than "present and

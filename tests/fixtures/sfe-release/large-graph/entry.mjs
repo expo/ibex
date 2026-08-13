@@ -1,0 +1,46 @@
+import { n as n00 } from "./m00.mjs";
+import { n as n01 } from "./m01.mjs";
+import { n as n02 } from "./m02.mjs";
+import { n as n03 } from "./m03.mjs";
+import { n as n04 } from "./m04.mjs";
+import { n as n05 } from "./m05.mjs";
+import { n as n06 } from "./m06.mjs";
+import { n as n07 } from "./m07.mjs";
+import { n as n08 } from "./m08.mjs";
+import { n as n09 } from "./m09.mjs";
+import { n as n10 } from "./m10.mjs";
+import { n as n11 } from "./m11.mjs";
+import { n as n12 } from "./m12.mjs";
+import { n as n13 } from "./m13.mjs";
+import { n as n14 } from "./m14.mjs";
+import { n as n15 } from "./m15.mjs";
+import { n as n16 } from "./m16.mjs";
+import { n as n17 } from "./m17.mjs";
+import { n as n18 } from "./m18.mjs";
+import { n as n19 } from "./m19.mjs";
+import { n as n20 } from "./m20.mjs";
+import { n as n21 } from "./m21.mjs";
+import { n as n22 } from "./m22.mjs";
+import { n as n23 } from "./m23.mjs";
+import { n as n24 } from "./m24.mjs";
+import { n as n25 } from "./m25.mjs";
+import { n as n26 } from "./m26.mjs";
+import { n as n27 } from "./m27.mjs";
+import { n as n28 } from "./m28.mjs";
+import { n as n29 } from "./m29.mjs";
+import { n as n30 } from "./m30.mjs";
+import { n as n31 } from "./m31.mjs";
+import { n as n32 } from "./m32.mjs";
+import { n as n33 } from "./m33.mjs";
+import { n as n34 } from "./m34.mjs";
+import { n as n35 } from "./m35.mjs";
+import { n as n36 } from "./m36.mjs";
+import { n as n37 } from "./m37.mjs";
+import { n as n38 } from "./m38.mjs";
+import { n as n39 } from "./m39.mjs";
+
+const sum = n00 + n01 + n02 + n03 + n04 + n05 + n06 + n07 + n08 + n09 + n10 + n11 + n12 + n13 + n14 + n15 + n16 + n17 + n18 + n19 + n20 + n21 + n22 + n23 + n24 + n25 + n26 + n27 + n28 + n29 + n30 + n31 + n32 + n33 + n34 + n35 + n36 + n37 + n38 + n39;
+if (sum !== 780) {
+  throw new Error(`large-graph import sum mismatch: ${sum}`);
+}
+console.log("LARGE_GRAPH_OK");
