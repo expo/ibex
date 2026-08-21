@@ -33,6 +33,113 @@ typedef struct ExactHermesRuntime ExactHermesRuntime;
 #define EX_RESTRICTED_WORKER_ABI_VERSION_V1 1u
 typedef struct ExactRestrictedWorkerV1 ExactRestrictedWorkerV1;
 
+/// Restricted, owner-thread Hermes realm used only by the Contract plan host
+/// seam.  This is intentionally a different opaque type from
+/// `ExactHermesRuntime`: callers cannot route it through eval, module, timer,
+/// fetch, native-module, or app-host entry points.
+/// @ref Exact docs/design/0514-m1-native-plan-host-and-ts-seam.md §3
+#define EX_HERMES_PLAN_SEAM_ABI_VERSION_V1 1u
+typedef struct ExactHermesPlanSeamRuntimeV1 ExactHermesPlanSeamRuntimeV1;
+
+typedef enum ExHermesPlanSeamTransportStatusV1 {
+  EX_HERMES_PLAN_SEAM_OK_V1 = 0,
+  EX_HERMES_PLAN_SEAM_INVALID_V1 = -1,
+  EX_HERMES_PLAN_SEAM_OFF_OWNER_V1 = -2,
+  EX_HERMES_PLAN_SEAM_REENTRANT_V1 = -3,
+  EX_HERMES_PLAN_SEAM_REGISTRY_V1 = -4,
+  EX_HERMES_PLAN_SEAM_FENCED_V1 = -5,
+  EX_HERMES_PLAN_SEAM_LEASE_V1 = -6,
+  EX_HERMES_PLAN_SEAM_ENGINE_V1 = -7
+} ExHermesPlanSeamTransportStatusV1;
+
+/// Stable create-stage classification. The transport status says how creation
+/// failed; this value says where and why. It is deliberately finer-grained
+/// than the transport status so a failed restricted realm is diagnosable
+/// without enabling a more capable fallback runtime.
+typedef enum ExHermesPlanSeamCreateDiagnosticCodeV1 {
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_NONE_V1 = 0,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_ARGUMENTS_V1 = 1,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_HEAP_LIMIT_V1 = 2,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_BYTECODE_V1 = 3,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_HOST_CONTEXT_V1 = 4,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_RUNTIME_V1 = 5,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_NONCE_V1 = 6,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_REGISTRATION_V1 = 7,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_DRIVE_GUARD_V1 = 8,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_AMBIENT_SURFACE_V1 = 9,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_HERMES_INTERNAL_V1 = 10,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_ENDOWMENT_V1 = 11,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_VM_RUNTIME_V1 = 12,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_DYNAMIC_CODE_LATCH_V1 = 13,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_HBC_EVALUATION_V1 = 14,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_REGISTRY_ABSENT_V1 = 15,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_RECEIPT_MALFORMED_V1 = 16,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_RECEIPT_MISMATCH_V1 = 17,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_REGISTRY_INCOMPLETE_V1 = 18,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_BOOTSTRAP_CLEANUP_V1 = 19,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_FENCED_V1 = 20,
+  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_UNEXPECTED_V1 = 21
+} ExHermesPlanSeamCreateDiagnosticCodeV1;
+
+#define EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_MESSAGE_CAPACITY_V1 1024u
+
+/// Caller-owned, fixed-size output initialized by every create attempt. The
+/// UTF-8 message is bounded, may be truncated, and is not NUL-terminated by
+/// contract; `message_len` is authoritative. The message contains only the
+/// native create stage and bounded Hermes/JSI exception text, never evaluated
+/// values or provider payloads.
+typedef struct ExHermesPlanSeamCreateDiagnosticV1 {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  int32_t transport_status;
+  uint32_t code;
+  uint32_t message_len;
+  uint32_t reserved;
+  uint8_t message[EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_MESSAGE_CAPACITY_V1];
+} ExHermesPlanSeamCreateDiagnosticV1;
+
+typedef enum ExHermesPlanSeamAppearanceV1 {
+  EX_HERMES_PLAN_SEAM_APPEARANCE_LIGHT_V1 = 1,
+  EX_HERMES_PLAN_SEAM_APPEARANCE_DARK_V1 = 2
+} ExHermesPlanSeamAppearanceV1;
+
+typedef struct ExHermesPlanSeamFacetHostInputsV1 {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  uint32_t system_appearance;
+  uint8_t reduced_motion;
+  uint8_t native_control_presentation;
+  uint16_t reserved;
+  double viewport_width;
+} ExHermesPlanSeamFacetHostInputsV1;
+
+/// Called by the Facet subscription only to record/coalesce an invalidation.
+/// The callback must enqueue a new top-level owner job before reading or
+/// publishing a snapshot; it must never enter plan evaluation inline. Zero
+/// acknowledges an accepted/coalesced invalidation or a lawful stale/duplicate
+/// drop. Nonzero is reserved for a genuinely inactive, fenced, malformed, or
+/// rejected ingress and causes the Ibex seam generation to fence.
+typedef int32_t (*ExHermesPlanSeamInvalidationCallbackV1)(
+    void *context,
+    uint64_t generation,
+    uint32_t host_import_ref,
+    uint64_t hinted_version);
+
+typedef struct ExHermesPlanSeamOptionsV1 {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  uint64_t generation;
+  uint64_t executor_identity;
+  uint64_t heap_bytes;
+  const uint8_t *hbc_bytes;
+  size_t hbc_len;
+  const uint8_t *expected_registry_receipt;
+  size_t expected_registry_receipt_len;
+  ExHermesPlanSeamFacetHostInputsV1 facet_host_inputs;
+  ExHermesPlanSeamInvalidationCallbackV1 invalidation_callback;
+  void *invalidation_context;
+} ExHermesPlanSeamOptionsV1;
+
 typedef struct ExRestrictedWorkerOptionsV1 {
   uint32_t abi_version;
   uint32_t struct_size;
@@ -223,6 +330,82 @@ int32_t ex_restricted_worker_destroy_v1(
     ExactRestrictedWorkerV1 *worker, uint64_t runtime_nonce);
 void ex_restricted_worker_event_dispose_v1(
     ExRestrictedWorkerEventV1 *event);
+
+// =============================================================================
+// Contract plan/Hermes seam (restricted, HBC-only)
+// =============================================================================
+
+/// Creates the restricted realm and evaluates exactly one admitted HBC
+/// registry. Must be called on the executor that will own every later drive.
+/// `out_diagnostic` is mandatory and is initialized on success and every
+/// refusal; callers must include its code/message in surfaced create errors.
+int32_t ex_hermes_plan_seam_create_v1(
+    const ExHermesPlanSeamOptionsV1 *options,
+    ExactHermesPlanSeamRuntimeV1 **out_runtime,
+    ExHermesPlanSeamCreateDiagnosticV1 *out_diagnostic);
+
+/// Invokes a statically admitted host import or capability. The outcome
+/// discriminant and payload are the generated LLP 0517 values split for the
+/// already-landed Contract C callback ABI; Ibex defines no second semantic
+/// status/result-kind table. Only (binding_kind=1, call_id=0) for a pure host
+/// import and (binding_kind=2, call_id!=0) for a capability are admitted. A
+/// successful transport returns one affine lease.
+int32_t ex_hermes_plan_seam_call_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    uint32_t binding_kind,
+    uint32_t binding_ref,
+    uint64_t call_id,
+    const uint8_t *arguments,
+    size_t arguments_len,
+    uint8_t *out_outcome_discriminant,
+    const uint8_t **out_payload,
+    size_t *out_payload_len,
+    uint64_t *out_reactive_version,
+    uint64_t *out_lease_generation,
+    uint64_t *out_lease_token);
+
+int32_t ex_hermes_plan_seam_read_reactive_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    uint32_t host_import_ref,
+    uint8_t *out_outcome_discriminant,
+    const uint8_t **out_payload,
+    size_t *out_payload_len,
+    uint64_t *out_reactive_version,
+    uint64_t *out_lease_generation,
+    uint64_t *out_lease_token);
+
+/// Consumes exactly the tuple returned by call/read. A failed release is
+/// final and must never be retried by the caller.
+int32_t ex_hermes_plan_seam_release_result_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    uint64_t lease_generation,
+    uint64_t lease_token,
+    const uint8_t *payload,
+    size_t payload_len);
+
+int32_t ex_hermes_plan_seam_apply_facet_host_inputs_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    const ExHermesPlanSeamFacetHostInputsV1 *inputs);
+
+/// Returns a borrowed receipt view valid until successful destroy. The caller
+/// must copy it before returning to another executor.
+int32_t ex_hermes_plan_seam_registry_receipt_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    const uint8_t **out_bytes,
+    size_t *out_len);
+
+uint64_t ex_hermes_plan_seam_executor_identity_v1(
+    const ExactHermesPlanSeamRuntimeV1 *runtime);
+
+/// Unsubscribes the HBC registry and closes further call/read/input ingress.
+/// Result leases remain releasable until consumed.
+int32_t ex_hermes_plan_seam_shutdown_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime);
+
+/// Destroys on the owner only after shutdown and after every result lease has
+/// been consumed. On refusal the complete realm remains owned by the caller.
+int32_t ex_hermes_plan_seam_destroy_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime);
 
 /// Legacy lifecycle symbol retained for ABI compatibility. It is deliberately
 /// non-executable and always returns NULL. Production callers must use

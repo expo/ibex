@@ -1,0 +1,125 @@
+# LLP 0514 Hermes patch 0015 — empty disabled HermesInternal shell
+# Class: B (construction-finalization insertion points).
+# @ref LLP 0514#milestone-1-native-plan-host--ts-seam — the restricted plan
+# runtime pins an empty HermesInternal own-property surface.
+#
+# Hermes needs a small non-enumerable HermesInternal bootstrap surface while
+# its internal JavaScript initializes even when EnableHermesInternal=false.
+# Previously those properties remained on the disabled object permanently,
+# making Object.getOwnPropertyNames reveal fourteen VM-private helpers. Make
+# only the disabled-build descriptors temporarily configurable, then remove
+# every own string property and prevent extensions after internal JavaScript
+# initialization. Enabled runtimes retain their historical immutable surface.
+
+diff --git a/include/hermes/VM/JSLib.h b/include/hermes/VM/JSLib.h
+index 231db4aafd1046bfd6f55886f606e62e56865d67..b1c67303945e9a8740b2635f411e852e8a1fb86a 100644
+--- a/include/hermes/VM/JSLib.h
++++ b/include/hermes/VM/JSLib.h
+@@ -38,6 +38,10 @@ class JSLibFlags {
+ 
+ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags);
+ 
++/// Remove the VM-private bootstrap properties from a disabled HermesInternal
++/// object after internal JavaScript has finished using them during startup.
++void finalizeDisabledHermesInternalObject(Runtime &runtime);
++
+ /// Populate the builtin function entries in builtins using the corresponding
+ /// \c BuiltinMethod::xxx index.
+ void createHermesBuiltins(Runtime &runtime);
+diff --git a/lib/VM/JSLib/HermesInternal.cpp b/lib/VM/JSLib/HermesInternal.cpp
+index 44f7a96e1eb6f4747e3379914d5eca39a159e043..85a1db87758c0f1f1802c7fa01449d28406ec429 100644
+--- a/lib/VM/JSLib/HermesInternal.cpp
++++ b/lib/VM/JSLib/HermesInternal.cpp
+@@ -1086,7 +1086,11 @@ HermesValue createHermesInternalObject(
+       DefinePropertyFlags::getDefaultNewPropertyFlags();
+   constantDPF.enumerable = 0;
+   constantDPF.writable = 0;
+-  constantDPF.configurable = 0;
++  // A disabled HermesInternal temporarily exposes VM-private helpers while
++  // internal JavaScript initializes, then removes them before construction
++  // returns. They must be configurable for that cleanup; an enabled object
++  // retains the historical immutable descriptors.
++  constantDPF.configurable = flags.enableHermesInternal ? 0 : 1;
+ 
+   auto defineInternMethod =
+       [&](Predefined::Str symID, NativeFunctionPtr func, uint8_t count = 0) {
+@@ -1193,9 +1197,11 @@ HermesValue createHermesInternalObject(
+   defineInternMethod(P::fuzzilli, hermesInternalFuzzilli);
+ #endif
+ 
+-  // All functions are known to be safe can be defined above this flag check.
++  // Internal JavaScript still needs the bootstrap helpers above while the
++  // runtime is being constructed. Leave them configurable until that trusted
++  // initialization completes, then finalizeDisabledHermesInternalObject()
++  // removes every own string property and prevents extensions.
+   if (!flags.enableHermesInternal) {
+-    JSObject::preventExtensions(*lv.intern);
+     return lv.intern.getHermesValue();
+   }
+ 
+@@ -1242,6 +1248,51 @@ HermesValue createHermesInternalObject(
+   JSObject::preventExtensions(*lv.intern);
+ 
+   return lv.intern.getHermesValue();
++}
++
++void finalizeDisabledHermesInternalObject(Runtime &runtime) {
++  GCScope gcScope{runtime};
++  struct : public Locals {
++    PinnedValue<JSObject> intern;
++    PinnedValue<JSArray> keys;
++    PinnedValue<> key;
++  } lv;
++  LocalsRAII lraii(runtime, &lv);
++
++  auto internResult = JSObject::getNamed_RJS(
++      runtime.getGlobal(),
++      runtime,
++      Predefined::getSymbolID(Predefined::HermesInternal));
++  assert(
++      internResult != ExecutionStatus::EXCEPTION && (*internResult)->isObject() &&
++      "HermesInternal must exist during disabled-surface finalization");
++  lv.intern.castAndSetHermesValue<JSObject>(
++      (*internResult).getHermesValue());
++
++  auto keysResult = JSObject::getOwnPropertyNames(
++      lv.intern, runtime, false /* onlyEnumerable */);
++  assert(
++      keysResult != ExecutionStatus::EXCEPTION &&
++      "HermesInternal own-key enumeration cannot fail");
++  lv.keys = *keysResult;
++
++  const uint32_t length = JSArray::getLength(*lv.keys, runtime);
++  auto marker = gcScope.createMarker();
++  for (uint32_t index = 0; index < length; ++index) {
++    gcScope.flushToMarker(marker);
++    lv.key = lv.keys->at(runtime, index).unboxToHV(runtime);
++    auto deleted = JSObject::deleteComputed(
++        lv.intern,
++        runtime,
++        lv.key,
++        PropOpFlags().plusThrowOnError());
++    assert(
++        deleted != ExecutionStatus::EXCEPTION && *deleted &&
++        "disabled HermesInternal bootstrap property must be removable");
++    (void)deleted;
++  }
++
++  JSObject::preventExtensions(*lv.intern);
+ }
+ 
+ } // namespace vm
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 71e892e26c5b461850ae8c99d25c848f6342646d..83d06ac4d9fdb9c19341db234cc6a9258b94128f 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -487,6 +487,9 @@ Runtime::Runtime(const RuntimeConfig &runtimeConfig)
+ 
+   // Populate JS builtins returned from internal bytecode to the builtins table.
+   initJSBuiltins(jsBuiltinsObj);
++  if (!jsLibFlags.enableHermesInternal) {
++    finalizeDisabledHermesInternalObject(*this);
++  }
+ 
+ #if HERMESVM_SAMPLING_PROFILER_AVAILABLE
+   if (runtimeConfig.getEnableSampleProfiling())

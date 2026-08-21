@@ -1253,6 +1253,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_restricted_worker.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_plan_seam.cc");
     println!("cargo:rerun-if-changed=src/engine/restricted_worker_wrapper.inc");
     println!("cargo:rerun-if-changed=src/engine/hermes_app_bound_bridge.cc");
     println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.cc");
@@ -2020,6 +2021,7 @@ fn main() {
         .file("src/engine/hermes_runtime_ipc.cc")
         .file("src/engine/hermes_runtime_worklet.cc")
         .file("src/engine/hermes_restricted_worker.cc")
+        .file("src/engine/hermes_plan_seam.cc")
         .file("src/engine/hermes_app_bound_bridge.cc")
         .include(&hermes_include_dir)
         .include(&jsi_include_dir)

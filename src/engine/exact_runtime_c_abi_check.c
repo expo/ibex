@@ -23,6 +23,28 @@
 IBEX_C_ABI_ASSERT(version, EX_HERMES_STRUCTURED_EVAL_ABI_VERSION == 2u);
 IBEX_C_ABI_ASSERT(restricted_worker_version,
                   EX_RESTRICTED_WORKER_ABI_VERSION_V1 == 1u);
+IBEX_C_ABI_ASSERT(plan_seam_version,
+                  EX_HERMES_PLAN_SEAM_ABI_VERSION_V1 == 1u);
+IBEX_C_ABI_ASSERT(plan_seam_ok,
+                  EX_HERMES_PLAN_SEAM_OK_V1 == 0);
+IBEX_C_ABI_ASSERT(plan_seam_off_owner,
+                  EX_HERMES_PLAN_SEAM_OFF_OWNER_V1 < 0);
+IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_none,
+                  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_NONE_V1 == 0);
+IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_message_capacity,
+                  EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_MESSAGE_CAPACITY_V1 ==
+                      1024u);
+IBEX_C_ABI_ASSERT(plan_seam_facet_inputs_version_first,
+                  offsetof(ExHermesPlanSeamFacetHostInputsV1, abi_version) == 0u);
+IBEX_C_ABI_ASSERT(plan_seam_options_version_first,
+                  offsetof(ExHermesPlanSeamOptionsV1, abi_version) == 0u);
+IBEX_C_ABI_ASSERT(plan_seam_options_callback_after_inputs,
+                  offsetof(ExHermesPlanSeamOptionsV1, invalidation_callback) >=
+                      IBEX_C_ABI_MEMBER_END(
+                          ExHermesPlanSeamOptionsV1, facet_host_inputs));
+IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_version_first,
+                  offsetof(ExHermesPlanSeamCreateDiagnosticV1, abi_version) ==
+                      0u);
 IBEX_C_ABI_ASSERT(restricted_worker_frame_tag,
                   EX_RESTRICTED_WORKER_EVENT_FRAME_V1 == 1u);
 IBEX_C_ABI_ASSERT(restricted_worker_closed_tag,
@@ -207,6 +229,28 @@ IBEX_C_ABI_ASSERT(restricted_worker_event_bytes_offset_64,
                   offsetof(ExRestrictedWorkerEventV1, bytes) == 24u);
 IBEX_C_ABI_ASSERT(restricted_worker_event_size_64,
                   sizeof(ExRestrictedWorkerEventV1) == 40u);
+IBEX_C_ABI_ASSERT(plan_seam_facet_inputs_viewport_offset_64,
+                  offsetof(ExHermesPlanSeamFacetHostInputsV1, viewport_width) == 16u);
+IBEX_C_ABI_ASSERT(plan_seam_facet_inputs_size_64,
+                  sizeof(ExHermesPlanSeamFacetHostInputsV1) == 24u);
+IBEX_C_ABI_ASSERT(plan_seam_options_generation_offset_64,
+                  offsetof(ExHermesPlanSeamOptionsV1, generation) == 8u);
+IBEX_C_ABI_ASSERT(plan_seam_options_hbc_offset_64,
+                  offsetof(ExHermesPlanSeamOptionsV1, hbc_bytes) == 32u);
+IBEX_C_ABI_ASSERT(plan_seam_options_inputs_offset_64,
+                  offsetof(ExHermesPlanSeamOptionsV1, facet_host_inputs) == 64u);
+IBEX_C_ABI_ASSERT(plan_seam_options_callback_offset_64,
+                  offsetof(ExHermesPlanSeamOptionsV1, invalidation_callback) == 88u);
+IBEX_C_ABI_ASSERT(plan_seam_options_size_64,
+                  sizeof(ExHermesPlanSeamOptionsV1) == 104u);
+IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_status_offset_64,
+                  offsetof(ExHermesPlanSeamCreateDiagnosticV1,
+                           transport_status) == 8u);
+IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_message_offset_64,
+                  offsetof(ExHermesPlanSeamCreateDiagnosticV1, message) ==
+                      24u);
+IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_size_64,
+                  sizeof(ExHermesPlanSeamCreateDiagnosticV1) == 1048u);
 IBEX_C_ABI_ASSERT(position_line_offset_64,
                   offsetof(ExHermesSourcePosition, line) == 16u);
 IBEX_C_ABI_ASSERT(position_column_offset_64,
