@@ -12,9 +12,13 @@
 // @ref Exact docs/design/0514-m1-native-plan-host-and-ts-seam.md §3
 
 #include "../../include/exact_runtime.h"
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+#include "../../include/exact_runtime_plan_seam_benchmark.h"
+#endif
 #include "hermes_runtime_internal.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -27,6 +31,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#endif
 
 using facebook::jsi::Function;
 using facebook::jsi::Object;
@@ -44,6 +52,51 @@ constexpr uint64_t kMaximumHeapBytes = 128ull << 20;
 constexpr size_t kMaximumTransportBytes = 16ull << 20;
 constexpr uint32_t kBindingKindHostImport = 1;
 constexpr uint32_t kBindingKindCapability = 2;
+
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+uint64_t continuousNanoseconds() {
+#if defined(__APPLE__)
+  static mach_timebase_info_data_t timebase = [] {
+    mach_timebase_info_data_t value{};
+    if (mach_timebase_info(&value) != KERN_SUCCESS || value.denom == 0) {
+      value.numer = 1;
+      value.denom = 1;
+    }
+    return value;
+  }();
+  const uint64_t ticks = mach_continuous_time();
+  const uint64_t quotient = ticks / timebase.denom;
+  const uint64_t remainder = ticks % timebase.denom;
+  return quotient * timebase.numer +
+      (remainder * timebase.numer) / timebase.denom;
+#else
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+#endif
+}
+
+uint64_t elapsedNanoseconds(uint64_t start, uint64_t end) {
+  return end >= start ? end - start : 0;
+}
+
+void clearBenchmarkCreateTiming(
+    ExHermesPlanSeamBenchmarkCreateTimingV1* timing) {
+  if (timing == nullptr) return;
+  std::memset(timing, 0, sizeof(*timing));
+  timing->abi_version = EX_HERMES_PLAN_SEAM_BENCHMARK_ABI_VERSION_V1;
+  timing->struct_size = sizeof(*timing);
+}
+
+void clearBenchmarkDirectBatchResult(
+    ExHermesPlanSeamBenchmarkDirectBatchResultV1* result) {
+  if (result == nullptr) return;
+  std::memset(result, 0, sizeof(*result));
+  result->abi_version = EX_HERMES_PLAN_SEAM_BENCHMARK_ABI_VERSION_V1;
+  result->struct_size = sizeof(*result);
+}
+#endif
 
 void writeCreateDiagnostic(
     ExHermesPlanSeamCreateDiagnosticV1* out,
@@ -302,6 +355,19 @@ struct ExactHermesPlanSeamRuntimeV1 {
   std::unique_ptr<Function> readReactiveSync;
   std::unique_ptr<Function> applyFacetHostInputs;
   std::unique_ptr<Function> providerFault;
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+  std::unique_ptr<Function> benchmarkDirectProvider;
+  std::unique_ptr<Function> benchmarkAssertDirectProvider;
+  std::unique_ptr<Function> benchmarkProjectTick;
+  std::unique_ptr<Function> benchmarkAssertTickProjection;
+  std::unique_ptr<Function> benchmarkResetAdapterCounters;
+  std::unique_ptr<Function> benchmarkTakeAdapterCounters;
+  bool benchmarkCountersArmed{false};
+  bool benchmarkCountersOverflowed{false};
+  uint64_t benchmarkArgumentBytesCopied{0};
+  uint64_t benchmarkResultBytesCopied{0};
+  uint64_t benchmarkAdapterAllocations{0};
+#endif
   std::unique_ptr<Function> dispose;
 };
 
@@ -321,7 +387,39 @@ class CallbackActiveScope {
   ExactHermesPlanSeamRuntimeV1* seam_;
 };
 
-bool readReply(Runtime& runtime, const Value& value, PlanSeamReply& out) {
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+bool addBenchmarkCounter(uint64_t& target, size_t amount) {
+  if (amount > std::numeric_limits<uint64_t>::max() - target) return false;
+  target += static_cast<uint64_t>(amount);
+  return true;
+}
+
+void recordBenchmarkAdapter(
+    ExactHermesPlanSeamRuntimeV1* seam,
+    size_t argumentBytes,
+    size_t resultBytes,
+    size_t allocations) {
+  if (!seam->benchmarkCountersArmed || seam->benchmarkCountersOverflowed) return;
+  seam->benchmarkCountersOverflowed =
+      !addBenchmarkCounter(seam->benchmarkArgumentBytesCopied, argumentBytes) ||
+      !addBenchmarkCounter(seam->benchmarkResultBytesCopied, resultBytes) ||
+      !addBenchmarkCounter(seam->benchmarkAdapterAllocations, allocations);
+}
+
+void recordBenchmarkArrayBoundaryAllocation(void* context) {
+  recordBenchmarkAdapter(
+      static_cast<ExactHermesPlanSeamRuntimeV1*>(context), 0, 0, 1);
+}
+#endif
+
+bool readReply(
+    ExactHermesPlanSeamRuntimeV1* seam,
+    Runtime& runtime,
+    const Value& value,
+    PlanSeamReply& out) {
+#if !defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+  (void)seam;
+#endif
   if (!value.isObject()) return false;
   auto object = value.asObject(runtime);
   auto discriminant = object.getProperty(runtime, "outcomeDiscriminant");
@@ -351,7 +449,12 @@ bool readReply(Runtime& runtime, const Value& value, PlanSeamReply& out) {
   }
   out.outcomeDiscriminant = static_cast<uint8_t>(numericDiscriminant);
   out.payload.clear();
-  if (length != 0) out.payload.assign(bytes, bytes + length);
+  if (length != 0) {
+    out.payload.assign(bytes, bytes + length);
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+    recordBenchmarkAdapter(seam, 0, length, 1);
+#endif
+  }
   out.reactiveVersion = reactiveVersion;
   return true;
 }
@@ -401,12 +504,18 @@ int32_t mintReply(
   }
   const uint64_t token = seam->nextLeaseToken++;
   auto lease = std::make_unique<PlanSeamLease>(std::move(reply.payload));
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+  recordBenchmarkAdapter(seam, 0, 0, 1);
+#endif
   const uint8_t* pointer = lease->payload.empty() ? nullptr : lease->payload.data();
   const size_t length = lease->payload.size();
   if (!seam->leases.emplace(token, std::move(lease)).second) {
     seam->fenced = true;
     return EX_HERMES_PLAN_SEAM_LEASE_V1;
   }
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+  recordBenchmarkAdapter(seam, 0, 0, 1);
+#endif
   *outOutcomeDiscriminant = reply.outcomeDiscriminant;
   *outPayload = pointer;
   *outPayloadLen = length;
@@ -611,7 +720,7 @@ int32_t invokeAndLease(
   try {
     PlanSeamReply reply;
     auto result = invoke(*seam->handle->runtime);
-    if (!readReply(*seam->handle->runtime, result, reply) ||
+    if (!readReply(seam, *seam->handle->runtime, result, reply) ||
         !hasRequiredReactiveVersion(reply, reactiveRead)) {
       seam->fenced = true;
       return EX_HERMES_PLAN_SEAM_REGISTRY_V1;
@@ -644,7 +753,7 @@ int32_t invokeAndLease(
           runtime,
           static_cast<const Value*>(faultArguments),
           static_cast<size_t>(2));
-      if (!readReply(*seam->handle->runtime, result, reply) ||
+      if (!readReply(seam, *seam->handle->runtime, result, reply) ||
           !hasRequiredReactiveVersion(reply, reactiveRead)) {
         seam->fenced = true;
         return EX_HERMES_PLAN_SEAM_ENGINE_V1;
@@ -674,6 +783,14 @@ void dropRoots(ExactHermesPlanSeamRuntimeV1* seam) {
   seam->readReactiveSync.reset();
   seam->applyFacetHostInputs.reset();
   seam->providerFault.reset();
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+  seam->benchmarkDirectProvider.reset();
+  seam->benchmarkAssertDirectProvider.reset();
+  seam->benchmarkProjectTick.reset();
+  seam->benchmarkAssertTickProjection.reset();
+  seam->benchmarkResetAdapterCounters.reset();
+  seam->benchmarkTakeAdapterCounters.reset();
+#endif
   seam->dispose.reset();
 }
 
@@ -722,7 +839,16 @@ void destroyFailedCreate(ExactHermesPlanSeamRuntimeV1* seam) {
 static int32_t createPlanSeamRuntimeV1(
     const ExHermesPlanSeamOptionsV1* options,
     ExactHermesPlanSeamRuntimeV1** outRuntime,
-    ExHermesPlanSeamCreateDiagnosticV1* outDiagnostic) {
+    ExHermesPlanSeamCreateDiagnosticV1* outDiagnostic
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+    ,
+    ExHermesPlanSeamBenchmarkCreateTimingV1* outBenchmarkTiming,
+    bool requireBenchmarkRoots
+#endif
+    ) {
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+  clearBenchmarkCreateTiming(outBenchmarkTiming);
+#endif
   if (outRuntime != nullptr) *outRuntime = nullptr;
   if (options == nullptr || outRuntime == nullptr ||
       options->abi_version != EX_HERMES_PLAN_SEAM_ABI_VERSION_V1 ||
@@ -796,6 +922,9 @@ static int32_t createPlanSeamRuntimeV1(
   }
 
   auto seam = std::make_unique<ExactHermesPlanSeamRuntimeV1>();
+  // Keep the one-live-lease map's bucket allocation outside retained
+  // telemetry; every successful emplace still allocates its observable node.
+  seam->leases.reserve(1);
   seam->generation = options->generation;
   seam->executorIdentity = options->executor_identity;
   seam->owner = std::this_thread::get_id();
@@ -912,10 +1041,23 @@ static int32_t createPlanSeamRuntimeV1(
     createDiagnosticCode =
         EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_HBC_EVALUATION_V1;
     createDiagnosticReason = "plan seam HBC evaluation failed";
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+    // The cold artifact phase is intentionally narrower than restricted-realm
+    // construction: it measures loading/copying the already-compiled HBC and
+    // Hermes evaluation/instantiation only.
+    const uint64_t artifactPhaseStart = outBenchmarkTiming != nullptr
+        ? continuousNanoseconds()
+        : 0;
+#endif
     auto hbc = std::make_shared<PlanSeamAlignedBytecodeBuffer>(
         options->hbc_bytes, options->hbc_len);
     auto evaluated = runtime.evaluateJavaScript(
         hbc, "exact:plan-hermes-seam-registry.hbc");
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+    const uint64_t artifactPhaseEnd = outBenchmarkTiming != nullptr
+        ? continuousNanoseconds()
+        : 0;
+#endif
     Value registryValue = std::move(evaluated);
     if (!registryValue.isObject()) {
       registryValue = runtime.global().getProperty(
@@ -1009,6 +1151,67 @@ static int32_t createPlanSeamRuntimeV1(
       createDiagnosticReason = "plan seam fenced during registry creation";
       throw std::runtime_error(createDiagnosticReason);
     }
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+    // Stop the production-comparable registry-admission phase before copying
+    // any benchmark-only roots. The local registry Object remains rooted after
+    // its bootstrap global is removed, so benchmark setup can safely follow.
+    const uint64_t registryPhaseEnd = outBenchmarkTiming != nullptr
+        ? continuousNanoseconds()
+        : 0;
+    if (requireBenchmarkRoots) {
+      createDiagnosticCode =
+          EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_REGISTRY_INCOMPLETE_V1;
+      createDiagnosticReason =
+          "plan seam benchmark comparator roots are incomplete";
+      if (!copyRegistryFunction(
+              runtime,
+              registry,
+              "benchmarkDirectProvider",
+              seam->benchmarkDirectProvider) ||
+          !copyRegistryFunction(
+              runtime,
+              registry,
+              "benchmarkAssertDirectProvider",
+              seam->benchmarkAssertDirectProvider) ||
+          !copyRegistryFunction(
+              runtime,
+              registry,
+              "benchmarkProjectTick",
+              seam->benchmarkProjectTick) ||
+          !copyRegistryFunction(
+              runtime,
+              registry,
+              "benchmarkAssertTickProjection",
+              seam->benchmarkAssertTickProjection) ||
+          !copyRegistryFunction(
+              runtime,
+              registry,
+              "benchmarkResetAdapterCounters",
+              seam->benchmarkResetAdapterCounters) ||
+          !copyRegistryFunction(
+              runtime,
+              registry,
+              "benchmarkTakeAdapterCounters",
+              seam->benchmarkTakeAdapterCounters)) {
+        createFailure = EX_HERMES_PLAN_SEAM_REGISTRY_V1;
+        throw std::runtime_error(createDiagnosticReason);
+      }
+    }
+    if (seam->fenced) {
+      createFailure = EX_HERMES_PLAN_SEAM_FENCED_V1;
+      createDiagnosticCode =
+          EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_FENCED_V1;
+      createDiagnosticReason =
+          "plan seam fenced during benchmark root setup";
+      throw std::runtime_error(createDiagnosticReason);
+    }
+    if (outBenchmarkTiming != nullptr) {
+      outBenchmarkTiming->artifact_load_compile_instantiate_ns =
+          elapsedNanoseconds(artifactPhaseStart, artifactPhaseEnd);
+      outBenchmarkTiming->registry_admission_ns =
+          elapsedNanoseconds(artifactPhaseEnd, registryPhaseEnd);
+    }
+#endif
     *outRuntime = seam.release();
     writeCreateDiagnostic(
         outDiagnostic,
@@ -1045,7 +1248,16 @@ extern "C" int32_t ex_hermes_plan_seam_create_v1(
       EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_UNEXPECTED_V1,
       "plan seam create did not reach a classified result");
   try {
-    return createPlanSeamRuntimeV1(options, outRuntime, outDiagnostic);
+    return createPlanSeamRuntimeV1(
+        options,
+        outRuntime,
+        outDiagnostic
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+        ,
+        nullptr,
+        false
+#endif
+        );
   } catch (const std::exception& error) {
     if (outRuntime != nullptr) *outRuntime = nullptr;
     writeCreateDiagnostic(
@@ -1064,6 +1276,220 @@ extern "C" int32_t ex_hermes_plan_seam_create_v1(
     return EX_HERMES_PLAN_SEAM_ENGINE_V1;
   }
 }
+
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+extern "C" int32_t ex_hermes_plan_seam_create_benchmark_v1(
+    const ExHermesPlanSeamOptionsV1* options,
+    ExactHermesPlanSeamRuntimeV1** outRuntime,
+    ExHermesPlanSeamCreateDiagnosticV1* outDiagnostic,
+    ExHermesPlanSeamBenchmarkCreateTimingV1* outTiming) {
+  if (outRuntime != nullptr) *outRuntime = nullptr;
+  clearBenchmarkCreateTiming(outTiming);
+  if (outDiagnostic == nullptr || outTiming == nullptr) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  writeCreateDiagnostic(
+      outDiagnostic,
+      EX_HERMES_PLAN_SEAM_ENGINE_V1,
+      EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_UNEXPECTED_V1,
+      "plan seam benchmark create did not reach a classified result");
+  try {
+    return createPlanSeamRuntimeV1(
+        options, outRuntime, outDiagnostic, outTiming, true);
+  } catch (const std::exception& error) {
+    if (outRuntime != nullptr) *outRuntime = nullptr;
+    clearBenchmarkCreateTiming(outTiming);
+    writeCreateDiagnostic(
+        outDiagnostic,
+        EX_HERMES_PLAN_SEAM_ENGINE_V1,
+        EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_UNEXPECTED_V1,
+        std::string("plan seam benchmark create escaped its stage: ") +
+            error.what());
+    return EX_HERMES_PLAN_SEAM_ENGINE_V1;
+  } catch (...) {
+    if (outRuntime != nullptr) *outRuntime = nullptr;
+    clearBenchmarkCreateTiming(outTiming);
+    writeCreateDiagnostic(
+        outDiagnostic,
+        EX_HERMES_PLAN_SEAM_ENGINE_V1,
+        EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_UNEXPECTED_V1,
+        "plan seam benchmark create escaped with a non-standard exception");
+    return EX_HERMES_PLAN_SEAM_ENGINE_V1;
+  }
+}
+
+extern "C" int32_t ex_hermes_plan_seam_benchmark_direct_batch_v1(
+    ExactHermesPlanSeamRuntimeV1* seam,
+    const uint32_t* caseIds,
+    size_t caseCount,
+    uint8_t projectTick,
+    uint64_t* outCallLatencyNs,
+    ExHermesPlanSeamBenchmarkDirectBatchResultV1* outResult) {
+  clearBenchmarkDirectBatchResult(outResult);
+  const int32_t ownerStatus = ownerDriveStatus(seam);
+  if (ownerStatus != EX_HERMES_PLAN_SEAM_OK_V1) return ownerStatus;
+  if (caseIds == nullptr || caseCount == 0 || projectTick > 1 ||
+      caseCount > kMaximumTransportBytes / sizeof(uint32_t) ||
+      outCallLatencyNs == nullptr || outResult == nullptr ||
+      seam->benchmarkDirectProvider == nullptr ||
+      seam->benchmarkAssertDirectProvider == nullptr ||
+      (projectTick != 0 &&
+       (seam->benchmarkProjectTick == nullptr ||
+        seam->benchmarkAssertTickProjection == nullptr))) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  std::fill(outCallLatencyNs, outCallLatencyNs + caseCount, 0);
+  try {
+    ExactRuntimeDriveGuard guard(
+        seam->handle, seam->handle->runtime_nonce);
+    if (!guard) return mapDriveGuardFailure(seam, guard.status());
+    CallbackActiveScope callbackScope(seam);
+    auto& runtime = *seam->handle->runtime;
+    std::vector<std::pair<uint32_t, Value>> results;
+    results.reserve(caseCount);
+    Value tickProjection;
+    const uint64_t batchStart = continuousNanoseconds();
+    for (size_t index = 0; index < caseCount; ++index) {
+      const uint32_t caseId = caseIds[index];
+      if (caseId == 0) return EX_HERMES_PLAN_SEAM_INVALID_V1;
+      const uint64_t callStart = continuousNanoseconds();
+      Value result = seam->benchmarkDirectProvider->call(
+          runtime,
+          Value(static_cast<double>(caseId)),
+          Value(static_cast<double>(index)));
+      const uint64_t callEnd = continuousNanoseconds();
+      outCallLatencyNs[index] = elapsedNanoseconds(callStart, callEnd);
+      results.emplace_back(caseId, std::move(result));
+    }
+    if (projectTick != 0) {
+      // LLP 0517 section 10.1 requires the tick comparator to include the
+      // same two-board and visible-row formatting/style projection as the
+      // native/runner lanes. Keep that work inside the containing batch
+      // interval while retaining provider-only per-call samples.
+      tickProjection = seam->benchmarkProjectTick->call(runtime);
+    }
+    const uint64_t batchEnd = continuousNanoseconds();
+    // Result encoding/assertion is deliberately outside every retained timing
+    // interval. It proves identical semantics without charging the direct
+    // comparator for a boundary codec it does not traverse.
+    for (auto& entry : results) {
+      Value assertion = seam->benchmarkAssertDirectProvider->call(
+          runtime,
+          Value(static_cast<double>(entry.first)),
+          std::move(entry.second));
+      if (!assertion.isBool() || !assertion.getBool()) {
+        seam->fenced = true;
+        return EX_HERMES_PLAN_SEAM_REGISTRY_V1;
+      }
+    }
+    if (projectTick != 0) {
+      Value assertion = seam->benchmarkAssertTickProjection->call(
+          runtime, std::move(tickProjection));
+      if (!assertion.isBool() || !assertion.getBool()) {
+        seam->fenced = true;
+        return EX_HERMES_PLAN_SEAM_REGISTRY_V1;
+      }
+    }
+    outResult->batch_latency_ns =
+        elapsedNanoseconds(batchStart, batchEnd);
+    outResult->actual_calls = caseCount;
+    return EX_HERMES_PLAN_SEAM_OK_V1;
+  } catch (...) {
+    seam->fenced = true;
+    return EX_HERMES_PLAN_SEAM_ENGINE_V1;
+  }
+}
+
+extern "C" int32_t ex_hermes_plan_seam_benchmark_reset_adapter_counters_v1(
+    ExactHermesPlanSeamRuntimeV1* seam) {
+  const int32_t ownerStatus = ownerDriveStatus(seam);
+  if (ownerStatus != EX_HERMES_PLAN_SEAM_OK_V1) return ownerStatus;
+  if (seam->benchmarkResetAdapterCounters == nullptr ||
+      seam->benchmarkTakeAdapterCounters == nullptr) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  try {
+    ExactRuntimeDriveGuard guard(seam->handle, seam->handle->runtime_nonce);
+    if (!guard) return mapDriveGuardFailure(seam, guard.status());
+    CallbackActiveScope callbackScope(seam);
+    seam->benchmarkArgumentBytesCopied = 0;
+    seam->benchmarkResultBytesCopied = 0;
+    seam->benchmarkAdapterAllocations = 0;
+    seam->benchmarkCountersOverflowed = false;
+    seam->benchmarkResetAdapterCounters->call(*seam->handle->runtime);
+    seam->benchmarkCountersArmed = true;
+    return EX_HERMES_PLAN_SEAM_OK_V1;
+  } catch (...) {
+    seam->benchmarkCountersArmed = false;
+    seam->fenced = true;
+    return EX_HERMES_PLAN_SEAM_ENGINE_V1;
+  }
+}
+
+extern "C" int32_t ex_hermes_plan_seam_benchmark_take_adapter_counters_v1(
+    ExactHermesPlanSeamRuntimeV1* seam,
+    ExHermesPlanSeamBenchmarkAdapterCountersV1* outCounters) {
+  if (outCounters == nullptr) return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  *outCounters = {};
+  outCounters->abi_version = 1;
+  outCounters->struct_size =
+      static_cast<uint32_t>(sizeof(ExHermesPlanSeamBenchmarkAdapterCountersV1));
+  const int32_t ownerStatus = ownerDriveStatus(seam);
+  if (ownerStatus != EX_HERMES_PLAN_SEAM_OK_V1) return ownerStatus;
+  if (!seam->benchmarkCountersArmed ||
+      seam->benchmarkTakeAdapterCounters == nullptr) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  try {
+    ExactRuntimeDriveGuard guard(seam->handle, seam->handle->runtime_nonce);
+    if (!guard) return mapDriveGuardFailure(seam, guard.status());
+    CallbackActiveScope callbackScope(seam);
+    auto& runtime = *seam->handle->runtime;
+    Value value = seam->benchmarkTakeAdapterCounters->call(runtime);
+    seam->benchmarkCountersArmed = false;
+    if (!value.isObject() || seam->benchmarkCountersOverflowed) {
+      seam->fenced = true;
+      return EX_HERMES_PLAN_SEAM_REGISTRY_V1;
+    }
+    auto object = value.asObject(runtime);
+    auto readCounter = [&runtime, &object](
+                           const char* name,
+                           uint64_t& output) -> bool {
+      Value property = object.getProperty(runtime, name);
+      if (!property.isNumber()) return false;
+      const double number = property.asNumber();
+      if (!std::isfinite(number) || number < 0 ||
+          number > 9007199254740991.0 || std::floor(number) != number) {
+        return false;
+      }
+      output = static_cast<uint64_t>(number);
+      return true;
+    };
+    uint64_t tsArgumentBytes = 0;
+    uint64_t tsResultBytes = 0;
+    uint64_t tsAllocations = 0;
+    if (!readCounter("argumentBytesCopied", tsArgumentBytes) ||
+        !readCounter("resultBytesCopied", tsResultBytes) ||
+        !readCounter("adapterAllocations", tsAllocations) ||
+        !addBenchmarkCounter(
+            seam->benchmarkArgumentBytesCopied, tsArgumentBytes) ||
+        !addBenchmarkCounter(seam->benchmarkResultBytesCopied, tsResultBytes) ||
+        !addBenchmarkCounter(seam->benchmarkAdapterAllocations, tsAllocations)) {
+      seam->fenced = true;
+      return EX_HERMES_PLAN_SEAM_REGISTRY_V1;
+    }
+    outCounters->argument_bytes_copied =
+        seam->benchmarkArgumentBytesCopied;
+    outCounters->result_bytes_copied = seam->benchmarkResultBytesCopied;
+    outCounters->adapter_allocations = seam->benchmarkAdapterAllocations;
+    return EX_HERMES_PLAN_SEAM_OK_V1;
+  } catch (...) {
+    seam->benchmarkCountersArmed = false;
+    seam->fenced = true;
+    return EX_HERMES_PLAN_SEAM_ENGINE_V1;
+  }
+}
+#endif
 
 extern "C" int32_t ex_hermes_plan_seam_call_v1(
     ExactHermesPlanSeamRuntimeV1* seam,
@@ -1120,9 +1546,21 @@ extern "C" int32_t ex_hermes_plan_seam_call_v1(
             std::vector<uint8_t> copiedArguments;
             if (argumentsLen != 0) {
               copiedArguments.assign(arguments, arguments + argumentsLen);
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+              recordBenchmarkAdapter(seam, argumentsLen, 0, 1);
+#endif
             }
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+            auto argumentBytes =
+                makeUint8Array(
+                    runtime,
+                    std::move(copiedArguments),
+                    recordBenchmarkArrayBoundaryAllocation,
+                    seam);
+#else
             auto argumentBytes =
                 makeUint8Array(runtime, std::move(copiedArguments));
+#endif
             Value values[] = {Value(static_cast<double>(bindingRef)),
                               std::move(argumentBytes)};
             return seam->callSync->call(
@@ -1152,9 +1590,21 @@ extern "C" int32_t ex_hermes_plan_seam_call_v1(
           std::vector<uint8_t> copiedArguments;
           if (argumentsLen != 0) {
             copiedArguments.assign(arguments, arguments + argumentsLen);
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+            recordBenchmarkAdapter(seam, argumentsLen, 0, 1);
+#endif
           }
+#if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
+          auto argumentBytes =
+              makeUint8Array(
+                  runtime,
+                  std::move(copiedArguments),
+                  recordBenchmarkArrayBoundaryAllocation,
+                  seam);
+#else
           auto argumentBytes =
               makeUint8Array(runtime, std::move(copiedArguments));
+#endif
           Value values[] = {
               Value(static_cast<double>(bindingRef)),
               String::createFromUtf8(runtime, u64Text(callId)),

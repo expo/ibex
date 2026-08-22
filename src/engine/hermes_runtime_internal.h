@@ -2287,16 +2287,22 @@ inline bool parseNetworkUrl(
 
 inline facebook::jsi::Value makeUint8Array(
     facebook::jsi::Runtime& runtime,
-    std::vector<uint8_t> data) {
+    std::vector<uint8_t> data,
+    void (*allocationObserver)(void*) = nullptr,
+    void* allocationObserverContext = nullptr) {
 #if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
   auto buffer = std::make_shared<VectorBuffer>(std::move(data));
+  if (allocationObserver != nullptr) allocationObserver(allocationObserverContext);
   facebook::jsi::ArrayBuffer arrayBuffer(runtime, buffer);
+  if (allocationObserver != nullptr) allocationObserver(allocationObserverContext);
   auto ctor = runtime.global().getPropertyAsFunction(runtime, "Uint8Array");
   auto typed = ctor.callAsConstructor(runtime, arrayBuffer).getObject(runtime);
+  if (allocationObserver != nullptr) allocationObserver(allocationObserverContext);
 #else
   auto ctor = runtime.global().getPropertyAsFunction(runtime, "Uint8Array");
   auto typed =
       ctor.callAsConstructor(runtime, static_cast<int>(data.size())).getObject(runtime);
+  if (allocationObserver != nullptr) allocationObserver(allocationObserverContext);
   for (size_t i = 0; i < data.size(); i++) {
     typed.setProperty(runtime, std::to_string(i).c_str(), static_cast<int>(data[i]));
   }

@@ -1378,6 +1378,8 @@ fn main() {
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
     let openssl_crypto_enabled = std::env::var_os("CARGO_FEATURE_OPENSSL_CRYPTO").is_some();
     let sfe_static_network_enabled = std::env::var_os("CARGO_FEATURE_SFE_STATIC_NETWORK").is_some();
+    let plan_seam_benchmark_abi_enabled =
+        std::env::var_os("CARGO_FEATURE_PLAN_SEAM_BENCHMARK_ABI").is_some();
     // @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited —
     // the Linux SFE is a flagship Snapback CLI target, so its existing
     // libcurl Fetch/WebSocket backend must be linked into the final image.
@@ -2041,6 +2043,9 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_RUNTIME_EXTENSION_CONFORMANCE").is_some() {
         build.define("IBEX_RUNTIME_EXTENSION_CONFORMANCE", None);
         build.file("tests/native/hermes_runtime_extension_conformance.cc");
+    }
+    if plan_seam_benchmark_abi_enabled {
+        build.define("IBEX_PLAN_SEAM_BENCHMARK_ABI", None);
     }
     if target_os == "ios" {
         // iOS has no public libproc mapped-vnode query. The helper parses the

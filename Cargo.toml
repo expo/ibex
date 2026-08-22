@@ -238,6 +238,10 @@ capsec-conformance-observer = []
 # fixture-only C ABI. Ordinary Ibex artifacts contain neither the fixture
 # installer nor its registry.
 runtime-extension-conformance = []
+# Private LLP 0517 section 10 measurement ABI. Ordinary runtime builds omit
+# the declarations' implementations and exported C symbols; the Exact XCTest
+# capture opts in through its isolated Apple archive build.
+plan-seam-benchmark-abi = []
 # Release/iOS-Simulator-only observer for the ratified Partitime carrier-cost
 # lane. It substitutes only report-derived target cells plus authenticated-root
 # IPv4-loopback fetch; every ordinary build omits the constructor and C++ seam.
