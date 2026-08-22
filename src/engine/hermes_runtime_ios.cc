@@ -35,6 +35,14 @@
 
 #include "hermes_runtime_internal.h"
 
+// The display-paced animation-frame host path (opaque token provider +
+// any-thread delivery ABI) is an Apple host feature, not an iOS-only one:
+// macOS ExactAppMac installs the same ExactRuntimeAnimationFramePacer. Before
+// this gate, macOS silently fell back to the 16ms setTimeout rAF shim.
+#if defined(__APPLE__)
+#define EXACT_APPLE_ANIMATION_FRAME_HOST 1
+#endif
+
 #if defined(IBEX_KERNEL_BRIDGE_OBJECT)
 // Kernel FFI functions (implemented in Rust kernel crate)
 extern "C" int32_t exact_get_state_mirror_buffer(
@@ -61,7 +69,7 @@ extern "C" int32_t exact_get_root_view_id(void* handle, uint32_t root_id);
 
 namespace {
 
-#if defined(EXACT_PLATFORM_IOS)
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
 struct IOSAnimationFrameCallback {
   RuntimeCallbackTarget target;
   std::shared_ptr<facebook::jsi::Function> callback;
@@ -147,7 +155,7 @@ void removeIOSAnimationFrameCallbacksForRuntime(ExactHermesRuntime* handle) {
 }  // namespace
 
 void installIOSHostFunctions(ExactHermesRuntime* handle) {
-#if defined(EXACT_PLATFORM_IOS)
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   if (!handle || handle->restricted) return;
   auto& rt = *handle->runtime;
   auto requestAnimationFrameFn = facebook::jsi::Function::createFromHostFunction(
@@ -189,7 +197,7 @@ void installIOSHostFunctions(ExactHermesRuntime* handle) {
 }
 
 void unregisterIOSHostFunctions(ExactHermesRuntime* handle) {
-#if defined(EXACT_PLATFORM_IOS)
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   if (!handle) return;
   handle->ios_animation_frame_request_callback = nullptr;
   handle->ios_animation_frame_request_context = nullptr;
@@ -207,7 +215,7 @@ extern "C" void ex_hermes_set_animation_frame_request_callback(
   if (!runtime) return;
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive || runtime->restricted) return;
-#if defined(EXACT_PLATFORM_IOS)
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   runtime->ios_animation_frame_request_callback = callback;
   runtime->ios_animation_frame_request_context = callback ? context : nullptr;
   if (!callback) removeIOSAnimationFrameCallbacksForRuntime(runtime);
@@ -218,7 +226,7 @@ extern "C" void ex_hermes_set_animation_frame_request_callback(
 }
 
 extern "C" int32_t ex_hermes_deliver_animation_frame(uint64_t token) {
-#if defined(EXACT_PLATFORM_IOS)
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   IOSAnimationFrameCallback entry;
   {
     std::lock_guard<std::mutex> lock(g_ios_animation_frame_mutex);
