@@ -1305,14 +1305,17 @@ export function installGlobals(): void {
   // ========================================
   if (typeof g.__exactRequestAnimationFrame === 'function') {
     setNativeSchedulingModule({
-      requestAnimationFrame(callback: () => void): void {
+      // The host delivers the frame with its host-monotonic timestamp (ms,
+      // CACurrentMediaTime family on Apple) as the callback's only argument;
+      // the setTimeout fallback has no such clock and passes nothing.
+      requestAnimationFrame(callback: (hostMonotonicTimestampMs?: number) => void): void {
         try {
           const scheduled = g.__exactRequestAnimationFrame(callback);
           if (scheduled !== false) {
             return;
           }
         } catch (_) {}
-        setTimeout(callback, 16);
+        setTimeout(() => callback(), 16);
       },
     });
   }

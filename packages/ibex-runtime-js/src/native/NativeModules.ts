@@ -296,7 +296,12 @@ export function getMissingNativeModules(): string[] {
 // Scheduling Module (SHOULD BE NATIVE for vsync integration)
 // =============================================================================
 export interface NativeSchedulingModule {
-  requestAnimationFrame(callback: () => void): void;
+  /**
+   * Display-paced frame request. A host that owns a frame clock passes the
+   * frame's host-monotonic timestamp in milliseconds (Apple: the
+   * CACurrentMediaTime family); hosts without one pass nothing.
+   */
+  requestAnimationFrame(callback: (hostMonotonicTimestampMs?: number) => void): void;
   requestIdleCallback?(callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout?: number }): void;
 }
 

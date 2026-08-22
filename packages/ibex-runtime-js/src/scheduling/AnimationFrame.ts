@@ -12,7 +12,17 @@ import {
   trackAnimationFrameRequested,
 } from '../core/agent-state.js';
 
-export type FrameRequestCallback = (time: DOMHighResTimeStamp) => void;
+/**
+ * The first argument is the DOM-standard frame time (performance.now()
+ * family). The second is an Ibex extension: the host-monotonic timestamp (ms)
+ * of the native frame delivery when the host supplies one (Apple: the
+ * CACurrentMediaTime family, comparable with presenter apply stamps), and
+ * undefined on the setTimeout fallback or a host without a frame clock.
+ */
+export type FrameRequestCallback = (
+  time: DOMHighResTimeStamp,
+  hostMonotonicTimestampMs?: number,
+) => void;
 type DOMHighResTimeStamp = number;
 
 // Callback storage
@@ -42,9 +52,9 @@ export function requestAnimationFrame(callback: FrameRequestCallback): number {
     // Use native RAF which is tied to the display refresh rate
     if (!isScheduled) {
       isScheduled = true;
-      nativeScheduling.requestAnimationFrame(() => {
+      nativeScheduling.requestAnimationFrame((hostMonotonicTimestampMs) => {
         isScheduled = false;
-        runCallbacks();
+        runCallbacks(hostMonotonicTimestampMs);
       });
     }
     return id;
@@ -74,11 +84,19 @@ export function cancelAnimationFrame(id: number): void {
 /**
  * Run all pending callbacks with the current timestamp.
  */
-function runCallbacks(): void {
+function runCallbacks(hostMonotonicTimestampMs?: unknown): void {
   // Get current time
   const timestamp = typeof performance !== 'undefined' && performance.now
     ? performance.now()
     : Date.now();
+  // Only a finite, non-negative host stamp is forwarded; anything else is
+  // "no host clock" rather than a poisoned number.
+  const hostStamp =
+    typeof hostMonotonicTimestampMs === 'number' &&
+    Number.isFinite(hostMonotonicTimestampMs) &&
+    hostMonotonicTimestampMs >= 0
+      ? hostMonotonicTimestampMs
+      : undefined;
 
   // Per the HTML spec, snapshot the handles present at the start of this frame,
   // then process them one at a time, removing each from the LIVE map immediately
@@ -101,7 +119,7 @@ function runCallbacks(): void {
     executed.push(id);
 
     try {
-      callback(timestamp);
+      callback(timestamp, hostStamp);
     } catch (error) {
       // Report error but continue with other callbacks
       console.error('Error in requestAnimationFrame callback:', error);

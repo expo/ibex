@@ -23,6 +23,9 @@
 
 #include <atomic>
 #include <cmath>
+#if defined(__APPLE__)
+#include <time.h>
+#endif
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -230,13 +233,30 @@ extern "C" int32_t ex_hermes_deliver_animation_frame(uint64_t token) {
     return 0;
   }
 
+  // Stamp the host-monotonic delivery time on the delivering (clock) thread.
+  // CLOCK_UPTIME_RAW is mach_absolute_time, the same clock family as
+  // CACurrentMediaTime(), so JavaScript can place this frame on one axis
+  // with presenter apply stamps (Exact LLP 0488 W4 measured-box evidence).
+  // It is a plain number handed to the callback; no clock is read on the
+  // runtime thread and the delivery ABI is unchanged.
+  double host_monotonic_ms = std::nan("");
+#if defined(__APPLE__)
+  host_monotonic_ms =
+      static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e6;
+#endif
+
   bool accepted = false;
   // Delivery may originate on main, but the retained JSI function is only
   // called (or discarded during teardown) on the exact runtime owner thread.
   pushRuntimeCallback(
       entry.target,
-      [callback = std::move(entry.callback)](facebook::jsi::Runtime& runtime) {
-        callback->call(runtime);
+      [callback = std::move(entry.callback),
+       host_monotonic_ms](facebook::jsi::Runtime& runtime) {
+        if (std::isfinite(host_monotonic_ms)) {
+          callback->call(runtime, facebook::jsi::Value(host_monotonic_ms));
+        } else {
+          callback->call(runtime);
+        }
       },
       &accepted);
   exactUnpinRuntimeNativeWorker(entry.target);
