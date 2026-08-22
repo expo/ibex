@@ -50,6 +50,7 @@ namespace {
 constexpr uint64_t kDefaultHeapBytes = 16ull << 20;
 constexpr uint64_t kMaximumHeapBytes = 128ull << 20;
 constexpr size_t kMaximumTransportBytes = 16ull << 20;
+constexpr size_t kMaximumProviderSelectorBytes = 1024;
 constexpr uint32_t kBindingKindHostImport = 1;
 constexpr uint32_t kBindingKindCapability = 2;
 
@@ -97,6 +98,22 @@ void clearBenchmarkDirectBatchResult(
   result->struct_size = sizeof(*result);
 }
 #endif
+
+
+bool validProviderSelector(
+    const uint8_t* bytes, size_t length) {
+  if (bytes == nullptr || length == 0 ||
+      length > kMaximumProviderSelectorBytes) {
+    return false;
+  }
+  // Generated provider selector namespaces are canonical visible ASCII. Keep
+  // this evidence-only ingress narrower than general invariant UTF-8 so no
+  // lossy or normalized spelling can ever alias an admitted selector.
+  for (size_t index = 0; index < length; ++index) {
+    if (bytes[index] < 0x21 || bytes[index] > 0x7e) return false;
+  }
+  return true;
+}
 
 void writeCreateDiagnostic(
     ExHermesPlanSeamCreateDiagnosticV1* out,
@@ -344,11 +361,15 @@ struct ExactHermesPlanSeamRuntimeV1 {
   bool stopped{false};
   bool fenced{false};
   bool callbackActive{false};
+  uint32_t providerThrowState{
+      EX_HERMES_PLAN_SEAM_PROVIDER_THROW_DORMANT_V1};
+  std::string providerThrowSelector;
   uint64_t nextLeaseToken{1};
   std::unordered_map<uint64_t, std::unique_ptr<PlanSeamLease>> leases;
   std::vector<uint8_t> registryReceipt;
   std::unique_ptr<Function> isProxy;
   std::unique_ptr<Function> captureThrown;
+  std::unique_ptr<Function> consumeProviderThrow;
   std::unique_ptr<Function> recordInvalidation;
   std::unique_ptr<Function> callSync;
   std::unique_ptr<Function> callCapabilitySync;
@@ -614,6 +635,29 @@ std::unique_ptr<Function> makeSafeThrowFunction(
       }));
 }
 
+std::unique_ptr<Function> makeConsumeProviderThrowFunction(
+    ExactHermesPlanSeamRuntimeV1* seam, Runtime& runtime) {
+  return std::make_unique<Function>(Function::createFromHostFunction(
+      runtime,
+      PropNameID::forAscii(runtime, "planSeamConsumeProviderThrow"),
+      1,
+      [seam](Runtime& rt, const Value&, const Value* args, size_t count) -> Value {
+        if (seam->stopping || seam->stopped || seam->fenced ||
+            count != 1 || !args[0].isString()) {
+          return Value(false);
+        }
+        if (seam->providerThrowState !=
+            EX_HERMES_PLAN_SEAM_PROVIDER_THROW_ARMED_V1) {
+          return Value(false);
+        }
+        const std::string selector = args[0].asString(rt).utf8(rt);
+        if (selector != seam->providerThrowSelector) return Value(false);
+        seam->providerThrowState =
+            EX_HERMES_PLAN_SEAM_PROVIDER_THROW_CONSUMED_V1;
+        return Value(true);
+      }));
+}
+
 std::unique_ptr<Function> makeInvalidationFunction(
     ExactHermesPlanSeamRuntimeV1* seam, Runtime& runtime) {
   return std::make_unique<Function>(Function::createFromHostFunction(
@@ -661,12 +705,14 @@ bool installEndowment(
     const ExHermesPlanSeamFacetHostInputsV1& inputs,
     std::unique_ptr<Function>& isProxy,
     std::unique_ptr<Function>& captureThrown,
+    std::unique_ptr<Function>& consumeProviderThrow,
     std::unique_ptr<Function>& recordInvalidation,
     std::string& reason) {
   auto& runtime = *seam->handle->runtime;
   if (!closeAmbientSurface(runtime, reason)) return false;
   isProxy = makeIsProxyFunction(runtime);
   captureThrown = makeSafeThrowFunction(seam, runtime);
+  consumeProviderThrow = makeConsumeProviderThrowFunction(seam, runtime);
   recordInvalidation = makeInvalidationFunction(seam, runtime);
 
   auto freeze = runtime.global()
@@ -682,6 +728,8 @@ bool installEndowment(
       String::createFromUtf8(runtime, u64Text(seam->generation)));
   native.setProperty(runtime, "isProxy", *isProxy);
   native.setProperty(runtime, "captureThrown", *captureThrown);
+  native.setProperty(
+      runtime, "consumeProviderThrow", *consumeProviderThrow);
   native.setProperty(runtime, "recordInvalidation", *recordInvalidation);
   native.setProperty(runtime, "facetHostInputs", std::move(frozenInputs));
   auto frozen = freeze.call(runtime, native);
@@ -777,6 +825,7 @@ int32_t invokeAndLease(
 void dropRoots(ExactHermesPlanSeamRuntimeV1* seam) {
   seam->isProxy.reset();
   seam->captureThrown.reset();
+  seam->consumeProviderThrow.reset();
   seam->recordInvalidation.reset();
   seam->callSync.reset();
   seam->callCapabilitySync.reset();
@@ -1001,6 +1050,7 @@ static int32_t createPlanSeamRuntimeV1(
             options->facet_host_inputs,
             seam->isProxy,
             seam->captureThrown,
+            seam->consumeProviderThrow,
             seam->recordInvalidation,
             endowmentReason)) {
       if (endowmentReason.rfind("HermesInternal", 0) == 0) {
@@ -1742,6 +1792,42 @@ extern "C" int32_t ex_hermes_plan_seam_apply_facet_host_inputs_v1(
     seam->fenced = true;
     return EX_HERMES_PLAN_SEAM_ENGINE_V1;
   }
+}
+
+extern "C" int32_t ex_hermes_plan_seam_arm_provider_throw_v1(
+    ExactHermesPlanSeamRuntimeV1* seam,
+    const uint8_t* providerSelector,
+    size_t providerSelectorLen) {
+  if (seam == nullptr) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  // As with every plan-seam ingress, ownership is admitted before caller
+  // memory is inspected. The hook has no queue hop and never enters Hermes.
+  const int32_t ownerStatus = ownerDriveStatus(seam);
+  if (ownerStatus != EX_HERMES_PLAN_SEAM_OK_V1) return ownerStatus;
+  if (!validProviderSelector(providerSelector, providerSelectorLen) ||
+      seam->providerThrowState !=
+          EX_HERMES_PLAN_SEAM_PROVIDER_THROW_DORMANT_V1) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  seam->providerThrowSelector.assign(
+      reinterpret_cast<const char*>(providerSelector), providerSelectorLen);
+  seam->providerThrowState =
+      EX_HERMES_PLAN_SEAM_PROVIDER_THROW_ARMED_V1;
+  return EX_HERMES_PLAN_SEAM_OK_V1;
+}
+
+extern "C" int32_t ex_hermes_plan_seam_provider_throw_state_v1(
+    ExactHermesPlanSeamRuntimeV1* seam,
+    uint32_t* outState) {
+  if (seam == nullptr) {
+    return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  }
+  const int32_t ownerStatus = ownerDriveStatus(seam);
+  if (ownerStatus != EX_HERMES_PLAN_SEAM_OK_V1) return ownerStatus;
+  if (outState == nullptr) return EX_HERMES_PLAN_SEAM_INVALID_V1;
+  *outState = seam->providerThrowState;
+  return EX_HERMES_PLAN_SEAM_OK_V1;
 }
 
 extern "C" int32_t ex_hermes_plan_seam_registry_receipt_v1(

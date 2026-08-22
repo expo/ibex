@@ -18,6 +18,8 @@ use std::sync::Mutex;
 const ABI_VERSION: u32 = 1;
 const GENERATION: u64 = 73;
 const STATUS_OK: i32 = 0;
+const STATUS_INVALID: i32 = -1;
+const STATUS_OFF_OWNER: i32 = -2;
 const CREATE_DIAGNOSTIC_NONE: u32 = 0;
 const APPEARANCE_DARK: u32 = 2;
 const DIAGNOSTIC_CAPACITY: usize = 1024;
@@ -37,6 +39,9 @@ const EFFECT_COMMITTED: u8 = 2;
 const EFFECT_OUTCOME_UNKNOWN: u8 = 3;
 const HOST_VALUE_BOOL_TRUE: u8 = 3;
 const HOST_VALUE_OBJECT: u8 = 7;
+const PROVIDER_THROW_DORMANT: u32 = 0;
+const PROVIDER_THROW_ARMED: u32 = 1;
+const PROVIDER_THROW_CONSUMED: u32 = 2;
 
 #[repr(C)]
 struct FacetHostInputsV1 {
@@ -128,6 +133,15 @@ extern "C" {
         lease_token: u64,
         payload: *const u8,
         payload_len: usize,
+    ) -> i32;
+    fn ex_hermes_plan_seam_arm_provider_throw_v1(
+        runtime: *mut c_void,
+        provider_selector: *const u8,
+        provider_selector_len: usize,
+    ) -> i32;
+    fn ex_hermes_plan_seam_provider_throw_state_v1(
+        runtime: *mut c_void,
+        out_state: *mut u32,
     ) -> i32;
     fn ex_hermes_plan_seam_shutdown_v1(runtime: *mut c_void) -> i32;
     fn ex_hermes_plan_seam_destroy_v1(runtime: *mut c_void) -> i32;
@@ -548,6 +562,31 @@ fn real_generated_hbc_creates_and_round_trips_on_its_owner_thread() {
                 "successful create returned a null runtime"
             );
 
+            let runtime_address = runtime as usize;
+            std::thread::spawn(move || {
+                let foreign_runtime = runtime_address as *mut c_void;
+                assert_eq!(
+                    ex_hermes_plan_seam_arm_provider_throw_v1(
+                        foreign_runtime,
+                        1usize as *const u8,
+                        1,
+                    ),
+                    STATUS_OFF_OWNER,
+                    "off-owner arm must refuse before inspecting selector memory",
+                );
+                let mut untouched_state = u32::MAX;
+                assert_eq!(
+                    ex_hermes_plan_seam_provider_throw_state_v1(
+                        foreign_runtime,
+                        &mut untouched_state,
+                    ),
+                    STATUS_OFF_OWNER,
+                );
+                assert_eq!(untouched_state, u32::MAX);
+            })
+            .join()
+            .expect("off-owner provider-throw probe panicked");
+
             let (call_status, pure) =
                 call_reply(runtime, BINDING_KIND_HOST_IMPORT, 0, 0, &arguments);
             assert_eq!(
@@ -565,6 +604,31 @@ fn real_generated_hbc_creates_and_round_trips_on_its_owner_thread() {
             assert_eq!(pure.bytes, expected_result);
             release_reply(runtime, &pure);
 
+            let mut provider_throw_state = u32::MAX;
+            assert_eq!(
+                ex_hermes_plan_seam_provider_throw_state_v1(runtime, &mut provider_throw_state,),
+                STATUS_OK,
+            );
+            assert_eq!(provider_throw_state, PROVIDER_THROW_DORMANT);
+            let provider_selector = b"fixture.scalar.format-v1";
+            assert_eq!(
+                ex_hermes_plan_seam_arm_provider_throw_v1(
+                    runtime,
+                    provider_selector.as_ptr(),
+                    provider_selector.len(),
+                ),
+                STATUS_OK,
+            );
+            assert_eq!(
+                ex_hermes_plan_seam_arm_provider_throw_v1(
+                    runtime,
+                    provider_selector.as_ptr(),
+                    provider_selector.len(),
+                ),
+                STATUS_INVALID,
+                "an armed one-shot selector must not be silently replaced",
+            );
+
             let (ambient_status, ambient) =
                 call_reply(runtime, BINDING_KIND_HOST_IMPORT, 3, 0, &arguments);
             assert_eq!(ambient_status, STATUS_OK, "ambient call transport failed");
@@ -580,6 +644,53 @@ fn real_generated_hbc_creates_and_round_trips_on_its_owner_thread() {
                 "the evaluated HBC must observe an empty HermesInternal own-property set",
             );
             release_reply(runtime, &ambient);
+            assert_eq!(
+                ex_hermes_plan_seam_provider_throw_state_v1(runtime, &mut provider_throw_state,),
+                STATUS_OK,
+            );
+            assert_eq!(
+                provider_throw_state, PROVIDER_THROW_ARMED,
+                "a different exact selector must leave the one-shot armed",
+            );
+
+            let (injected_status, injected_throw) =
+                call_reply(runtime, BINDING_KIND_HOST_IMPORT, 0, 0, &arguments);
+            assert_eq!(
+                injected_status, STATUS_OK,
+                "injected provider throw transport failed",
+            );
+            let injected_diagnostic = decode_plan_host_diagnostic(&injected_throw.bytes)
+                .expect("injected provider throw must carry a valid diagnostic");
+            assert_eq!(injected_throw.outcome, OUTCOME_THREW);
+            assert_eq!(injected_diagnostic.code, DIAGNOSTIC_TS_THROW);
+            assert_eq!(injected_diagnostic.effect_disposition, EFFECT_NONE);
+            release_reply(runtime, &injected_throw);
+            assert_eq!(
+                ex_hermes_plan_seam_provider_throw_state_v1(runtime, &mut provider_throw_state,),
+                STATUS_OK,
+            );
+            assert_eq!(provider_throw_state, PROVIDER_THROW_CONSUMED);
+            assert_eq!(
+                ex_hermes_plan_seam_arm_provider_throw_v1(
+                    runtime,
+                    provider_selector.as_ptr(),
+                    provider_selector.len(),
+                ),
+                STATUS_INVALID,
+                "a consumed one-shot selector must not be rearmed",
+            );
+            assert_eq!(
+                ex_hermes_plan_seam_provider_throw_state_v1(runtime, &mut provider_throw_state,),
+                STATUS_OK,
+            );
+            assert_eq!(provider_throw_state, PROVIDER_THROW_CONSUMED);
+
+            let (after_injection_status, after_injection) =
+                call_reply(runtime, BINDING_KIND_HOST_IMPORT, 0, 0, &arguments);
+            assert_eq!(after_injection_status, STATUS_OK);
+            assert_eq!(after_injection.outcome, OUTCOME_OK);
+            assert_eq!(after_injection.bytes, expected_result);
+            release_reply(runtime, &after_injection);
 
             let (throw_status, hostile_throw) =
                 call_reply(runtime, BINDING_KIND_HOST_IMPORT, 2, 0, &arguments);

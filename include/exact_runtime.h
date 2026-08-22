@@ -140,6 +140,16 @@ typedef struct ExHermesPlanSeamOptionsV1 {
   void *invalidation_context;
 } ExHermesPlanSeamOptionsV1;
 
+/// State of the explicitly armed, process-local WP11 provider-throw probe.
+/// The ordinary product path remains DORMANT forever. ARMED is consumed only
+/// by an exact provider-selector match in the generated registry's real
+/// callSync path; a differently selected provider leaves the arm untouched.
+typedef enum ExHermesPlanSeamProviderThrowStateV1 {
+  EX_HERMES_PLAN_SEAM_PROVIDER_THROW_DORMANT_V1 = 0,
+  EX_HERMES_PLAN_SEAM_PROVIDER_THROW_ARMED_V1 = 1,
+  EX_HERMES_PLAN_SEAM_PROVIDER_THROW_CONSUMED_V1 = 2
+} ExHermesPlanSeamProviderThrowStateV1;
+
 typedef struct ExRestrictedWorkerOptionsV1 {
   uint32_t abi_version;
   uint32_t struct_size;
@@ -386,6 +396,23 @@ int32_t ex_hermes_plan_seam_release_result_v1(
 int32_t ex_hermes_plan_seam_apply_facet_host_inputs_v1(
     ExactHermesPlanSeamRuntimeV1 *runtime,
     const ExHermesPlanSeamFacetHostInputsV1 *inputs);
+
+/// Arms one exact provider selector for one generated-registry callSync
+/// failure. This mutates no provider module and does not alter
+/// ExHermesPlanSeamOptionsV1. The selector memory is inspected only after
+/// owner/re-entry/lifecycle admission. The probe may transition from DORMANT
+/// exactly once: both an already-ARMED probe and a CONSUMED probe refuse,
+/// rather than silently replacing or reusing their target.
+int32_t ex_hermes_plan_seam_arm_provider_throw_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    const uint8_t *provider_selector,
+    size_t provider_selector_len);
+
+/// Reads the owner-local one-shot probe state for an evidence receipt. The
+/// output is untouched when owner/lifecycle admission refuses.
+int32_t ex_hermes_plan_seam_provider_throw_state_v1(
+    ExactHermesPlanSeamRuntimeV1 *runtime,
+    uint32_t *out_state);
 
 /// Returns a borrowed receipt view valid until successful destroy. The caller
 /// must copy it before returning to another executor.

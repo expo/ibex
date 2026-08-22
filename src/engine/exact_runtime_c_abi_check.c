@@ -29,6 +29,12 @@ IBEX_C_ABI_ASSERT(plan_seam_ok,
                   EX_HERMES_PLAN_SEAM_OK_V1 == 0);
 IBEX_C_ABI_ASSERT(plan_seam_off_owner,
                   EX_HERMES_PLAN_SEAM_OFF_OWNER_V1 < 0);
+IBEX_C_ABI_ASSERT(plan_seam_provider_throw_dormant,
+                  EX_HERMES_PLAN_SEAM_PROVIDER_THROW_DORMANT_V1 == 0);
+IBEX_C_ABI_ASSERT(plan_seam_provider_throw_armed,
+                  EX_HERMES_PLAN_SEAM_PROVIDER_THROW_ARMED_V1 == 1);
+IBEX_C_ABI_ASSERT(plan_seam_provider_throw_consumed,
+                  EX_HERMES_PLAN_SEAM_PROVIDER_THROW_CONSUMED_V1 == 2);
 IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_none,
                   EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_NONE_V1 == 0);
 IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_message_capacity,
