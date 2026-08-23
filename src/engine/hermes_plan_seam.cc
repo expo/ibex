@@ -703,6 +703,8 @@ std::unique_ptr<Function> makeInvalidationFunction(
 bool installEndowment(
     ExactHermesPlanSeamRuntimeV1* seam,
     const ExHermesPlanSeamFacetHostInputsV1& inputs,
+    const uint8_t* planEnvironment,
+    size_t planEnvironmentLength,
     std::unique_ptr<Function>& isProxy,
     std::unique_ptr<Function>& captureThrown,
     std::unique_ptr<Function>& consumeProviderThrow,
@@ -720,6 +722,11 @@ bool installEndowment(
                     .getPropertyAsFunction(runtime, "freeze");
   auto inputsObject = facetInputsObject(runtime, inputs);
   auto frozenInputs = freeze.call(runtime, inputsObject);
+  std::vector<uint8_t> environmentBytes;
+  if (planEnvironmentLength != 0) {
+    environmentBytes.assign(
+        planEnvironment, planEnvironment + planEnvironmentLength);
+  }
 
   Object native(runtime);
   native.setProperty(
@@ -732,6 +739,10 @@ bool installEndowment(
       runtime, "consumeProviderThrow", *consumeProviderThrow);
   native.setProperty(runtime, "recordInvalidation", *recordInvalidation);
   native.setProperty(runtime, "facetHostInputs", std::move(frozenInputs));
+  native.setProperty(
+      runtime,
+      "planEnvironment",
+      makeUint8Array(runtime, std::move(environmentBytes)));
   auto frozen = freeze.call(runtime, native);
   runtime.global().setProperty(
       runtime, "__exactPlanHermesSeamNativeV1", std::move(frozen));
@@ -899,15 +910,30 @@ static int32_t createPlanSeamRuntimeV1(
   clearBenchmarkCreateTiming(outBenchmarkTiming);
 #endif
   if (outRuntime != nullptr) *outRuntime = nullptr;
+  // `plan_environment` extends the original V1 options by a trailing pair.
+  // Continue admitting the exact legacy prefix for callers that do not need
+  // a time-zone operand; never read the extension unless struct_size proves
+  // that the caller supplied it.
+  const bool hasPlanEnvironmentFields =
+      options != nullptr &&
+      options->struct_size == sizeof(ExHermesPlanSeamOptionsV1);
+  const bool hasLegacyOptionsPrefix =
+      options != nullptr &&
+      options->struct_size ==
+          offsetof(ExHermesPlanSeamOptionsV1, plan_environment);
   if (options == nullptr || outRuntime == nullptr ||
       options->abi_version != EX_HERMES_PLAN_SEAM_ABI_VERSION_V1 ||
-      options->struct_size != sizeof(ExHermesPlanSeamOptionsV1) ||
+      (!hasPlanEnvironmentFields && !hasLegacyOptionsPrefix) ||
       options->generation == 0 || options->executor_identity == 0 ||
       options->hbc_bytes == nullptr || options->hbc_len == 0 ||
       options->hbc_len > kMaximumTransportBytes ||
       options->expected_registry_receipt == nullptr ||
       options->expected_registry_receipt_len == 0 ||
       options->expected_registry_receipt_len > kMaximumTransportBytes ||
+      (hasPlanEnvironmentFields &&
+       (options->plan_environment_len > kMaximumTransportBytes ||
+        (options->plan_environment_len != 0 &&
+         options->plan_environment == nullptr))) ||
       !validFacetInputs(options->facet_host_inputs)) {
     return refuseCreate(
         outDiagnostic,
@@ -915,6 +941,12 @@ static int32_t createPlanSeamRuntimeV1(
         EX_HERMES_PLAN_SEAM_CREATE_DIAGNOSTIC_ARGUMENTS_V1,
         "plan seam create options are invalid");
   }
+  const uint8_t* planEnvironment = hasPlanEnvironmentFields
+      ? options->plan_environment
+      : nullptr;
+  const size_t planEnvironmentLength = hasPlanEnvironmentFields
+      ? options->plan_environment_len
+      : 0;
   const uint64_t heapBytes = options->heap_bytes == 0
       ? kDefaultHeapBytes
       : options->heap_bytes;
@@ -1048,6 +1080,8 @@ static int32_t createPlanSeamRuntimeV1(
     if (!installEndowment(
             seam.get(),
             options->facet_host_inputs,
+            planEnvironment,
+            planEnvironmentLength,
             seam->isProxy,
             seam->captureThrown,
             seam->consumeProviderThrow,

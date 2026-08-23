@@ -247,8 +247,10 @@ IBEX_C_ABI_ASSERT(plan_seam_options_inputs_offset_64,
                   offsetof(ExHermesPlanSeamOptionsV1, facet_host_inputs) == 64u);
 IBEX_C_ABI_ASSERT(plan_seam_options_callback_offset_64,
                   offsetof(ExHermesPlanSeamOptionsV1, invalidation_callback) == 88u);
+IBEX_C_ABI_ASSERT(plan_seam_options_environment_offset_64,
+                  offsetof(ExHermesPlanSeamOptionsV1, plan_environment) == 104u);
 IBEX_C_ABI_ASSERT(plan_seam_options_size_64,
-                  sizeof(ExHermesPlanSeamOptionsV1) == 104u);
+                  sizeof(ExHermesPlanSeamOptionsV1) == 120u);
 IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_status_offset_64,
                   offsetof(ExHermesPlanSeamCreateDiagnosticV1,
                            transport_status) == 8u);

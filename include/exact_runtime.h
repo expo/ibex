@@ -138,6 +138,13 @@ typedef struct ExHermesPlanSeamOptionsV1 {
   ExHermesPlanSeamFacetHostInputsV1 facet_host_inputs;
   ExHermesPlanSeamInvalidationCallbackV1 invalidation_callback;
   void *invalidation_context;
+  /// Trailing V1 extension carrying exact generation-scoped EENV bytes. The
+  /// original prefix (struct_size == offsetof(..., plan_environment)) remains
+  /// valid for seams with no dynamic environment operand. The restricted
+  /// realm receives a detached copy before HBC evaluation; generated
+  /// providers may consume only operands declared by their receipt.
+  const uint8_t *plan_environment;
+  size_t plan_environment_len;
 } ExHermesPlanSeamOptionsV1;
 
 /// State of the explicitly armed, process-local WP11 provider-throw probe.
