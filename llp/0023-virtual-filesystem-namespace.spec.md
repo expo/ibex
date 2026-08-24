@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-08-24 (LLP 0055 hot-revision amendment: the development module-incarnation key gains an install-revision dimension — `(runtime/session identity, SourceId, execution generation, install revision)` — and stable logical slots are defined as generation-owned forwarding binding targets, never live namespaces shared between incarnations)
 **Revised:** 2026-08-07 (the closed-branch discipline now names the read side explicitly: legacy numeric-bearer readers (`__exactHandleReadFileSync`) carry the deny-only `fs:unbound-read` disposition, the legacy handle possession/re-attenuation ABI fails closed once a typed decision context is armed, and `__exactWhich` moved off the legacy `process:spawn` shim onto exact `env:read(PATH)` + staged `fs:list` branches through the armed VFS)
 **Revised:** 2026-07-26 (armed POSIX and Windows async scalar/vector descriptor reads now validate their retained owner and bounded output shapes on the runtime thread, carry the exact principal operation lease to the worker, authorize one exact-object `fs:read` Repeat immediately before the sole scalar/aggregate acquisition, and publish only the successful owned result; positioned reads preserve the cursor and denial cannot mutate caller buffers or cross the legacy oracle)
 **Revised:** 2026-07-26 (armed Windows worker-backed whole-file reads now carry one schedule-time runtime/principal operation lease into typed VFS execution: paths authorize requested/discovery list plus commit/per-chunk read entirely on the worker, retained descriptors serialize their cursor and submit a fresh exact-object read Repeat for every 64 KiB chunk plus EOF, and denial cannot reach lookup, byte disclosure, or the legacy oracle)
@@ -756,16 +757,29 @@ Development HMR adds a separate, monotonically increasing **execution graph
 generation** to name a live *module incarnation*:
 
 ```text
-(runtime/session identity, SourceId, execution graph generation)
+(runtime/session identity, SourceId, execution graph generation, install revision)
 ```
 
-The extension does not enter `SourceId`, portable artifact identity, source
+where **install revision** is the LLP 0055 `HotRevision` at which the record
+was installed — 0 for boot records. A committed hot revision (LLP 0055)
+replaces the records of exactly its accepted invalidation closure *within* one
+generation, creating successor incarnations for the replaced sources; records
+it does not replace keep their install revision. The extension does not enter
+`SourceId`, portable artifact identity, source
 maps, or authorization. Two incarnations still identify the same source; they
 must not share live cells, namespaces, promises, cached errors, or CommonJS
-exports. Production has exactly one execution generation. A development
+exports — the cross-generation prohibition applies with the same force at the
+incarnation boundary (LLP 0055 §2.1; the `hot.data` dispose/accept handoff of
+plain values is the one deliberate exception). Outside importers reach a
+replaced boundary through a **stable logical slot** — a generation-owned
+forwarding binding target that targets exactly one incarnation's records at a
+time; a slot is never a live namespace shared between incarnations, so this
+paragraph's prohibition is preserved (LLP 0055 §2.3). Production has exactly
+one execution generation and revision 0. A development
 generation transition is atomic and may reuse immutable parse/transform
 artifacts by semantic digest, never live module state. This is the LLP 0026 §8
-extension, landed with ENG-25065 before any session adopts runner HMR.
+extension, landed with ENG-25065 before any session adopts runner HMR, and
+extended with the hot-revision dimension by LLP 0055.
 
 An earlier draft gave file-backed modules `(runtime, defining principal, retained
 object)` and generated modules `(runtime, defining principal, provenance id)` as

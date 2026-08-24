@@ -5,6 +5,10 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-08-24 (LLP 0055 hot-revision amendment: §7.9's
+runner-generation rule is scoped to the live incarnation — an intra-generation
+hot revision installs successor incarnations for exactly its accepted closure;
+live state never crosses incarnations)
 **Revised:** 2026-07-18 (authoritative Windows product tests prove the shipping
 Hermes accepts the generated async-wrapper syntax; the legacy Promise-settlement
 shim is now target-consistent while this spec's non-assimilating replacement
@@ -1790,10 +1794,16 @@ use of it:
   that was false against the loader and wrong in principle.
 - A session that adopts LLP 0026's module runner scopes this rule to an
   **execution graph generation**. Within one generation, ESM success and failure
-  are sticky and one equal `SourceId` has one incarnation. Retrying after an
-  accepted root-source edit atomically advances the coherent graph generation;
-  it never deletes and recreates a record in place. Live cells, namespaces,
-  promises, CommonJS exports, and errors never cross generations. The current
+  are sticky and one equal `SourceId` has one **live** incarnation at a time.
+  Retrying after an
+  accepted root-source edit atomically advances the coherent graph generation —
+  or, where the session adopts LLP 0055's hot revisions, commits an
+  intra-generation hot revision that installs successor incarnations for
+  exactly the accepted invalidation closure (stickiness is scoped to the
+  incarnation; a replaced module's next import observes its new incarnation).
+  It never deletes and recreates a record in place. Live cells, namespaces,
+  promises, CommonJS exports, and errors never cross generations **or
+  incarnations** (LLP 0055 §2.1). The current
   legacy session loader keeps delete-on-failure until it adopts that runner
   transaction, so this amendment does not silently change shipped prompt
   behavior.

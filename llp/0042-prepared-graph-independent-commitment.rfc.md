@@ -5,6 +5,12 @@
 **Systems:** Module Loader, CapSec, Arming, Security, Host Embedding
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-28
+**Revised:** 2026-08-24 (LLP 0055 amendment: the development session
+additionally holds an ephemeral update-signing keypair — Ed25519 over JCS in
+the `ibex/hot-update-signature/1` domain, verifier delivered in the startup
+envelope in the v1 loopback posture — binding target descriptor,
+entry/profile, boot/consumer identity, and committed base-graph digest per
+LLP 0055 §6; committed hot revisions do not revoke the boot commitment)
 **Revised:** 2026-08-05 (author acceptance recorded after the production
 commitment and committed-admission implementation landed; the separate
 development-session credential remains deferred to its filesystem ticket)
@@ -237,6 +243,28 @@ production, with these differences:
   worker-snapshot handoff — the LLP 0038 `prepare_session_worker_runtime`
   seam). The secret never touches disk and never enters the cache
   directory.
+
+### Update-payload signature (LLP 0055 §6)
+
+Hot-revision update payloads cannot ride the MAC: this document's custody rule
+keeps that secret producer-only, so a consuming device could never verify it.
+The dev session therefore additionally holds an **ephemeral signing keypair**
+under the same custody rule (private key only in the producing session's
+process memory; never on disk; rotated with `runId`). The public verifier is
+delivered in the startup session envelope in the v1 loopback posture; the
+LAN/device follow-up binds it at boot enrollment instead (open question 1's
+channel work, jointly with Exact LLP 0417 §5/OQ5). Each update payload is
+signed (Ed25519, RFC 8032) over its JCS-canonical body in the
+`ibex/hot-update-signature/1` domain, binding `runId`, the authority stamp,
+`ExecutionGeneration`, base and target `HotRevision`, `updateId`, the
+**normalized target descriptor, entry/profile, boot/consumer identity, and
+committed base-graph digest**, and the payload digest — the full tuple and its
+verification order are LLP 0055 §6's. The consumer verifies every bound field
+against its own live session state before any record is staged; per-record
+digests remain self-consistency, not authentication. Generation advance or
+`runId` rotation revokes the update verifier with the commitment; committed
+hot revisions do not revoke the boot commitment (they are transactions inside
+its generation).
 
 ### Binding surface and lifetime
 

@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-08-24 (LLP 0055 hot-revision amendment: committed hot revisions replace closure records within the pinned generation without unpinning; the sanctioned post-boot mixed-provenance path — inline source replacements joining a prepared-carrier generation with per-`SourceId` carrier-memo eviction; per-slot publication fencing)
 **Revised:** 2026-08-06 (CommonJS wrapper/helper insertion may follow only a complete ECMAScript Directive Prologue; it cannot split a non-directive expression after an initial string literal, pinned by a license-headed conditional-package Hermes regression)
 **Revised:** 2026-07-29 (the v1 tagged-enum field spelling is uniformly
 camelCase, matching the checked-in schemas; Rust codecs use
@@ -281,6 +282,20 @@ test/private lifecycle primitive rather than a production-callable surface;
 when explicit generation advance lands, unpinning must release all deferred
 ESM/CommonJS records and their context references as one owner-thread
 operation.
+
+Development hot revisions (LLP 0055) do not unpin: a committed revision
+replaces the records of its accepted closure *within* the pinned generation
+through the LLP 0055 §5.3 owner-thread publication step — slot retargets,
+per-slot install-revision advance, loader-cache invalidation, and
+prepared-carrier memo eviction for the replaced `SourceId`s, atomically. This
+is the sanctioned post-boot path by which replacement **inline source-artifact
+records join a live generation whose other records carry prepared-carrier
+provenance**: boot admission is not relaxed, carrier admission is unchanged,
+untouched records keep their carrier provenance and memo entries, and HBC
+carriers are never mutated, patched, or partially replaced. Publication
+fencing for CommonJS cache records, ESM adapters, and dynamic-import
+completions is per slot (LLP 0055 §2.2): a replaced incarnation's stale
+completion refuses while unchanged records' completions still publish.
 
 For `require(ESM)`, an explicit ESM export named `'module.exports'` is returned
 directly. Otherwise the namespace object is returned, with `__esModule`

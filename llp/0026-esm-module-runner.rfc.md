@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-08-24 (LLP 0055 hot-revision amendment to §8: intra-generation hot revisions behind stable logical slots, per-slot publication fencing, exactly-live-plus-one revision succession; the v1 full-reload generation transition recreates the runtime)
 **Revised:** 2026-08-03 (native dynamic-activation completion now restores the authenticated requester's graph principal carrier across Promise settlement and the resulting microtask checkpoint, so an `await import()` continuation retains its constrained authority; authenticated graph-preparation refusals preserve their source-labelled producer diagnostics)
 **Revised:** 2026-07-25 (the Phase-0 current-loader baseline was regenerated from the exact compatibility binary after its raw dynamic-import syntax was lowered structurally; its namespace/CommonJS rows remain observational, and the merged forced-Module compatibility path reports the original source-map line without turning its private resolver spelling into authenticated source identity; authenticated/native source-label evidence remains the normative diagnostic gate)
 **Revised:** 2026-07-24 (authenticated literal CommonJS `require()` now activates its exact reached target synchronously inside the existing runtime drive, authorizes and receipt-acquires only that target's static closure, rejects async-tainted ESM before publication, and rolls failed source/native expansion back without reusable graph authority)
@@ -1080,6 +1081,20 @@ and Acceptance criteria), and until they are, the runner supports exactly one
 generation. CommonJS records, namespace objects, error caching, and late
 dynamic-import completions all obey the same algebra — a stale completion
 belongs to its own generation and cannot publish into a newer one.
+
+Hot revisions (LLP 0055) refine this algebra *within* one generation: a
+committed `HotRevision` is an intra-generation transaction that installs
+replacement records for exactly its accepted invalidation closure behind
+stable logical slots, under the same immutable admission ceiling and with the
+same no-partial-records refusal discipline. The development record key gains
+the install-revision dimension — `(runtime/session identity, SourceId,
+execution generation, install revision)` — and publication fencing is
+**per slot**: an unchanged module's in-flight completion still publishes after
+a later revision commits, while a replaced module's stale completion refuses
+(LLP 0055 §2.2). Revision succession is exactly-live-plus-one,
+compare-and-swap at a single owner-thread publication point (LLP 0055 §1).
+Generations remain the only boundary a full reload crosses; in v1 that
+transition recreates the runtime (LLP 0055 §3).
 
 Generations never touch authority. The armed CapSec snapshot — package
 principals, integrity-bound bytes, import axes, bindings, policy edges — is
