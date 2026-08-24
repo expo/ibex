@@ -1,0 +1,12 @@
+# cargo-audit configuration for the CI Preflight gate
+# (.github/workflows/ci.yml runs `cargo audit --deny warnings`).
+
+[advisories]
+# RUSTSEC-2026-0249: `smartstring` is unmaintained (informational, no
+# vulnerability). It reaches this workspace only through the vendored swc
+# transform stack (swc_ecma_parser -> smartstring); replacing it is an
+# upstream swc dependency decision, not ours. The swc stack itself is on the
+# Oxc retirement path (see vendored-generated/oxc retirement manifest), so
+# this pin is expected to age out with swc rather than be patched here.
+# Revisit when swc is retired or upstream swaps the dependency.
+ignore = ["RUSTSEC-2026-0249"]
