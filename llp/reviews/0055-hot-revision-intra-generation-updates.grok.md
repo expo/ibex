@@ -82,3 +82,76 @@ The capture table is a frozen exactly-once boot hook with quarantine-on-misuse. 
 ## Verdict
 
 **NOT READY** (blocking: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10).
+
+---
+
+# Round 2 (r2 delta+residue review)
+
+**Reviewer:** grok-4.6, xhigh, headless, cumulative r2 diff + disposition ledger inlined. **Target:** r2 @4a1c5459b. **Verdict:** NOT READY (new blockers 1–3; G1–G10 resolved/partial per its table). Folded into r3.
+
+I'll start by reading the full prompt and the LLP review skill so the round-2 audit follows the required process.The prompt is huge; I’ll pull the rest in chunks so the r2 diff and dispositions are complete.I'll locate the r2 LLP text and the rest of the cumulative diff so the audit is against the actual revision.The 0055 spec is the core of this review; I’ll read that section of the diff in full.I’ll verify G1/G2 against Exact 0417 and check the new r2 mechanisms against the primary sources.I have enough primary-source checks to write the round-2 audit: G1–G10 against the r2 text, then only new defects in the r2 mechanisms.## Overall Assessment
+
+r2 is a real fold, not a paper one. G3–G10 land in the r2 text (slot-owned namespace, every use surface, shadow publish predicate, V2 ceiling + restart discipline, live v2 digest, capture-table miss rule, typed `ReadyToPublish` machine, no-fail bundle, provenance switch, 0553.001 duplicate-first, named ambient-effect exception). The two partials keep 0417’s wording where 0417 actually owns the row.
+
+The new machinery is not closed. The state machine still runs dispose-registered evaluation — and allows overlapping transactions — before the 0553.001 duplicate/currency checks and before ceiling/converse. That makes the §10 “keep-last-good is compatible” note false and makes F2’s loser a full-reload of the winner on this surface. Receipts were declared advisory, then used as the producer’s restage coordinate source, and receipt emission still sits inside the no-fail bundle. Those are r2 defects, not restated r1 items.
+
+## Resolution Table (G1–G10)
+
+| ID | Status | Cite | Note |
+| --- | --- | --- | --- |
+| G1 | **PARTIAL** | §1, §10 race-class note, F2, §5.2.1 | **0417-ownership reason is sound.** Exact 0417 §4.8 lists “revision race lost” under `full-reload-current-authority` (line 546); this corpus should not silently reassign the taxonomy. The “and restages” wording is fixed (loser drops; **producer** restages). **The serial-apply / double-sending dismissal is not sound as a complete answer.** 0417 §4.7 does serialize Exact’s *host* apply task, but this spec’s own r2 surface does not: `begin_revision` “does **not** require `base` to equal the live coordinate — staging is optimistic and concurrent transactions may exist” and F2 stages two overlapping txns on one owner thread. After the winner’s `commit` lands `r+1`, the loser’s `commit` is the §10 race-lost row, i.e. runtime recreate, i.e. the winner is torn down *by F2*. Separately, the compatibility note claiming a 0417-owner keep-last-good refinement “is compatible with this spec” is **false** given §5.2.4 (see Finding 1). |
+| G2 | **PARTIAL** | §5.2.4, §8, 0417 §4.8 rules 1/3/5 | **Declining “dispose after commit” is sound.** Rule 3 normatively keeps dispose-before-evaluate so old cleanup precedes new claiming, with the documented torn-down state on eval throw and “no committed incarnation is disposed twice **in one apply**.” The effects/publication split is now explicit; throwing dispose → full-reload is rule 5. **Rule 3 is not a reason to run dispose before uniqueness, currency, ceiling, or converse.** Rule 1 is “preflight before any effect”; 0553.001 checks currency *before apply* and revalidates at commit. r2 still puts those fallible checks in `commit()` after evaluation (Finding 1). |
+| G3 | **RESOLVED** | §5.3, §2.2 | Fallible work first; live V2 row swap + digest recompute; records past export TDZ; `publish` and slot surfaces share one authority updated in the bundle; loader-private/non-reentrant cache surgery; invariant failure → quarantine/recreate; activation hook in-fence. |
+| G4 | **RESOLVED** | §2.2 shadow predicate | Shadow publish is transaction-local: `install_revision == txn.base+1 ∧ source ∈ invalidated`; live `publish` cannot see shadow rows. |
+| G5 | **RESOLVED** | §2.3, F5 | Every cross-closure surface (getters, import bindings, re-export/star aliases, dynamic-import namespaces) must observe successor-or-prior with no mixed graph; per-use slot lookup **or** atomic relink; importers not re-run; F5 covers those surfaces + TLA continuation. |
+| G6 | **RESOLVED** | §2.3, 0023 amendment | Slot-owned namespace exotic object, one per `(ExecutionGeneration, SourceId)`; never-shared list is environments/cells/promises/errors/CJS export objects. (0024 still says “namespaces” never cross incarnations — Minor.) |
+| G7 | **RESOLVED** | §4, F4, §3 | Ceiling pins deferred-dynamic/CJS membership, bootstrap-internal set, candidate attributes; every breach is restart, verbatim with `generation.rs` (“regenerate policy and restart the runtime”). Overriding the r1 full-reload preference is sound: the server pre-classifies shape edits into reload *before* staging, and v1 recreate derives a fresh ceiling from the new boot graph. |
+| G8 | **RESOLVED** | §6, F9 | `committedBaseGraphDigest` is the live v2 digest at successor-law `(g, r)`, recomputed in §5.3.1; canonical body enumerates invalidation set + per-record typed V2 rows; F9 includes digest-at-r mismatch, `target ≠ base+1`, `runId`/authority-stamp mismatch. |
+| G9 | **RESOLVED** | §5.1, F7 | Post-commit resolution of a replaced id is only through installed revision records; no capture-table reentry, quarantine, or boot-byte re-serve. |
+| G10 | **RESOLVED** (via alternative) | §2.1, §7, 0023 | Refusing on an “outstanding ambient-effect census” is unimplementable. Named v1 exception + effect-class admission (pure / dispose-registered / else reload) is the honest detectable guard; the lease removes it later. |
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+**1. Blocking — dispose-registered evaluation (and overlapping txns) run before duplicate-first, currency, ceiling, and converse; the §10 keep-last-good compatibility note is therefore false.**
+
+§5.2.1 allows `base ≠ live` and concurrent `HotRevisionTransactionV1`s; only `commit` CASes. §5.2.4 runs dispose against the last *committed* incarnation before evaluate. §5.2.5 then does signature-adjacent revalidation, successor-law CAS, v2 ceiling, and converse — all after that dispose. §6 says the `(updateId)` table is checked “first” but does not make it a named guard before `begin_revision` / evaluation, and does not require recording **every attempt including drops** (Exact 0553.001 §2.2 lines 217–223: duplicate/identity lookup is the first stage-4 check, table records drops, otherwise a post-commit retransmit hits stale-base and commands a full reload). §5.2.4’s “at most once per apply” guard is per-transaction; two F2 txns are two applies.
+
+Consequences on this surface, not on a hypothetical double-sending server:
+
+- Retransmit of a just-committed `updateId`: dispose of the winner’s incarnation, then table-hit or CAS-fail.
+- Stale-base sequential apply (the actual 0417 race): dispose the live `r+1` winner, then CAS-fail into full-reload.
+- F2: both txns can dispose the same committed incarnation (contradicts 0417 rule 3’s twice-guard), winner commits, loser is §10 race-lost → recreate wipes the winner.
+- §10’s claim that refining race-lost to `keep-last-good` “is compatible with this spec” is false: a CAS loser has already disposed live modules; keep-last-good would leave slots on a torn-down incarnation with no recreate.
+
+**Fix:** (i) Duplicate/identity lookup is a named first consumer check, after signature verify and before `begin_revision` effects; the table records every attempt outcome including preflight/eval refusals and drops. (ii) `begin_revision` refuses `base ≠ live` with a non-reload class (keep-last-good / busy); commit CAS stays as a TOCTOU backstop that, under `&mut`, is quarantine if it ever fires. (iii) At most one in-flight txn, or at most one txn may enter dispose-registered evaluation; F2 becomes “second begin refuses, no dispose, no full-reload.” (iv) Ceiling, converse, export-shape, CJS eligibility complete in preflight (0417 rule 1) before any dispose. (v) Retract or rewrite the §10 compatibility note until (ii)–(iv) hold.
+
+**2. Blocking — receipt de-fanging is not complete, and receipt emission is inside the no-fail bundle.**
+
+§9.1 says receipts are advisory, no correctness-bearing decision rides them, the consumer executes class-correct recovery from its own verdict, and any server action derived from a receipt must be idempotent and advisory. Three r2 sentences violate that:
+
+- §1: the producer “restages against the consumer’s committed coordinates **(reported in the refusal receipt)**.” Restaging the next payload from unauthenticated coordinates is a correctness decision. It is also the H0 MATERIAL 1 shape (forged/confused receipt → wrong producer action).
+- Exact 0417 §4.3 still has a class-driven server response: `hmr-refused` carries `reasonClass` + committed coordinates “so the server never guesses,” and “only the full-reload class is answered with one `reload`.” This spec claims to discharge H0 MATERIAL 1 by de-fanging but does not mark that 0417 sentence as requiring an Exact-side amendment. Implementers will keep both: consumer self-recreates *and* the server reloads on a loopback-forgeable receipt.
+- §5.3.7 emits the receipt inside the no-fail publication critical section. 0417 receipts are WS sends (fallible). A send/alloc failure would quarantine-recreate a revision whose records/slots/counter already published, and it makes advisory telemetry able to fail publication.
+
+**Fix:** Producer restages from its own last-success record or from a **credential-gated pull** of live coordinates (the existing `hmr-payload` GET), never from an advisory receipt body. Explicitly ask Exact to amend 0417 §4.3: `reload` / re-arm are triggered by the consumer’s host-driven verdict, not by receipt class; receipts stay telemetry. End the §5.3 bundle at counter advance; synthesize and send the receipt after the fence, best-effort.
+
+**3. Blocking — the in-fence activation hook cannot carry 0417’s remount-failure keep-last-good.**
+
+§5.3.4 runs the consumer activation hook *after* live-graph adoption and slot retarget, under a no-fail / no-app-JS contract; hook failure is invariant-quarantine (runtime recreate), not a refusal. Exact 0417 §4.8 keep-last-good **includes** “a remount failure inside the joint publication transaction (the revision never commits)” — last-good records, slots, and pixels stand. §10 has no remount-failure row. §8 still names two-phase Contract adapter (a) as the v1 *target*. As written, (a)’s activate step cannot fail keep-last-good; any remount throw becomes recreate. That silently collapses v1 to (b) or to a harsher class than 0417 allows, without saying so.
+
+**Fix:** Pin the split: Contract remount/prepare JS runs before `ReadyToPublish` on a shadow/prepared tree (throw → `keep-last-good`, live graph untouched). The §5.3.4 hook is only the no-JS, prevalidated root-pointer / host-token flip. If that split cannot be fixtured at H2 entry, v1 **is** (b) and (a) is withdrawn, not “the v1 target.”
+
+## Minor Findings
+
+- 0024 §7.9 cites 0055 §2.1 while still listing **namespaces** as never crossing incarnations; §2.1’s precise never-share list omits them (slot-owned facade). Drop “namespaces” from 0024 to match.
+- 0026 §8 still writes the development record key as the three-tuple `(runtime/session identity, SourceId, execution generation)` and says “until they are [amended], the runner supports exactly one generation.” Terminology and the following paragraph already add install revision; this commit *is* the amendment. Update or delete the stale sentences.
+- Replay table is keyed `(updateId)` rather than 0553.001’s `(session, producer, updateId)`. Fine as a v1 single-session projection if named as such.
+- `prepared_carrier_tables` is itself a strong `shared_ptr` owner of the factory table (`hermes_runtime_internal.h:838-840`). Pin an occupancy count on that map key so “release when no live prepared record references it” is not blocked by the map’s own ref, and so erasing the key on the first replaced `SourceId` cannot drop factories still used by untouched records.
+- `__privInvalidateHotRevisionRecords` is JS inside a “no app/user JavaScript interleaved” fence. Pin a no-checkpoint engine re-entry (no microtask drain, no host poll) or do the map surgery natively.
+- §10 is not closed over §5.2.1: empty and graph-widening `begin_revision` have no class row (`generation.rs` widening is restart).
+- Mixed effect classes inside one invalidation closure: the machine “exposes both orderings; the declared class selects one” per boundary, but does not define closure-wide order. Refuse mixed-class closures, or take the most conservative class.
+- F4 should name the restart class on each ceiling-breach fixture, not only “refuses,” so the landed disposition cannot be implemented as full-reload by accident.
+
+## Verdict
+
+**NOT READY** (blocking: 1, 2, 3).

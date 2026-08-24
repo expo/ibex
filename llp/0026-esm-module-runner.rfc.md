@@ -1076,12 +1076,15 @@ evaluating record in place. Importers either remain on the old coherent
 generation or relink to the new one through an explicit HMR transaction. Stale
 dynamic-import completions cannot publish records into a newer generation.
 The execution generation is part of the development record key —
-`(runtime/session identity, SourceId, execution generation)` — and the
+`(runtime/session identity, SourceId, execution generation, install
+revision)` — and the
 one-logical-instance invariant (security invariant 8) is scoped to a single
-generation. This is a deliberate normative extension of LLP 0023 §2.3 and
-LLP 0024's one-file-one-instance rule, which admit no generation dimension:
-both documents are amended before Phase 4's HMR work lands (see Adoption gate
-and Acceptance criteria), and until they are, the runner supports exactly one
+generation, with exactly one **live** incarnation per source at a time. This
+is a deliberate normative extension of LLP 0023 §2.3 and
+LLP 0024's one-file-one-instance rule, which originally admitted no
+generation dimension: both documents were amended with ENG-25065 (the
+generation dimension) and again with LLP 0055 (the install-revision
+dimension); before those amendments the runner supported exactly one
 generation. CommonJS records, namespace objects, error caching, and late
 dynamic-import completions all obey the same algebra — a stale completion
 belongs to its own generation and cannot publish into a newer one.

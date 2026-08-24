@@ -767,7 +767,8 @@ generation, creating successor incarnations for the replaced sources; records
 it does not replace keep their install revision. The extension does not enter
 `SourceId`, portable artifact identity, source
 maps, or authorization. Two incarnations still identify the same source; they
-must not share live cells, namespaces, promises, cached errors, or CommonJS
+must not share live cells, incarnation-private namespaces, promises, cached
+errors, or CommonJS
 exports — the cross-generation prohibition applies at the incarnation
 boundary with two named exceptions (LLP 0055 §2.1): the `hot.data`
 dispose/accept handoff (whose value algebra is Exact 0417 OQ4, owned there —

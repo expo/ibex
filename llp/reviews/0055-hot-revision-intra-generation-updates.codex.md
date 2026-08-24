@@ -82,3 +82,51 @@
 ## Verdict
 
 **NOT READY (blocking findings 1–10).**
+---
+
+# Round 2 (r2 delta+residue review)
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r2 @4a1c5459b. **Verdict:** NOT READY (residues 3/7/8 + new 11–13). Folded into r3.
+
+## Overall Assessment
+
+**NOT READY.** Seven round-1 findings are resolved; findings 3, 7, and 8 remain partial. Both declined fixes are defensible against Exact 0417: §4.8 rule 3 requires dispose-before-evaluate with documented degraded semantics, while rule 4 intentionally uses declared/observed effect classes because no ambient-effect census exists.
+
+The r2 state machine and publication bundle introduce three additional MATERIAL gaps. I could not append this review to the `.codex.md` artifact because the supplied workspace is read-only.
+
+## Resolution Table (10 rows: finding | RESOLVED/PARTIAL/UNRESOLVED | cite | note)
+
+| finding | status | cite | note |
+|---|---|---|---|
+| 1 | RESOLVED | [0055 §2.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:188), [F5](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:580) | All cross-module use surfaces are covered by slot lookup or atomic relink; importers do not re-run, and the namespace facade is generation-owned. |
+| 2 | RESOLVED | [0055 §2.3 CJS rule](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:218), [F10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:601) | Cross-closure CJS adapters/exports now refuse; whole-closure replacement has the required coverage. |
+| 3 | PARTIAL | [0055 §4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:284), [Exact 0417 §4.8](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:566) | Ceiling breadth and the local breach mapping are fixed. However, server pre-classification still routes the same edge/deferred widening to ordinary reload, where a fresh ceiling is derived under unchanged policy. Exact classifies edge widening as restart/re-arm regardless of where detected. Remove that shortcut or obtain an Exact-owner amendment. |
+| 4 | RESOLVED | [0055 §5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:318), [Exact rules 3–5](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:472) | Typed states, shadow publication, settled TLA/CJS, structural `effectful-unknown` refusal, mismatch, evaluation, and dispose-throw rows are present. The two declined fixes are sound against Exact’s governing text. |
+| 5 | RESOLVED | [0055 §5.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:365), [§8](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:487) | Record/binding adoption, graph/digest publication, root activation, cache ownership, counter advance, and fail-stop quarantine are now included. New defects in how readiness and receipt emission compose with this bundle are findings 11 and 13. |
+| 6 | RESOLVED | [0055 §5.3.6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:397), [actual table key](/Users/ccheever/projects/ibex-wt/0417-h1/src/engine/hermes_runtime_internal.h:836) | The design now matches the real `(principal_id, compartment_identity, carrier_digest)` multi-source table: records switch provenance and release references; the table is not erased per `SourceId`. |
+| 7 | PARTIAL | [0055 §6 replay law](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:449), [0553.001 §2.2](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:205) | Duplicate-first lookup and same-ID/different-bytes conflict are fixed, but FIFO eviction explicitly makes later duplicates non-idempotent. Exact requires exact duplicates to return the prior receipt without qualification. Retain replay identity for the whole session/producer scope, or rotate the session before eviction. |
+| 8 | PARTIAL | [0055 §9.1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:506), [Exact 0417 §4.3](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:303), [§4.8](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:536) | 0055 locally de-fangs receipts, but accepted Exact 0417 still says `hmr-refused` drives a class-based server response and that the server answers full-reload receipts with `reload`. An Exact-owner amendment must move recovery wholly to the consumer and make the server response advisory. |
+| 9 | RESOLVED | [0055 §9.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:519) | Frame, depth, shape, row, count, per-session-byte, and global-byte limits now bound ingestion and retention. |
+| 10 | RESOLVED | [0055 OQ4 disposition](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:233), [0026 Terminology](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0026-esm-module-runner.rfc.md:209), [0026 §8](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0026-esm-module-runner.rfc.md:1089) | The install-revision terminology and §8 baseline are corrected; slot granularity and `hot.data` algebra are proposals explicitly left to Exact OQ4. |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+11. **MATERIAL — `ReadyToPublish` does not prove consumer activation is prepared.** The state machine verifies engine evaluation, CJS, TLA, and dispose state, then §5.3 invokes a merely “registered callback slot.” There is no transaction-bound activation token or state covering `hot.accept`/Contract preparation, so the asserted no-fail hook is not mechanically established and remount/accept failure has no precommit transition. Exact requires remount failure to refuse before publication. Cites: [0055 §5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:340), [§5.3.4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:387), [Exact 0417 §4.4](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:326), [§4.8 remount rule](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:515).  
+   **Smallest fix:** add `ActivationPrepared` to the typed machine. `ready()` must consume a transaction-bound no-fail activation token produced after accept/remount preparation; preparation or accept-callback failure refuses before commit.
+
+12. **MATERIAL — optimistic stale transactions can dispose the wrong committed incarnation before CAS.** Transactions may coexist and need not have a live base until commit, but `dispose-registered` runs dispose during evaluation while the successor check occurs only afterward. Two base-`r` transactions can both dispose incarnation `r`; worse, after one commits `r+1`, the other may dispose the new winner before its CAS loses. Immediate reload eventually recovers, but the state machine allows a transaction already doomed by currency to execute destructive application effects. Cites: [0055 §5.2 items 1 and 4–5](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:325), [Exact rule 3](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:472).  
+   **Smallest fix:** immediately before the first app-visible dispose/evaluation effect, revalidate and reserve the live base through publication. Serialize `dispose-registered` transactions; race losers must drop before dispose. Preserve dispose-before-evaluate within the winning reservation.
+
+13. **MATERIAL — advisory receipt emission remains inside the “no-fail” correctness bundle.** Step 7 combines counter advance with receipt emission. Transport emission is ordinarily fallible; under §5.3, failure would therefore quarantine/recreate after publication, making an advisory receipt correctness-bearing despite §9.1. Live-digest recomputation inside the bundle similarly performs avoidable work after mutation begins. Cites: [0055 §5.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:365), [step 7](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:403), [§9.1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:506).  
+   **Smallest fix:** precompute and validate the candidate graph digest before the bundle; atomically install that digest and advance the counter. Construct/enqueue/send the advisory receipt after commit, with send failure limited to telemetry loss or retry—never quarantine or recovery.
+
+## Minor Findings
+
+- [0027’s Revised entry](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0027-module-artifact-and-interop.spec.md:8) still says “per-`SourceId` carrier-memo eviction,” contradicting its corrected provenance/reference-retirement body.
+- [0024’s Revised entry](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0024-structured-evaluation-and-session.spec.md:8) says “live state never crosses incarnations” without acknowledging 0055’s named ambient-effect exception. Its §7.9 body is narrower; qualify the header.
+- [0023 §2.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0023-virtual-filesystem-namespace.spec.md:769) first says incarnations do not share “namespaces,” then introduces the stable slot-owned namespace. The subsequent distinction makes the intent recoverable, but “incarnation-private namespaces” would remove the apparent contradiction.
+- §9.2 says scalar lengths are bounded without stating the individual limits. The 64 KiB frame ceiling prevents unbounded amplification, so this is testability/documentation rather than a MATERIAL gap.
+
+## Verdict
+
+**NOT READY (blocking findings 3, 7, 8, 11, 12, 13).**

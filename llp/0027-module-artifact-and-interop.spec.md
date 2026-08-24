@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-08-24 (LLP 0055 hot-revision amendment: committed hot revisions replace closure records within the pinned generation without unpinning; the sanctioned post-boot mixed-provenance path — inline source replacements joining a prepared-carrier generation with per-`SourceId` carrier-memo eviction; per-slot publication fencing)
+**Revised:** 2026-08-24 (LLP 0055 hot-revision amendment: committed hot revisions replace closure records within the pinned generation without unpinning; the sanctioned post-boot mixed-provenance path — inline source replacements joining a prepared-carrier generation with per-record provenance switch + reference-counted carrier-table retirement; per-slot publication fencing)
 **Revised:** 2026-08-06 (CommonJS wrapper/helper insertion may follow only a complete ECMAScript Directive Prologue; it cannot split a non-directive expression after an initial string literal, pinned by a license-headed conditional-package Hermes regression)
 **Revised:** 2026-07-29 (the v1 tagged-enum field spelling is uniformly
 camelCase, matching the checked-in schemas; Rust codecs use
