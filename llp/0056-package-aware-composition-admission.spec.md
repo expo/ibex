@@ -5,7 +5,20 @@
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-24 (r2 — round-1 dual-family fold; both families NOT
+**Revised:** 2026-08-24 (r3 — peer-blocker resolution + dark-impl pins:
+Exact 0413.001 r7 / Amendment A1 `@246f959cc` adopted §6.2 verbatim
+(doc tables byte-verified identical; §6/§6.2/§11 status updated, the
+acceptance peer blocker recorded resolved with the generated-halves
+parity pin remaining an implementation-leg gate); two exact-b7
+dark-implementation findings pinned — the §2.5 package-scope reason
+mapping BLESSED with the locality-rule rationale and no third enum
+member (§4.3), and the envelope attestation triple pinned as the ONE
+canonical serialized generation carrier, rejecting the
+`PreparedPackageDeliveryV1`-style sidecar (§4.8); O-1 status updated
+(seed landed `@9018e0bbd`, r6-shaped, provisionality holds until the
+parity check pins r7-shaped bytes; §11 leg 1 holds until the exact-side
+alignment landing report); §6.2 row-byte section references declared
+0056-relative in both repositories.) 2026-08-24 (r2 — round-1 dual-family fold; both families NOT
 READY on r1 (grok 11 MATERIAL conformance + 5 MATERIAL design; codex 4
 factual + 8 MATERIAL design), convergent on the load-bearing set and
 every decisive claim verified before folding. The unified changes: **the
@@ -60,7 +73,8 @@ obligations O-1–O-6; this document is O-2's owner and the §6 "one ibex
 LLP". Designed against the landed tree at `94c85abab`.)
 **Related:** Exact LLP 0413.001 (the governing spec — §2 packages, §3
 composition, §4 nine-step admission + §4.1 registry, §5 receipts, §6 the
-ibex obligation, §7 fixtures, §10 obligations; Accepted r6), Exact
+ibex obligation, §7 fixtures, §10 obligations; Accepted r6; r7 /
+Amendment A1 `@246f959cc` adopts §6.2 as the lockstep registry), Exact
 LLP 0413 (§5.3 per-defining-principal carriers, §5.4 fallback, §5.7/§14
 admission/tamper), LLP 0042 (independent prepared-graph commitment — the
 landed single-publication admission this spec generalizes; extended,
@@ -118,10 +132,14 @@ defect in this implementation, never a pass.
 
 **Schema provisionality (coordination rule):** the canonical home of the
 composition schemas, preimages, and the shared vector corpus is the O-1
-package at Exact `docs/schemas/prepared-composition/v1/`, being seeded
-by the exact-side implementation lane (not yet landed as of this
-revision). Every concrete field sketch in this document (§3.2, §3.3,
-§4.3–§4.6, §8) is **provisional pending that package**: it fixes names,
+package at Exact `docs/schemas/prepared-composition/v1/`. As of r3 the
+O-1 **seed has landed** (Exact `@9018e0bbd`, status `dark`, plus the
+steps-1–5 TS admission mirror `@8d06de59e`) — but it was cut against
+the r6 §4.1 registry, and the exact-side parity check has already
+caught real cross-authority drift against the A1 amendment (being
+fixed exact-side as a P0). Every concrete field sketch in this
+document (§3.2, §3.3, §4.3–§4.6, §8) therefore remains **provisional
+until the parity check pins r7-shaped bytes**: this spec fixes names,
 semantics, invariants, and refusal behavior — byte-level encodings
 defer to O-1, and the ibex side consumes and extends that corpus rather
 than freezing a second format (§9.1).
@@ -413,6 +431,25 @@ landed builtin-attribution requirement, `runner_pipeline.rs:3626-3630`,
 applied per package); a package without one refuses
 (`ibex:prepared-commitment-schema`).
 
+**Package-scope reason semantics (r3 pin — blessing the exact-b7
+dark-lane mapping at `prepared-composition-producer.ts` `bindEdge`):**
+at package scope, `"target is not a bundle module"` means **"the
+specifier does not resolve to a record this package publishes."** It
+deliberately covers both an unresolvable specifier and a resolvable
+target excluded by traversal or the served subset (a boot-core
+traversal termination; an app-owned target outside the declared
+external universe): under the locality rule the distinction is
+**underivable** — telling the two apart requires the other package's
+contents or whole-project resolver state, exactly the facts §2.5
+forbids a reason to reference — so **no third enum member is minted**;
+new members remain spec amendments. `"target excluded by lowering
+fallback"` stays reserved for a producing path that actually applies a
+lowering fallback (none in the v1 composition producer). The step-6
+#30 recomputation applies the same package-scope rule: reasons
+recompute from the owning package's own graph facts only, and any
+reason value outside the two members, or any divergence from the
+committed rows, is `boundary-inventory-mismatch`.
+
 The **package root** is `digest(ibex:prepared-package-root:1,
 index_bytes)` — the value the composition's ordered
 `(role, packageRoot)` pairs commit.
@@ -532,6 +569,22 @@ independent proof (package bytes are deliberately generation-free);
 independence comes from the freshness half — a whole composition
 produced under a stale resolver generation refuses at 2b
 (`composition-replayed`) regardless of what it attests.
+
+**One canonical carrier (r3 pin — resolving the exact-b7 dark-lane
+duplication):** the envelope attestation triple is the **only
+serialized carrier** of a package's produce generation in the served
+artifact set. No sidecar or delivery wrapper — e.g. a
+`PreparedPackageDeliveryV1`-shaped struct carrying `produceGeneration`
+beside package bytes, as the dark exact-side schema module sketched —
+may be serialized, served, or consumed by admission: a wrapper-carried
+generation sits outside every committed digest (the package root
+covers index bytes only; the composition root covers the envelope), so
+it would be an unauthenticated input to the step-3 splice check, and a
+second serialized carrier of one fact is a drift-capable parity pair
+(the defect class the r2 commitment slimming killed). A
+producer-internal, in-memory struct ferrying the generation from
+produce to envelope assembly is fine; nothing serialized, and the O-1
+schema package must not define one.
 
 ## 5. The nine steps — the ibex half
 
@@ -705,7 +758,14 @@ registry, §6.3 fixes the parity mechanics, §6.4 the covering map. O-2 is
 discharged when the 0413.001 §4.1 amendment adopts §6.2, the generated
 registry byte-matches it, and every imported row has a demonstrated
 reachability fixture (§9.2) — none of which this document can do
-unilaterally (§11).
+unilaterally (§11). **Status at r3:** the amendment landed — Exact
+LLP 0413.001 r7 / Amendment A1 (`@246f959cc`) adopts §6.2 verbatim (38
+rows and the defaults paragraph byte-identical across the two
+documents, verified at this revision) and records O-2 discharged at
+the document level; the generated-registry byte-match and the F-i
+reachability fixtures remain implementation-leg gates (§6.3, §9.2),
+and the live exact-side parity check has already caught the r6-shaped
+O-1 seed drifting from the A1 table (§9.1) — the gate works.
 
 ### 6.1 The landed token enumeration (at `94c85abab`)
 
@@ -768,7 +828,7 @@ The production-posture currency check
 (`verify_current_transform_fingerprint_v1`, `producer_spike.rs:131`)
 **does not run** under the dev posture — the only v1 posture.
 
-### 6.2 The replacement registry (the proposed 0413.001 §4.1 amendment)
+### 6.2 The replacement registry (adopted by 0413.001 §4.1 as Amendment A1, `@246f959cc`)
 
 The full ordinalized table. The ordinal order IS the within-step
 predicate evaluation order (§5); precedence tuple
@@ -820,6 +880,12 @@ A = attacker, P = producer-defect, E = environment.
 2a→#2, 2b→#10, 3→#11, 4→#24, 5→#28, 6→#29, 7→#35, 8→#38. Producing a
 default where a specific row applies is non-conformant; the defaults
 exist so no failure can escape the registry.
+
+**Row-byte section references are 0056-relative in both repositories:**
+the lockstep rule shares row bytes verbatim, so the `§4.4`, `§4.8`, and
+`§10` strings inside row predicates (#17, #22, #34) refer to this
+document's sections even when the table is read in 0413.001 §4.1 —
+never to the Exact document's own §4.4/§4.8/§10.
 
 **Amendment deltas vs r6 §4.1 (explicit — none of this is a silent O-2
 substitution):**
@@ -1088,9 +1154,11 @@ here).
 ### 9.1 The shared canonical-byte vector corpus (O-1) — coordination
 
 The canonical home is the O-1 package at Exact
-`docs/schemas/prepared-composition/v1/` (exact-side owned, being seeded
-by the exact-side implementation lane; **not yet landed** — verified
-empty on Exact origin/main at this revision). It is the byte authority
+`docs/schemas/prepared-composition/v1/` (exact-side owned; the seed
+**landed** at Exact `@9018e0bbd` with status `dark`, cut against the
+r6 registry — its A1/r7 alignment is in flight exact-side, and until
+the parity check pins r7-shaped bytes the seed is not yet this spec's
+byte authority in practice). It is the byte authority
 for: the envelope, the commitment (§3.2), the expectations (§3.3), the
 package index (§4.3), carrier v3 (§4.4), binding rows (§4.5), the
 `prepared-package` producer identity (§4.6), the package-graph preimage
@@ -1170,7 +1238,10 @@ tokens are untouched until the production-armed amendment.
 
 ## 11. Implementation plan and acceptance coupling
 
-1. **Schema leg** — lands only against the landed O-1 package (§9.1):
+1. **Schema leg** — lands only against the landed O-1 package (§9.1),
+   and **holds until the exact-side alignment landing report confirms
+   the O-1 package is r7-shaped** (the landed seed is r6-shaped; the
+   parity check has already caught the drift — §9.1):
    `composition.rs` decode types + bounds + the generated
    `CompositionRefusalCode`; carrier v3 and `prepared-package` producer
    identity; `admit_package_v1` extracted from
@@ -1188,13 +1259,19 @@ tokens are untouched until the production-armed amendment.
    groups A/D/E-39; the `admitted` / `admitted-startup-error` variants.
 4. **Exact fold** — the §6.2 amendment adopted into 0413.001 §4.1
    (including the D8 fixture-35 erratum), the parity check extended to
-   the imported rows, Exact's host on the new entry.
+   the imported rows, Exact's host on the new entry. *(The amendment
+   half landed as A1 `@246f959cc`; the parity-extension and host
+   halves follow the implementation legs.)*
 
 **Acceptance coupling (normative):** this spec does not reach
 `Accepted`, and O-2 is not discharged, until the 0413.001 §4.1
 amendment adopting §6.2 is accepted on the Exact side and the parity
 check pins both halves to identical registry bytes — the amendment is a
-**peer blocker**, not a follow-up. Each leg is landable alone; nothing
+**peer blocker**, not a follow-up. **Resolved at r3:** Amendment A1
+(`@246f959cc`) adopts §6.2 verbatim and the doc-level tables are
+byte-verified identical (§6 status note); the peer blocker no longer
+holds acceptance, and the generated-halves parity pin remains an
+implementation-leg gate. Each leg is landable alone; nothing
 admits for real until leg 3, which is the moment 0413.001's "no
 composition admits until the ibex leg lands" flips.
 
@@ -1220,6 +1297,24 @@ composition admits until the ibex leg lands" flips.
 
 ## Revision history
 
+- **r3 (2026-08-24):** Peer-blocker resolution and dark-impl pins.
+  Recorded Exact 0413.001 r7 / Amendment A1 (`@246f959cc`) adopting
+  §6.2 verbatim (38 rows + defaults byte-verified identical across the
+  two documents); acceptance coupling updated (peer blocker resolved;
+  generated-halves parity pin stays an implementation-leg gate). Two
+  MATERIAL findings from exact-b7's dark implementation folded:
+  (1) §2.5 package-scope reason semantics blessed — "target is not a
+  bundle module" = "does not resolve to a record this package
+  publishes," covering resolvable-but-excluded targets, because the
+  locality rule makes the distinction underivable; no third member
+  (§4.3); (2) the envelope attestation triple pinned as the only
+  serialized generation carrier — no `PreparedPackageDeliveryV1`-style
+  sidecar may be serialized, served, or consumed by admission (§4.8).
+  O-1 status refreshed (seed landed `@9018e0bbd`/`@8d06de59e`,
+  r6-shaped, drift caught by the live parity check; §11 leg 1 holds
+  until the alignment landing report confirms r7-shaped schemas).
+  §6.2 row-predicate section references declared 0056-relative in both
+  repositories.
 - **r2 (2026-08-24):** Round-1 dual-family fold (codex gpt-5.6-sol
   xhigh, repo-access read-only; grok-4.6 xhigh, full-text-inlined; both
   NOT READY on r1, convergent). Full ordinalized replacement registry
