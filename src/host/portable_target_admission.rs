@@ -2347,6 +2347,14 @@ fn validate_population_record(
     if record.population_id.is_empty() {
         return Err(population_record_invalid("populationId must be non-empty"));
     }
+    if record.population_id.contains('\0') {
+        // The derivation and admission digests delimit populationId with a
+        // NUL byte; a NUL inside the identifier would let two distinct
+        // (populationId, digest-tail) pairs share one preimage.
+        return Err(population_record_invalid(
+            "populationId must not contain a NUL byte (it is NUL-delimited in the epoch digests)",
+        ));
+    }
     if let Some(epoch_domain_tag) = &record.epoch_domain_tag {
         if epoch_domain_tag != PROTOCOL_EPOCH_DERIVATION_DOMAIN {
             return Err(population_record_invalid(
@@ -2431,6 +2439,17 @@ pub fn admit_target_protocol_epoch(
         if component.component_id.is_empty() {
             return Err(ProtocolEpochRefusal::ComponentSetInvalid {
                 detail: "componentId must be non-empty".to_owned(),
+            });
+        }
+        if component.component_id.contains('\0') {
+            // The admission digest NUL-delimits component ids; without this
+            // refusal ["com.a", "com.b"] and ["com.a\0com.b"] would bind the
+            // same digest suffix (delta-review finding, 2026-08-23).
+            return Err(ProtocolEpochRefusal::ComponentSetInvalid {
+                detail: format!(
+                    "componentId {:?} must not contain a NUL byte (ids are NUL-delimited in the admission digest)",
+                    component.component_id
+                ),
             });
         }
         if !component_ids.insert(component.component_id.clone()) {
@@ -2811,6 +2830,31 @@ mod tests {
             admit_target_protocol_epoch(&record, &components),
             Err(ProtocolEpochRefusal::ComponentSetInvalid { .. })
         ));
+    }
+
+    #[test]
+    fn protocol_epoch_nul_bytes_in_identifiers_are_refused() {
+        // Delta-review finding (2026-08-23): the admission digest NUL-delimits
+        // populationId and component ids, so ["com.a", "com.b"] and
+        // ["com.a\0com.b"] would otherwise share a digest suffix.
+        let record = protocol_epoch_synthetic_record();
+        let smuggled = [ProtocolComponentDeclaration {
+            component_id: "com.a\0com.b".to_owned(),
+            protocol_epoch: Some(record.protocol_epoch.clone()),
+        }];
+        let error = admit_target_protocol_epoch(&record, &smuggled).unwrap_err();
+        let ProtocolEpochRefusal::ComponentSetInvalid { detail } = &error else {
+            panic!("expected component-set-invalid, got {error}");
+        };
+        assert!(detail.contains("NUL"), "{detail}");
+
+        let mut nul_population = protocol_epoch_synthetic_record();
+        nul_population.population_id = "exact.first-party/v1\0x".to_owned();
+        let error = admit_target_protocol_epoch(&nul_population, &[]).unwrap_err();
+        let ProtocolEpochRefusal::PopulationRecordInvalid { detail } = &error else {
+            panic!("expected population-record-invalid, got {error}");
+        };
+        assert!(detail.contains("NUL"), "{detail}");
     }
 
     #[test]
