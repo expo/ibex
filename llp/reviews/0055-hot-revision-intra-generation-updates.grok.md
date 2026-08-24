@@ -344,3 +344,42 @@ That is the same class of defect as Codex r5-1: a later-stated replay law whose 
 ## Verdict
 
 NOT READY (1).
+
+---
+
+# Round 7 (r7 delta review)
+
+**Reviewer:** grok-4.6, xhigh, headless, r7 delta + full text inlined. **Target:** r7 @589b872ff. **Verdict:** READY (its round-6 blocker resolved; the record-currency-refusals adjudication explicitly confirmed; 3 minors, folded into r8).
+
+I'll start by reading the full prompt and locating LLP 0055 plus the review conventions so the round-7 delta review is grounded in the actual r7 text.I'll load the r7 spec, the round-6 review, and the delta so I can check whether the rotation gate and check-3 reservation actually close the prior blockers.The round-6 blocker is clear. Next I’ll read the full r7 spec and Exact 0553.001 so the delta hunt is against the actual pipeline, not the truncated prompt.I’ll pull the live r7 spec and Exact 0553.001 next so I can walk the numbered pipeline, not just the fold notes.The rotation gate is in the pipeline. I’ll now walk §6, F2, F9, and Exact 0553.001 for leftover contradictions from the r7 fold.I have enough to judge the fold: the rotation gate is in the numbered order, F2(e) is reachable, and the currency-recording adjudication matches Exact 0553.001. Checking one leftover wording clash so any minors are real.## Overall Assessment
+
+r7 closes the r6 wiring seam. The numbered pre-begin order now consults the rotation-required mark after check 1 and before any table lookup, so F2(e) is reachable: a stranded pending row cannot answer busy, and a new `updateId` on the recreated generation cannot begin. Check-3 currency refusals reserve `pending` before live equality and terminalize before yield, which is the Exact 0553.001 content-binding rule, not a spoof window.
+
+**Adjudication — confirmed for Codex.** Recording authenticated currency refusals is the right law. Exact 0553.001 binds one `updateId` to one envelope digest and records post-verification outcomes so an exact retry replays and a different-bytes re-mint conflicts. A silent no-record miss would let a producer reuse a refused `updateId` with restaged bytes; that is the defect 0553.001 forbids. Capacity pressure from unique-id stale storms is not a new attacker: check-1 failures still create no entry, so only a holder of the session key can fill the 4096-terminal bound, which that signer can already fill with commits. Restage is a new envelope and therefore a new `updateId`; reusing the refused id is identity-conflict, not a broken pull-and-restage path. Exact retry of the refused envelope is now idempotent even if live coordinates later move.
+
+No new MATERIAL in the delta. Prior grok r6 blocker resolved.
+
+## Resolution Table
+
+| ID | Status | Cite | Note |
+| --- | --- | --- | --- |
+| **Grok r6-1** (rotation-required mark not in the numbered order; pending→busy after quarantine) | **RESOLVED** | §5.2 rotation gate after check 1; check 2 “non-poisoned sessions only”; §6 poison law; F2(e); §10 poison occupancy row | Gate answers the rotation-required diagnostic on the update channel and stops before lookup. Pending→busy, terminal replay, identity-conflict, and capacity apply only to a non-poisoned session. Mark is set before recreation or processing resumes, survives v1 recreate, clears only on `runId` rotation. Walk: stranded duplicate and new `updateId` both hit the gate, never busy, never `begin`. |
+| **Grok r6 minor 1** (F9 grouped currency with no-entry; “fresh mismatch does not record”) | **ADJUDICATED AGAINST / SUPERSEDED** | F9 split; §5.2 check 3; §6 “Authenticated currency refusals DO record” | The list split is adopted. The no-record half is rejected on 0553.001 content-binding. Confirmed: record. |
+| **Grok r6 minor 2** (§6 “identity-field”) | **RESOLVED** | §6 check-1 bullet | Now “signature or session/addressing.” |
+| **Grok r6 minor 3** (post-quarantine answers had no §10 class; reload-loop risk) | **RESOLVED** | §10 rotation-required row | `keep-last-good` occupancy of the poisoned session; recreated generation’s last-good stands; no further generation transition. |
+| **Grok r6 minor 4** (item 8 still pointed only at check 3) | **RESOLVED** | §5.2 item 8 | Stamp/session-addressing at check 1; begin-time policy re-validation at check 3. |
+| **Codex r6-1** (check-3 refusals had no replay reservation) | **AGREE RESOLVED** | §5.2 check 3; §6 record bullet; F9 check-3 class | On check-2 miss, past rotation and capacity, reserve `pending` before currency; every check-3 refusal terminalizes before yield. F9 check-1 class remains no-entry. |
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+None.
+
+## Minor Findings
+
+- **Check 1’s “ONLY failure disposition with no entry” overclaims.** Same-section intro still names other-id busy nacks as never entering; capacity refusals of new `updateId`s and rotation-gate answers for new ids also insert nothing. Read it as “the only *verification* failure with no entry,” in contrast to check 3. Do not take it as a duty to record busy or capacity.
+- **§6 still says a pending entry is reserved “at `begin`”** while check 3 reserves before currency / `begin_revision`. The numbered check is the precise one; the bullet is leftover.
+- **§6 verification-order summary still lists 1→2→3** without naming the rotation gate. The numbered pipeline has it; F2(e) does not depend on that summary.
+
+## Verdict
+
+READY

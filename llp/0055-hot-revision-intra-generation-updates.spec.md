@@ -5,6 +5,17 @@
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r8 — round-7 fold. Grok r7: READY (its round-6 blocker verified
+resolved; the record-currency-refusals adjudication explicitly confirmed). Codex r7: NOT
+READY with one MATERIAL, adopted: a named **single-flight busy gate** sits after check 2 and
+before the capacity gate and pending reservation — a different-`updateId` attempt while one
+is in flight answers busy on the direct response and records nothing; only a non-busy,
+under-capacity attempt reserves, so busy can never seal as a terminal outcome. Convergent
+minors folded: check 1's "ONLY failure disposition" scoped to validation failures (the
+direct-response occupancy nacks — busy, capacity, rotation-required — record nothing either);
+§6's pending bullet re-anchored from "at begin" to the check-3 reservation point and its
+settlement sentence widened to all reserved attempts; the §6 verification-order summary now
+names the rotation, busy, and capacity gates.)
 **Revised:** 2026-08-24 (r7 — round-6 fold (codex NOT READY 1; grok NOT READY 1 — the two
 findings are two halves of one seam: the r6 session-poison and check-order rewrites were not
 wired into the numbered pipeline). Adopted: a **rotation gate** sits after check 1 and before
@@ -468,7 +479,9 @@ attempts enter the §6 replay table — check-1 failures and other-id busy nacks
    lookup would make a post-commit retransmit fail currency instead of returning its terminal
    receipt — the exact defect Exact 0553.001's duplicate-first order exists to prevent. A
    failure here is unauthenticated or misaddressed and is **never** recorded in the replay
-   table — the ONLY failure disposition with no entry.
+   table — the only *validation* failure with no entry (the direct-response answers — busy,
+   capacity, rotation-required — are occupancy nacks, not validation outcomes, and record
+   nothing either).
 
    **Rotation gate (after check 1, before any table lookup):** if the host-held session is
    marked rotation-required (§6), the update channel's direct response answers the
@@ -485,8 +498,15 @@ attempts enter the §6 replay table — check-1 failures and other-id busy nacks
    retransmit after the commit it names already published** (its currency fields name the old
    base; that is why this check precedes currency); a same-`updateId`/different-digest
    payload refuses `update-identity-conflict`.
-3. **Live currency, under a pending reservation:** on a check-2 miss (and past the rotation
-   and capacity gates), the update **reserves its `pending` entry before currency
+
+   **Single-flight busy gate (after check 2, before capacity and reservation):** if a
+   different-`updateId` transaction is in flight, the update channel's direct response
+   answers busy and processing stops — **no reservation, no entry** (F2(a)); a
+   same-`updateId` arrival was already answered busy by its pending row at check 2. Only a
+   non-busy, under-capacity attempt proceeds to reserve.
+
+3. **Live currency, under a pending reservation:** on a check-2 miss (and past the rotation,
+   busy, and capacity gates), the update **reserves its `pending` entry before currency
    validation**, and every check-3 refusal **terminalizes that entry before it is yielded** —
    an exact retry replays the refusal idempotently; a re-mint of the same `updateId` with
    different bytes conflicts (0553.001's content binding). Then: the committed base-graph
@@ -657,8 +677,9 @@ production commitment schema structurally rejects the keypair fields.
   `stage_replacements`, in §5.2's split — signature and the session-stable
   session/addressing fields at check 1, the duplicate/identity lookup at check 2, and the
   live-currency fields (execution generation, hot revision, committed base-graph digest) at
-  check 3 — so a post-commit retransmit meets its terminal receipt before any currency
-  comparison can misclassify it. Per-record digests alone are self-consistency, not
+  check 3, with the rotation gate between checks 1 and 2 and the busy and capacity gates
+  between checks 2 and 3 — so a post-commit retransmit meets its terminal receipt before any
+  currency comparison can misclassify it. Per-record digests alone are self-consistency, not
   authentication (LLP 0042's adversarial contract).
 - **Replay law (aligned to Exact 0553.001 §2.2; the key is the v1 single-session projection of
   its `(session, producer, updateId)`):** `updateId` is unique and content-bound — one
@@ -673,12 +694,13 @@ production commitment schema structurally rejects the keypair fields.
     **Authenticated currency refusals DO record:** a check-3 refusal terminalizes its
     reserved pending entry before yielding (§5.2), so its exact retry replays the refusal
     and a different-bytes re-mint conflicts.
-  - **An accepted-for-processing update reserves a `pending` entry** at `begin`; a duplicate
+  - **An accepted-for-processing update reserves a `pending` entry** before currency
+    validation (§5.2 check 3, past the rotation, busy, and capacity gates); a duplicate
     arriving while it is pending answers **busy** without sealing anything (the §10 busy row's
-    retry stays possible). Settlement — commit or any authenticated refusal of a *begun*
-    transaction — **overwrites pending with the terminal receipt**. A surface-busy nack for a
-    *different* in-flight `updateId` is a transport-level occupancy answer and is not
-    recorded at all. For a begun transaction that refuses before the §5.3 bundle, the
+    retry stays possible). Settlement — commit or any authenticated refusal of a *reserved*
+    attempt, check-3 refusals included — **overwrites pending with the terminal receipt**. A
+    surface-busy nack for a *different* in-flight `updateId` is a transport-level occupancy
+    answer and is not recorded at all. For a begun transaction that refuses before the §5.3 bundle, the
     pending→terminal overwrite happens **before the refusal is yielded**, with the same
     durability as the in-fence success write; for a commit, the pre-reserved outcome record
     is finalized in-fence (§5.3.7) — the record is constructed before any commit-time

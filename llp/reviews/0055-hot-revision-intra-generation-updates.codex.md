@@ -287,3 +287,39 @@ However, r6 introduces one MATERIAL inconsistency: authenticated attempts that f
 ## Verdict
 
 NOT READY (blocking finding 1).
+---
+
+# Round 7 (r7 delta review)
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r7 @589b872ff. **Verdict:** NOT READY (1 MATERIAL: pending reservation preceded the different-ID busy refusal). Folded into r8.
+
+## Overall Assessment
+
+r7 resolves the rotation-gate blocker and correctly adopts replay semantics for authenticated currency refusals. I agree with the adjudication against Grok’s no-record minor: Exact 0553.001 makes `updateId` content-bound and records stage-4 outcomes, so an exact retry must replay the refusal while different bytes conflict.
+
+One ordering gap remains: the different-`updateId` single-flight busy gate is not placed before the new pending reservation. Under the literal pipeline, `begin_revision` can refuse busy after the entry has already been reserved, contradicting the no-entry busy rule and F2(a).
+
+## Resolution Table
+
+| Round-6 item | Status | Assessment |
+| --- | --- | --- |
+| Codex finding 1 — check-3 replay reservation | PARTIAL | Currency refusals now reserve and terminalize correctly in [§5.2 check 3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:488), [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:670), and [F9](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:893). The required pre-reservation different-ID busy gate remains missing; finding 1 below. |
+| Codex minor 1 — rotation gate placement/lifetime | RESOLVED | The gate is explicitly after check 1 and before all table operations; its setting, recreation survival, and `runId`-only clearing are pinned in [§5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:473). This also resolves Grok’s round-6 blocker. |
+| Codex minor 2 — “always returns” quarantine exception | RESOLVED | [§5.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:563) names the fail-stop exception. |
+| Codex minor 3 — misaddressed wording | RESOLVED | [§5.2 check 1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:469) now says “unauthenticated or misaddressed.” |
+| Grok minors — §6 terminology, quarantine class, item-8 pointer | RESOLVED | [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:670), [§10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:824), and [item 8](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:547) contain the requested corrections. |
+| Grok no-record currency-refusal minor | ADJUDICATED AGAINST — AGREE | Exact 0553.001 requires content binding and prior-outcome replay after duplicate-first lookup. [Exact 0553.001 §2.2](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:212) |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **MATERIAL — the pending reservation still precedes the different-ID single-flight busy refusal.** The surface says a second `begin_revision` refuses busy and creates no replay entry, but check 3 now reserves `pending` before invoking `begin_revision` and terminalizes every check-3 refusal. Thus a different-ID concurrent attempt either seals busy as a terminal outcome or requires an unstated exception, contradicting §6 and F2(a). Cites: [single-flight and ordered checks](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:452), [reservation before `begin_revision`](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:488), [§6 no-entry rule](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:676), [F2(a)](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:854).  
+   **Smallest fix:** after a check-2 miss, add a named different-ID single-flight gate before capacity and pending reservation. A busy attempt stops with the direct busy response and no entry; only a non-busy, under-capacity attempt reserves before currency validation.
+
+## Minor Findings
+
+- [§5.2 check 1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:469) calls itself the “ONLY failure disposition with no entry,” although different-ID busy, capacity, and fresh rotation-required responses also create no entry. Scope this to validation failures or check-1 failures.
+- [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:676) still says reservation occurs “at `begin`” and describes settlement only for a “begun transaction.” Align it with the new pre-`begin_revision` reservation and include all reserved authenticated attempts.
+
+## Verdict
+
+NOT READY (blocking finding 1).
