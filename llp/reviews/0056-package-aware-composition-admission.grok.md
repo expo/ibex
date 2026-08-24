@@ -6,6 +6,7 @@
 **Rounds:**
 - Round 1 (2026-08-24): reviewed r1 (`fa7b5ed0d`). Verdict: NOT READY.
 - Round 2 (2026-08-24): reviewed r3 (`54d142d78`), fresh headless session, mutually blind to the sibling codex round; full text inlined (0056 r3, 0413.001 r7 @246f959cc, both round-1 artifacts, dark-lane TS excerpts). Verdict: READY (0 MATERIAL; independently byte-verified the 38-row/defaults lockstep).
+- Round 3 / delta (2026-08-24): reviewed r4 (`c1a05966f`), fresh headless session, mutually blind to the sibling codex round; the inline packet truncated mid-DOC 5, and the reviewer recovered DOC 5-7 from the pinned capsule on disk (@a049ed9aa — the correct pin). Verdict: READY (0 MATERIAL, second consecutive; re-verified the lockstep and every @a049ed9aa alignment claim).
 
 ## Round 1 (r1, verbatim)
 
@@ -329,5 +330,152 @@ OQ-A (inline vs digest-referenced artifacts), OQ-B (native invoke shape), OQ-D (
 ## Recommended Next Step
 
 Author may accept. Optional r4 polish of the MINOR wording items in the same commit is worthwhile and not required for the admission semantics to be frozen. Implementation leg 1 stays blocked on the exact-side r7-shaped O-1 alignment report; do not decode against the r6-shaped seed.
+
+Verdict: READY
+
+
+## Round 3 / delta (r4, verbatim)
+
+I'll start by reading the full offloaded review prompt and the LLP review skill so the delta round is grounded in the actual documents and process.The prompt is long; next I’ll pull the rest of DOC 1 and the lockstep/review/schema evidence in sections so fold and lockstep checks can be exact.I’ll index the offloaded prompt by document and section so the lockstep tables and schema claims can be compared directly.Next I’ll extract the lockstep tables, round-2 findings, and the alignment-wave schema files so each r4 claim can be checked against the inlined evidence.I’ll pull the alignment-wave sources next — schema.ts, the two JSON schemas, the parity-check header — and Exact’s §2.1/§2.2 so the r4 authority claims can be checked against the files.The offloaded prompt looks cut off after DOC 5. I’ll search the session for DOC 6/7 and the rest of `collectAliasImportSites`.DOC 5 is truncated and DOC 6/7 never made it into the prompt file. I’ll recover those alignment-wave sources from disk so the field-for-field and arming claims can still be checked.I’ll verify the remaining alignment-wave claims: whether the admission mirror reads generation only from envelope triples, and whether the expectations schema is actually field-for-field.## Overall Assessment
+
+This is a strong, implementable ibex leg of Exact LLP 0413.001 §6. Per-package content roots, a digest-only host-held commitment, a complete verifier-held expectations struct, envelope-side generation attestation, an ordinalized 38-row registry with one default per step, defining-principal authorization on the authorized linker, and tagged report shapes remain the right architecture.
+
+r4 does the two things a delta round must do after r3: it folds every load-bearing codex round-2 gap, and its alignment-wave statements are true against Exact `@a049ed9aa`. I independently confirmed the 38 registry rows and the Defaults paragraph are byte-identical across DOC 1 §6.2 and DOC 2 §4.1. The candidate-table successor, full producer-identity comparison, dual-surface external-ref cap, and `AuthorizedCompositionPlanV1` handoff close unique-reachability and identity-guarantee holes rather than opening new ones.
+
+No remaining issue changes admission outcomes, unique reachability, fallback eligibility, or the identity guarantee. Residual problems are wording traps. They should be polished; they do not block acceptance of this document.
+
+(Review-packet note: the inlined prompt truncated mid-DOC 5 and omitted DOC 6/7. Those three artifacts were completed from Exact `@a049ed9aa`, the commit r4 cites, not from ibex Rust.)
+
+## Fold Verification (round-2 findings -> r4: held / not held, per finding)
+
+**Codex round 2 — MATERIAL**
+
+| Finding | Result |
+| --- | --- |
+| Generation-free candidate-table v2 (`ComputedCandidateTableV1.generation` must not enter package bytes; successor row; how attested generation enters execution) | **Held** — §4.3 names `ibex/computed-candidates/2` as v1 minus `generation`; v1-in-composition is unsupported schema #12; landed single-publication lane keeps v1; §4.8 stamps incorporated tables in memory under the envelope-attested composition generation |
+| Full producer identity `(producerId, producerBinaryDigest)` in the index vs the envelope (r7 §3.1 item 2 / row #22) | **Held** — §4.3 carries both fields; §4.8 compares the pair to the envelope; index-vs-record disagreement stays #14 |
+| External-reference cap at package decode as well as envelope decode | **Held** — §3.1 package-index surface: external reference rows ≤ 4 096 per package; limit/limit+1 at both surfaces |
+| `AuthorizedCompositionPlanV1` typed handoff step 6 → step 8 | **Held** — §5 step 6 produces the capability; §7.2 consumes it; no fresh policy decision at step 8; a policy denial surfacing as #38 is a defect |
+| Single-meaning acceptance coupling | **Held** — §6 and §11 agree: A1 discharges O-2 at document level; generated-halves parity and F-i fixtures are implementation-leg gates, not acceptance conditions |
+| §6.2 scope declaration no longer overclaiming “in both repositories” | **Held** — declaration lives here; Exact-side sibling note is a named handoff outside the shared row bytes |
+
+**Codex round 2 — MINOR**
+
+| Finding | Result |
+| --- | --- |
+| #16 wording (manifest-only principal tamper can reach `carrier.rs:281`/`307`) | **Partially held** — intact-digest producer-output sentence added; still says byte-tampered carriers hit #15 first, which understates manifest-only tamper |
+| Report serialization / “always written” | **Held** — §3.4 and §8 agree: `out_report_json` is null only on report-serialization failure |
+| Exact-side 0056-relative note | **Held as a named handoff** — correctly not smuggled into shared row bytes |
+| Thenable diagnostic | **Held** — §7.3 / §8 `agentInvokeReturnedThenable` |
+
+**Grok round 2 — MINOR**
+
+| Finding | Result |
+| --- | --- |
+| Ordinal-outer step-3 sweep | **Held** — §5 step 3: ordinal-outer or full-sweep-then-lowest-tuple; fixture 38’s generator is the backstop |
+| `*_for_roots` entry-plan argument order | **Held** — §7.1: agent before app |
+| §9.1 staleness (“until the O-1 package lands”) | **Partially held** — that r3 sentence is gone; the first paragraph still says A1/r7 alignment is “in flight” and the seed is not yet byte authority, which now contradicts Summary / §11 / `@a049ed9aa` |
+| Report serialization-failure null rule | **Held** |
+| Thenable diagnostic | **Held** |
+| Expiry/policy-digest note | **Held** — §3.3: far-future expiry is a policy-digest (#4) question; no second lifetime channel |
+| d1 literal-dynamic-only + §2.1 identity clause | **Held** — §4.3 |
+| Single current §11 acceptance sentence | **Held** |
+| Step-6 vs step-8 authorization idempotence | **Held** via the typed handoff (residual “authorize and link” in step 8 prose is leftover wording, not a missing rule) |
+
+## Delta Scan (new-in-r4 text)
+
+No new MATERIAL problem. The four load-bearing additions and the alignment-wave statements check out.
+
+**Candidate-table v2.** Routing a v1 table in a composition package to #12 is the right unique home (unsupported schema). In-memory stamping under the envelope-attested generation preserves §4.8’s one-serialized-carrier pin and makes the landed link-time uniformity check pass by construction. The O-1 row is named as an ibex-half wait in §11, consistent with other provisional sketches. Minor precision only: lockstep row #12’s unique predicate still lists “index/carrier/artifact schema” and does not say “candidate-table”; §4.3 is unambiguous, so this is not a dual-code hole.
+
+**Producer-identity index.** Adding `producerId` beside `producerBinaryDigest` is what r7 §3.1 item 2 and shared row #22 already required. It does not disturb §2.1: producer identity is produce-stable, not session-shape. Exact’s dark `PreparedPackageV1` at `@a049ed9aa` still carries only `producerBinaryDigest` — that is the exact-half dark model (`exact/prepared-package/1`), not a false claim about the ibex index (`ibex/prepared-package/1`, still provisional pending O-1).
+
+**`AuthorizedCompositionPlanV1`.** Step 6 decides #34; step 8 is mechanical linking (#38). That is the correct staging. Residual step-8 wording “authorize and link” is overwritten by §7.2’s consume-only rule.
+
+**Alignment-wave statements — all true against `@a049ed9aa`:**
+
+| Claim | Evidence |
+| --- | --- |
+| §3.2 field-for-field authority | `prepared-composition-commitment-v1.schema.json`: `schema`, `workflow`, `compositionRootDigest`; all required; `additionalProperties: false`. Matches the jsonc block. File describes itself as the authority the block awaited. |
+| §3.3 field-for-field authority | `composition-verifier-expectations-v1.schema.json`: the same nine properties as the jsonc (schema + eight live values), all required, `additionalProperties: false`. `expectedRoles` is the two const arrays. |
+| §4.7 widened collection basis | `collectAliasImportSites` iterates packed `declaredEdges` plus `hostBridgedDynamicImportEdges` only. Matches “declared binding rows + committed host-bridged inventory rows.” |
+| §4.8 “resolved exact-side” | `PreparedPackageDeliveryV1` is `{ package, packageBytes }` with no generation. Envelope `packages[]` carries `(role, packageRoot, producerGeneration)`. Admission mirror has zero `produceGeneration` hits and compares `pair.producerGeneration` from the envelope only. |
+| §6.3 arming note | Parity-check header and the lockstep leg: if `vendor/ibex` lacks `llp/0056-…spec.md`, it reports `lockstep leg UNARMED` and arms when the pointer advances. Expected posture. |
+| §11 leg-1 hold release / 21-vector target | Corpus `vectors` length is 21. Composition vector includes attestation triples; commitment and expectations vectors match §3.2/§3.3. Remaining wait is ibex-half rows (package index, carrier v3, bindings, `prepared-package` identity, package-graph preimage, candidate-table v2) — as §11 states. |
+
+None of those statements is an overclaim.
+
+## Lockstep Verification
+
+Extracted the 38 `| # | … |` rows and the Defaults paragraph from DOC 1 §6.2 and DOC 2 §4.1 and compared them as printed.
+
+**The 38 rows are byte-identical. The Defaults paragraph is byte-identical** (`1→#1, 2a→#2, 2b→#10, 3→#11, 4→#24, 5→#28, 6→#29, 7→#35, 8→#38` plus the totality sentence). No table drift.
+
+r4’s prose changes (scope-declaration honesty, named Exact-side handoff, candidate-table / producer-identity / handoff discussion) sit outside the shared row bytes. Row-internal `§4.4` / `§4.8` / `§10` strings are unchanged, so the 0056-relative declaration remains necessary and is now honestly scoped to this document.
+
+## Conformance Findings (MATERIAL/MINOR, cite section numbers)
+
+**MATERIAL:** none.
+
+**MINOR**
+
+- **§9.1 first paragraph is stale versus r4 itself.** It still says A1/r7 alignment is “in flight” and the seed is not yet byte authority. Summary, the last paragraph of §9.1, and §11 record the opposite: `@a049ed9aa` r7-aligned the seed, parity is green for the landed records, §3.2/§3.3 are past the bar. Operative intent is in §11; an acceptor should not have to rank the leftover sentence.
+- **§5 step 3 range `#11–#24`.** Step-3 codes are #11–#23; #24 is step 4’s `partition-mismatch` (and step 4’s own range is #24–#26). The table remains authoritative (“the table IS the evaluation order”), so this is a citation slip, not a second ordinal order.
+- **§5 step 8 still says “authorize and link”** after §7.2 forbids a fresh policy decision. Harmless if §7.2 is read; easy to implement as a second authorization pass if it is not.
+- **§3.3 “all eight fields mandatory”** vs the jsonc/schema’s nine properties (schema + eight live values). Commitment correctly counts “three fields” including `schema`. Counting nit; the field list matches the authority file.
+- **§3.3 “I-JSON integer constraints” on the authority file.** The JSON Schema keywords are `type: integer`, `minimum: 0` with no `maximum` of 2^53−1. The ceiling is in the schema description and in 0056 prose. Field set is still field-for-field.
+- **Lockstep row #12 unique predicate** does not mention candidate-table schema. §4.3 assigns v1-in-composition to #12; do not amend the shared table without an Exact-side sibling change.
+
+## Design Concerns (MATERIAL)
+
+None. The r4 pins do not reopen unique reachability, fallback eligibility, or the identity guarantee.
+
+## Design Concerns (MINOR)
+
+- **Schema-identifier dispatch for candidate tables.** §4.3 maps a v1 table to #12; §6.4 still maps landed “candidate-table decode” to #14. One sentence that the composition lane inspects the candidate-table schema identifier *before* v2 `deny_unknown_fields` decode would stop an implementer from reporting a v1 table as #14.
+- **#16 vs manifest-only principal tamper** remains slightly overstated (§5 step 3). Byte-tamper hits #15 first; grouping with intact digests is #16, including a manifest that crosses principals without byte-digest failure.
+- **Exact-side sibling note** is still the right named handoff. In Exact, bare `§10` is Obligations, not the authorized-linker policy. Unique predicates remain readable in English.
+- **Optional extra fixture:** v1 candidate table inside a composition package → `(3, ibex:prepared-commitment-schema)`. Feeds O-6 on the new class without a new imported row.
+
+## Verification Requests (code claims to check)
+
+Not treated as defects. Load-bearing ibex citations I cannot re-verify from inlined material (Exact `@a049ed9aa` claims above *were* checked):
+
+1. `ComputedCandidateTableV1` still serializes `generation` at `computed_candidates.rs:43-50`, validates non-zero, and is compared at `runner_pipeline.rs:1143-1148` — the premise of the v2 successor.
+2. §6.1 landed-token sites and the 18-site `_CORRUPT` list, including 3825 as repeated `SourceId`.
+3. `runner_pipeline.rs:3765` / `3734-3738` — D3 fingerprint drop still tautological / skipped in the only v1 posture.
+4. `runner_pipeline.rs:3676-3685` peek making `carrier.rs:327` unreachable; `carrier.rs:339` engine-binding prose.
+5. `carrier.rs:170` producer-side only; admission grouping at `281`/`307`.
+6. `runner_pipeline.rs:6187` `link_prepared` as the unauthorized shortcut r6 forbids for compositions.
+7. `ModuleSemanticsV1` / `semanticDigest` preimage does not include a graph-level digest (§4.2 no-circularity).
+8. HBC preflight at `module_runner.rs:459-469` is post-admission on the single-publication lane (composition-only parameterization).
+9. Covering-map completeness of remaining `bail!`/`anyhow!` sites on `admit_committed_publication_v1` + `decode_and_admit` + `verify_for_admission`.
+
+## Answers to the Standard Review Questions
+
+**What do you think of this proposal? Is it a good idea?**
+Yes. Whole-publication `deploymentGraphDigest` cannot keep app bytes stable when an agent package joins. Per-package roots plus a composition envelope is the only honest schema. Fail-closed nine-step admission, with ibex owning decode/carrier/link/evaluate, is the right split of 0413.001 §6. r4’s generation-free candidate table and full producer-identity comparison are the last pieces of that honesty.
+
+**Do we have a good plan?**
+Yes. Four legs (schema/corpus → admission/refusals → link/evaluate/C-ABI → Exact host fold), extract `admit_package_v1` behind existing single-publication tests, generate the refusal enum from a vendored registry, and do not admit for real until leg 3. Releasing the r6-shape hold now that `@a049ed9aa` is r7-shaped, while still waiting on ibex-half O-1 rows, is the correct sequencing. Coupling `Accepted` to generated-JSON parity after A1 would have inverted the dependency.
+
+**How would you change it?**
+Polish only: delete the leftover “alignment is in flight” sentence in §9.1; write step 3 as `#11–#23`; replace step 8’s “authorize and link” with “link under the step-6 capability”; one schema-dispatch sentence for candidate tables. Optionally ask Exact to add, *outside* the shared table bytes, the 0056-relative section-ref note and “candidate-table schema” under #12.
+
+**Add / take away?**
+Do not add a third host-bridged reason, a serialized delivery sidecar, `generation` back into package bytes, roles, armed posture, `parseFree`, a second runtime, or ibex-emitted `unavailable-*`. Do not put `entry` back in the package. Do not treat Exact’s dark digest-only `PreparedPackageV1` as a competitor to `ibex/prepared-package/1`.
+
+**Definitely or possibly wrongheaded?**
+Not the architecture. Wrongheaded *if done*: minting a third §2.5 reason; keeping `ComputedCandidateTableV1.generation` in composition packages; authorizing again at step 8; making generated-halves parity an acceptance peer blocker after A1. r4 rejects all four.
+
+**Novel / non-standard improvements (out of v1, not blockers):**
+An executable O-1 “schema invariant audit”: no generation-bearing field exists below a package root; every registry row has a reachability recipe; every step-6 authorization receipt is consumed exactly once at step 8. Later, optional `callable: true` on descriptors could move non-callable bootstrap from admitted-lane boom to step 7 (v1 correctly leaves callability to runtime). Merkle of per-record semantic digests inside the package graph digest would cheapen incremental app produce; not needed for correctness.
+
+**Key open questions to refine (implementation, not spec holes):**
+OQ-A (inline vs digest-referenced artifacts), OQ-B (native invoke shape), OQ-D (thenable bootstrap). Plus Exact-side: the sibling 0056-relative note; whether `exact/prepared-package/1` grows a `producerId` when the ibex-half index lands, or stays a distinct dark producer model.
+
+## Recommended Next Step
+
+Author may accept. Optional r4.1 polish of the MINOR wording items in the same commit is worthwhile and not required for the admission semantics to be frozen. Implementation leg 1 starts against the confirmed r7-shaped O-1 records and still waits on the named ibex-half schema rows (including `ibex/computed-candidates/2`). Do not decode composition candidate tables as v1.
 
 Verdict: READY

@@ -5,7 +5,23 @@
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-24 (r4 — round-2 dual-family fold on r3 (grok-4.6
+**Revised:** 2026-08-24 (r5 — round-3 delta fold (grok-4.6 READY, 0
+MATERIAL, second consecutive; codex gpt-5.6-sol xhigh NOT READY, 2
+MATERIAL, both verified): §3.3's authority claim made precise — the
+landed expectations schema is field-for-field on names/requiredness
+but its three integer fields lack the `2^53-1` JSON-Schema `maximum`,
+and the parity check inspects neither channel schema (exact-side
+repair = named handoff; the I-JSON rule stays normative here);
+producer-mismatch routing made deterministic (§6.4 `_PRODUCER` row
+split: index-vs-envelope → #22, carrier/artifact-vs-authenticated-
+index → #14, matching §4.8); grok round-3 slips fixed (step-3 range
+#11–#23; step-8 wording consumes the step-6 capability; §9.1
+"in-flight" caveat retired with aligned-vs-pending rows named; §3.3
+field counting); candidate-table dispatch order pinned (schema
+identifier first, digest authenticates the wire form before stamping;
+new §9.2 v1-candidate-table fixture row); #16 precedence wording made
+origin-neutral; `invoke_named_export` returns `InvokeOutcomeV1` as the
+thenable-diagnostic transport.) 2026-08-24 (r4 — round-2 dual-family fold on r3 (grok-4.6
 READY, 0 MATERIAL; codex gpt-5.6-sol xhigh NOT READY, every decisive
 claim verified before folding): **generation-free candidate-table v2**
 (the landed `ComputedCandidateTableV1.generation` would smuggle a
@@ -316,10 +332,22 @@ are **channel failures outside the registry**, reported through the §8
 
 ### 3.3 Verifier-held expectations
 
-*O-1 authority LANDED (r4):*
+*O-1 authority LANDED (r4; claim made precise at r5):*
 `docs/schemas/prepared-composition/v1/composition-verifier-expectations-v1.schema.json`
-(Exact `@a049ed9aa`, field-for-field with this block — all eight fields
-mandatory, `additionalProperties: false`, I-JSON integer constraints).
+(Exact `@a049ed9aa`) is field-for-field with this block on **names and
+requiredness** — the nine properties (`schema` plus the eight live
+values), every one required, `additionalProperties: false`,
+`expectedRoles` as the two const arrays. **Known authority-file gap
+(r5 — codex round 3):** the three integer fields carry only
+`minimum: 0`; the `0..=2^53-1` ceiling is normative in this spec (and
+stated in the file's description text and the O-1 index `numberRule`)
+but is NOT yet a JSON-Schema `maximum` keyword, and the landed parity
+check inspects neither channel schema. Admission enforces the full
+I-JSON range regardless of the keyword. **Named exact-side handoff:**
+add `maximum: 9007199254740991` to `authorityGeneration`,
+`resolverGeneration`, and `nowUnixMs`, and extend
+`check-prepared-composition-schema-parity.mjs` to validate both
+channel schema files.
 One versioned JSON argument carrying every
 live value step 2b compares against (the r1 draft left target and the
 O-3 inventory with no input channel — codex/grok convergent):
@@ -480,10 +508,15 @@ schema row, `ibex/computed-candidates/2` — which is v1 **minus the
 `generation` field**; everything else carries over. A v1 table inside
 a composition package is an unsupported schema, #12
 `ibex:prepared-commitment-schema`. The landed single-publication lane
-keeps v1 byte-for-byte. At admission, incorporated candidate tables
-receive the envelope-attested composition generation in memory (§4.8),
-so the landed link-time generation-uniformity check passes by
-construction); **the host-bridged inventory is in the
+keeps v1 byte-for-byte. Dispatch and order (r5): the composition lane
+inspects the candidate-table **schema identifier first** — a v1
+identifier refuses as #12 before any v2 `deny_unknown_fields` decode
+(so a v1 table can never misreport as #14) — and the index-committed
+candidate-table **digest authenticates the generation-free wire form
+before** any generation-stamped in-memory execution representation is
+constructed. Incorporated tables then receive the envelope-attested
+composition generation in memory (§4.8), so the landed link-time
+generation-uniformity check passes by construction); **the host-bridged inventory is in the
 index** — §2.5 requires it package-root-committed, its `reason` values
 drawn from the closed two-member enum with the locality rule (derivable
 from this package's own graph facts, never referencing the other
@@ -737,7 +770,8 @@ starts the nine steps.
    `composition-package-missing`); declaration equals `expectedRoles`
    (#10 `composition-mismatch`, also 2b's default).
 3. **Per-package admission** (`admit_package_v1`, app then agent), in
-   ordinal order #11–#24. **Ordinal-outer across packages (r4, grok
+   ordinal order #11–#23 (r5 — the r2–r4 "#11–#24" was a citation
+   slip: #24 opens step 4). **Ordinal-outer across packages (r4, grok
    round 2):** the precedence tuple is authoritative — a conforming
    driver must not let one package's later-ordinal failure suppress the
    other package's earlier-ordinal predicate (full-app-then-full-agent
@@ -761,9 +795,11 @@ starts the nine steps.
    defining-principal grouping (#16 `ibex:principal-grouping` —
    admission sites `carrier.rs:281`/`307` plus the composition grouping
    recomputation; classed producer-defect because grouping is
-   producer-computed — byte-tampered carrier bytes hit #15 first by
-   ordinal, while a grouping violation with intact digests is the
-   producer's own output (r4 wording, codex round 2)),
+   producer-computed — #15 wins by ordinal exactly when byte/digest
+   tamper is present; #16 is reached when grouping is violated with
+   digests intact, whether that state is the producer's own output or
+   crafted upstream of signing (r5 wording; the P class reads the
+   honest-origin case, precedence needs no origin judgment)),
    declared-encoding/byte-shape agreement (#17
    `ibex:encoding-incompatible`, the §4.4 sniff), engine identity (#18
    `ibex:engine-unavailable`, #19 `ibex:engine-binding-mismatch`),
@@ -835,9 +871,10 @@ starts the nine steps.
    (#37).
 8. **Atomic authorized multi-root link** (#38). Build one
    `SynchronousGraphPlan` over the union record set; compute the
-   composition linkage and evaluation orders (§7); authorize and link
-   every reachable record under one generation via the authorized
-   composition linker (§7.2). Any failure ⇒ `link-failure` (#38, the
+   composition linkage and evaluation orders (§7); link every
+   reachable record under one generation through the §7.2 constructor
+   **consuming the step-6 `AuthorizedCompositionPlanV1`** (r5 — no
+   fresh policy decision here; §7.2's consume-only rule). Any failure ⇒ `link-failure` (#38, the
    step's only and default code). The §5.4 fallback boundary closes
    here.
 9. **Evaluation per descriptor (post-admission)** — the monotonic
@@ -1080,7 +1117,8 @@ Every landed refusal class from §6.1 maps to exactly one §6.2 row:
 | `_MISMATCH` (3556) | #11 (per-package root replaces publication root) |
 | `_ENTRY` (3567) | dissolved → #35/#36 (packages carry no entry) |
 | `_DEPLOYMENT` (3570); carrier/artifact deployment-binding prose; deployment-set membership | #21 (package-graph binding) |
-| `_PRODUCER` (3573); carrier/artifact producer staleness prose | #22 |
+| `_PRODUCER` (3573) — the publication-level producer-vs-commitment check, whose successor is the index-vs-envelope identity comparison (§4.8) | #22 |
+| carrier/artifact producer staleness prose — under the per-package model these compare a carrier/artifact identity against the expectation **derived from the authenticated index** (§4.6), so disagreement is package-internal inconsistency (r5 split — codex round 3: one failure class must have one disposition) | #14 |
 | `_SEMANTICS` (3581); `_PRINCIPALS` digest half (3584) | dissolved — the package root covers the index; facets derive per package (#11/#14 on tamper) |
 | `_PRINCIPALS` grouping half (3645); `carrier.rs:281`/`307` | #16 |
 | `_INVENTORY` (3605) | #13 |
@@ -1184,11 +1222,15 @@ round 1 confirms the seam: the length-aware export-property helper at
 /// non-callable value is an error. Never used before the record's
 /// evaluation completes. Errors retain the structured sticky-error
 /// conversion and the record identity.
-pub fn invoke_named_export(&mut self, source_id: &SourceId, export: &str) -> Result<()>
+pub fn invoke_named_export(&mut self, source_id: &SourceId, export: &str)
+    -> Result<InvokeOutcomeV1>   // r5: { returned_thenable: bool } — the
+                                 // explicit transport for §8's
+                                 // agentInvokeReturnedThenable diagnostic
 ```
 
-The return value is ignored (the landed bootstrap template's
-`installExactNativeAgentBootstrap()` contract); "synchronous
+The **JS** return value is ignored (the landed bootstrap template's
+`installExactNativeAgentBootstrap()` contract) apart from thenable
+detection feeding `InvokeOutcomeV1`; "synchronous
 completion" means **the function returned** — a returned thenable is
 not awaited (template parity, stated honestly: setup a bootstrap
 schedules asynchronously is app-visible but not guaranteed complete;
@@ -1294,11 +1336,15 @@ here).
 ### 9.1 The shared canonical-byte vector corpus (O-1) — coordination
 
 The canonical home is the O-1 package at Exact
-`docs/schemas/prepared-composition/v1/` (exact-side owned; the seed
-**landed** at Exact `@9018e0bbd` with status `dark`, cut against the
-r6 registry — its A1/r7 alignment is in flight exact-side, and until
-the parity check pins r7-shaped bytes the seed is not yet this spec's
-byte authority in practice). It is the byte authority
+`docs/schemas/prepared-composition/v1/` (exact-side owned; seeded
+`@9018e0bbd` status `dark`, **r7-aligned by the alignment wave at
+`@a049ed9aa`** with the parity check green — r5: the "alignment in
+flight" caveat is retired. Aligned and landed today: the envelope
+with attestation triples, the §3.2 commitment and §3.3 expectations
+channel records (with the §3.3-noted maximum-keyword gap), the
+21-vector corpus. Still to land: the ibex-half rows — §4.3 package
+index, §4.4 carrier v3, §4.5 binding rows, §4.6 identity, §4.2
+preimage, candidate-table v2). It is the byte authority
 for: the envelope, the commitment (§3.2), the expectations (§3.3), the
 package index (§4.3), carrier v3 (§4.4), binding rows (§4.5), the
 `prepared-package` producer identity (§4.6), the package-graph preimage
@@ -1338,7 +1384,11 @@ the four §8 tagged shapes; 40–42 are exact-side fail-loud rows); plus
 **F-i1…F-i11** — one demonstrated-reachability fixture per §6.2
 imported row (#5, 12, 13, 14, 16, 17, 18, 19, 20, 21, 25), each with a
 mutation/re-signing recipe, satisfying O-2's gate and feeding O-6's
-matrix-completeness assertion; plus the **order-guarantee row**: a
+matrix-completeness assertion; plus the **v1-candidate-table row**
+(r5): a v1 candidate table inside a composition package →
+`(3, ibex:prepared-commitment-schema)`, exercising the §4.3
+schema-identifier dispatch without a new imported row; plus the
+**order-guarantee row**: a
 crafted composition whose agent closure reaches the app root →
 (7, `entry-plan-mismatch`). Producer-side rows (2, 3, 5a, 11, 43–45)
 live exact-side; row 11's membership pin is consumed here only as the
@@ -1447,6 +1497,22 @@ alone; nothing admits for real until leg 3, which is the moment
 
 ## Revision history
 
+- **r5 (2026-08-24):** Round-3 delta fold (grok READY 0-MATERIAL,
+  second consecutive; codex NOT READY with 2 MATERIALs, both verified
+  against the trees). Codex: the §3.3 authority claim overstated the
+  landed expectations schema (no `2^53-1` maxima on its three integer
+  fields; parity check inspects neither channel schema) — claim made
+  precise, exact-side repair named as a handoff; producer-mismatch
+  routing was contradictory between §4.8 (#14) and §6.4 (#22) — split
+  deterministically (index-vs-envelope → #22; carrier/artifact-vs-
+  authenticated-index → #14). Grok round-3 catches: step-3 ordinal
+  range corrected to #11–#23; step-8 "authorize and link" replaced
+  with consuming the step-6 capability; §9.1 stale "alignment in
+  flight" retired; candidate-table schema-identifier dispatch and
+  digest-before-stamp order pinned (+ the §9.2 v1-candidate-table
+  fixture row); #16 wording made origin-neutral; §3.3 field count.
+  Codex minor: `invoke_named_export` → `Result<InvokeOutcomeV1>` as
+  the `agentInvokeReturnedThenable` transport.
 - **r4 (2026-08-24):** Round-2 dual-family fold on r3 (grok READY /
   codex NOT READY; every decisive codex claim verified against the
   trees before folding) plus the `@a049ed9aa` alignment-wave fold.

@@ -7,6 +7,7 @@
 **Rounds:**
 - Round 1 (2026-08-24): reviewed r1 (`fa7b5ed0d`). Verdict: NOT READY.
 - Round 2 (2026-08-24): reviewed r3 (`54d142d78`), fresh session (id 01a0349c-e902-7632-842c-c53a0eb68400), mutually blind to the sibling grok round; capsule: 0413.001 r7 @246f959cc + the exact-b7 dark-lane TS files at Exact origin/main (pre-@a049ed9aa). Verdict: NOT READY (4 MATERIAL areas; every decisive claim verified by the orchestrator against the trees before the r4 fold — all confirmed).
+- Round 3 / delta (2026-08-24): reviewed r4 (`c1a05966f`), fresh session (id 01a034d2-fbad-7080-b28d-0ea2dfb2ca0d), mutually blind to the sibling grok round; capsule refreshed to Exact @a049ed9aa. Verdict: NOT READY (2 MATERIAL — expectations-schema maxima gap in the claimed O-1 authority; #14/#22 producer-routing contradiction; both verified and folded into r5).
 
 ## Round 1 (r1, verbatim)
 
@@ -218,3 +219,100 @@ The key remaining questions are where full producer identity lives, what replace
 Keep the document in Draft and produce r4 with the five targeted changes above. No architectural rewrite is needed. Re-run the row/default byte comparison after adding only surrounding Exact prose, then require the r7-shaped O-1 corpus and generated parity check before implementation leg 1 proceeds.
 
 Verdict: NOT READY — the one-carrier generation invariant, producer-identity attestation, bounds placement, and step-6 authorization handoff remain materially incomplete.
+
+
+## Round 3 / delta (r4, verbatim)
+
+## Overall Assessment
+
+The architecture is strong and r4 folds nearly all round-2 findings correctly. The 38-row lockstep is exact. However, r4 is not ready: one claimed O-1 authority omits required numeric bounds, and producer-identity failures have conflicting refusal assignments.
+
+## Verified Claims (spot-checks performed, with file:line)
+
+- `HEAD` is `c1a05966f`; `src/`, `crates/`, and `include/` are byte-identical to `94c85abab`.
+- Candidate-table v1 serializes `generation` (`computed_candidates.rs:43-50`), validates it (`:80-85`), and checks it against execution generation (`runner_pipeline.rs:1138-1148`).
+- Landed artifact and carrier identities contain both producer ID and binary digest (`artifact.rs:265-275`; `carrier.rs:94-102`) and admission compares both (`artifact.rs:533-542`; `carrier.rs:309-313`).
+- The existing authorized prepared linker performs authorization internally (`module_runner.rs:2937-2966`), confirming why r4’s step-6 capability handoff is necessary.
+- Link-time configuration generation is selected and checked uniformly (`module_runner.rs:3589-3608`); `import.meta.main` is currently positional to the single entry (`:3984-3988`), validating the explicit app `mainRoot`.
+- Exact’s delivery wrapper now carries no generation (`prepared-composition-schema.ts:162-172`); the envelope has attestation triples (`:228-243`), producer emits them (`prepared-composition-producer.ts:636-645`), and the admission mirror consumes them (`prepared-composition-admission.ts:495-510`).
+- `collectAliasImportSites` uses declared edges plus host-bridged rows exactly as r4 states (`prepared-composition-schema.ts:485-515`).
+- The parity check’s lockstep leg explicitly reports unarmed before the vendor pointer contains LLP 0056 and arms afterward (`check-prepared-composition-schema-parity.mjs:152-186`).
+
+## Fold Verification (round-2 findings -> r4: held / not held, per finding)
+
+- Generation-free candidate-table v2: **HELD**. §4.3 defines v2 as v1 minus `generation`, rejects v1 as #12, preserves the old lane, and supplies the envelope generation in memory.
+- Full producer identity in the package index versus envelope: **HELD at the invariant level**, but r4 introduces a MATERIAL refusal-routing inconsistency described below.
+- External-reference cap at package decode: **HELD** (§3.1, lines 274-285).
+- `AuthorizedCompositionPlanV1` step 6 → step 8 handoff: **HELD** (§5, lines 797-817; §7.2, lines 1131-1160).
+- Single-meaning acceptance coupling: **HELD** (§6, lines 863-878; §11, lines 1416-1426).
+- §6.2 reference-scope overclaim: **HELD**. r4 accurately says only 0056 currently declares the scope and records the Exact-side note as a handoff (`:994-1002`).
+- Ordinal-outer step-3 sweep: **HELD** (`:739-748`).
+- `*_for_roots` entry-plan argument order: **HELD** (`:1121-1124`).
+- §9.1 staleness: **NOT HELD**, MINOR. It still says A1/r7 alignment is “in flight” (`:1296-1301`).
+- Report null on serialization failure: **HELD** (`:1279-1283`).
+- Thenable diagnostic: **HELD semantically** (`:1190-1199`, `:1276-1278`).
+- Expiry/policy note: **HELD** (`:344-350`).
+- d1 literal-dynamic-only and identity rationale: **HELD** (`:496-519`).
+- #16 tamper wording: **HELD** (`:761-766`).
+
+## Delta Scan (new-in-r4 text)
+
+- Candidate-table v2 is consistent with the landed generation check and one-carrier invariant, provided admission authenticates the v2 wire digest before constructing the generation-stamped in-memory execution form.
+- Adding `producerId` is consistent with landed carrier/artifact identity shapes.
+- The typed authorization capability is the correct evolution of `link_authorized_prepared`; it prevents policy denial from migrating to #38.
+- Alignment-wave results:
+  - Commitment authority: true (`prepared-composition-commitment-v1.schema.json:7-24`).
+  - Expectations property set and requiredness: true, but its claimed numeric constraints are false.
+  - Alias evidence basis: true.
+  - Generation-carrier resolution: true.
+  - Lockstep arming note: true.
+  - Leg-1 hold release: overstated because §9.1 remains stale and the parity check omits the two channel schemas.
+- The supplied capsule omits the vector corpus and builder, so the claimed count of 21 cannot be independently confirmed. The check only reports `corpus.vectors.length` dynamically (`check-prepared-composition-schema-parity.mjs:309-329`).
+
+## Lockstep Verification
+
+- Extracted rows matching `^| <number> | \``: 38 from r4 and 38 from Exact r7.
+- Rows are byte-identical; both SHA-256:
+  `879deaec27b2ef9b916f09a5842a421fdc4016c2cf0cbb130176d3e231c47fb0`.
+- Defaults paragraphs are byte-identical; both SHA-256:
+  `5117549d6f5a426beff35a329b63e54f030f5f5a8d215983d5fafa83c6376995`.
+- r3→r4 comparison also confirms the shared rows and Defaults paragraph were unchanged. All r4 edits remained outside those shared bytes.
+
+## Factual Errors Found (file:line, MATERIAL/MINOR)
+
+- **MATERIAL — the landed expectations schema does not enforce the claimed I-JSON bound.** LLP 0056 says integers are `0..=2^53-1` and claims the authority file has I-JSON constraints (`llp/0056-package-aware-composition-admission.spec.md:319-344`). The schema gives `authorityGeneration`, `resolverGeneration`, and `nowUnixMs` only `minimum: 0`, with no safe-integer maximum (`composition-verifier-expectations-v1.schema.json:47-65`). The parity check does not inspect this schema or the commitment schema (`check-prepared-composition-schema-parity.mjs:266-306`), so it can report PASS without detecting the mismatch.
+- **MATERIAL — producer-identity refusal routing is contradictory.** §4.8 assigns an index-versus-record producer mismatch to #14 (`llp/0056...spec.md:643-646`), while §6.4 maps carrier/artifact producer staleness to #22 (`:1083`). The landed check jointly compares producer ID and digest (`artifact.rs:533-542`). This leaves one failure class with two registry dispositions and different A/P classifications.
+- **MINOR — §9.1 still reports obsolete alignment state.** It says r7 alignment is in flight (`llp/0056...spec.md:1296-1301`) while the Summary and §11 say it completed and released the hold (`:159-169`, `:1384-1402`).
+
+## Design Concerns (MATERIAL)
+
+- The O-1 authority must not permit integers outside the cross-language canonical range while the spec and Rust implementation reject them. Add `maximum: 9007199254740991` to all three expectation integers and extend the parity check to validate both channel schemas.
+- Choose one deterministic disposition for producer mismatches. The clean split is:
+  - index full identity versus envelope → #22;
+  - carrier/artifact identity versus authenticated index → #14.
+  
+  Then update §6.4 and its covering-map fixture accordingly without changing shared row bytes.
+
+## Design Concerns (MINOR)
+
+- State explicitly that the v2 candidate-table digest authenticates the generation-free wire form and is checked before creating any stamped execution representation.
+- Change `invoke_named_export -> Result<()>` or document retained executor state so the required `agentInvokeReturnedThenable` diagnostic has an explicit transport.
+- Rewrite §9.1 to name exactly which Exact-side rows are aligned and which ibex-half O-1 rows remain provisional.
+
+## Answers to the Standard Review Questions
+
+The proposal is a good idea. Per-package roots plus an authenticated composition envelope are the right way to obtain stable app bytes, one-way package composition, and fail-closed admission.
+
+The implementation plan is well sequenced. Candidate-table v2, explicit authorization capability, ordinal-outer evaluation, and named multi-root execution materially improve implementability.
+
+I would keep the architecture and make a narrow r5: repair the expectations authority/check, resolve #14 versus #22, and remove stale coordination prose. I would not add another generation carrier, producer channel, role, or lifetime authority.
+
+A useful non-standard improvement is an executable invariant audit asserting that no serialized field below the envelope carries generation, every producer-identity comparison has one refusal code, and every numeric schema field used across TS/Rust is I-JSON bounded.
+
+The key open questions are only the exact #14/#22 split, the stamped candidate-table runtime representation, and how the thenable diagnostic crosses the native seam.
+
+## Recommended Next Step
+
+Produce r5 with the two MATERIAL repairs, update §9.1, rerun the unchanged row/default comparison, and perform another focused delta review. No architectural rewrite is needed.
+
+Verdict: NOT READY — the claimed O-1 expectations authority omits its safe-integer maxima, and producer-identity mismatch routing is split between #14 and #22.
