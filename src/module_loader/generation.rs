@@ -131,11 +131,13 @@ pub struct ShadowPublicationToken {
 static NEXT_MANAGER_IDENTITY: AtomicU64 = AtomicU64::new(1);
 
 fn mint_manager_identity() -> Result<u64> {
-    let identity = NEXT_MANAGER_IDENTITY.fetch_add(1, Ordering::Relaxed);
-    if identity == 0 || identity == u64::MAX {
-        bail!("hot revision manager identity space is exhausted");
-    }
-    Ok(identity)
+    // Checked mint: exhaustion refuses and the counter stays permanently
+    // exhausted rather than wrapping into identity reuse.
+    NEXT_MANAGER_IDENTITY
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |identity| {
+            (identity != u64::MAX).then(|| identity + 1)
+        })
+        .map_err(|_| anyhow!("hot revision manager identity space is exhausted"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
