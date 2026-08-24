@@ -24112,9 +24112,29 @@ export async function discoverRepositorySurfaces(repoRoot) {
     hostAbi,
     "public host/engine/worklet/Android ABI inventory",
   );
-  const declaredEmbeddingAbi = scanCppPublicAbiDeclarations(
-    embeddingHeader,
-    "include/exact_runtime.h",
+  // The plan-seam benchmark ABI is deliberately declared in a private
+  // sibling header (include/exact_runtime_plan_seam_benchmark.h): product
+  // consumers include exact_runtime.h and never receive that surface, and
+  // its definitions compile only under the non-default
+  // `plan-seam-benchmark-abi` Cargo feature. It is still public embedding
+  // ABI for the parity assertion below, so both headers feed the declared
+  // set.
+  const benchmarkHeaderPath = path.join(
+    repoRoot,
+    "include",
+    "exact_runtime_plan_seam_benchmark.h",
+  );
+  const declaredEmbeddingAbi = uniqueSorted(
+    new Set([
+      ...scanCppPublicAbiDeclarations(
+        embeddingHeader,
+        "include/exact_runtime.h",
+      ),
+      ...scanCppPublicAbiDeclarations(
+        readUtf8(benchmarkHeaderPath),
+        "include/exact_runtime_plan_seam_benchmark.h",
+      ),
+    ]),
   ).filter((name) => /^(?:ex_android_|ex_hermes_|ex_worklet_)/u.test(name));
   const definedEmbeddingAbi = hostAbi
     .map((row) => row.name)

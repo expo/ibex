@@ -37,7 +37,7 @@ typedef struct ExactRestrictedWorkerV1 ExactRestrictedWorkerV1;
 /// seam.  This is intentionally a different opaque type from
 /// `ExactHermesRuntime`: callers cannot route it through eval, module, timer,
 /// fetch, native-module, or app-host entry points.
-/// @ref Exact docs/design/0514-m1-native-plan-host-and-ts-seam.md §3
+/// @ref https://github.com/expo/exact/blob/main/docs/design/0514-m1-native-plan-host-and-ts-seam.md — Exact 0514 M1 §3
 #define EX_HERMES_PLAN_SEAM_ABI_VERSION_V1 1u
 typedef struct ExactHermesPlanSeamRuntimeV1 ExactHermesPlanSeamRuntimeV1;
 

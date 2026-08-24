@@ -9,7 +9,7 @@
 // The synchronous entry points comply with LLP 0297 §4.2/B2 because they are
 // callable only by the already-owning plan/Hermes executor. They never hop to
 // another queue, wait, use a semaphore, or bounce through the main thread.
-// @ref Exact docs/design/0514-m1-native-plan-host-and-ts-seam.md §3
+// @ref https://github.com/expo/exact/blob/main/docs/design/0514-m1-native-plan-host-and-ts-seam.md — Exact 0514 M1 §3
 
 #include "../../include/exact_runtime.h"
 #if defined(IBEX_PLAN_SEAM_BENCHMARK_ABI)
