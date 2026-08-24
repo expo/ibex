@@ -438,3 +438,247 @@ None.
 ## Verdict
 
 READY
+
+---
+
+# Code rounds (slice-2 implementation)
+
+**Round 1 (747abb599):** NOT READY, 2 MATERIALs (CJS conjunction-vs-disjunction; interop-shape tuple). **Round 2 (@dfc5c8d78):** NOT READY, 1 blocker (agreement omissions — the SideEffect ./secret counterexample). **Final (@6a6926d22 + r10):** READY (unbound-call-time adjudication verified against runner_pipeline.rs:2278-2289; its own r2 deferred-set alternative repudiated). Full artifacts:
+
+## grok-code-review
+
+I'll start by reading the full review prompt and locating the slice-2 code, spec, and tests so the review is grounded in the r8 algebra rather than the truncated diff.The prompt is truncated; next I’ll load the rest of the diff, the r8 spec, and the actual slice-2 sources so findings can cite real lines.I’ll keep pulling the remaining tests, r8 spec, and the live sources so the review can compare the algebra, not just the truncated diff.I’ll locate the r8 spec and the live generation sources next so findings can be checked against the actual algebra, not just the inlined diff.The spec and generation sources are in the sibling worktrees; I’ll read those next and keep the r8 algebra in view while I inspect the live code.I’ll read the r8 spec’s algebra sections and the rest of generation.rs in parallel so I can match message strings, predicates, and commit ordering against the code.I’ll inspect GraphEdgeKey, export descriptors, the V1 commit path, and the rest of generation.rs next — those are the likely places for digest or eligibility mismatches.I have the r8 algebra and the live sources in view; next I’ll confirm a few remaining eligibility edges (CJS, export-shape, V1 fallout) before writing the structured verdict.## Overall Assessment
+
+Slice 2’s algebra is a faithful port of r8 §§1–2 and 4 onto a new V2 type family sitting beside an untouched V1 path. `HotRevision` is boot-zero, checked-`next`, and exactly-live-plus-one; begin refuses a stale base with the live coordinates; commit-time base/authority/stamp compares are invariant-worded backstops; per-slot `install_revision` fences all six publication kinds; shadows are transaction-local; converse is the corrected split (transaction-wide empty `changed` is the only no-op; unchanged invalidated members advance); candidate commit is clone-then-single-assignment; ceiling pins typed edges, candidate pins, both deferred sets, and bootstrap membership with restart-family strings.
+
+One eligibility predicate is weaker than the r8 text it claims to implement. The CommonJS rule in `commit_revision` only fires when the **replacement** row’s `source_goal` is `CommonJs`. r8 §2.3 is a disjunction: outside **CJS named-import consumption** of the accepted boundary, **or** a CJS adapter/export object held outside the closure. The implemented conjunction misses both an outside `require()` of an ESM boundary and a CJS→non-CJS replacement whose live adapter is still held outside. That is algebra-reachable, F7-safe (it would incorrectly **commit**), and not an engine concern.
+
+V1 control flow and refusal strings are preserved (the only V1 edits are `install_revision: HotRevision::BOOT` fallout on the widened public key/token). No public unverified-record constructor. No `unwrap`/`expect`/`panic` in non-test generation.rs. Slice 3’s single-flight/replay/state-machine/activation-token machinery is absent and does not need to be present; `begin_revision` staying `&self` plus overlapping transactions is what F2’s algebra half requires, and a later busy gate can wrap it without fighting this commit shape.
+
+## MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+1. **High — CJS cross-boundary predicate is narrower than r8 §2.3.**  
+   **Defect.** `commit_revision` refuses only when `replacement.artifact.semantics.source_goal == SourceGoalV1::CommonJs` **and** some non-invalidated row still has a binding onto that `SourceId`:
+
+```1115:1126:src/module_loader/generation.rs
+        for (source_id, replacement) in &replacements {
+            if replacement.artifact.semantics.source_goal == SourceGoalV1::CommonJs
+                && candidate_graph.records.iter().any(|(requester, record)| {
+                    !transaction.invalidated.contains(requester)
+                        && record.bindings.values().any(|target| target == source_id)
+                })
+            {
+                bail!(
+                    "hot revision boundary is consumed across the closure through CommonJS; full reload required"
+                );
+            }
+        }
+```
+
+   r8 §2.3 (and Exact 0417 §4.8, which it consumes) is:
+
+   > a hot revision whose accepted boundary is consumed from outside the closure through CJS named imports — **or** whose CJS adapter/export object is held outside the closure — is ineligible
+
+   Two algebra-reachable commits that must refuse:
+
+   - **Outside `CommonJsRequire` onto an ESM (or JSON) boundary.** Factory-only replacement keeps `ExportDescriptorV1`s equal, so export-shape passes; the replacement is not `CommonJs`, so this loop passes; the outside CJS adapter snapshot of that ESM namespace is the 0027 sharp edge Exact named. F10 only constructs a **CJS** boundary.
+   - **CJS → non-CJS with the live adapter still held outside.** The check looks at the replacement goal, not the live row. `commonjs_artifact` and `artifact_with_shape(..., Module, &[])` both have empty `export_descriptors`, so export-shape will not save this either.
+
+   Whole-closure CJS replacement still commits, which is correct. F10’s “any outside edge kind onto a CJS boundary” half is implemented and is the right reading of clause 2.
+
+   **Smallest fix.** Refuse if either disjunct holds, using live **or** replacement rows and the candidate graph after swap:
+
+   - some non-invalidated record has a `CommonJsRequire` binding onto an invalidated `SourceId`; **or**
+   - an invalidated `SourceId` has `SourceGoalV1::CommonJs` on the **live** row or the replacement, and some non-invalidated record has **any** binding onto it.
+
+   Keep the existing full-reload string. Extend F10 with (i) ESM leaf + outside `CommonJsRequire`, (ii) CJS→ESM with an outside ESM or CJS edge, both asserting that string and `live_snapshot` identity.
+
+2. **Medium — export-shape predicate is ESM-descriptor-only, so it does not cover r8 §2.3 “interop shape.”**  
+   **Defect.** `export_descriptor_set` JCS-hashes `ExportDescriptorV1` as a set (duplicate collapse included). That correctly refuses Local add/remove/rename and would refuse Local↔Indirect/Star/Namespace because the serde `kind` tag is in the JCS blob. It does **not** compare `source_goal` or `CommonJsExportsV1`. r8 §2.3 / Exact 0417 §4.1 require identical export names, property descriptors, **and interop shape**. Combined with finding 1, a no-export ESM ↔ CJS flip (both sides `&[]` descriptors; CJS names live only in `commonjs_exports`) is slot-eligible.
+
+   Whole-closure CJS **detected-name** edits are a gray zone against F10’s “new snapshot is the new incarnation’s snapshot”; `source_goal` change is not.
+
+   **Smallest fix.** Fold `source_goal` (and, if you want the strict interop reading, JCS of `commonjs_exports`) into the compared shape tuple. Keep descriptor-set equality for the ESM name/kind half. Add F6 cases: Local→Indirect/Star, and Module↔CommonJs with matching empty descriptor vecs.
+
+## Security Delta Verdict
+
+No landed V1 admission invariant is weakened. `AuthenticatedGenerationGraphV1` still runs `SynchronousGraphPlan`; V1 begin/commit/publish messages are the pre-slice strings; V1 tokens still fence on generation. Every V2 refusal path builds a candidate and returns `Err` before the single `self.current = …` assignment (F7). `GenerationRecordV2` fields are private; the only public constructor is `from_verified(VerifiedModuleArtifactV1, …)`. No non-test `unwrap`/`expect`/`panic`. Ceiling breaches that go through `validate_graph` still use the restart family (`regenerate policy and restart the runtime` / `restart required`), not a softened reload string.
+
+Residual, not a V1 regression: V2 construction does not reuse `SynchronousGraphPlan`’s artifact/resolver edge-agreement check (documented at `from_records`). Extra caller-supplied bindings can be ceiling-pinned without corresponding `static_edges`/`dynamic_edges`. That is a new-path API hazard for slice 3’s boot/preflight, not a hole in the landed V1 graph. Finding 1 is a **new-surface** eligibility undershoot: a hot revision can publish a successor incarnation while an outside CJS adapter snapshot still names the prior one.
+
+## Minor Findings
+
+- **Begin generation-mismatch string omits live coordinates.** r8 §5.2 check 3 says a stale base reports committed `(g, r)`. Code splits generation mismatch (`HMR revision base generation does not match the live execution generation`) from revision mismatch (coordinates included). Still refuses; slightly less than the r8 sentence.
+- **Retarget-to-absent is not a restart-family string.** `from_records` fails first with `typed module generation edge targets an absent SourceId`. Retarget to an **existing** unauthorized target correctly hits `HMR graph edge widened; regenerate policy and restart the runtime`. Live state is unchanged either way; class mapping for the absent-target case is off.
+- **V1 `publish` ignores `install_revision`.** Correct for V1 (always `BOOT`), but `GenerationPublicationToken` is shared. A V2-minted token presented to a V1 owner is fenced only on generation + digest.
+- **V2 `begin_revision` is `&self`, so overlapping transactions are constructible.** Required for F2’s algebra half; does not obstruct a slice-3 busy gate. Do not treat as a slice-2 defect.
+- **Refusal order inside `commit_revision` is ceiling → converse → export-shape → CJS**, whereas §5.2.5 lists export-shape/CJS before ceiling. When two fail, the consumer sees restart rather than full-reload. Stronger, not weaker; not a live-state bug.
+- **`HotRevisionSlotV1::commit_revision` takes `staged: T` by value**, so a refused commit drops the staged owner. Same pattern as V1. The slot test does not pin “failure leaves `current` unchanged.”
+
+**Tests — what the 16 actually pin, and algebra-reachable F-set gaps**
+
+V2 helpers (`typed_graph` / `typed_record`) assert non-empty binding maps; every V2 test uses them. V1 tests correctly keep empty maps. Digest-differs is pinned for same-spelling / distinct-`resolution_kind` (F4). Restart is pinned with `.contains("restart")`, not the exact family strings. F7 snapshots `(graph_digest, revision, install_revisions)` on ceiling and converse refusals.
+
+| Test | Pins what it claims? | Notes |
+| --- | --- | --- |
+| V1 exact/vite, concurrent, production, slot | Yes, V1 behavior | Unchanged assertions; empty maps |
+| F1 per-slot | Yes | All **six** kinds; unchanged importer A still publishes; replaced B refuses with the exact stale-revision string |
+| F1-shadow | Mostly | Drop + live identity + commit carries receipts; shadow only exercises TLA/dynamic-import, not all six kinds |
+| F2 stale begin + one winner | Yes, algebra half | Loser is the invariant base string; live identity held; coordinates on revision mismatch. Busy/quarantine/F2(a)(e) are slice 3 |
+| no-op | Yes | Exact `nothing to apply`; asserts no `full reload`; live identity |
+| F2 mixed closure | Yes | `changed == {B}`; both install revisions advance; old A token refuses |
+| F3 | Directionally | `contains("restart")` only; no live-identity snapshot |
+| F4 | Partial | (a) through `commit_revision`; (b)(c)(d) call `validate_graph` directly, so they do not pin clone-and-swap or F7. Dynamic deferred only; no deferred-CJS; no “right kind, not in bindings” |
+| F6 | Partial | Local add/remove/rename + factory-only commit. No interop-kind, no `source_goal`, no duplicate-collapse |
+| F7 | Yes for ceiling/converse | Missing export-shape, CJS, no-op (covered elsewhere), race (F2) |
+| F10-algebra | Partial vs r8 | CJS boundary + outside `CommonJsRequire` **and** `EsmStatic`; whole-closure commits. Does not pin finding 1 |
+| monotonic / production / overflow | Yes | 0→1→2; exact production string; overflow contains `full reload` |
+| HotRevisionSlotV1 | Happy path only | No refused commit |
+
+Algebra-reachable rows in §§5.2 / 10 / 11 that these 16 do not pin: V2 empty invalidation; V2 widening invalidation; V2 begin-time authority drift (restart string); deferred-CJS membership flip; deferred key of the right kind absent from bindings; export-shape/CJS refusal F7 identity; Local→Indirect/Star; duplicate-descriptor collapse; slot-refusal leaves owner. Out of slice 2 (do not treat as blockers): F5, F8, F9, F11, capture-table, busy/capacity/rotation/replay.
+
+Slice 3 surface machinery does not need to be here. Nothing in this algebra forces evaluation before ceiling, retains live shadow rows, or advances `ExecutionGeneration` on a hot commit. Preflight can extract the checks that already run before the single assignment.
+
+## Verdict
+
+**NOT READY** (blocking finding **1**; finding **2** should land in the same fix).
+
+## grok-code-rereview
+
+I'll start by reading the full review prompt and the governing LLP/review conventions so the round-2 verdict is grounded in the spec, not just the truncated diff.The prompt is a spec-grounded re-review, not a generic `/review` run. Next I’ll load the round-1 findings, the r9 addendum, and the full cumulative diff.I’ll load the rest of the prompt, the spec addendum, and the live generation sources so the re-review can check predicates against actual code.I have the worktree path. Next I’ll read the r9 spec, the live generation algebra, and the tests in parallel.The validator is the main remaining attack surface. I’ll compare it to artifact declarations, V1 completeness, and the new tests.## Overall Assessment
+
+The fix round closes the nine round-1 findings as stated: extras cannot be invented onto a verified artifact, the live manager is no longer cloneable, shadow completions are a distinct nonce-bound type, export-shape is the full interop tuple, CJS eligibility is the live-or-replacement disjunction, the ceiling is exact-set equality (removal included), principal-less members admit as integrity-pinned and are not a public invalidation target, and `ExecutionGeneration` is injectable and nonzero. Specific-first preflight order is real, and both recorded interpretations match the r9 text.
+
+One residue remains, and it is on the seam the round-2 hunt named. `validate_typed_metadata_agreement` still implements **bindings as a subset of declared keys** (extras refuse; omissions pass). Computed-site ordinals are already exact. V1 still requires `expected == observed` through `SynchronousGraphPlan`. A replacement artifact can therefore declare new static / literal-dynamic / CJS-require edges, keep the boot binding map, pass agreement, pass the exact-edge ceiling, and **commit**. That is a public-API keep-last-good miss and a ceiling bypass for artifact-declared imports the graph does not track.
+
+## Resolution Table
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| Grok 1 — CJS was a conjunction | **Resolved** | Live-or-replacement disjunction: outside `CommonJsRequire` onto any invalidated id, **or** CJS on live or replacement plus any outside binding (`generation.rs` 1216–1241). F10 pins ESM+outside CJS, CJS+outside CJS/ESM, and whole-closure commit (`tests.rs` 1683–1799). |
+| Grok 2 — shape skipped `source_goal` / `commonjs_exports` | **Resolved** | `export_shape` is `(source_goal, JCS-set(descriptors), JCS(commonjs_exports))` (`generation.rs` 1307–1316). F6 pins add/remove/rename, Local→Indirect/Star, Module↔CommonJs, detected-name edit, duplicate-descriptor collapse (`tests.rs` 1394–1585). |
+| Codex 1 — unauthenticated typed metadata | **Residue** (see New MATERIAL 1) | Extras, wrong-kind deferred, file-principal bootstrap, and clone-and-swap extras refuse `"hot update typed metadata disagrees with the verified artifact"` (`generation.rs` 267–338, 394–399, 1346; `tests.rs` 922–990, 1263–1279, 1045–1057). Bindings are still extras-closed / omissions-open (`generation.rs` 309–312). `from_records` still documents dropping V1 completeness (`generation.rs` 409–412). |
+| Codex 2 — cloneable live manager | **Resolved** | `ModuleExecutionGenerationsV2` is `Debug, PartialEq, Eq` only (`generation.rs` 980–986). `HotRevisionSlotV1` has no `Clone`. |
+| Codex 3 — unbound shadow tokens | **Resolved** | Distinct `ShadowPublicationToken` with private fields + `transaction_nonce` (`generation.rs` 115–124, 1358–1382). Live `publish` still takes `GenerationPublicationToken`. Reuse of a dropped txn’s token is the exact nonce string (`tests.rs` 611–619). All six kinds publish into the txn and ride the commit (`tests.rs` 589–629). |
+| Codex 4 — export/CJS shape | **Resolved** | Same as Grok 1–2. |
+| Codex 5 — edge removal passed the ceiling | **Resolved** | `candidate_edges != authorized_edges` (`generation.rs` 623–625). F4 removal of one same-spelling kind refuses the restart string (`tests.rs` 1122–1138). Sites add/alter/remove and deferred/bootstrap equality go through `commit_revision`. |
+| Codex 6 — unrepresentable builtins | **Resolved** | Principal-less members admit, land in `pinned_integrities`, and `begin_revision` refuses the new restart string (`generation.rs` 535–540, 1114–1120; `tests.rs` 992–1037). File-principal bootstrap facts refuse agreement (`tests.rs` 1039–1057). |
+| Codex 7 — hard-coded generation / split stale-base | **Resolved** | `ExecutionGeneration::new` rejects 0; V2 `new` takes the generation (`generation.rs` 32–37, 989–1013). Both stale coordinates use `"hot update base is stale; committed coordinates are generation {g} revision {r}"` (`generation.rs` 1096–1101; `tests.rs` 53–55, 703–721). |
+| Merged fixture-gap list | **Resolved** (modulo finding 1’s missing-declared-edge negative) | Exact restart strings; F4 via `commit_revision`; deferred-CJS; wrong-kind deferred; missing-edge; F6 interop; F10 disjunction + shape-first flip; live-identity snapshots on F3/F6/F7/F10/no-op/F2; refused slot commit; shadow six kinds + reuse; empty/widening invalidation; begin-time authority. |
+
+**Interpretation (a).** Accepted. §5.2.5 is converse/no-op, export-shape, CJS, ceiling. A CJS→ESM flip with an outside ESM edge reports the export-shape string (`tests.rs` 1801–1835). Same-goal F10 cases prove both CJS disjuncts.
+
+**Interpretation (b).** Accepted. Public `begin_revision` cannot put a principal-less id in `invalidated`. F4(d)’s clone-and-swap bootstrap backstop is only reachable by mutating the private transaction (`tests.rs` 1374–1391). That is an honest test of a defense-in-depth path, not a substitute for the public begin refusal (which is tested separately).
+
+## r9 Addendum Verification
+
+The three §4 paragraphs and the §5.2.5 specific-first sentence are **sound** as spec. They close the three doc-level gaps the code round exposed, and they do not weaken any pin.
+
+| Addendum rule | Sound? | Implemented exactly? |
+| --- | --- | --- |
+| Exact typed-edge equality, including **removal** (subset is a breach) | Yes. Matches the ceiling’s job: the pinned set is the boot graph, not a live policy re-query. | Yes at the ceiling (`candidate_edges != authorized_edges`; same for sites, both deferred maps, bootstrap). Removal fixture is the restart string, not a silent subset. |
+| Membership vs principal pins; builtins/synthetics integrity-pinned and never hot-replaceable; bootstrap facts only from principal-less records | Yes. V1’s “every member has a defining principal” could not admit live builtin rows; pinning identity without minting a file principal is the right correction. | Yes. `defining_principal()` is `None` for `Builtin`/`Synthetic` (`identity.rs` 117–121). Begin refuses targeting them. Bootstrap set is derived only when principal is `None`, else must be empty. |
+| Typed metadata is never self-authenticating; disagreement refuses at stage; raw-map construction is not public; clone-and-swap revalidates | Yes as a rule. One wording nit: computed-site **attributes** are sidecar pins (`CandidateSitePinV1`), not `DynamicEdgeV1::Computed { site }` fields. Ordinals are what the artifact declares; pin bytes are ceiling-authenticated. | **Not exactly for binding keys.** Public constructors go through `from_verified`; `from_records` is private and revalidates. Site ordinals are exact; bootstrap is exact; deferred is correctly a subset of declared literal CJS/dynamic keys. Bindings only forbid extras. That is the residual (finding 1). |
+| Specific-first: converse/no-op, export-shape, CJS, ceiling | Yes. Combined-invalid observability belongs in the spec; putting ceiling last is the stronger consumer diagnostic for reload vs restart. | Yes in `commit_revision` after coverage (`generation.rs` 1178–1246). Clone-and-swap `from_records` still runs *before* that list; on the public path those rows already agreed at stage. |
+
+§10’s parenthetical still says “edge added/retargeted” and does not name removal or the builtin begin refusal. Harmless: the row is “ANY v2 ceiling breach,” r9 left §10 byte-stable, and the new builtin string is already restart-family.
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+1. **Medium — agreement still allows declared edges to be dropped, so a replacement can smuggle new artifact imports past the exact-edge ceiling.**
+
+   **Defect.** The extras half of Codex 1 is closed. Completeness is not. Bindings pass if every key is declared; declared keys need not be bound or deferred:
+
+```309:324:src/module_loader/generation.rs
+        if self
+            .bindings
+            .keys()
+            .any(|key| !declared_bindings.contains(key))
+            || !self
+                .candidate_sites
+                .keys()
+                .copied()
+                .eq(declared_computed_sites.iter().copied())
+            || !self.deferred_dynamic.is_subset(&declared_dynamic)
+            || !self
+                .deferred_commonjs_require
+                .is_subset(&declared_commonjs_require)
+        {
+            bail!(DISAGREEMENT);
+        }
+```
+
+   Site ordinals use ordered equality. V1 construction still requires exact specifier-set agreement via `SynchronousGraphPlan` (`generation.rs` 159–165; `graph.rs` 372–378). V2 documents the drop (`generation.rs` 409–412). Helpers always emit artifact edges *from* the binding map (`tests.rs` 231–256), so no fixture pins the dual.
+
+   Public path, algebra-reachable, F7-unsafe in the “incorrectly commits” sense:
+
+   - Boot: Root module, `static_edges`/`bindings` = `{EsmStatic "./self"}`.
+   - Replacement: same export-shape tuple, new factory (so `changed` is non-empty), **additional** declared `SideEffect "./secret"` (or a new literal dynamic / `CommonJsRequire`), **same** boot bindings.
+   - `from_verified`: `{"./self"} ⊆ {"./self", "./secret"}` → Ok.
+   - Ceiling: candidate edge set equals the pinned boot set → Ok.
+   - `commit_revision` publishes a successor whose verified artifact declares an import the authenticated graph does not contain.
+
+   That is the dual of the invented-edge hole: typed metadata can under-claim the artifact and ride the exact-edge ceiling. Stage is supposed to refuse this as disagreement (keep-last-good), not commit it.
+
+   **Smallest fix.** After the extras check, require every `declared_bindings` key to appear in `self.bindings`, **or** — only for `DynamicImport` / `CommonJsRequire` — in the matching deferred set (so an unresolved deferred literal still need not have a `SourceId` target). ESM-static declared keys must be bound. Keep `DISAGREEMENT`. Delete the “V2 drops completeness” comment. Fixture: extra declared static edge + boot bindings refuses at `from_verified` and at `commit_revision`; live snapshot unchanged.
+
+## Minor Findings
+
+- Commit still does not re-check principal-less ids in `invalidated`/`replacements`. The public begin path is closed; only the test-private mutation can reach clone-and-swap against a builtin. A one-line commit backstop would match “never hot-replaceable” on both seams.
+- `from_records` (agreement, duplicate id, absent target) still precedes §5.2.5. Retarget-to-absent therefore still reports `"typed module generation edge targets an absent SourceId"` rather than the restart-family edge string (round-1 grok minor, unchanged). Live state is untouched either way.
+- `ModuleExecutionGenerationsV1::publish` still ignores `install_revision` on the shared token type. Correct for V1 (always `BOOT`); a V2-minted token presented to a V1 owner is fenced only on generation + digest.
+- r9’s “computed-site … attributes” clause over-describes the artifact. Implementation is the right split: ordinals vs artifact, pin bytes vs ceiling. Worth a later wording fix, not a code change.
+- Abandoned `begin_revision` calls consume `next_transaction_nonce` (`Cell` starts at 1, checked add). Exhaustion is not a practical HMR path; slice 3’s single-flight gate will make it unreachable in the product surface.
+
+## Verdict
+
+NOT READY (with blocking finding numbers: 1).
+
+## grok-final-review
+
+## Resolution Table
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| Grok r2 MATERIAL 1 — bindings extras-closed / omissions-open; declared `SideEffect "./secret"` + boot bindings could ride the exact-edge ceiling | **Resolved** | Two-sided agreement: extras still refuse; every declared `ResolutionKind::EsmStatic` key must be bound (`generation.rs` 341–352). `SideEffect`/`Default`/`Named`/re-export all map to `EsmStatic` (288–301), so the original counterexample is in the link-time set. Construction fixture: declared `{"./self", "./secret"}` + `only_self` bindings refuses `DISAGREEMENT` (`tests.rs` 1979–2001). Clone-and-swap fixture: construct fully bound, drop `"./secret"` after `from_verified`, assign into `transaction.replacements`; `commit_revision` revalidates via `from_records` and refuses the same string; `live_snapshot` identity holds (`tests.rs` 2040–2089; `generation.rs` 422–427, 1215–1220). Public `stage_replacements` also revalidates (1391). Stale “V2 drops completeness” comment is gone## Resolution Table
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| Grok r2 MATERIAL 1 — bindings extras-closed / omissions-open; declared `SideEffect "./secret"` + boot bindings could ride the exact-edge ceiling | **Resolved** | Two-sided agreement: extras still refuse; every declared `ResolutionKind::EsmStatic` key must be bound (`generation.rs` 341–352). `SideEffect`/`Default`/`Named`/re-export all map to `EsmStatic` (288–301), so the original counterexample is in the link-time set. Construction fixture: declared `{"./self", "./secret"}` + `only_self` bindings refuses `DISAGREEMENT` (`tests.rs` 1979–2001). Clone-and-swap fixture: construct fully bound, drop `"./secret"` after `from_verified`, assign into `transaction.replacements`; `commit_revision` revalidates via `from_records` and refuses the same string; `live_snapshot` identity holds (`tests.rs` 2040–2089; `generation.rs` 422–427, 1215–1220). Public `stage_replacements` also revalidates (1391). Stale “V2 drops completeness” comment is gone (437–440). |
+| Codex r2 residue 1 — r9 over-attributed targets/pins/deferred classification to artifact declarations; public constructors take caller maps | **Resolved** (spec + documented layering) | r10 names the authentication source per row: artifact declarations = spellings/kinds/ordinals; armed resolution/link plan = targets + deferred classification; validated `ibex/computed-candidates/1` sidecars (`validate_requester` included) = candidate pins; §5 is the only production construction path (`llp/0055` r10 §4). `from_verified` now states the same contract and that slice 3 owns supplying plan-derived rows (`generation.rs` 245–253). Agreement still enforces the artifact half; ceiling still pins `(requester, key, target)` triples, site pins, and both deferred sets from the boot graph. Same layering as `VerifiedModuleArtifactV1` being produced upstream. |
+| Codex r2 residue 2 — one-sided agreement (joint with grok blocker) | **Resolved** (adjudicated, not Codex’s exact-set-minus-bootstrap) | Declared ESM-static keys are exact against bindings (extras ∪ omissions). Declared literal `DynamicImport` / `CommonJsRequire` keys may stay unbound. Unbound admits are pinned on Module (`"./lazy"`) and CommonJs (`"./maybe"`) goals (`tests.rs` 2003–2036). Codex’s “derive expected keys, subtract bootstrap-private, require equality” is correctly **not** the rule — it would fail LLP 0027 and the production linker (`runner_pipeline.rs` 2278–2289 leaves unresolved call-time out of the binding table). |
+| Codex r2 residue 3 — manager-local nonces collide across independent managers | **Resolved** | Process-unique `NEXT_MANAGER_IDENTITY` (`AtomicU64`, start 1) is stored on the manager, copied onto the transaction at `begin_revision`, minted into `ShadowPublicationToken`, and checked before the nonce (`generation.rs` 124–130, 1041, 1163, 1416, 1426–1429). Same-generation two-manager reuse and a cross-generation third manager both refuse the existing foreign-transaction string (`tests.rs` 2093–2146). |
+| Grok r2 minor — principal-less commit backstop | **Resolved** | `commit_revision` refuses principal-less ids in `invalidated` with the begin-time restart string before clone-and-swap (`generation.rs` 1197–1209). Dedicated fixture mutates `invalidated`, asserts that string, and pins live snapshot identity (`tests.rs` 2150–2195). F4(d): commit now asserts the backstop string; the ceiling’s bootstrap row is pinned at `admission.validate_graph` with the restart-family string (`tests.rs` 1385–1410). |
+| Codex r2 minor — F4 title does not name edge removal | **Resolved** | F4 title is “ceiling breadth, edge removal included” (r10 §11). Removal remains a `candidate_edges != authorized_edges` restart (`generation.rs` 651–652; F4 removal fixture `tests.rs` 1122–1138). |
+
+**Counterexample (declared `SideEffect "./secret"` + boot bindings) at both seams.** `artifact_with_typed_facts` emits `StaticEdgeV1::SideEffect` for `EsmStatic` keys (`tests.rs` 237–241). Construction: `from_verified` → `DISAGREEMENT`. Commit seam: post-construction bind-drop → `from_records` → `DISAGREEMENT`, live `(digest, revision, install_revisions)` unchanged. If agreement had still been one-sided, the mutated record’s remaining bindings would equal the boot edge set and the exact-edge ceiling would have committed it.
+
+## Adjudication Judgment
+
+**Accept the adopted rule.** Declared ESM-static keys MUST be bound; declared literal `DynamicImport` / `CommonJsRequire` keys MAY stay unbound.
+
+LLP 0027’s 2026-07-27 sentence is the law this seam is implementing: graph-plan validation “tolerates exactly missing call-time bindings, never extra, renamed, or missing link-time ones.” Unbound call-time edges “contribute no linkage, mint no authority decision, and admit no bytes.” The production linker already `continue`s on unresolved call-time resolution (`runner_pipeline.rs` 2278–2289) and omits unresolved bootstrap-internal requires from the binding table (2254–2266). Slice-2 agreement that required those keys to be bound would refuse legal boot graphs and legal factory-only replacements that add an unresolved `import()`/`require()`.
+
+Grok r2’s “in `bindings` **or** the matching deferred set” alternative is the wrong parking lot:
+
+- Deferred membership is a plan-authenticated, ceiling-pinned classification of *which bound call-time edges sit outside eager evaluation/SCC/TLA* (0055 §4; F4(c) is a deferred→eager flip on an **authorized** edge). It is not a substitute target for unresolved specifiers.
+- Forcing unresolved eager literals into `deferred_*` would misclassify them and, on HMR, turn an everyday “add an optional `import('./missing')`” factory edit into a deferred-set ceiling breach (restart).
+- Combining that alternative with deferred-subset-of-bindings (deferred keys are themselves edges, i.e. members of `bindings`) collapses “bindings ∨ deferred” to “in bindings,” which is exactly the 0027 violation the production linker does not implement.
+
+The live graph is still closed for *bound* call-time edges: extras remain disagreement; adding or dropping a live call-time **binding** is `candidate_edges != authorized_edges` (F4 removal already drops a `DynamicImport` binding and asserts the restart string). The original hole was a **new declared link-time import with the boot binding map** — that cannot pass either seam now.
+
+r10’s per-row authentication sources are the right correction of r9’s over-attribution and do not weaken any pin.
+
+## New MATERIAL Findings
+
+None.
+
+## Minor Findings
+
+- F4’s bootstrap block still says the private mutation “exercises the clone-and-swap ceiling backstop directly” (`tests.rs` 1374–1375). After the adopted commit backstop, that commit now hits the principal-less string; the ceiling row is asserted via `validate_graph`. The later comment is accurate; the earlier one is leftover. Not a live-state or pin defect.
+- §10’s “ANY v2 ceiling breach” parenthetical still reads “edge added/retargeted” and does not name removal. r10 recorded removal on the F4 title as requested; the §10 row remains class-correct. Harmless, same as r2.
+
+## Verdict
+
+READY
+

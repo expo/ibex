@@ -353,3 +353,199 @@ None.
 ## Verdict
 
 READY
+---
+
+# Code rounds (slice-2 implementation)
+
+**Round 1 (747abb599):** NOT READY, 7 findings (4 HIGH — unauthenticated typed metadata, cloneable manager, unbound shadow tokens, shape/CJS gaps; 3 MEDIUM). **Round 2 (post-fix @dfc5c8d78):** NOT READY, 3 residues (agreement omissions; authentication sources; cross-manager nonces). **Final (@6a6926d22):** NOT READY, 1 blocker (foreign-transaction portability). **Confirmation (@bbabca0f0+):** READY. Full artifacts:
+
+## codex-code-review
+
+## Overall Assessment
+
+NOT READY. Independent GPT-5.5, GPT-5.6, and security-family reviews converged on significant admission and publication-algebra defects. The focused executable reports 16/16 tests passing, and formatting/diff checks pass, but several fixtures rely on metadata the real authenticated graph must reject.
+
+## Spec-Conformance Table (per §/F row: conforms | gap | cite)
+
+| Row | Status | Cite |
+| --- | --- | --- |
+| §1 successor/base law | gap | Generation is hard-coded to 1, the owner is cloneable, and generation-mismatch errors omit live `(g,r)`: [generation.rs:891](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:891), [generation.rs:898](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:898), [generation.rs:1003](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1003); [r8 §1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:212). Commit backstops are correctly invariant-worded at [generation.rs:1041](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1041). |
+| §2.1 incarnation key | gap | The install revision is present, including revision 0 on V1, but cloneable ownership can create two indistinguishable live authorities: [generation.rs:69](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:69), [generation.rs:891](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:891). |
+| §2.2 live/shadow predicates | gap | The individual comparisons conform, but live and shadow use the same cloneable token type, so a dropped shadow token can become live-valid after another matching commit: [generation.rs:98](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:98), [generation.rs:964](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:964), [generation.rs:1225](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1225); [r8 §2.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:304). |
+| §2.3 export/CJS eligibility | gap | Only ESM export descriptors and replacement-side `CommonJs` status are checked; source goal and CJS detected exports are omitted: [generation.rs:1101](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1101); [r8 §2.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:341). |
+| §4 V2 digest | conforms | Deterministic BTree iteration plus JCS covers semantic digest, typed binding targets and `resolutionKind`, candidate digest/attributes, both deferred sets, and bootstrap membership: [generation.rs:364](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:364), [generation.rs:383](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:383). |
+| §4 authenticated rows/ceiling | gap | Typed facts are not checked against artifact declarations, edge removal passes the ceiling, and legitimate builtin bootstrap rows cannot initialize admission: [generation.rs:219](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:219), [generation.rs:317](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:317), [generation.rs:442](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:442), [generation.rs:515](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:515). |
+| §10 strings/classes | gap | Restart-family implementation strings remain strict, but stale-generation does not use the mandated live-coordinate stale-base diagnostic: [generation.rs:1003](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1003); [r8 §10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:827). |
+| F1 | gap | All six live kinds are exercised, but shadow/live separation and dropped-token non-reuse are not: [tests.rs:457](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:457), [tests.rs:472](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:472). |
+| F2 | gap | Converse/no-op/unchanged-importer cases are covered, but the stale-generation test pins the wrong message and cloneable owners defeat the global one-winner law: [tests.rs:602](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:602). Slice-3 single-flight absence is not charged. |
+| F3 | gap | Package mutation refuses restart, but the assertion is only `.contains("restart")`, not the required family string: [tests.rs:730](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:730). |
+| F4 | gap | Fixtures use undeclared typed rows, do not test missing-edge refusal, omit deferred-CJS coverage, and assert digest differences only for bindings: [tests.rs:757](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:757). |
+| F6 | gap | Add/remove/rename descriptor cases exist, but interop/source-goal and CJS detected-name changes do not: [tests.rs:909](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:909). |
+| F7 | gap | The sole assignment is correctly last: [generation.rs:1143](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1143). Tests compare digest/revision/install maps, not full live-record byte identity: [tests.rs:259](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:259). |
+| F10 | gap | The test checks only two outside edge kinds and a metadata-level whole-closure commit; it does not pin `default`, `'module.exports'`, detected names, sticky-error/eviction, or non-crossing export objects: [tests.rs:1072](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1072); [r8 F10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:934). |
+
+## MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **HIGH — V2 accepts unauthenticated typed graph metadata.** `GenerationRecordV2::from_verified` checks only deferred membership, while `from_records` checks only duplicate IDs and target presence. It drops V1’s artifact/resolver agreement validation through `SynchronousGraphPlan`: [generation.rs:139](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:139), [generation.rs:219](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:219), [generation.rs:317](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:317). The fixtures demonstrate the hole: artifacts declare no edges, while every V2 row invents one; candidate site 7 and bootstrap membership are similarly undeclared: [tests.rs:119](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:119), [tests.rs:191](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:191), [tests.rs:812](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:812). Smallest fix: construct V2 records from a validated typed-plan capability, checking exact artifact edges, computed-site ordinals, candidate attributes, deferred declarations, bootstrap declarations, and targets; make raw-map construction private and revalidate clone-and-swap candidates equivalently.
+
+2. **HIGH — The live revision authority is cloneable.** `ModuleExecutionGenerationsV2` derives `Clone`, allowing two copies to commit different `r+1` successors from the same base despite the unique-owner successor law: [generation.rs:891](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:891); [r8 §1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:212). This directly obstructs slice-3 single-flight. Smallest fix: remove `Clone` from the live manager and any wrapper that could duplicate slot authority.
+
+3. **HIGH — Shadow publication capability is not transaction-bound.** Live and shadow APIs accept the same `GenerationPublicationToken`. A token retained from a dropped transaction can pass live publication after another transaction installs the same source, revision, and digest: [generation.rs:964](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:964), [generation.rs:1245](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1245). F1 retains such a token but never tries reuse: [tests.rs:496](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:496). Smallest fix: introduce a distinct shadow-token type bound to an unforgeable transaction identity; live publication must reject shadow provenance, with commit explicitly adopting shadow results.
+
+4. **HIGH — Export and CJS interop shape can change during a hot commit.** Eligibility compares only `export_descriptors`; it ignores `source_goal` and `commonjs_exports`, and boundary detection considers only the replacement being CommonJS: [generation.rs:1106](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1106), [artifact.rs:217](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/artifact.rs:217). ESM↔CJS or CJS detected-name/reexport changes can therefore commit. Smallest fix: compare a canonical full export-shape fingerprint covering source goal, normalized export descriptors, and CJS detected interop exports; inspect both current and replacement boundary forms.
+
+5. **MEDIUM — The edge ceiling does not detect missing boot edges.** Validation rejects extras/retargets but treats the candidate as an allowed subset of `authorized_edges`: [generation.rs:515](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:515). R8 requires all shape facts pinned and routes shape changes through generation re-derivation: [r8 §4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:409). Smallest fix: collect the candidate edge set and require exact equality, with restart-family diagnostics for both extras and missing rows.
+
+6. **MEDIUM — Real bootstrap-internal rows are unrepresentable.** Bootstrap facts are derived for builtin artifacts, but admission requires every source to have a defining principal; builtins return `None`: [graph.rs:235](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/graph.rs:235), [generation.rs:442](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:442), [identity.rs:117](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/identity.rs:117). F4 masks this by placing bootstrap facts on a root-owned ordinary Module. Smallest fix: separate exact source membership from optional file-principal pins, and define fail-closed builtin/synthetic admission while deriving bootstrap facts only from eligible builtin declarations.
+
+7. **MEDIUM — The execution-generation half of the base coordinate is incomplete.** `new` always installs `ExecutionGeneration::INITIAL`; callers cannot initialize the session-minted generation required after reload, and the generation-mismatch branch omits live coordinates: [generation.rs:898](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:898), [generation.rs:914](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:914), [generation.rs:1003](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1003); [r8 §1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:239). Smallest fix: accept a validated nonzero `ExecutionGeneration` at construction and collapse both base mismatches into the live-coordinate diagnostic.
+
+## Security Delta Verdict
+
+Unsafe. V1 control flow and refusal messages remain unchanged apart from adding revision-0 incarnation data, restart-family refusals were not softened, all recoverable commit checks precede the sole live assignment, and no production `unwrap`, `expect`, or `panic!` was added. Nevertheless, V2 is below the landed admission ceiling because verified artifacts can acquire unverified graph facts, the live authority can be cloned, shadow capability can escape a refused transaction, and interop shape can change without the required refusal.
+
+## Minor Findings
+
+- `typed_rows_equal` covers every stored V2 fact, and the JCS/BTreeMap digest construction is deterministic. `edge_digest_row` correctly includes `target` only for binding rows.
+- `export_descriptor_set` deliberately ignores order and collapses byte-identical duplicates. That is consistent with set semantics, but no fixture pins the intended duplicate behavior.
+- Preflight currently checks ceiling before converse, export shape, and CJS eligibility. Combined-invalid candidates may therefore observe a restart result before a more specific reload/keep-last-good result; the intended precedence should be documented and fixture-pinned.
+- All 16 focused tests pass. Their principal gaps are: fabricated rather than artifact-declared non-empty typed maps; no isolated digest-difference assertions for candidate/deferred/bootstrap facts; no deferred-CJS case; substring-only restart checks; incomplete F6/F7/F10 coverage; and no shadow-to-live misuse negative.
+- Repository search found no external `ModuleIncarnationKey` literals, so adding `install_revision` causes no in-tree construction fallout. V1 paths continue to return revision 0 and retain their existing messages.
+- `git diff --check` and `cargo fmt --all -- --check` pass.
+
+## Verdict
+
+NOT READY (with blocking finding numbers: 1–7).
+## codex-code-rereview
+
+## Overall Assessment
+
+NOT READY. The fix resolves most round-1 findings and substantially closes the fixture gaps, but three MATERIAL security residues remain:
+
+1. Typed candidate/edge metadata still lacks a complete authenticated construction path.
+2. The agreement validator accepts omitted artifact-declared bindings.
+3. Transaction nonces collide across independent managers, so shadow tokens are not truly transaction-bound.
+
+The existing post-fix generation test binary passes all 18 targeted tests. `git diff --check` passes and the worktree is clean. A fresh build was blocked by the read-only filesystem; the broader prebuilt suite’s filesystem-dependent tests consequently failed with `PermissionDenied`.
+
+## Resolution Table
+
+| Item | Resolution | Evidence |
+|---|---|---|
+| Codex 1 — unauthenticated typed metadata | **PARTIAL — blocking findings 1–2** | Construction now requires a verified artifact and revalidates at construction, stage, and clone-and-swap, but raw targets/pins remain publicly supplied and agreement is incomplete. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:238) |
+| Codex 2 — live manager derived `Clone` | **RESOLVED** | `ModuleExecutionGenerationsV2` no longer derives `Clone`. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:979) |
+| Codex 3 — shadow tokens not transaction-bound | **PARTIAL — blocking finding 3** | Distinct token type and same-manager nonce reuse checks are present, but nonce identity is only manager-local. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:118) |
+| Codex 4 — export/CJS shape could change | **RESOLVED** | Shape covers `source_goal`, descriptor set, and `commonjs_exports`; export-shape precedes CJS. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1202) |
+| Codex 5 — edge removal passed ceiling | **RESOLVED** | Candidate edges must exactly equal the ceiling; subsets now refuse. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:623) |
+| Codex 6 — builtin/bootstrap rows unrepresentable | **RESOLVED** | Membership is independent of principal pins; principal-less rows are integrity-pinned and cannot be invalidated. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:523) |
+| Codex 7 — hard-coded generation and incomplete mismatch diagnostic | **RESOLVED** | Generation is injected through a nonzero constructor; stale-base errors report live generation and revision. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:29), [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1096) |
+| Grok 1 — CJS live-or-replacement disjunction | **RESOLVED** | Boundary eligibility is `CommonJsRequire ∨ current_is_commonjs ∨ replacement_is_commonjs`. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1214) |
+| Grok 2 — full shape tuple | **RESOLVED** | `export_shape` includes `SourceGoalV1`, descriptors, and canonical `commonjs_exports`. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1307) |
+| Exact restart strings | **RESOLVED** | F3/F4 assert exact restart-family diagnostics. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:891) |
+| Commit-path F4 | **RESOLVED** | Edge retarget/removal, site changes, deferred changes, and bootstrap changes reach `commit_revision`. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1061) |
+| Deferred-CJS | **RESOLVED** | Deferred CJS→eager change refuses with the exact membership diagnostic. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1282) |
+| F6 interop cases | **RESOLVED** | Add/remove/rename/descriptor, goal flips, and CJS detector-output changes are covered; same-shape replacement commits. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1395) |
+| F10 disjunction | **RESOLVED** | Outside CJS require, CJS boundary under multiple edge kinds, whole-closure success, and precedence are covered. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1684) |
+| Identity snapshots | **RESOLVED** | Refusals compare graph digest, revision, and per-source install revisions before/after. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:348) |
+| Refused slot commit | **RESOLVED** | A refused revision leaves the native owner value and revision unchanged. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1915) |
+| Shadow all-six-kinds | **RESOLVED** | All six kinds publish to shadow state and are carried on commit. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:589) |
+| Shadow reuse negative | **PARTIAL — blocking finding 3** | Sequential reuse within one manager refuses, but cross-manager reuse is untested and succeeds when local nonce/row coordinates coincide. [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:604) |
+
+## r9 Addendum Verification
+
+The r8→r9 diff contains exactly the declared additions: the Revised entry, three §4 paragraphs, and §5.2.5 precedence. No unrelated text changed.
+
+- **Exact edge-set equality:** sound and implemented exactly.
+- **Membership versus principal pins:** sound and implemented exactly.
+- **Typed-metadata agreement:** not sound or complete as written or implemented; findings 1–2 block it.
+- **Specific-first precedence:** sound and implemented in the required order: converse/no-op, export shape, CJS eligibility, then ceiling. [r9 §5.2.5](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:561)
+
+Interpretation point (a) is correct: a CJS→ESM flip with an outside edge must report export-shape because r9 explicitly puts it first. Same-goal cases validate the ordinary CJS behavior, while code inspection establishes the full live-or-replacement disjunction.
+
+Interpretation point (b) is also acceptable. The public path intentionally refuses builtin/synthetic targets at `begin_revision`, making the bootstrap ceiling backstop unreachable during conforming operation. A test-private transaction mutation is an appropriate white-box method for exercising that defense-in-depth branch.
+
+Overall, however, the addendum is not yet sound and completely implemented because its typed-authentication paragraph claims guarantees the current artifact schema and APIs cannot establish.
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **MATERIAL — r9 does not identify an authentication source for resolved targets or candidate-sidecar pins, and the code accepts them as caller-created values.** `ModuleArtifactV1` declares edge spellings/kinds and only a computed-site ordinal; it does not declare the resolved `SourceId`, candidate-table digest, or `attributes_digest`. Nevertheless, public V2 constructors accept raw bindings and `CandidateSitePinV1`, while graph construction merely checks that targets exist. [artifact.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/artifact.rs:97), [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:218), [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:358), [r9 §4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:439)
+
+   Smallest fix: make records derive their rows from a validated authenticated graph-plan/envelope object. Candidate pins should derive from validated `ComputedCandidateTableV1` tokens, including `validate_requester`, rather than caller-provided digests. Amend r9 to name the authentication source for targets, sidecar attributes, and deferred classification instead of attributing all of them to artifact declarations.
+
+2. **MATERIAL — typed agreement is one-sided and accepts omitted artifact-declared bindings.** The validator rejects a supplied key absent from declarations, but never requires every declared static, literal-dynamic, or CJS-require key to be represented. Thus an artifact declaring `./dep` with empty `bindings` passes construction; on an initial graph that omission is then blessed into the ceiling. It also does not prohibit a bootstrap-internal declaration from simultaneously appearing as an ordinary binding. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:267)
+
+   Smallest fix: derive the exact expected binding-key set from the artifact, subtract only authenticated bootstrap-private declarations, and require equality. Add negatives for missing ESM, literal dynamic, and CJS bindings, plus double-represented bootstrap-internal edges.
+
+3. **MATERIAL — manager-local nonces permit cross-manager shadow-token reuse.** Every new manager initializes its counter to `1`; the token carries no manager or generation identity, and `shadow_publish` compares only that local counter before checking source, candidate revision, and digest. Two first transactions over the same replacement therefore accept each other’s token—even across different execution generations—and the receiving transaction relabels the receipt with its own generation. [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:985), [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1367), [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1380)
+
+   Smallest fix: bind tokens with an opaque per-transaction capability, such as a private shared identity checked by pointer identity, or a globally unique manager identity plus counter and generation. Add same-generation and cross-generation two-manager reuse negatives.
+
+## Security Delta Verdict
+
+**UNSAFE — unchanged.**
+
+Of the four round-1 security blockers:
+
+- Manager cloning is closed.
+- Export/CJS shape enforcement is closed.
+- Typed-metadata authentication remains incomplete through findings 1–2.
+- Shadow transaction binding remains incomplete through finding 3.
+
+## Minor Findings
+
+- r9’s normative removal rule is clear, but §10 and §11 F4 were not updated to name edge removal explicitly. “ANY v2 ceiling breach” technically covers it, and the code has the test, but the required-fixture ledger should record it.
+- The F10 tests do not independently isolate the live and replacement CJS disjuncts because same-goal CJS cases make both true. The implementation is correct; extracting the eligibility predicate would permit direct truth-table testing.
+- The LLP review artifact could not be written because the supplied workspace is read-only.
+
+## Verdict
+
+NOT READY (with blocking finding numbers 1–3).
+## codex-final-review
+
+## Resolution Table
+
+| Item | Result | Evidence |
+|---|---|---|
+| Residue 1 — authentication sources | RESOLVED | r10 correctly assigns declaration identity, resolved targets/deferred classification, and candidate pins to their respective authorities ([LLP 0055 §4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:452)). This matches link-plan validation ([graph.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/graph.rs:335)) and requester-bound sidecar validation ([computed_candidates.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/computed_candidates.rs:110)). |
+| Residue 2 — two-sided agreement | RESOLVED | Undeclared rows refuse; every declared ESM-static key must be bound, while unresolved call-time keys may remain unbound ([generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:282), [LLP 0027](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0027-module-artifact-and-interop.spec.md:14)). Construction, clone-and-swap, Module-goal, CommonJS-goal, and snapshot-identity cases are covered ([tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1979)). |
+| Residue 3 — shadow-token manager identity | RESOLVED for token-to-transaction reuse | Manager identity is process-allocated, copied into transactions/tokens, and compared before the transaction nonce ([generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:120), [generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1421)). Same-generation and cross-generation manager negatives exist ([tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:2093)). |
+| Principal-less commit backstop | RESOLVED | Commit mirrors the begin refusal before graph publication, with direct snapshot-identity coverage ([generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1197), [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:2150)). |
+| F4 edge removal/bootstrap coverage | RESOLVED | r10 names edge removal, equality rejects removal, and the bootstrap ceiling is now tested directly after the principal-less backstop ([LLP 0055 F4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:948), [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1122), [tests.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation/tests.rs:1385)). |
+
+## Layering Judgment (residue 1)
+
+Acceptable for the slice-2 algebra. There are currently no non-test V2 construction callers, and `from_verified` explicitly states its upstream plan/sidecar precondition ([generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:245)).
+
+The analogy to `VerifiedModuleArtifactV1` is not mechanically exact—the plan-derived rows remain raw collections rather than an unforgeable witness—but deferring their production to slice 3 is sound provided `HotRevisionSurfaceV1` becomes the sole production constructor as r10 requires.
+
+## New MATERIAL Findings
+
+1. **MATERIAL — whole transactions can still cross managers.** `manager_identity` is stored in `HotRevisionTransactionV1`, but `ModuleExecutionGenerationsV2::commit_revision` never compares it with `self.manager_identity` ([transaction field](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1363), [commit checks](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1171)). Consequently, a transaction minted and shadow-published by manager A can be passed to manager B when generation, base, policy, and graph coincide; B accepts A’s replacements and accumulated shadow receipts at publication ([commit adoption](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1296)). The new tests exercise a foreign token against B’s transaction, not A’s entire transaction against B’s commit.
+
+   Smallest fix: reject `transaction.manager_identity != self.manager_identity` before the existing commit backstops, with same-generation and cross-generation foreign-transaction tests including a staged shadow receipt and unchanged-state assertion.
+
+## Minor Findings
+
+- The type comment still says construction authenticates every typed row “against the verified artifact,” while r10 correctly assigns targets, deferred classification, and candidate pins elsewhere ([generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:230)). Also, “raw typed maps are not a public path” is literally stronger than the current public module/public constructors. Prefer “not a production path” or narrow visibility before slice 3.
+- `NEXT_MANAGER_IDENTITY.fetch_add` wraps rather than refusing exhaustion, so “process-unique” is not mathematically permanent ([generation.rs](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:128), [allocation](/Users/ccheever/projects/ibex-wt/0417-h1-s2/src/module_loader/generation.rs:1041)).
+
+## Verdict
+
+NOT READY (blocking finding 1).
+## codex-confirm
+
+## Resolution
+
+The blocker is resolved: `commit_revision` checks `manager_identity` before every backstop, and both foreign-manager tests include staged shadow receipts plus unchanged-state assertions. All 23 focused generation tests pass.
+
+Minor 1 is resolved: the `from_verified` comment accurately distinguishes artifact-enforced agreement from upstream-authenticated targets, classifications, and candidate pins.
+
+Minor 2 is not fully resolved: `fetch_add` wraps the atomic before returning `u64::MAX`; after rejecting `MAX` and `0`, a later mint reuses identity `1`. Use a checked `fetch_update`/CAS that leaves the counter permanently exhausted. This remains non-MATERIAL due to the unreachable-in-practice \(2^{64}\) construction requirement.
+
+## New MATERIAL Findings
+
+None.
+
+## Verdict
+
+READY
