@@ -1017,6 +1017,13 @@ struct PublishedHotRevisionV1 {
     install_revisions: BTreeMap<SourceId, HotRevision>,
 }
 
+struct ValidatedRevisionCandidateV1 {
+    graph: AuthenticatedGenerationGraphV2,
+    changed: BTreeSet<SourceId>,
+    install_revisions: BTreeMap<SourceId, HotRevision>,
+    revision: HotRevision,
+}
+
 /// Development graph owner for intra-generation replacement transactions.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ModuleExecutionGenerationsV2 {
@@ -1181,58 +1188,18 @@ impl ModuleExecutionGenerationsV2 {
         })
     }
 
-    pub fn commit_revision<P: GraphImportPolicy>(
-        &mut self,
-        policy: &P,
-        transaction: HotRevisionTransactionV1,
-    ) -> Result<HotRevisionCommitV1> {
-        // A transaction is bound to the surface that minted it: a foreign
-        // manager must never adopt its replacements or shadow receipts, even
-        // when generation, base, policy, and graph coincide.
-        if transaction.manager_identity != self.manager_identity {
-            bail!("hot revision transaction belongs to another hot revision surface");
-        }
-        if policy.snapshot_digest() != &self.admission.authority_digest
-            || policy.snapshot_generations() != self.admission.authority_generations
-        {
-            bail!(
-                "hot revision commit-time authority compare failed after begin; invariant violation"
-            );
-        }
-        if transaction.authority_digest != self.admission.authority_digest
-            || transaction.authority_generations != self.admission.authority_generations
-        {
-            bail!(
-                "hot revision commit-time authority stamp compare failed after begin; invariant violation"
-            );
-        }
-        // @ref LLP 0055#1-the-hotrevision-counter-and-successor-law — the only
-        // publication successor is exactly the transaction's live base plus one.
-        if transaction.base_generation != self.current.generation
-            || transaction.base_revision != self.current.revision
-        {
-            bail!("hot revision commit-time base compare failed after begin; invariant violation");
-        }
-        // Commit backstop for the begin-time builtin refusal: the public path
-        // cannot reach here with a principal-less id, so this mirrors the
-        // never-hot-replaceable rule on the clone-and-swap seam too.
-        // @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4
-        if transaction
-            .invalidated
-            .iter()
-            .any(|source_id| source_id.defining_principal().is_none())
-        {
-            bail!(
-                "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
-            );
-        }
+    fn validate_revision_candidate(
+        &self,
+        transaction: &HotRevisionTransactionV1,
+    ) -> Result<ValidatedRevisionCandidateV1> {
         let revision = transaction.base_revision.next()?;
         let replacements = transaction
             .replacements
+            .as_ref()
             .ok_or_else(|| anyhow!("hot revision transaction has no staged replacements"))?;
 
         let mut candidate_records = self.current.graph.records.clone();
-        for (source_id, record) in &replacements {
+        for (source_id, record) in replacements {
             candidate_records.insert(source_id.clone(), record.clone());
         }
         let candidate_graph =
@@ -1304,7 +1271,7 @@ impl ModuleExecutionGenerationsV2 {
             }
         }
 
-        // @ref LLP 0055#5.2
+        // @ref LLP 0055#52-hotrevisionsurfacev1--single-flight-typed-states-no-fallible-check-after-an-effect
         // — specific preflight refusals precede the ceiling backstop.
         self.admission.validate_graph(&candidate_graph)?;
 
@@ -1312,14 +1279,77 @@ impl ModuleExecutionGenerationsV2 {
         for source_id in &transaction.invalidated {
             install_revisions.insert(source_id.clone(), revision);
         }
+        Ok(ValidatedRevisionCandidateV1 {
+            graph: candidate_graph,
+            changed,
+            install_revisions,
+            revision,
+        })
+    }
+
+    pub(crate) fn preflight_revision(&self, transaction: &HotRevisionTransactionV1) -> Result<()> {
+        if transaction.manager_identity != self.manager_identity {
+            bail!("hot revision transaction belongs to another hot revision surface");
+        }
+        self.validate_revision_candidate(transaction).map(|_| ())
+    }
+
+    pub fn commit_revision<P: GraphImportPolicy>(
+        &mut self,
+        policy: &P,
+        transaction: HotRevisionTransactionV1,
+    ) -> Result<HotRevisionCommitV1> {
+        // A transaction is bound to the surface that minted it: a foreign
+        // manager must never adopt its replacements or shadow receipts, even
+        // when generation, base, policy, and graph coincide.
+        if transaction.manager_identity != self.manager_identity {
+            bail!("hot revision transaction belongs to another hot revision surface");
+        }
+        if policy.snapshot_digest() != &self.admission.authority_digest
+            || policy.snapshot_generations() != self.admission.authority_generations
+        {
+            bail!(
+                "hot revision commit-time authority compare failed after begin; invariant violation"
+            );
+        }
+        if transaction.authority_digest != self.admission.authority_digest
+            || transaction.authority_generations != self.admission.authority_generations
+        {
+            bail!(
+                "hot revision commit-time authority stamp compare failed after begin; invariant violation"
+            );
+        }
+        // @ref LLP 0055#1-the-hotrevision-counter-and-successor-law — the only
+        // publication successor is exactly the transaction's live base plus one.
+        if transaction.base_generation != self.current.generation
+            || transaction.base_revision != self.current.revision
+        {
+            bail!("hot revision commit-time base compare failed after begin; invariant violation");
+        }
+        // Commit backstop for the begin-time builtin refusal: the public path
+        // cannot reach here with a principal-less id, so this mirrors the
+        // never-hot-replaceable rule on the clone-and-swap seam too.
+        // @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4
+        if transaction
+            .invalidated
+            .iter()
+            .any(|source_id| source_id.defining_principal().is_none())
+        {
+            bail!(
+                "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
+            );
+        }
+        // @ref LLP 0055#52-hotrevisionsurfacev1--single-flight-typed-states-no-fallible-check-after-an-effect
+        // — commit-time re-runs preflight as the §5.2-item-8 invariant backstop.
+        let validated = self.validate_revision_candidate(&transaction)?;
         let commit = HotRevisionCommitV1 {
             origin: transaction.origin,
             generation: self.current.generation,
             previous_revision: self.current.revision,
-            revision,
+            revision: validated.revision,
             invalidated: transaction.invalidated,
-            changed,
-            graph_digest: candidate_graph.digest.clone(),
+            changed: validated.changed,
+            graph_digest: validated.graph.digest.clone(),
             shadow_publications: transaction.shadow_publications,
         };
 
@@ -1327,9 +1357,9 @@ impl ModuleExecutionGenerationsV2 {
         // check and allocation precedes this sole live-state assignment.
         self.current = PublishedHotRevisionV1 {
             generation: commit.generation,
-            revision,
-            graph: candidate_graph,
-            install_revisions,
+            revision: validated.revision,
+            graph: validated.graph,
+            install_revisions: validated.install_revisions,
         };
         Ok(commit)
     }
@@ -1396,6 +1426,14 @@ pub struct HotRevisionTransactionV1 {
 impl HotRevisionTransactionV1 {
     pub fn candidate_revision(&self) -> Result<HotRevision> {
         self.base_revision.next()
+    }
+
+    pub(crate) fn invalidated(&self) -> &BTreeSet<SourceId> {
+        &self.invalidated
+    }
+
+    pub(crate) fn shadow_publications(&self) -> &[GenerationPublicationReceipt] {
+        &self.shadow_publications
     }
 
     pub fn stage_replacements(

@@ -55,7 +55,7 @@ use super::embedded_graph::{
     EmbeddedCarrierBindingV1, EmbeddedCarrierFactV1, EmbeddedModuleEdgeV1, EmbeddedModuleGraphV1,
     EmbeddedModuleRecordV1, VirtualSourceLabelV1, EMBEDDED_MODULE_GRAPH_SCHEMA_V1,
 };
-use super::generation::ExecutionGeneration;
+use super::generation::{AuthenticatedGenerationGraphV2, CandidateSitePinV1, ExecutionGeneration};
 use super::graph::{
     ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
 };
@@ -450,6 +450,53 @@ impl SourceModuleGraphV1 {
 
     pub fn snapshot(&self) -> &ArmedSnapshot {
         &self.snapshot
+    }
+
+    /// Build the authenticated hot-revision graph from the exact rows retained
+    /// by the admitted source/link plan.
+    /// @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4 — the source
+    /// graph is the sole production constructor for plan-derived V2 rows.
+    pub fn generation_graph_v2(&self) -> Result<AuthenticatedGenerationGraphV2> {
+        let rows = self
+            .records
+            .values()
+            .map(|record| {
+                let verified = verify_record(record, &self.producer_binary_digest)?;
+                let bindings = record.bindings.clone();
+                let mut candidate_sites = BTreeMap::new();
+                for table in &record.candidate_tables {
+                    let pin = CandidateSitePinV1 {
+                        digest: table.digest()?,
+                        attributes_digest: computed_candidate_attributes_digest(table)?,
+                    };
+                    if candidate_sites.insert(u64::from(table.site), pin).is_some() {
+                        bail!("source graph repeats a computed-candidate site");
+                    }
+                }
+                Ok((
+                    verified,
+                    bindings,
+                    candidate_sites,
+                    record
+                        .deferred_dynamic
+                        .literal_attributes
+                        .keys()
+                        .map(|specifier| {
+                            GraphEdgeKey::new(specifier, ResolutionKind::DynamicImport)
+                        })
+                        .collect(),
+                    record
+                        .deferred_commonjs_requires
+                        .iter()
+                        .map(|specifier| {
+                            GraphEdgeKey::new(specifier, ResolutionKind::CommonJsRequire)
+                        })
+                        .collect(),
+                    record.bootstrap_internal_commonjs_requires.clone(),
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        AuthenticatedGenerationGraphV2::from_verified(rows)
     }
 
     #[cfg(test)]
@@ -1283,6 +1330,22 @@ fn verify_record<'a>(
                     .digest()?,
             }),
     }
+}
+
+fn computed_candidate_attributes_digest(table: &ComputedCandidateTableV1) -> Result<Digest> {
+    let rows = table
+        .candidates
+        .iter()
+        .map(|candidate| {
+            serde_json::json!({
+                "specifier": candidate.specifier.as_str(),
+                "attributes": &candidate.attributes,
+            })
+        })
+        .collect();
+    let canonical = capsec_semantics::canonical::to_jcs_bytes(&serde_json::Value::Array(rows))
+        .map_err(|error| anyhow!("cannot canonicalize computed-candidate attributes: {error}"))?;
+    source_integrity(&canonical)
 }
 
 fn computed_candidate_site_map(
@@ -5284,7 +5347,7 @@ pub fn artifact_edge_attributes(
 mod admission_cost_profile;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use capsec_semantics::model::PathComponent;
 
@@ -5838,7 +5901,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn build_test_source_graph(
+    pub(crate) fn build_test_source_graph(
         project_root: &Path,
         entry_source: &str,
     ) -> Result<SourceModuleGraphV1> {
@@ -6234,6 +6297,39 @@ mod tests {
             .admit_with_engine(&root, Some(&hbc_engine))
             .unwrap_err();
         assert_eq!(error.code, CompositionRefusalCode::IbexBytecodePreflight);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_graph_v2_is_plan_derived_stable_and_surface_ready() {
+        let project = tempfile::tempdir().unwrap();
+        let graph = build_test_source_graph(
+            project.path(),
+            "export const value = 1; export async function later() { return import('./entry.mjs'); }\n",
+        )
+        .unwrap();
+
+        let first = graph.generation_graph_v2().unwrap();
+        let second = graph.generation_graph_v2().unwrap();
+        assert_eq!(first.digest(), second.digest());
+
+        let generations = super::super::generation::ModuleExecutionGenerationsV2::new(
+            super::super::generation::GenerationMode::Development,
+            graph.execution_generation(),
+            graph.snapshot(),
+            first,
+        )
+        .unwrap();
+        let direct = super::super::hot_revision::HotRevisionSurfaceV1::new(generations);
+        assert_eq!(direct.graph_digest(), second.digest());
+
+        let derived = super::super::hot_revision::HotRevisionSurfaceV1::for_source_graph(
+            super::super::generation::GenerationMode::Development,
+            graph.execution_generation(),
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(derived.graph_digest(), second.digest());
     }
 
     #[cfg(unix)]

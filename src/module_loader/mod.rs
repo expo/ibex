@@ -19,6 +19,8 @@ pub mod embedded_graph;
 pub mod generation;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod graph;
+#[cfg(any(test, feature = "module-runner"))]
+pub mod hot_revision;
 pub mod identity;
 pub mod producer_spike;
 #[cfg(any(test, feature = "module-runner"))]
