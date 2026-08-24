@@ -1,0 +1,455 @@
+{
+  "$provenance": {
+    "generated": true,
+    "generator": "scripts/generate-prepared-composition-vectors.mjs",
+    "sourceAuthorities": [
+      "llp/0413.001-prepared-graph-package-composition.spec.md §3.1",
+      "packages/exact-devtools/src/prepared-composition-schema.ts"
+    ],
+    "llp": "0413.001",
+    "note": "Shared TS/Rust canonical-byte vector corpus (Obligation O-1). Do not hand-edit; regenerate after any schema/bounds change. The registered prepared-composition-schema-parity check rebuilds and byte-compares this file."
+  },
+  "schema": "exact/prepared-composition-vectors/1",
+  "canonicalization": "rfc8785-jcs",
+  "digestDiscipline": "sha256(domain || 0x00 || canonicalBytes) rendered sha256-<base64url>; recipe vectors pin sha256 hex of the canonical bytes instead of committing them",
+  "bounds": {
+    "maxEnvelopeBytes": 67108864,
+    "maxRoles": 2,
+    "maxRecordsPerPackage": 65536,
+    "maxDeclaredEdges": 1048576,
+    "maxAliasRows": 1024,
+    "maxExternalReferences": 4096,
+    "maxStringBytes": 4096,
+    "maxNestingDepth": 16
+  },
+  "vectors": [
+    {
+      "name": "jcs-key-sorting",
+      "kind": "inline",
+      "note": "UTF-16 code-unit key sorting per RFC 8785",
+      "domain": "ibex:prepared-composition-root:1",
+      "value": {
+        "b": 1,
+        "a": "x",
+        "é": true,
+        "nested": {
+          "z": [
+            1,
+            2
+          ],
+          "y": null
+        }
+      },
+      "canonicalBytes": "{\"a\":\"x\",\"b\":1,\"nested\":{\"y\":null,\"z\":[1,2]},\"é\":true}",
+      "canonicalByteLength": 55,
+      "digest": "sha256-jjFkuE0x29eiA7MHyyddMuriTBMH7zn8RllOSjm-gwk"
+    },
+    {
+      "name": "jcs-key-sorting-under-package-domain",
+      "kind": "inline",
+      "note": "same canonical bytes, different domain constant => different digest (domain separation)",
+      "domain": "ibex:prepared-package-root:1",
+      "value": {
+        "b": 1,
+        "a": "x",
+        "é": true,
+        "nested": {
+          "z": [
+            1,
+            2
+          ],
+          "y": null
+        }
+      },
+      "canonicalBytes": "{\"a\":\"x\",\"b\":1,\"nested\":{\"y\":null,\"z\":[1,2]},\"é\":true}",
+      "canonicalByteLength": 55,
+      "digest": "sha256-yNxAkCzjvVjJfb1qoaOlfCnj3Fp-phBDV0_FTWE_Lmw"
+    },
+    {
+      "name": "jcs-unicode-string",
+      "kind": "inline",
+      "domain": "ibex:prepared-composition-root:1",
+      "value": {
+        "text": "héllo — §4 ≠ ✓"
+      },
+      "canonicalBytes": "{\"text\":\"héllo — §4 ≠ ✓\"}",
+      "canonicalByteLength": 33,
+      "digest": "sha256-U6JkwjLgMAHfcsccals1Z3kVA8_-hwn2qXjFNZ3ras0"
+    },
+    {
+      "name": "jcs-integer-rules",
+      "kind": "inline",
+      "note": "I-JSON safe integers only; 9007199254740991 is the inclusive limit",
+      "domain": "ibex:prepared-composition-root:1",
+      "value": {
+        "n": 0,
+        "big": 9007199254740991,
+        "neg": -42
+      },
+      "canonicalBytes": "{\"big\":9007199254740991,\"n\":0,\"neg\":-42}",
+      "canonicalByteLength": 40,
+      "digest": "sha256-YsfkVpA6e8rPAbcXmzU1-Gb1HBRy5sS1gxwzjdlv5EM"
+    },
+    {
+      "name": "alias-import-site-inventory-digest",
+      "kind": "inline",
+      "note": "rows dedupe + sort by (importer, specifier) before JCS; digest is the un-domained source-integrity sha256",
+      "domain": "sha256 (un-domained sourceIntegrity — O-3 evidence sub-digest)",
+      "value": [
+        {
+          "importer": "/src/b.ts",
+          "specifier": "./alias"
+        },
+        {
+          "importer": "/src/a.ts",
+          "specifier": "/@fs/repo/js/src/alias.ts"
+        },
+        {
+          "importer": "/src/a.ts",
+          "specifier": "./alias"
+        }
+      ],
+      "canonicalBytes": "[{\"importer\":\"/src/b.ts\",\"specifier\":\"./alias\"},{\"importer\":\"/src/a.ts\",\"specifier\":\"/@fs/repo/js/src/alias.ts\"},{\"importer\":\"/src/a.ts\",\"specifier\":\"./alias\"}]",
+      "canonicalByteLength": 160,
+      "digest": "sha256-mG_jv9l2joAyKFvOxNCUbBNL4tz7oEzLQMYBFmNd_yo"
+    },
+    {
+      "name": "partition-rows",
+      "kind": "inline",
+      "note": "sorted unique (sourceId, role) rows over a two-package composition",
+      "domain": "ibex:prepared-partition:1",
+      "value": [
+        {
+          "sourceId": "ibex-source-id-v1:agententry",
+          "role": "agent"
+        },
+        {
+          "sourceId": "ibex-source-id-v1:appentry",
+          "role": "app"
+        },
+        {
+          "sourceId": "ibex-source-id-v1:applib",
+          "role": "app"
+        }
+      ],
+      "canonicalBytes": "[{\"role\":\"agent\",\"sourceId\":\"ibex-source-id-v1:agententry\"},{\"role\":\"app\",\"sourceId\":\"ibex-source-id-v1:appentry\"},{\"role\":\"app\",\"sourceId\":\"ibex-source-id-v1:applib\"}]",
+      "canonicalByteLength": 168,
+      "digest": "sha256-5CBK9zwcDFbgZtmw3ldHSIpU4denEGmWS5AlFDfy0Iw"
+    },
+    {
+      "name": "union-binding-table",
+      "kind": "inline",
+      "domain": "ibex:prepared-union-table:1",
+      "value": [
+        {
+          "fromRole": "agent",
+          "fromSourceId": "ibex-source-id-v1:agententry",
+          "specifier": "@exact/core",
+          "toRole": "app",
+          "toSourceId": "ibex-source-id-v1:applib"
+        }
+      ],
+      "canonicalBytes": "[{\"fromRole\":\"agent\",\"fromSourceId\":\"ibex-source-id-v1:agententry\",\"specifier\":\"@exact/core\",\"toRole\":\"app\",\"toSourceId\":\"ibex-source-id-v1:applib\"}]",
+      "canonicalByteLength": 149,
+      "digest": "sha256-BUYlUJL4H_uGfIoxV9qocPuImWoI5-4hQDYu5FksbWY"
+    },
+    {
+      "name": "boundary-inventory-agent",
+      "kind": "inline",
+      "domain": "ibex:prepared-boundary-inventory:1",
+      "value": {
+        "role": "agent",
+        "rows": [
+          {
+            "module": "/src/agent-bootstrap.native.ts",
+            "specifier": "@exact/devtools/agent/server",
+            "reason": "target is not a bundle module"
+          }
+        ]
+      },
+      "canonicalBytes": "{\"role\":\"agent\",\"rows\":[{\"module\":\"/src/agent-bootstrap.native.ts\",\"reason\":\"target is not a bundle module\",\"specifier\":\"@exact/devtools/agent/server\"}]}",
+      "canonicalByteLength": 153,
+      "digest": "sha256-B3htWwdGYFv3ZwYYQIuTrCOmfizzDI-VKoazQx27Yi0"
+    },
+    {
+      "name": "entry-plan-app-agent",
+      "kind": "inline",
+      "note": "order-preserving: agent (evaluate-then-invoke installExactNativeAgentBootstrap) before app",
+      "domain": "ibex:prepared-entry-plan:1",
+      "value": [
+        {
+          "role": "agent",
+          "root": "ibex-source-id-v1:agententry",
+          "action": "evaluate-then-invoke",
+          "export": "installExactNativeAgentBootstrap"
+        },
+        {
+          "role": "app",
+          "root": "ibex-source-id-v1:appentry",
+          "action": "evaluate"
+        }
+      ],
+      "canonicalBytes": "[{\"action\":\"evaluate-then-invoke\",\"export\":\"installExactNativeAgentBootstrap\",\"role\":\"agent\",\"root\":\"ibex-source-id-v1:agententry\"},{\"action\":\"evaluate\",\"role\":\"app\",\"root\":\"ibex-source-id-v1:appentry\"}]",
+      "canonicalByteLength": 203,
+      "digest": "sha256-SQv3VDwszQiUT_FwV952cK8HfDd61cp7hPcvG4Rbk8w"
+    },
+    {
+      "name": "minimal-app-package-root",
+      "kind": "inline",
+      "domain": "ibex:prepared-package-root:1",
+      "value": {
+        "schema": "exact/prepared-package/1",
+        "role": "app",
+        "producerBinaryDigest": "sha256-UvuXamHZSpw4CTImHrfvEfJihtNhjqHz4tCXfHZCDkQ",
+        "records": [
+          {
+            "sourceId": "ibex-source-id-v1:appentry",
+            "moduleId": "/src/main.tsx",
+            "sourceIntegrity": "sha256-lpCeHc6FylNP2IgfbINpqKh-Bt9aS_ge9Epy2xlbBwQ",
+            "declaredEdges": [
+              {
+                "kind": "static",
+                "specifier": "./lib.ts",
+                "binding": {
+                  "type": "internal",
+                  "target": "ibex-source-id-v1:applib"
+                }
+              }
+            ]
+          },
+          {
+            "sourceId": "ibex-source-id-v1:applib",
+            "moduleId": "/src/lib.ts",
+            "sourceIntegrity": "sha256-dXWLc0lhwNgRkV7RiJA3YgL69ySQA3M8469Bpm7MQtE",
+            "declaredEdges": []
+          }
+        ],
+        "hostBridgedDynamicImportEdges": [
+          {
+            "module": "/src/main.tsx",
+            "specifier": "./lazy.ts",
+            "reason": "target is not a bundle module"
+          }
+        ],
+        "computedDynamicImportSites": [
+          {
+            "module": "/src/main.tsx",
+            "site": 0
+          }
+        ],
+        "carriers": []
+      },
+      "canonicalBytes": "{\"carriers\":[],\"computedDynamicImportSites\":[{\"module\":\"/src/main.tsx\",\"site\":0}],\"hostBridgedDynamicImportEdges\":[{\"module\":\"/src/main.tsx\",\"reason\":\"target is not a bundle module\",\"specifier\":\"./lazy.ts\"}],\"producerBinaryDigest\":\"sha256-UvuXamHZSpw4CTImHrfvEfJihtNhjqHz4tCXfHZCDkQ\",\"records\":[{\"declaredEdges\":[{\"binding\":{\"target\":\"ibex-source-id-v1:applib\",\"type\":\"internal\"},\"kind\":\"static\",\"specifier\":\"./lib.ts\"}],\"moduleId\":\"/src/main.tsx\",\"sourceId\":\"ibex-source-id-v1:appentry\",\"sourceIntegrity\":\"sha256-lpCeHc6FylNP2IgfbINpqKh-Bt9aS_ge9Epy2xlbBwQ\"},{\"declaredEdges\":[],\"moduleId\":\"/src/lib.ts\",\"sourceId\":\"ibex-source-id-v1:applib\",\"sourceIntegrity\":\"sha256-dXWLc0lhwNgRkV7RiJA3YgL69ySQA3M8469Bpm7MQtE\"}],\"role\":\"app\",\"schema\":\"exact/prepared-package/1\"}",
+      "canonicalByteLength": 765,
+      "digest": "sha256--FQabusfPqy_HviVKt9K9mB8x4OKKjLcDTrdATiR7kg"
+    },
+    {
+      "name": "minimal-app-only-composition-root",
+      "kind": "inline",
+      "domain": "ibex:prepared-composition-root:1",
+      "value": {
+        "schema": "exact/prepared-composition/1",
+        "declaration": [
+          "app"
+        ],
+        "packages": [
+          {
+            "role": "app",
+            "packageRoot": "sha256--FQabusfPqy_HviVKt9K9mB8x4OKKjLcDTrdATiR7kg",
+            "producerGeneration": 7
+          }
+        ],
+        "partition": {
+          "digest": "sha256-qgKIBQQa77teo7DxbR9RY2AF0udZzSx6x4OvfrE3ISE",
+          "roles": {
+            "app": 2
+          }
+        },
+        "unionBindingTable": {
+          "digest": "sha256--EAzvHm9r4bKQZ6JqGjbJpuyUvak1bGz95yzZpnl25I",
+          "rows": []
+        },
+        "hostBridgedInventories": [
+          {
+            "role": "app",
+            "digest": "sha256-KpEhGE-e4b9SnDD2IDLWtkv57zE9ltG06rp1kJedXvM",
+            "rows": [
+              {
+                "module": "/src/main.tsx",
+                "specifier": "./lazy.ts",
+                "reason": "target is not a bundle module"
+              }
+            ]
+          }
+        ],
+        "aliasTable": {
+          "digest": "sha256-y_ywFtylWjzYSa73LxiY-gLDaqrqe2a8MG2stzghEHg",
+          "rows": []
+        },
+        "agentBoundary": {
+          "entryIds": [
+            "/src/agent-bootstrap.native.ts"
+          ]
+        },
+        "bootCoreDynamicFollowList": [
+          {
+            "importer": "/src/agent-bootstrap.native.ts",
+            "target": "/@fs/repo/packages/exact-devtools/src/agent/server-boot.ts"
+          }
+        ],
+        "entryPlan": {
+          "digest": "sha256-n11LGDzdM_LyI4IlA7kAuuukAhDBgGoPSKW21owKCso",
+          "entries": [
+            {
+              "role": "app",
+              "root": "ibex-source-id-v1:appentry",
+              "action": "evaluate"
+            }
+          ]
+        },
+        "freshness": {
+          "sessionNonce": "vector-corpus-fixed-nonce",
+          "authorityGeneration": 1,
+          "resolverGeneration": 7,
+          "expiresAtMs": 1756000000000,
+          "policyDigest": "sha256-LaOVBlATsBNTTWKrzkgic4CMYC0nVesTpKolFZmFhNE",
+          "target": "exact-dev:mac",
+          "encoding": "javascript-factory-table",
+          "agentPacking": "boot-core-v1",
+          "producer": {
+            "id": "exact-vite-prepared-graph-producer",
+            "binaryDigest": "sha256-uj6dyjNwwe454vHQKabZC2lM-wavcmXlu4heL12-3Dc"
+          }
+        }
+      },
+      "canonicalBytes": "{\"agentBoundary\":{\"entryIds\":[\"/src/agent-bootstrap.native.ts\"]},\"aliasTable\":{\"digest\":\"sha256-y_ywFtylWjzYSa73LxiY-gLDaqrqe2a8MG2stzghEHg\",\"rows\":[]},\"bootCoreDynamicFollowList\":[{\"importer\":\"/src/agent-bootstrap.native.ts\",\"target\":\"/@fs/repo/packages/exact-devtools/src/agent/server-boot.ts\"}],\"declaration\":[\"app\"],\"entryPlan\":{\"digest\":\"sha256-n11LGDzdM_LyI4IlA7kAuuukAhDBgGoPSKW21owKCso\",\"entries\":[{\"action\":\"evaluate\",\"role\":\"app\",\"root\":\"ibex-source-id-v1:appentry\"}]},\"freshness\":{\"agentPacking\":\"boot-core-v1\",\"authorityGeneration\":1,\"encoding\":\"javascript-factory-table\",\"expiresAtMs\":1756000000000,\"policyDigest\":\"sha256-LaOVBlATsBNTTWKrzkgic4CMYC0nVesTpKolFZmFhNE\",\"producer\":{\"binaryDigest\":\"sha256-uj6dyjNwwe454vHQKabZC2lM-wavcmXlu4heL12-3Dc\",\"id\":\"exact-vite-prepared-graph-producer\"},\"resolverGeneration\":7,\"sessionNonce\":\"vector-corpus-fixed-nonce\",\"target\":\"exact-dev:mac\"},\"hostBridgedInventories\":[{\"digest\":\"sha256-KpEhGE-e4b9SnDD2IDLWtkv57zE9ltG06rp1kJedXvM\",\"role\":\"app\",\"rows\":[{\"module\":\"/src/main.tsx\",\"reason\":\"target is not a bundle module\",\"specifier\":\"./lazy.ts\"}]}],\"packages\":[{\"packageRoot\":\"sha256--FQabusfPqy_HviVKt9K9mB8x4OKKjLcDTrdATiR7kg\",\"producerGeneration\":7,\"role\":\"app\"}],\"partition\":{\"digest\":\"sha256-qgKIBQQa77teo7DxbR9RY2AF0udZzSx6x4OvfrE3ISE\",\"roles\":{\"app\":2}},\"schema\":\"exact/prepared-composition/1\",\"unionBindingTable\":{\"digest\":\"sha256--EAzvHm9r4bKQZ6JqGjbJpuyUvak1bGz95yzZpnl25I\",\"rows\":[]}}",
+      "canonicalByteLength": 1446,
+      "digest": "sha256-rbjGzEJdVoA0S_sd8bJ9GrraHcaMgTElYZNDLA6myGs"
+    },
+    {
+      "name": "prepared-composition-commitment-record",
+      "kind": "inline",
+      "note": "the digest-only host-held commitment record (ibex 0056 §3.2 lockstep shape; no envelope fact duplicated)",
+      "domain": "sha256 (un-domained — §3.3 channel record canonical-bytes pin)",
+      "value": {
+        "schema": "ibex/prepared-composition-commitment/1",
+        "workflow": "production",
+        "compositionRootDigest": "sha256-rbjGzEJdVoA0S_sd8bJ9GrraHcaMgTElYZNDLA6myGs"
+      },
+      "canonicalBytes": "{\"compositionRootDigest\":\"sha256-rbjGzEJdVoA0S_sd8bJ9GrraHcaMgTElYZNDLA6myGs\",\"schema\":\"ibex/prepared-composition-commitment/1\",\"workflow\":\"production\"}",
+      "canonicalByteLength": 152,
+      "digest": "sha256-Ltzi0mU7fFk8EyLs6MGsDNXuaMBU-iihbCvDM_5tnHk"
+    },
+    {
+      "name": "composition-verifier-expectations",
+      "kind": "inline",
+      "note": "the mandatory expectations struct (ibex 0056 §3.3 lockstep shape; resolverInventoryDigest is O-3's verifier input, all integers I-JSON safe)",
+      "domain": "sha256 (un-domained — §3.3 verifier-input canonical-bytes pin)",
+      "value": {
+        "schema": "ibex/composition-verifier-expectations/1",
+        "expectedTarget": "exact-dev:mac",
+        "expectedRoles": [
+          "app"
+        ],
+        "sessionNonce": "vector-corpus-fixed-nonce",
+        "authorityGeneration": 1,
+        "resolverGeneration": 7,
+        "policyDigest": "sha256-LaOVBlATsBNTTWKrzkgic4CMYC0nVesTpKolFZmFhNE",
+        "resolverInventoryDigest": "sha256-I4BPCnLDYtvLILheO6DBBJUZIIz2lT8EO3oBKeB6UgI",
+        "nowUnixMs": 1755990000000
+      },
+      "canonicalBytes": "{\"authorityGeneration\":1,\"expectedRoles\":[\"app\"],\"expectedTarget\":\"exact-dev:mac\",\"nowUnixMs\":1755990000000,\"policyDigest\":\"sha256-LaOVBlATsBNTTWKrzkgic4CMYC0nVesTpKolFZmFhNE\",\"resolverGeneration\":7,\"resolverInventoryDigest\":\"sha256-I4BPCnLDYtvLILheO6DBBJUZIIz2lT8EO3oBKeB6UgI\",\"schema\":\"ibex/composition-verifier-expectations/1\",\"sessionNonce\":\"vector-corpus-fixed-nonce\"}",
+      "canonicalByteLength": 373,
+      "digest": "sha256-7S9NV4bthReep3mnfraa6c5rGmFkWu1mRejuu2hnYng"
+    },
+    {
+      "name": "alias-rows-limit",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "alias-rows",
+        "count": 1024
+      },
+      "domain": "ibex:prepared-alias-table:1",
+      "canonicalByteLength": 268117,
+      "canonicalBytesSha256": "13c73f1c7760ae05a8ee8c4cb79562537bfd402974ff8c05f4de5e6ff68e2dac",
+      "digest": "sha256--6yLqbWYO3wmNwIlsynszHNbjcAXFuElYhHi03NOsUQ"
+    },
+    {
+      "name": "alias-rows-limit-plus-1",
+      "kind": "recipe",
+      "note": "limit+1 => envelope-malformed at the step-1 bounded decode",
+      "recipe": {
+        "kind": "alias-rows",
+        "count": 1025
+      },
+      "expectError": "envelope-malformed",
+      "bound": "maxAliasRows"
+    },
+    {
+      "name": "string-bytes-limit",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "bounded-string",
+        "bytes": 4096
+      },
+      "domain": "ibex:prepared-composition-root:1",
+      "canonicalByteLength": 4104,
+      "canonicalBytesSha256": "46c8cd5b9c1ad24b98d1aae96f26ac22577370e6162611455504b4da939d37fc",
+      "digest": "sha256-S0NRMLs81uaSDvYkYgC-zs5vaAG9I9vuvJXuFog3dnw"
+    },
+    {
+      "name": "string-bytes-limit-plus-1",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "bounded-string",
+        "bytes": 4097
+      },
+      "expectError": "envelope-malformed",
+      "bound": "maxStringBytes"
+    },
+    {
+      "name": "nesting-depth-limit",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "nesting",
+        "depth": 16
+      },
+      "domain": "ibex:prepared-composition-root:1",
+      "canonicalByteLength": 33,
+      "canonicalBytesSha256": "f955de38ce972b6a49fa8fae45dd8e2eede435f0d684f7eddec46135e473d6c2",
+      "digest": "sha256-bDaXBU2SwXk_d3a3pIqA7iXXGC5oehCJhZDOshte5aM"
+    },
+    {
+      "name": "nesting-depth-limit-plus-1",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "nesting",
+        "depth": 17
+      },
+      "expectError": "envelope-malformed",
+      "bound": "maxNestingDepth"
+    },
+    {
+      "name": "roles-limit",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "roles",
+        "count": 2
+      },
+      "domain": "ibex:prepared-composition-root:1",
+      "canonicalByteLength": 167,
+      "canonicalBytesSha256": "0f7121984a278cd34d5cafe0ccec1a2cca5f528175af0f05dc5dcec197c69859",
+      "digest": "sha256-1pNTxUtotDUSwqER0b0TKpZg_Gq6Hxxfiv3RWGVwnJY"
+    },
+    {
+      "name": "roles-limit-plus-1",
+      "kind": "recipe",
+      "recipe": {
+        "kind": "roles",
+        "count": 3
+      },
+      "expectError": "envelope-malformed",
+      "bound": "maxRoles"
+    }
+  ]
+}

@@ -37,6 +37,7 @@ bun run generate:host-task-ingress-inventory
 bun run generate:capsec-contract
 bun run generate:capsec-runtime-projection
 bun run generate:compiled-environment-profile
+bun run generate:composition-refusals
 bun run generate:oxc-retirement-manifest
 bun run generate:identity
 bun run generate:import-grant-keys
@@ -48,6 +49,7 @@ bun run generate:module-transform-config
 bun run generate:modules --check
 bun run check:capsec-runtime-projection
 bun run check:compiled-environment-profile
+bun run check:composition-refusals
 bun run check:oxc-retirement
 bun run check:module-transform-config
 bun run build:builtins

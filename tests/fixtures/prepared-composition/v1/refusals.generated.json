@@ -1,0 +1,309 @@
+{
+  "$provenance": {
+    "generated": true,
+    "generator": "scripts/generate-prepared-composition-refusals.mjs",
+    "sourceAuthorities": [
+      "llp/0413.001-prepared-graph-package-composition.spec.md §4.1 (r7 / Amendment A1)",
+      "vendor/ibex llp/0056-package-aware-composition-admission.spec.md §6.2 (lockstep authority)"
+    ],
+    "llp": "0413.001",
+    "note": "Derived projection of the spec §4.1 refusal registry (Obligation O-1; O-2 discharged by Amendment A1 — the ibex 0056 §6.2 lockstep table). Do not hand-edit; the table in the spec is the authority — change it there (and its ibex twin) and regenerate. Byte-parity and the cross-repo lockstep are enforced by the registered prepared-composition-schema-parity check."
+  },
+  "schema": "exact/prepared-composition-refusals/1",
+  "classLegend": {
+    "A": "attacker",
+    "P": "producer-defect",
+    "E": "environment"
+  },
+  "precedence": "Multi-fault precedence: lowest ordinal wins; within a step, `app` before `agent`; the ordinal order below IS the within-step predicate order [grok3-m10].",
+  "lockstepRule": "this table and ibex LLP 0056 §6.2 are the same table in two repositories; the generated registry (`prepared-composition-refusals.generated.json` and its ibex half) must byte-match both, enforced by the O-1 parity check — a divergence between the two documents is itself a red.",
+  "o2Status": "discharged",
+  "admissionRows": [
+    {
+      "ordinal": 1,
+      "code": "envelope-malformed",
+      "step": 1,
+      "class": "A",
+      "predicate": "envelope bounds/canonicality/shape only; sentinel receipt"
+    },
+    {
+      "ordinal": 2,
+      "code": "composition-commitment-mismatch",
+      "step": 2,
+      "class": "A",
+      "predicate": "envelope digest ≠ host-held commitment; envelope-internal inconsistency (role swap, alias-table tamper)"
+    },
+    {
+      "ordinal": 3,
+      "code": "composition-replayed",
+      "step": 2,
+      "class": "A",
+      "predicate": "nonce / expiry / authority-generation / resolver-generation vs expectations"
+    },
+    {
+      "ordinal": 4,
+      "code": "composition-policy-stale",
+      "step": 2,
+      "class": "E",
+      "predicate": "policy digest ≠ verifier-held"
+    },
+    {
+      "ordinal": 5,
+      "code": "ibex:target-profile-mismatch",
+      "step": 2,
+      "class": "E",
+      "predicate": "envelope target/engine/encoding facts ≠ expectations/runtime-queried profile"
+    },
+    {
+      "ordinal": 6,
+      "code": "composition-unknown-role",
+      "step": 2,
+      "class": "A",
+      "predicate": "declared role outside the closed set"
+    },
+    {
+      "ordinal": 7,
+      "code": "composition-duplicate-role",
+      "step": 2,
+      "class": "A",
+      "predicate": "repeated role in the declaration"
+    },
+    {
+      "ordinal": 8,
+      "code": "composition-package-extra",
+      "step": 2,
+      "class": "P",
+      "predicate": "served package dir with no declared role"
+    },
+    {
+      "ordinal": 9,
+      "code": "composition-package-missing",
+      "step": 2,
+      "class": "P",
+      "predicate": "declared role with no served package dir"
+    },
+    {
+      "ordinal": 10,
+      "code": "composition-mismatch",
+      "step": 2,
+      "class": "P",
+      "predicate": "declaration ≠ `expectedRoles` (2b default)"
+    },
+    {
+      "ordinal": 11,
+      "code": "package-root-mismatch",
+      "step": 3,
+      "class": "A",
+      "predicate": "package index digest ≠ committed `(role, packageRoot)` (step-3 default)"
+    },
+    {
+      "ordinal": 12,
+      "code": "ibex:prepared-commitment-schema",
+      "step": 3,
+      "class": "P",
+      "predicate": "unsupported index/carrier/artifact schema; wrong `role`; synthetic records; non-`prepared-package` identity; no root principal"
+    },
+    {
+      "ordinal": 13,
+      "code": "ibex:package-inventory",
+      "step": 3,
+      "class": "A",
+      "predicate": "package file inventory ≠ index (with the `activation/` carve-out)"
+    },
+    {
+      "ordinal": 14,
+      "code": "ibex:prepared-commitment-corrupt",
+      "step": 3,
+      "class": "A",
+      "predicate": "bounded-read/canonicality/structural decode/internal-consistency violations at package scope"
+    },
+    {
+      "ordinal": 15,
+      "code": "carrier-integrity",
+      "step": 3,
+      "class": "A",
+      "predicate": "carrier byte/digest/binding tamper (bytes ≠ carrierDigest; entry semantic digest stale; record's expected carrier digest ≠ admitted)"
+    },
+    {
+      "ordinal": 16,
+      "code": "ibex:principal-grouping",
+      "step": 3,
+      "class": "P",
+      "predicate": "carrier or entry crosses / is unauthorized for its defining principal"
+    },
+    {
+      "ordinal": 17,
+      "code": "ibex:encoding-incompatible",
+      "step": 3,
+      "class": "P",
+      "predicate": "declared encoding kind disagrees with byte shape (§4.4 sniff)"
+    },
+    {
+      "ordinal": 18,
+      "code": "ibex:engine-unavailable",
+      "step": 3,
+      "class": "E",
+      "predicate": "HBC carrier with no runtime-queried engine identity"
+    },
+    {
+      "ordinal": 19,
+      "code": "ibex:engine-binding-mismatch",
+      "step": 3,
+      "class": "E",
+      "predicate": "HBC carrier engine binding / bytecode version ≠ loaded engine"
+    },
+    {
+      "ordinal": 20,
+      "code": "ibex:bytecode-preflight",
+      "step": 3,
+      "class": "E",
+      "predicate": "HBC header parse failure; engine preflight rejection"
+    },
+    {
+      "ordinal": 21,
+      "code": "ibex:package-graph-binding",
+      "step": 3,
+      "class": "A",
+      "predicate": "manifest/artifact `packageGraphDigest` ≠ index's; semantic digest outside the package's derived set"
+    },
+    {
+      "ordinal": 22,
+      "code": "generation-splice",
+      "step": 3,
+      "class": "P",
+      "predicate": "attestation generation ≠ composition generation; package producer identity ≠ envelope's (§4.8)"
+    },
+    {
+      "ordinal": 23,
+      "code": "alias-conflict",
+      "step": 3,
+      "class": "P",
+      "predicate": "alias evidence divergence; aliasId ∩ owned SourceIds ≠ ∅"
+    },
+    {
+      "ordinal": 24,
+      "code": "partition-mismatch",
+      "step": 4,
+      "class": "P",
+      "predicate": "recomputed partition ≠ committed (step-4 default)"
+    },
+    {
+      "ordinal": 25,
+      "code": "ibex:duplicate-source-id",
+      "step": 4,
+      "class": "P",
+      "predicate": "repeated `SourceId` within one package"
+    },
+    {
+      "ordinal": 26,
+      "code": "package-overlap",
+      "step": 4,
+      "class": "P",
+      "predicate": "one `SourceId` owned by both packages"
+    },
+    {
+      "ordinal": 27,
+      "code": "app-references-agent",
+      "step": 5,
+      "class": "P",
+      "predicate": "declared `app → agent` edge (precedence over #28)"
+    },
+    {
+      "ordinal": 28,
+      "code": "local-agreement-disagreement",
+      "step": 5,
+      "class": "P",
+      "predicate": "every other no-third-state miss (step-5 default)"
+    },
+    {
+      "ordinal": 29,
+      "code": "union-table-mismatch",
+      "step": 6,
+      "class": "P",
+      "predicate": "recomputed union table ≠ committed (step-6 default)"
+    },
+    {
+      "ordinal": 30,
+      "code": "boundary-inventory-mismatch",
+      "step": 6,
+      "class": "A",
+      "predicate": "recomputed host-bridged inventory ≠ committed; locality violation"
+    },
+    {
+      "ordinal": 31,
+      "code": "external-target-absent",
+      "step": 6,
+      "class": "P",
+      "predicate": "external reference target not present in the named owner"
+    },
+    {
+      "ordinal": 32,
+      "code": "external-owner-mismatch",
+      "step": 6,
+      "class": "P",
+      "predicate": "external reference target owned by a different package"
+    },
+    {
+      "ordinal": 33,
+      "code": "export-disagreement",
+      "step": 6,
+      "class": "P",
+      "predicate": "resolved-namespace export resolution failure"
+    },
+    {
+      "ordinal": 34,
+      "code": "cross-principal-denied",
+      "step": 6,
+      "class": "A",
+      "predicate": "defining-principal authorization denial on the authorized-linker plan (§10)"
+    },
+    {
+      "ordinal": 35,
+      "code": "entry-plan-mismatch",
+      "step": 7,
+      "class": "P",
+      "predicate": "recomputed expected plan ≠ committed (order/cardinality/actions; order-guarantee proof) (step-7 default)"
+    },
+    {
+      "ordinal": 36,
+      "code": "entry-descriptor-invalid",
+      "step": 7,
+      "class": "P",
+      "predicate": "malformed descriptor; unknown action; root not owned by its role's package; named export absent from the resolved namespace plan"
+    },
+    {
+      "ordinal": 37,
+      "code": "composition-root-unlinked",
+      "step": 7,
+      "class": "P",
+      "predicate": "well-formed root with no linkage order"
+    },
+    {
+      "ordinal": 38,
+      "code": "link-failure",
+      "step": 8,
+      "class": "E",
+      "predicate": "authorized multi-root link failure (step-8 default)"
+    }
+  ],
+  "stepDefaults": {
+    "1": "envelope-malformed",
+    "3": "package-root-mismatch",
+    "4": "partition-mismatch",
+    "5": "local-agreement-disagreement",
+    "6": "union-table-mismatch",
+    "7": "entry-plan-mismatch",
+    "8": "link-failure",
+    "2a": "composition-commitment-mismatch",
+    "2b": "composition-mismatch"
+  },
+  "defaultsClause": "**Defaults (one per step, r6's verbatim where a step existed):** 1→#1, 2a→#2, 2b→#10, 3→#11, 4→#24, 5→#28, 6→#29, 7→#35, 8→#38. Producing a default where a specific row applies is non-conformant; the defaults exist so no failure can escape the registry.",
+  "environmentCodes": [
+    "composition-unproducible",
+    "producer-refused-composition",
+    "agent-composition-unavailable",
+    "composition-admission-unimplemented"
+  ],
+  "environmentNote": "**Environment (non-admission) codes, unchanged from r6:** `composition-unproducible`, `producer-refused-composition`, `agent-composition-unavailable`, `composition-admission-unimplemented` — same disjointness and exhaustiveness rules. Channel-level failures of the host-held commitment record (`IBEX_DEV_COMPOSITION_CORRUPT` / `_SCHEMA` / `_ARMED_CONTEXT`) are outside the registry, reported through ibex 0056 §8's channel-error variant.",
+  "channelErrorNote": "Channel-level failures of the host-held commitment record (`IBEX_DEV_COMPOSITION_CORRUPT` / `_SCHEMA` / `_ARMED_CONTEXT`) are outside the registry, reported through ibex 0056 §8's channel-error variant."
+}

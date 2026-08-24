@@ -143,6 +143,50 @@ pub struct SynchronousGraphPlan<'artifact> {
     bootstrap_internal_commonjs_requires: BTreeMap<SourceId, BTreeSet<String>>,
 }
 
+/// Data-only ordered composition roots with an explicitly named main root.
+///
+/// This frozen leg intentionally provides no linkage or evaluation-order
+/// operations; the multi-root traversal and segment semantics are LLP 0056
+/// §7.1 leg-3 work.
+// @ref LLP 0056#72-the-authorized-composition-linker-module_runnerrs — import.meta.main belongs to the named app root, never a positional guess.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompositionRootPlan {
+    roots: Vec<SourceId>,
+    main_root: SourceId,
+}
+
+impl CompositionRootPlan {
+    /// Construct a non-empty, duplicate-free root plan containing `main_root`.
+    pub fn new(roots: Vec<SourceId>, main_root: &SourceId) -> anyhow::Result<Self> {
+        if roots.is_empty() {
+            anyhow::bail!("composition root plan must contain at least one root");
+        }
+        let mut seen = BTreeSet::new();
+        for root in &roots {
+            if !seen.insert(root) {
+                anyhow::bail!("composition root plan contains a duplicate root");
+            }
+        }
+        if !seen.contains(main_root) {
+            anyhow::bail!("composition main root is absent from the ordered roots");
+        }
+        Ok(Self {
+            roots,
+            main_root: main_root.clone(),
+        })
+    }
+
+    /// Return the declaration-ordered composition roots.
+    pub fn roots(&self) -> &[SourceId] {
+        &self.roots
+    }
+
+    /// Return the explicitly named main (application) root.
+    pub fn main_root(&self) -> &SourceId {
+        &self.main_root
+    }
+}
+
 /// One strongly connected component in dependency-first order. Records inside
 /// a component preserve the graph's deterministic DFS evaluation order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1608,6 +1652,21 @@ mod tests {
 
     fn source(value: &str) -> SourceId {
         SourceId::synthetic("module-graph-test", value).unwrap()
+    }
+
+    #[test]
+    fn composition_root_plan_validates_roots_and_names_main() {
+        let app = source("composition-app");
+        let agent = source("composition-agent");
+        let absent = source("composition-absent");
+
+        assert!(CompositionRootPlan::new(Vec::new(), &app).is_err());
+        assert!(CompositionRootPlan::new(vec![app.clone(), app.clone()], &app).is_err());
+        assert!(CompositionRootPlan::new(vec![app.clone(), agent.clone()], &absent).is_err());
+
+        let plan = CompositionRootPlan::new(vec![agent.clone(), app.clone()], &app).unwrap();
+        assert_eq!(plan.roots(), &[agent, app.clone()]);
+        assert_eq!(plan.main_root(), &app);
     }
 
     fn edge(specifier: &str) -> StaticEdgeV1 {

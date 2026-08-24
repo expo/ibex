@@ -39,6 +39,7 @@ bun run check:capsec-runtime-projection
 # digest and must rotate in the same change as the generated registry.
 bun run check:example-policy
 bun run check:compiled-environment-profile
+bun run check:composition-refusals
 bun run check:oxc-retirement
 bun run check:module-transform-config
 if ! bun run generate:capability-bits --check >/dev/null 2>&1; then

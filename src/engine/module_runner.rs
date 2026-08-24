@@ -28,6 +28,18 @@ use crate::module_loader::security::{
     AuthorizedGraphOperation, GraphAuthorityContext, GraphImportPolicy, ModuleGraphAuthorizer,
 };
 
+/// Return the frozen-layer failure that guards the future composition linker.
+///
+/// LLP 0056 §7.2's authorized composition-link surface replaces this marker in
+/// legs 2–3. Nothing on a live path calls this function in the frozen layer.
+// @ref LLP 0056#72-the-authorized-composition-linker-module_runnerrs — compositions must use the authorized multi-root path once implemented.
+#[allow(dead_code)]
+pub(crate) fn link_authorized_prepared_composition_unavailable_v1() -> anyhow::Error {
+    anyhow!(
+        "IBEX composition multi-root link is not implemented (LLP 0056 §11 legs 2-3); no composition admits"
+    )
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct NativeModuleHandle {
@@ -4585,6 +4597,14 @@ mod tests {
         produce_commonjs_artifact_with_sites_v1, produce_module_artifact_v1,
     };
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
+
+    #[test]
+    fn frozen_composition_linker_seam_fails_closed() {
+        assert_eq!(
+            link_authorized_prepared_composition_unavailable_v1().to_string(),
+            "IBEX composition multi-root link is not implemented (LLP 0056 §11 legs 2-3); no composition admits"
+        );
+    }
 
     #[allow(clashing_extern_declarations)]
     unsafe extern "C" {

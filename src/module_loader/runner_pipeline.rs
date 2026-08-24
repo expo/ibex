@@ -31,6 +31,11 @@ use super::carrier::{
     PreparedCarrierEngineBindingV2, PreparedModuleCarrierV2, VerifiedPreparedCarrierEntryV2,
 };
 use super::compatibility::LegacyModuleRunnerRequirement;
+#[cfg(feature = "dev-committed-embedder")]
+use super::composition::{
+    parse_composition_verifier_expectations_v1, parse_prepared_composition_commitment_v1,
+    CompositionVerifierExpectationsV1, PreparedCompositionCommitmentV1,
+};
 use super::computed_candidates::{
     ComputedCandidateTableV1, ComputedCandidateTargetV1, COMPUTED_CANDIDATES_SCHEMA_V1,
 };
@@ -4292,6 +4297,34 @@ mod tests {
     use super::*;
     use capsec_semantics::model::PathComponent;
 
+    #[cfg(feature = "dev-committed-embedder")]
+    #[test]
+    fn frozen_composition_channel_seam_parses_golden_records_as_values() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/prepared-composition/v1/vectors/canonical-bytes.json"
+        )))
+        .unwrap();
+        let vector = |name: &str| {
+            corpus["vectors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|vector| vector["name"] == name)
+                .unwrap()["canonicalBytes"]
+                .as_str()
+                .unwrap()
+        };
+
+        let parsed = parse_dev_composition_channel_records_v1(
+            vector("prepared-composition-commitment-record"),
+            vector("composition-verifier-expectations"),
+        );
+        let (commitment, expectations) = parsed.unwrap();
+        assert_eq!(commitment.workflow, "production");
+        assert_eq!(expectations.expected_target, "exact-dev:mac");
+    }
+
     struct CountingPreparedActivationLocator {
         probes: Arc<std::sync::atomic::AtomicUsize>,
         candidates: Vec<PreparedActivationCacheCandidateV1>,
@@ -5872,6 +5905,37 @@ mod tests {
             .to_string()
             .contains("artifact/resolver graph disagreement"));
     }
+}
+
+/// Parse half of LLP 0056 §5 step 0 for the two independent channel records.
+///
+/// This seam is not wired into any C-ABI entry. Parsed results carry no
+/// authority, and no composition admits until implementation legs 2/3 land as
+/// required by LLP 0056 §11. The seam exists only where the dev embedder
+/// feature provides the armed-context query, so the documented step-0 order
+/// (armed exclusion BEFORE channel parsing) holds unconditionally wherever
+/// this function compiles.
+// @ref LLP 0056#5-the-nine-steps--the-ibex-half — step 0 excludes armed context before channel parsing.
+// leg-2 wiring point
+#[cfg(feature = "dev-committed-embedder")]
+#[allow(dead_code)]
+pub(crate) fn parse_dev_composition_channel_records_v1(
+    commitment_text: &str,
+    expectations_text: &str,
+) -> Result<(
+    PreparedCompositionCommitmentV1,
+    CompositionVerifierExpectationsV1,
+)> {
+    if crate::host::abi::installed_host_is_armed_for_dev_exclusion() {
+        bail!(
+            "{} dev-unarmed composition parsing refused: \
+             an armed Host is installed in this process",
+            super::composition::IBEX_DEV_COMPOSITION_ARMED_CONTEXT
+        );
+    }
+    let commitment = parse_prepared_composition_commitment_v1(commitment_text)?;
+    let expectations = parse_composition_verifier_expectations_v1(expectations_text)?;
+    Ok((commitment, expectations))
 }
 
 /// LLP 0413 §10 Phase 2 / LLP 0042 development posture: UNARMED development

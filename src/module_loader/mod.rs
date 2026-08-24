@@ -11,6 +11,8 @@ pub mod catalog_compiler;
 pub mod commonjs;
 pub mod commonjs_lexer;
 pub mod compatibility;
+pub mod composition;
+pub mod composition_refusals_generated;
 pub mod computed_candidates;
 pub mod embedded_graph;
 #[cfg(any(test, feature = "module-runner"))]
