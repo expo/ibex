@@ -8,6 +8,17 @@ pending — the review loop does not accept on the author's behalf)
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r9 — **post-READY correction-class addendum from the slice-2 CODE
+review round** (codex 7 findings, grok 2 — the code round exposed three gaps at doc level
+that neither family caught in the eight doc rounds; both families re-verify this addendum in
+the fix-round re-review). §4 gains: exact-edge-set equality (removal is a breach — the
+earlier "add or retarget" wording left subsets unpinned); the membership-vs-principal-pins
+rule (builtins/synthetics admit as integrity-pinned, never-hot-replaceable members — the V1
+ceiling could not admit the live graph's builtin records at all); and the
+typed-metadata-agreement rule (typed rows must match the verified artifact's declared
+semantics; raw-map graph construction is not a public path). §5.2.5 pins specific-first
+preflight refusal precedence. No other section changed; the r8 dual-READY text is otherwise
+byte-stable.)
 **Revised:** 2026-08-24 (r8 — round-7 fold. Grok r7: READY (its round-6 blocker verified
 resolved; the record-currency-refusals adjudication explicitly confirmed). Codex r7: NOT
 READY with one MATERIAL, adopted: a named **single-flight busy gate** sits after check 2 and
@@ -411,9 +422,27 @@ bootstrap-internal membership). V1-domain digests are not comparable and refuse.
 candidate-site set `(requester, site ordinal) → candidate-table digest + attributes`, the exact
 deferred-dynamic and deferred-CJS membership, and the bootstrap-internal CJS set. **Every
 ceiling breach keeps the landed disposition verbatim: `regenerate policy and restart the
-runtime` — the restart-family strings at this layer.** A hot revision may not add or retarget an
-edge, add or alter a computed site, flip a deferred bit, or grow the bootstrap-internal set,
-whatever the root authority would notionally allow.
+runtime` — the restart-family strings at this layer.** A hot revision may not add, retarget,
+**or remove** an edge (the candidate's typed edge set must equal the pinned set exactly — a
+subset is a breach, not a narrowing), add, alter, or remove a computed site, flip a deferred
+bit, or change the bootstrap-internal set, whatever the root authority would notionally allow.
+
+**Membership vs principal pins (builtins and synthetics).** Graph membership is pinned
+independently of file-principal pins: a source without a defining principal (a builtin or
+synthetic record) is admitted as a **member** with its semantic identity integrity-pinned
+exactly as package sources are, and it is **never hot-replaceable** — a revision targeting one
+refuses in the restart family. Bootstrap-internal CJS facts derive only from such records'
+declarations; a file-principal record may not mint them. (The V1 ceiling required a defining
+principal for every member and therefore could not admit the live graph's builtin records;
+V2 corrects that without weakening any pin.)
+
+**Typed metadata is never self-authenticating.** Replacement records enter as
+`VerifiedModuleArtifactV1` tokens *plus* typed edge/candidate/deferred/bootstrap metadata
+(§5.2 step 4), and the typed rows MUST agree with the verified artifact's own declared
+semantics — its typed static and dynamic edge declarations, computed-site ordinals and
+attributes, CJS-require declarations, and bootstrap-internal declarations. Disagreement
+refuses at stage; graph construction from raw typed maps is not a public path, and a
+clone-and-swap candidate revalidates the same agreement.
 
 **The two recovery grades (why everyday edits never weaken this).** A ceiling is derived
 `from_initial` for one generation and is immutable for that generation's life. Recovery from a
@@ -540,7 +569,10 @@ Then:
    changed set is non-empty is legitimate and required: 0417's closure semantics re-evaluate
    the accepted boundary AND its invalidated importer chain, so unchanged importers inside
    the set become new incarnations (their install revisions advance) even though their rows
-   did not change. Failures refuse with zero app-visible effects. After `Preflighted`, the
+   did not change. Failures refuse with zero app-visible effects, and refusal precedence is
+   **specific-first**: converse/no-op, then export-shape, then CJS eligibility, then the
+   ceiling — a combined-invalid candidate reports its most specific defect, with the ceiling
+   as the final backstop. After `Preflighted`, the
    only remaining fallible steps are the transaction's own evaluation and preparation.
 6. **Evaluation → `Evaluated`.** Class-appropriate, per Exact 0417 §4.8:
    - `contract-staged-pure`: shadow-evaluate the staged incarnations under the §2.2 shadow
