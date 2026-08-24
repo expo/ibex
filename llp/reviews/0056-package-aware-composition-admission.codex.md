@@ -6,6 +6,7 @@
 **Mode:** `codex exec -s read-only` in the 0056 worktree at ibex `94c85abab`; repo access + a capsule copy of Exact LLP 0413.001 r6; blind to the sibling grok review
 **Rounds:**
 - Round 1 (2026-08-24): reviewed r1 (`fa7b5ed0d`). Verdict: NOT READY.
+- Round 2 (2026-08-24): reviewed r3 (`54d142d78`), fresh session (id 01a0349c-e902-7632-842c-c53a0eb68400), mutually blind to the sibling grok round; capsule: 0413.001 r7 @246f959cc + the exact-b7 dark-lane TS files at Exact origin/main (pre-@a049ed9aa). Verdict: NOT READY (4 MATERIAL areas; every decisive claim verified by the orchestrator against the trees before the r4 fold — all confirmed).
 
 ## Round 1 (r1, verbatim)
 
@@ -112,3 +113,108 @@ Revise LLP 0056 before implementation:
 5. Amend Exact 0413.001’s literal registry and stale fixture 35, then rerun the independent review loop.
 
 Verdict: NOT READY — the architectural direction is good, but registry reachability, verifier authority, generation proof, dynamic-link ownership, and multi-root execution semantics remain materially incomplete.
+
+## Round 2 (r3, verbatim)
+
+## Overall Assessment
+
+The architecture is sound, and the 38-row registry passes the required byte-level lockstep check. However, r3 is **not ready for acceptance**. Material normative gaps remain in generation-carrier completeness, bounds placement, authorization staging, producer-identity attestation, and acceptance/lockstep prose.
+
+## Verified Claims (spot-checks performed, with file:line)
+
+- `HEAD` is `54d142d78`; `src/`, `crates/`, and `include/` are byte-identical to `94c85abab`.
+- The three served-byte whole-publication bindings are correctly identified: index at `runner_pipeline.rs:224-231`, carrier manifest at `carrier.rs:94-102`, and artifact producer identity at `artifact.rs:265-275`. The host-held fourth surface is `arming.rs:48-59`.
+- The 18 literal `_CORRUPT` sites and other landed tokens in §6.1 match the tree, including `runner_pipeline.rs:3261-3288`, `3547-3564`, `3598`, `3612`, `3621`, `3634`, `3649`, `3728`, `3749`, and `3825`.
+- Dropping `ibex:compiler-fingerprint-mismatch` is correct for dev-unarmed: the posture skips the independent check at `runner_pipeline.rs:3734-3738`, while the expected fingerprint is derived from the artifact itself at `runner_pipeline.rs:3765-3766`; the otherwise failing comparison is `artifact.rs:570-571`.
+- The encoding branch at `carrier.rs:323-327` is unreachable through the landed caller because the caller selects expectations from the manifest’s declared encoding at `runner_pipeline.rs:3676-3685`. The new byte-shape sniff is therefore necessary.
+- Runtime engine identity is correctly sourced from the loaded engine at `runner_pipeline.rs:6011-6033`.
+- The defining-principal authorizer compares importer and target principals and consults policy at `security.rs:409-442`.
+- The authorized prepared linker is `module_runner.rs:2937-2966`; the landed dev lane uses the receipt-free bypass at `runner_pipeline.rs:6187-6194`.
+- HBC preflight currently occurs outside the shared admission core at `runner_pipeline.rs:6065-6088`, calling `module_runner.rs:459-469`; composition-only parameterization preserves the existing lane.
+- The graph is presently single-root (`graph.rs:536-603`), selects generation from the entry at `module_runner.rs:3589-3593`, and marks that entry as `import.meta.main` at `module_runner.rs:3984-3988`. The named `mainRoot = app` pin is necessary.
+- Sticky evaluation is as described at `module_runner.rs:4012-4059`; namespace access serializes through `JSON.stringify` at `hermes_module_runner.cc:4205-4212`.
+- The landed C ABI emits reports only on success and returns 0/1/2 as described at `runner_pipeline.rs:6396-6418`.
+- The dark Exact files are demonstrably r6-shaped: `PreparedPackageDeliveryV1` carries `produceGeneration` beside bytes at `prepared-composition-schema.ts:146-155`; the producer emits it at `prepared-composition-producer.ts:694-698`; admission consumes it at `prepared-composition-admission.ts:60-66` and `489-497`.
+
+## Factual Errors Found (file:line, MATERIAL/MINOR)
+
+- **MATERIAL — the “one canonical serialized generation carrier” is incomplete.** LLP 0056 says package bytes carry no generation and the envelope triple is the only serialized carrier (`llp/0056-package-aware-composition-admission.spec.md:420-422`, `556-587`), yet its package index retains candidate-table files (`402-414`). The inherited `ComputedCandidateTableV1` serializes `generation` at `computed_candidates.rs:43-50`, validates it at `84-85`, and compares it with execution generation at `runner_pipeline.rs:1143-1148`. The spec must define a generation-free candidate-table successor or explicitly reconcile this field.
+- **MATERIAL — producer-identity attestation does not match r7 precisely.** R7 requires every package index’s producer identity to equal the envelope’s (`0413.001-r7-at-246f959cc.md:162-167`). The 0056 index sketch carries only `producerBinaryDigest` (`llp/0056...spec.md:402-414`), and §4.8 compares that digest to an identity (`563-567`). Either add the producer ID to the package-level identity or normatively require all index-committed carrier/artifact identities to equal the envelope’s full identity.
+- **MATERIAL — acceptance coupling contradicts itself.** The normative sentence still says 0056 cannot become Accepted until generated parity passes (`llp/0056...spec.md:1266-1269`), immediately followed by r3 saying generated parity is now only an implementation-leg gate (`1270-1274`).
+- **MATERIAL — the claimed cross-repository reference-scope declaration is absent from the capsule.** 0056 says `§4.4`, `§4.8`, and `§10` are declared 0056-relative “in both repositories” (`884-888`). Exact’s lockstep prose at `0413.001-r7-at-246f959cc.md:325-353` contains no such declaration; in that document, the bare references naturally point to unrelated or nonexistent Exact sections.
+- **MINOR — stale O-1 wording.** Section 9.1 says the seed has landed at `llp/0056...spec.md:1156-1161`, then says “Until the O-1 package lands” at `1174-1176`. This should say until r7 alignment/parity passes.
+- **MINOR — “ALWAYS written” is too strong.** The ABI comment promises an output report on every outcome (`326`), while §8 permits report serialization failure without changing the outcome (`1142-1143`). Specify a fallback report or permit a null report explicitly.
+
+## Fold Verification (r1 -> r2/r3: held / not held, per finding)
+
+- **38-row ordinalized registry, precedence tuple, one default per step — HELD.** Exactly 38 rows; one `(step, ordinal, roleOrder)` rule; one default for each step/substep.
+- **Dropped compiler-fingerprint row — HELD.** The cited dev posture makes it unreachable.
+- **Encoding-sniff predicate — HELD.** It closes the caller-selected-expectation hole.
+- **Total/injective landed covering map — HELD at the specification level.** Spot-checked literal tokens, file-I/O classes, candidate decode, carrier/artifact checks, HBC checks, and wrapper construction. The proposed implementation fixture remains an implementation gate.
+- **Defining-principal authorization and authorized linker — PARTIALLY HELD.** The principal semantics and chosen linker are correct, but the step-6-to-step-8 authorization capability is unspecified.
+- **Decidable generation attestation — NOT FULLY HELD.** The envelope triple solves the sidecar problem, but candidate-table generation and full producer identity remain unresolved.
+- **Complete verifier inputs — HELD.** Commitment slimming, mandatory expectations, target, O-3 inventory digest, clock, and runtime-owned engine identity match r7.
+- **Bounds split by enforcement surface — NOT HELD.** The external-reference cap remains envelope-only.
+- **Tagged report shapes — HELD**, subject to the minor serialization/“always” contradiction.
+- **Fixture 35a/35b — HELD** in both documents.
+- **Alias disjointness and composition-wide verification — HELD.**
+- **HBC preflight composition-only — HELD.**
+- **Purity theorem, tagged binding targets, named main root, order-guarantee proof, descriptor executor, and retained session — HELD.**
+
+## Lockstep Verification (6.2 vs 4.1; envelope shapes)
+
+- Extracted rows matching `^| <number> | \``: 38 in 0056 and 38 in r7. Every row is byte-equal.
+- Extracted four-line Defaults paragraphs: byte-equal.
+- Precedence tuple, ordinal evaluation order, D1–D9 amendment direction, fixture-35 correction, and environment/channel codes are semantically consistent.
+- No registry-row byte drift exists.
+- The bare section-reference scope is not lockstep-safe because only 0056 declares it 0056-relative.
+- Commitment shape matches: schema/workflow metadata plus only `compositionRootDigest`.
+- Expectations match exactly: `expectedTarget`, `expectedRoles`, `sessionNonce`, `authorityGeneration`, `resolverGeneration`, `policyDigest`, `resolverInventoryDigest`, and `nowUnixMs`; all mandatory and I-JSON-safe.
+- The `(role, packageRoot, producerGeneration)` triple matches r7.
+- The accompanying full-producer-identity predicate does not yet match precisely, as noted above.
+
+## Dark-Impl Pin Assessment (d1, d2)
+
+**d1 — correct and sufficiently precise.** The dark producer’s branch at `prepared-composition-producer.ts:756-817` maps both unresolved and resolvable-but-unpublished dynamic targets to `"target is not a bundle module"`. Under package-local admission, the decidable fact is whether the owning package publishes a target record, not why the project-wide resolver omitted it. Keeping the closed two-member enum is the right call. Add a fixture for each of the two underlying producer situations, both expecting row #30 only on committed-row divergence.
+
+**d2 — correct principle, incomplete pin.** Rejecting `PreparedPackageDeliveryV1` is correct: the dark wrapper is outside both the package-root and composition-root commitments. The envelope triple should be the sole authenticated produce-generation carrier. Completeness requires explicitly evolving/removing `ComputedCandidateTableV1.generation` and stating how the envelope-attested generation enters in-memory execution configuration.
+
+## Design Concerns (MATERIAL)
+
+- **External-reference bound is enforced at the wrong surface.** External bindings live in package rows (§4.5), but `external references ≤ 4,096` is listed only under envelope decode (`llp/0056...spec.md:245-251`). A malicious committed package can contain more than 4,096 external rows before step 6 compares the union table. Enforce the cap during step-3 package decode as well.
+- **Authorization staging lacks a typed handoff.** Step 6 assigns denial to #34 (`694-706`), while step 8 and §7.2 say the authorized constructor authorizes and links (`725-730`, `1021-1025`). The current authorized constructor likewise authorizes internally at `module_runner.rs:2951-2966`. Define an `AuthorizedCompositionPlanV1` produced at step 6 with retained receipts and consumed at step 8, or the denial can surface incorrectly as #38.
+- **Generation-free package evolution is underspecified.** Candidate-table schema evolution and its execution-generation replacement belong in §4/§11 and the O-1 corpus, not as an inference left to implementers.
+- **Acceptance criteria must have one normative meaning.** Relaxing generated parity to an implementation gate is sound because the document tables are already byte-identical and nothing admits before implementation leg 3. The old acceptance-blocking sentence must nevertheless be removed or rewritten.
+
+## Design Concerns (MINOR)
+
+- Change “tampered carrier hits #15 first” at `llp/0056...spec.md:660-663`; manifest-only principal tamper can reach the principal checks at `carrier.rs:281` or `307`.
+- Make report serialization/allocation behavior part of each tagged ABI outcome.
+- Add the 0056-relative reference-scope sentence to Exact r7 outside the shared table, so the row bytes remain identical.
+- OQ-D’s thenable semantics are acceptable for v1, but a diagnostic flag for “bootstrap returned thenable” would make later regressions visible.
+
+## Answers to the Standard Review Questions
+
+The proposal is a good idea. Per-package roots plus an authenticated composition envelope are the right architecture for stable app bytes, one-way package composition, and fail-closed admission.
+
+The implementation plan is well sequenced: schema/corpus, admission, link/evaluate, then Exact integration. It needs a small but load-bearing schema revision and a typed authorization-plan handoff before implementation begins.
+
+I would:
+
+1. Define a generation-free candidate-table successor.
+2. Pin full package producer identity against the envelope.
+3. Enforce the external-reference cap at package decode.
+4. Introduce `AuthorizedCompositionPlanV1` between steps 6 and 8.
+5. Repair the acceptance paragraph and add the Exact-side reference-scope note.
+
+Nothing about the core package/composition split is wrongheaded. The unauthenticated sidecar is wrongheaded and r3 correctly rejects it; leaving other serialized generation fields implicit would recreate the same ambiguity.
+
+A useful non-standard improvement would be an executable “schema invariant audit” generated from O-1 that asserts: no generation-bearing field exists below a package root, every registry row has a reachability recipe, and every step-6 authorization receipt is consumed exactly once at step 8.
+
+The key remaining questions are where full producer identity lives, what replaces candidate-table generation, and what typed capability bridges authorization and linking.
+
+## Recommended Next Step
+
+Keep the document in Draft and produce r4 with the five targeted changes above. No architectural rewrite is needed. Re-run the row/default byte comparison after adding only surrounding Exact prose, then require the r7-shaped O-1 corpus and generated parity check before implementation leg 1 proceeds.
+
+Verdict: NOT READY — the one-carrier generation invariant, producer-identity attestation, bounds placement, and step-6 authorization handoff remain materially incomplete.

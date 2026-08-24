@@ -5,7 +5,33 @@
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-24 (r3 — peer-blocker resolution + dark-impl pins:
+**Revised:** 2026-08-24 (r4 — round-2 dual-family fold on r3 (grok-4.6
+READY, 0 MATERIAL; codex gpt-5.6-sol xhigh NOT READY, every decisive
+claim verified before folding): **generation-free candidate-table v2**
+(the landed `ComputedCandidateTableV1.generation` would smuggle a
+serialized generation into package bytes — codex, converging with a
+blind grok verification request; §4.3, §4.8, an O-1 row); **full
+producer identity in the package index** (`(producerId,
+producerBinaryDigest)` vs the envelope — r7 §3.1 item 2 and shared
+row #22 already required identity equality; §4.3/§4.8); **external-ref
+cap at both surfaces** (§3.1); **`AuthorizedCompositionPlanV1` typed
+handoff** step 6 → step 8 (codex/grok convergent — policy denial can
+never misreport as #38; §5/§7.2); acceptance coupling and §6 rewritten
+to ONE normative meaning (peer blocker resolved; generated-halves
+parity = implementation gate); §6.2 scope-declaration overclaim fixed
+(Exact-side sibling note = named handoff); step-3 ordinal-outer sweep
+rule; `*_for_roots` entry-plan argument order; report
+serialization-failure null rule unified; `agentInvokeReturnedThenable`
+diagnostic; expiry/policy-digest note; d1 pin clarified
+(literal-dynamic-only + §2.1 identity clause). Alignment-wave fold
+(Exact `@a049ed9aa`, verified): §3.2/§3.3 re-pointed from provisional
+to their **landed authority files** (field-for-field);
+generation-carrier duplication RESOLVED exact-side (wrapper carries no
+generation); §4.7 evidence basis widened to the landed collection
+basis (declared edges + host-bridged rows); §6.3 arming note (the
+lockstep leg reports unarmed until the vendor/ibex pointer advances —
+expected posture); §11 leg-1 r6-shape hold released, the 21-vector
+corpus named as the leg-1 Rust differential target.) 2026-08-24 (r3 — peer-blocker resolution + dark-impl pins:
 Exact 0413.001 r7 / Amendment A1 `@246f959cc` adopted §6.2 verbatim
 (doc tables byte-verified identical; §6/§6.2/§11 status updated, the
 acceptance peer blocker recorded resolved with the generated-halves
@@ -132,14 +158,17 @@ defect in this implementation, never a pass.
 
 **Schema provisionality (coordination rule):** the canonical home of the
 composition schemas, preimages, and the shared vector corpus is the O-1
-package at Exact `docs/schemas/prepared-composition/v1/`. As of r3 the
-O-1 **seed has landed** (Exact `@9018e0bbd`, status `dark`, plus the
-steps-1–5 TS admission mirror `@8d06de59e`) — but it was cut against
-the r6 §4.1 registry, and the exact-side parity check has already
-caught real cross-authority drift against the A1 amendment (being
-fixed exact-side as a P0). Every concrete field sketch in this
-document (§3.2, §3.3, §4.3–§4.6, §8) therefore remains **provisional
-until the parity check pins r7-shaped bytes**: this spec fixes names,
+package at Exact `docs/schemas/prepared-composition/v1/`. As of r4 the
+O-1 seed (`@9018e0bbd`, status `dark`, plus the steps-1–5 TS admission
+mirror `@8d06de59e`) has been **r7-aligned by the exact-side alignment
+wave at `@a049ed9aa`** (attestation triples, the §3.3 channel records,
+the expectations-driven mirror; `prepared-composition-schema-parity`
+PASS): the §3.2 commitment and §3.3 expectations blocks now have
+**landed authority files, field-for-field** (their sections cite
+them), and the generation-carrier duplication is resolved in this
+spec's favor (§4.8). The remaining field sketches (§4.3–§4.6, §8 —
+the carrier-bearing ibex-half schema rows the seed does not yet carry)
+stay **provisional pending their O-1 rows**: this spec fixes names,
 semantics, invariants, and refusal behavior — byte-level encodings
 defer to O-1, and the ibex side consumes and extends that corpus rather
 than freezing a second format (§9.1).
@@ -246,7 +275,10 @@ bounds at envelope decode, the wrong surface):
   (64 MiB); roles ≤ 2; alias rows ≤ 1 024; union-table rows ≤ 1 048 576;
   external references ≤ 4 096; strings ≤ 4 KiB; nesting ≤ 16.
 - **Package index decode (step 3):** index ≤ 64 MiB; records ≤ 65 536
-  per package; declared edges ≤ 1 048 576 per package; strings ≤ 4 KiB;
+  per package; declared edges ≤ 1 048 576 per package; external
+  reference rows ≤ 4 096 per package (r4 — the envelope-only cap left
+  a committed package free to carry more until step 6; the same cap is
+  enforced at both surfaces); strings ≤ 4 KiB;
   nesting ≤ 16; manifest ≤ 16 MiB, carrier ≤ 512 MiB, candidate table
   ≤ 64 MiB (the landed per-file caps).
 
@@ -254,7 +286,11 @@ Limit and limit+1 are fixture rows at **both** surfaces (§9.2).
 
 ### 3.2 Host-held commitment (the §3.3 channel) — a digest, nothing else
 
-*Provisional pending O-1 (§ Summary).* The composition analog of today's
+*O-1 authority LANDED (r4):*
+`docs/schemas/prepared-composition/v1/prepared-composition-commitment-v1.schema.json`
+(Exact `@a049ed9aa`, field-for-field with this block — three fields,
+`additionalProperties: false`; the file self-describes as the authority
+this block awaited). The composition analog of today's
 `commitment_json` argument, slimmed so no envelope fact is duplicated:
 
 ```jsonc
@@ -280,7 +316,11 @@ are **channel failures outside the registry**, reported through the §8
 
 ### 3.3 Verifier-held expectations
 
-*Provisional pending O-1.* One versioned JSON argument carrying every
+*O-1 authority LANDED (r4):*
+`docs/schemas/prepared-composition/v1/composition-verifier-expectations-v1.schema.json`
+(Exact `@a049ed9aa`, field-for-field with this block — all eight fields
+mandatory, `additionalProperties: false`, I-JSON integer constraints).
+One versioned JSON argument carrying every
 live value step 2b compares against (the r1 draft left target and the
 O-3 inventory with no input channel — codex/grok convergent):
 
@@ -304,7 +344,10 @@ O-3 inventory with no input channel — codex/grok convergent):
 All integers are I-JSON safe (`0..=2^53-1`), matching r6's RFC 8785
 number rules; `nowUnixMs` is an input so expiry outcomes are
 deterministic under test. Credential material never appears here or in
-the envelope (0413.001 §3.1 item 8).
+the envelope (0413.001 §3.1 item 8). Expiry is decided only as
+envelope-vs-`nowUnixMs`; a producer-chosen far-future expiry is a
+policy question the policy digest (#4) owns — no second lifetime
+channel exists or should be added (r4, grok d5).
 
 **Runtime-queried identity (not expectations):** the loaded-engine
 identity for `hermes-bytecode` carriers comes from the authoritative
@@ -323,7 +366,9 @@ int32_t ibex_dev_unarmed_composition_prepared_startup_v1(
     const char *commitment_json,      // §3.2, host-held
     const char *expectations_json,    // §3.3, verifier-held
     const char *project_root,
-    char **out_report_json,           // ALWAYS written — §8 tagged shapes
+    char **out_report_json,           // written on every outcome — §8 tagged
+                                      // shapes; null ONLY on report-serialization
+                                      // failure (§8's never-convert rule)
     char **out_error);
 ```
 
@@ -403,7 +448,8 @@ requirement.
 {
   "schema": "ibex/prepared-package/1",
   "role": "app" | "agent",
-  "producerBinaryDigest": "<digest>",
+  "producerId": "<producer id>",           // r4: full identity, not digest-only —
+  "producerBinaryDigest": "<digest>",      // §4.8 compares BOTH to the envelope's
   "packageGraphDigest": "<digest, §4.2>",          // replaces deploymentGraphDigest
   "records": [ { "sourceId": ..., "bindings": [ /* §4.5 rows */ ],
                  "artifact": { /* ModuleArtifactV1, §4.6 producer identity */ },
@@ -421,7 +467,23 @@ a pure content set and the same app package serves `["app"]` and
 bytes are generation-free by design (content addressing); generation is
 attested in the envelope (§4.8); **`role` is present** — the package
 names the one role it was produced for, and step 3 refuses a package
-served under a different role; **the host-bridged inventory is in the
+served under a different role; **candidate tables are the
+generation-free v2** (r4 — codex round 2, converging with a blind grok
+verification request: the landed `ComputedCandidateTableV1` serializes
+a `generation` field (`computed_candidates.rs:43-50`), validated
+non-zero and compared against the execution generation at link
+(`runner_pipeline.rs:1143-1148`) — keeping it verbatim would smuggle a
+serialized generation into "generation-free" package bytes, breaking
+both the §2.1 identity guarantee and §4.8's one-carrier pin. The
+composition lane requires the candidate-table successor row — an O-1
+schema row, `ibex/computed-candidates/2` — which is v1 **minus the
+`generation` field**; everything else carries over. A v1 table inside
+a composition package is an unsupported schema, #12
+`ibex:prepared-commitment-schema`. The landed single-publication lane
+keeps v1 byte-for-byte. At admission, incorporated candidate tables
+receive the envelope-attested composition generation in memory (§4.8),
+so the landed link-time generation-uniformity check passes by
+construction); **the host-bridged inventory is in the
 index** — §2.5 requires it package-root-committed, its `reason` values
 drawn from the closed two-member enum with the locality rule (derivable
 from this package's own graph facts, never referencing the other
@@ -448,7 +510,13 @@ lowering fallback (none in the v1 composition producer). The step-6
 #30 recomputation applies the same package-scope rule: reasons
 recompute from the owning package's own graph facts only, and any
 reason value outside the two members, or any divergence from the
-committed rows, is `boundary-inventory-mismatch`.
+committed rows, is `boundary-inventory-mismatch`. Two clarifications
+(r4, grok round 2): these reasons apply to **unbound literal-dynamic
+inventory rows only** — never to typed external references, whose
+legality is owned by §4.5 and steps 5–6; and the locality rule is also
+an identity-guarantee fact — a third member distinguishing by the
+other package's facts would make app inventory bytes change when
+`agent` joins, breaking §2.1.
 
 The **package root** is `digest(ibex:prepared-package-root:1,
 index_bytes)` — the value the composition's ordered
@@ -543,7 +611,12 @@ step 3 after both packages admit, before the step-4 partition
 recomputation. The ibex half verifies: the representative exists in its
 owning package, its admitted artifact's `semantics.source_integrity`
 equals the committed row's, and the import-site inventory digest
-recomputes over the admitted records' binding rows naming the alias —
+recomputes over the served packages' committed facts naming the alias
+— every packed record's declared binding rows **plus the package's
+committed host-bridged inventory rows** (r4: the landed collection
+basis, `collectAliasImportSites` at Exact `@a049ed9aa`, draws from
+exactly these two committed surfaces, so producer and verifier compute
+over the same universe by construction) —
 under the O-3 algorithm the O-1 package fixes, with
 `resolverInventoryDigest` (§3.3) as the explicit verifier input.
 Divergence is `alias-conflict`. At resolution time (steps 6–8 and
@@ -562,9 +635,15 @@ attestation**: `(role, packageRoot, producerGeneration)`, committed
 under the composition root next to the composition's single generation
 and producer identity (0413.001 §3.1 items 2 and 8). Decidable step-3
 predicates: every attestation's `producerGeneration` equals the
-composition generation, and every package index's `producerBinaryDigest`
-equals the envelope's producer identity — disagreement is
-`generation-splice`. This is producer-accountable attestation, not
+composition generation, and every package index's **full producer
+identity** — the `(producerId, producerBinaryDigest)` pair (§4.3;
+r4: r7 §3.1 item 2 requires identity equality, and the shared row #22
+already says "producer identity"; a digest-only comparison
+under-delivered the row) — equals the envelope's producer identity;
+disagreement is `generation-splice`. The per-record `prepared-package`
+identities (§4.6) carry the same pair and are checked against the
+index by the landed artifact admission; an index-vs-record
+disagreement is package-internal inconsistency (#14). This is producer-accountable attestation, not
 independent proof (package bytes are deliberately generation-free);
 independence comes from the freshness half — a whole composition
 produced under a stale resolver generation refuses at 2b
@@ -585,6 +664,19 @@ second serialized carrier of one fact is a drift-capable parity pair
 producer-internal, in-memory struct ferrying the generation from
 produce to envelope assembly is fine; nothing serialized, and the O-1
 schema package must not define one.
+
+**Resolved exact-side (r4):** the alignment wave at Exact `@a049ed9aa`
+adopted exactly this — `PreparedPackageDeliveryV1` now carries **no
+generation** (its doc comment names the envelope triple the one
+carrier), the envelope carries the attestation triples, and the dark
+admission mirror consumes `producerGeneration` from the envelope pairs
+only. The sidecar alternative is dead. **How the attested generation
+enters execution (r4, codex round 2):** admission constructs every
+execution configuration — and stamps every incorporated
+generation-free v2 candidate table (§4.3) — under the single
+envelope-attested composition generation, in memory; the landed
+link-time generation-uniformity checks then pass by construction, and
+no serialized generation exists below the envelope.
 
 ## 5. The nine steps — the ibex half
 
@@ -645,7 +737,16 @@ starts the nine steps.
    `composition-package-missing`); declaration equals `expectedRoles`
    (#10 `composition-mismatch`, also 2b's default).
 3. **Per-package admission** (`admit_package_v1`, app then agent), in
-   ordinal order #11–#24. Per package: bounded read of `index.json`;
+   ordinal order #11–#24. **Ordinal-outer across packages (r4, grok
+   round 2):** the precedence tuple is authoritative — a conforming
+   driver must not let one package's later-ordinal failure suppress the
+   other package's earlier-ordinal predicate (full-app-then-full-agent
+   short-circuiting would report `(3, #12, app)` over `(3, #11,
+   agent)`). Either evaluate ordinal-outer (#11 for both packages, then
+   #12 for both, ...) or complete the step's predicate sweep over both
+   packages and select the lowest `(step, ordinal, roleOrder)` tuple;
+   fixture 38's property generator asserts the result either way.
+   Per package: bounded read of `index.json`;
    `digest(ibex:prepared-package-root:1, index_bytes)` equals the
    committed package root ⇒ else `package-root-mismatch` (#11); schema,
    role, producer-identity-variant, and root-principal checks (#12
@@ -660,7 +761,9 @@ starts the nine steps.
    defining-principal grouping (#16 `ibex:principal-grouping` —
    admission sites `carrier.rs:281`/`307` plus the composition grouping
    recomputation; classed producer-defect because grouping is
-   producer-computed — a tampered carrier hits #15 first by ordinal),
+   producer-computed — byte-tampered carrier bytes hit #15 first by
+   ordinal, while a grouping violation with intact digests is the
+   producer's own output (r4 wording, codex round 2)),
    declared-encoding/byte-shape agreement (#17
    `ibex:encoding-incompatible`, the §4.4 sniff), engine identity (#18
    `ibex:engine-unavailable`, #19 `ibex:engine-binding-mismatch`),
@@ -703,7 +806,15 @@ starts the nine steps.
    resolution — never raw descriptor presence) ⇒ else
    `export-disagreement` (#33); run the **defining-principal
    authorization** over the union closure's authorized-linker plan
-   (§10) ⇒ denial is `cross-principal-denied` (#34).
+   (§10) ⇒ denial is `cross-principal-denied` (#34). **Typed handoff
+   (r4 — codex/grok convergent):** step 6's authorization run produces
+   an `AuthorizedCompositionPlanV1` — the authorized union plan with
+   its retained receipts over reachable operations and dynamic
+   candidates, internal and external edges. Step 8 (§7.2) **consumes**
+   that capability and makes no fresh policy decisions: every policy
+   denial is decided here as #34, and a step-8 failure is mechanical
+   linking (#38) — a policy denial surfacing at step 8 is a defect in
+   this implementation, not an outcome.
 7. **Entry-plan check (one code per predicate)** (#35–#37). Recompute
    the expected plan from the declaration and `expectedRoles` (order:
    `agent` before `app`; app descriptor `{root, action: "evaluate"}`;
@@ -753,19 +864,18 @@ otherwise — including every package of a step-1/2a failure.
 
 This section is the **authoritative token enumeration the O-2 parity
 check consumes** (the 0413.001 track owner's coordination rule): §6.1
-enumerates the landed reality, §6.2 is the proposed replacement
-registry, §6.3 fixes the parity mechanics, §6.4 the covering map. O-2 is
-discharged when the 0413.001 §4.1 amendment adopts §6.2, the generated
-registry byte-matches it, and every imported row has a demonstrated
-reachability fixture (§9.2) — none of which this document can do
-unilaterally (§11). **Status at r3:** the amendment landed — Exact
-LLP 0413.001 r7 / Amendment A1 (`@246f959cc`) adopts §6.2 verbatim (38
-rows and the defaults paragraph byte-identical across the two
-documents, verified at this revision) and records O-2 discharged at
-the document level; the generated-registry byte-match and the F-i
-reachability fixtures remain implementation-leg gates (§6.3, §9.2),
-and the live exact-side parity check has already caught the r6-shaped
-O-1 seed drifting from the A1 table (§9.1) — the gate works.
+enumerates the landed reality, §6.2 is the replacement registry —
+**adopted verbatim by Exact LLP 0413.001 r7 / Amendment A1
+(`@246f959cc`)**, with the 38 rows and the defaults paragraph
+byte-identical across the two documents (verified at r3 and re-verified
+at r4) — §6.3 fixes the parity mechanics, §6.4 the covering map.
+**O-2's one current status (r4, single normative meaning):** discharged
+at the **document level** by the A1 adoption, exactly as the Exact side
+records; the generated-registry byte-match (§6.3) and the F-i
+reachability fixtures (§9.2) are **implementation-leg gates**, not
+acceptance conditions. The live exact-side parity check has already
+caught the r6-shaped O-1 seed drifting from the A1 table (§9.1) —
+the gate works.
 
 ### 6.1 The landed token enumeration (at `94c85abab`)
 
@@ -881,11 +991,15 @@ A = attacker, P = producer-defect, E = environment.
 default where a specific row applies is non-conformant; the defaults
 exist so no failure can escape the registry.
 
-**Row-byte section references are 0056-relative in both repositories:**
-the lockstep rule shares row bytes verbatim, so the `§4.4`, `§4.8`, and
-`§10` strings inside row predicates (#17, #22, #34) refer to this
-document's sections even when the table is read in 0413.001 §4.1 —
-never to the Exact document's own §4.4/§4.8/§10.
+**Row-byte section references are 0056-relative wherever the table is
+read:** the lockstep rule shares row bytes verbatim, so the `§4.4`,
+`§4.8`, and `§10` strings inside row predicates (#17, #22, #34) refer
+to this document's sections even when the table is read in 0413.001
+§4.1 — never to the Exact document's own §4.4/§4.8/§10. This
+declaration lives here; the Exact half does not yet carry the sibling
+note, and adding one **outside the shared row bytes** is a named
+handoff to the exact-side alignment lane (r4 — codex/grok convergent;
+until it lands, only this document declares the scope).
 
 **Amendment deltas vs r6 §4.1 (explicit — none of this is a silent O-2
 substitution):**
@@ -945,7 +1059,14 @@ repos pin identical registry bytes. **This is the named gate
 relationship: O-2 is discharged through that check, extended to the
 imported rows, with §6.2 as the enumeration it consumes.** The driver
 evaluates predicates in ordinal order so precedence is by construction.
-No `_ =>` arm may produce anything outside the registry.
+No `_ =>` arm may produce anything outside the registry. **Arming note
+(r4):** the exact-side check's lockstep leg — the §6.2-vs-§4.1
+byte-comparison against the vendored ibex document — deliberately
+reports itself **unarmed** while the Exact `vendor/ibex` submodule pin
+predates this file, and arms automatically when the pointer advances
+past `llp/0056` (verified in the landed check at Exact `@a049ed9aa`);
+an "unarmed" report before the pointer bump is expected posture, not a
+parity gap.
 
 ### 6.4 The covering map (total, injective, machine-checked)
 
@@ -997,6 +1118,11 @@ Two additions, generalizing the landed single-entry functions
   the descriptor executor knows where the agent segment ends and the
   invoke point sits.
 
+Both take their root list in **entry-plan order** (`agent` before
+`app`, §5 step 7) — that argument order is what makes a shared
+app-owned record evaluate in the agent segment, once (fixture 1's
+segment-order assertion; r4, grok round 2).
+
 Both surface `GraphErrorCode::ModuleLink` / `RequireAsyncModule` exactly
 as today; at step 7 a root that cannot produce an order maps to
 `composition-root-unlinked`, and at step 8 a link-time `GraphError` maps
@@ -1011,18 +1137,23 @@ exactly the shortcut r6 forbids for compositions). One new constructor
 generalizes `link_authorized_prepared` (`module_runner.rs:2937`):
 
 ```rust
-pub fn link_authorized_prepared_composition<P: GraphImportPolicy>(
+pub fn link_authorized_prepared_composition(
     runtime, plan, root_plan: &CompositionRootPlan,
-    configs, authorizer: &ModuleGraphAuthorizer<'_, P>,
+    configs, authorized: &AuthorizedCompositionPlanV1,   // step-6 output (§5)
     authority_contexts, prepared_entries,
 ) -> Result<Self>
 ```
 
-It authorizes reachable operations and dynamic candidates over the
-union closure (internal **and** external edges — §10 defines the v1
-policy), retains the receipts, then links every reachable record under
+It **consumes** the `AuthorizedCompositionPlanV1` step 6 produced —
+the authorized union plan with retained receipts over reachable
+operations and dynamic candidates, internal **and** external edges
+(§10 defines the v1 policy; the authorization run itself happens at
+step 6, where denial is #34) — and links every reachable record under
 one generation — atomically: a failure while linking any record fails
-the whole composition, and no partially-linked graph is ever evaluated.
+the whole composition, no partially-linked graph is ever evaluated,
+and no fresh policy decision is made here (r4 — codex/grok
+convergent: without the typed handoff, a policy denial could
+misreport as #38).
 Landed invariants carry over: every reachable record needs a config;
 generation uniformity (`module_runner.rs:3606-3608`); the sticky
 outcome discipline with record-attributed errors
@@ -1061,7 +1192,11 @@ The return value is ignored (the landed bootstrap template's
 completion" means **the function returned** — a returned thenable is
 not awaited (template parity, stated honestly: setup a bootstrap
 schedules asynchronously is app-visible but not guaranteed complete;
-correctness-bearing agent readiness is 0413.001 OQ3 / Acto territory).
+correctness-bearing agent readiness is 0413.001 OQ3 / Acto territory;
+r4: when the invoke returns a thenable, the §8 report carries the
+diagnostic `agentInvokeReturnedThenable: true` so a bootstrap
+regressing to async setup is visible without failing step 9 — OQ-D's
+strictness lever stays available).
 Errors here are step-9 startup errors (return code 2), never admission
 refusals: export **presence** was verified at step 7 against the
 resolved namespace plan, but descriptors and namespace plans do not
@@ -1138,9 +1273,14 @@ javascriptCarrierCount, verificationStatus}`, timings
 `agentInvokeUs`, `appEvaluateUs`), and the OQ-C counts
 (`agentEvaluatedRecordCount`, `appEvaluatedRecordCount`,
 `sharedEvaluatedRecordCount` — counts only, no source identifiers;
-0413.001 OQ2's lean). All counters are I-JSON safe integers. A report
+0413.001 OQ2's lean), and — on the `admitted` /
+`admitted-startup-error` variants — the `agentInvokeReturnedThenable`
+diagnostic (§7.3). All counters are I-JSON safe integers. A report
 serialization failure never converts an outcome (the landed rule:
-surface through the error slot alongside the outcome's return code).
+surface through the error slot alongside the outcome's return code);
+in that one case `out_report_json` is null and the error slot names
+both the outcome and the serialization failure (§3.4; r4 — the ABI
+comment and this rule now say the same thing).
 
 The `unavailable-unserved` / `unavailable-unadmitted` variants of
 0413.001 §5 are **producer/exact-host states that ibex never emits** —
@@ -1171,9 +1311,12 @@ rows at both §3.1 surfaces, canonicality-violation rows) are vendored at
 pinned in the fixture manifest; a Rust conformance test derives
 encode/decode/digest results for every vector and must be green; the
 exact-side parity check asserts both repos pin the same corpus digest.
-Until the O-1 package lands, every field sketch here is provisional
-(§ Summary) — implementation leg 1 (§11) starts only against the landed
-O-1 schemas.
+Until the parity check confirms the landed O-1 package is r7-shaped
+(r4 — the seed itself has landed, § Summary), the not-yet-confirmed
+field sketches here remain provisional — implementation leg 1 (§11)
+starts only against the confirmed r7-shaped O-1 schemas. The §3.2/§3.3
+records are already past that bar (their authority files landed
+field-for-field at `@a049ed9aa`).
 
 ### 9.2 The ibex-side fixture rows
 
@@ -1238,10 +1381,13 @@ tokens are untouched until the production-armed amendment.
 
 ## 11. Implementation plan and acceptance coupling
 
-1. **Schema leg** — lands only against the landed O-1 package (§9.1),
-   and **holds until the exact-side alignment landing report confirms
-   the O-1 package is r7-shaped** (the landed seed is r6-shaped; the
-   parity check has already caught the drift — §9.1):
+1. **Schema leg** — lands only against the landed O-1 package (§9.1).
+   *(r4: the r6-shape hold is released — the alignment wave at
+   `@a049ed9aa` confirmed r7-shaped schemas with the parity check
+   green. What leg 1 still waits for from O-1 is its **ibex-half
+   rows**: the §4.3 package index, §4.4 carrier v3, §4.5 binding rows,
+   §4.6 producer identity, the §4.2 preimage, and the §4.3
+   generation-free candidate-table v2.)* Contents:
    `composition.rs` decode types + bounds + the generated
    `CompositionRefusalCode`; carrier v3 and `prepared-package` producer
    identity; `admit_package_v1` extracted from
@@ -1249,7 +1395,11 @@ tokens are untouched until the production-armed amendment.
    (landed single-publication behavior pinned by existing tests before
    the refactor; composition-only checks behind parameters). Vendored
    corpus + registry + covering-map fixtures green before any admission
-   logic exists.
+   logic exists. **The leg-1 differential target (r4):** the landed
+   21-vector canonical-byte corpus (O-1 `vectors/`, TS half green at
+   `@a049ed9aa`) — the Rust conformance test derives encode / decode /
+   digest results for every vector and must match byte-for-byte, the
+   §9.1 gate's Rust half.
 2. **Admission leg** — steps 0–7 with fixture groups B/C, the F-i
    reachability rows, and the covering-map test; the `refused` and
    `channel-error` report variants.
@@ -1263,17 +1413,17 @@ tokens are untouched until the production-armed amendment.
    half landed as A1 `@246f959cc`; the parity-extension and host
    halves follow the implementation legs.)*
 
-**Acceptance coupling (normative):** this spec does not reach
-`Accepted`, and O-2 is not discharged, until the 0413.001 §4.1
-amendment adopting §6.2 is accepted on the Exact side and the parity
-check pins both halves to identical registry bytes — the amendment is a
-**peer blocker**, not a follow-up. **Resolved at r3:** Amendment A1
-(`@246f959cc`) adopts §6.2 verbatim and the doc-level tables are
-byte-verified identical (§6 status note); the peer blocker no longer
-holds acceptance, and the generated-halves parity pin remains an
-implementation-leg gate. Each leg is landable alone; nothing
-admits for real until leg 3, which is the moment 0413.001's "no
-composition admits until the ibex leg lands" flips.
+**Acceptance coupling (normative, r4 — one current meaning):** the
+acceptance peer blocker was the 0413.001 §4.1 amendment adopting §6.2;
+it is **resolved** — Amendment A1 (`@246f959cc`) adopts §6.2 verbatim
+and the doc-level tables are byte-verified identical (§6). Nothing
+further blocks this spec's acceptance cross-repo. The generated-halves
+parity pin and the F-i reachability fixtures are implementation-leg
+gates (§6.3, §9.2), deliberately NOT acceptance conditions — coupling
+`Accepted` to a generated implementation artifact that 0413.001 itself
+did not wait for would invert the dependency. Each leg is landable
+alone; nothing admits for real until leg 3, which is the moment
+0413.001's "no composition admits until the ibex leg lands" flips.
 
 ## 12. Open questions
 
@@ -1297,6 +1447,29 @@ composition admits until the ibex leg lands" flips.
 
 ## Revision history
 
+- **r4 (2026-08-24):** Round-2 dual-family fold on r3 (grok READY /
+  codex NOT READY; every decisive codex claim verified against the
+  trees before folding) plus the `@a049ed9aa` alignment-wave fold.
+  Codex MATERIALs: generation-free candidate-table v2 (§4.3/§4.8 — the
+  landed table's serialized `generation` field broke the one-carrier
+  invariant; blind cross-family convergence with grok's verification
+  request); full producer identity `(producerId, producerBinaryDigest)`
+  in the index vs the envelope (§4.3/§4.8); external-reference cap
+  enforced at package decode too (§3.1); typed
+  `AuthorizedCompositionPlanV1` handoff from step 6 to step 8
+  (§5/§7.2); single-meaning acceptance coupling (§6/§11); §6.2
+  scope-declaration fixed with the Exact-side sibling note as a named
+  handoff. Grok/codex MINORs: ordinal-outer step-3 sweep; entry-plan
+  argument order for `*_for_roots`; report null-on-serialization-
+  failure unification; thenable diagnostic; expiry/policy note; d1
+  literal-dynamic-only + identity clauses; #16 wording. Alignment
+  fold: §3.2/§3.3 landed authority files (field-for-field,
+  `prepared-composition-schema-parity` PASS); generation-carrier
+  duplication resolved exact-side; §4.7 basis widened to declared
+  edges + host-bridged rows (`collectAliasImportSites`); §6.3
+  unarmed-lockstep-leg arming note; §11 leg-1 hold released to the
+  ibex-half O-1 rows, 21-vector corpus as the Rust differential
+  target.
 - **r3 (2026-08-24):** Peer-blocker resolution and dark-impl pins.
   Recorded Exact 0413.001 r7 / Amendment A1 (`@246f959cc`) adopting
   §6.2 verbatim (38 rows + defaults byte-verified identical across the

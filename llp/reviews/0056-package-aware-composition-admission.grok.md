@@ -5,6 +5,7 @@
 **Mode:** full text of LLP 0056 r1 + Exact LLP 0413.001 r6 inlined in the prompt; no repository access (code claims routed as verification requests); blind to the sibling codex review
 **Rounds:**
 - Round 1 (2026-08-24): reviewed r1 (`fa7b5ed0d`). Verdict: NOT READY.
+- Round 2 (2026-08-24): reviewed r3 (`54d142d78`), fresh headless session, mutually blind to the sibling codex round; full text inlined (0056 r3, 0413.001 r7 @246f959cc, both round-1 artifacts, dark-lane TS excerpts). Verdict: READY (0 MATERIAL; independently byte-verified the 38-row/defaults lockstep).
 
 ## Round 1 (r1, verbatim)
 
@@ -191,3 +192,142 @@ Stay **Draft**. Revise r2 with: (1) a complete ordinalized covering table and na
 ## Verdict
 
 Verdict: NOT READY — the architecture is right, but the O-2 map lacks ordinals and unique predicates, and several r6 rules (step of `target-profile-mismatch`, step-3 totality, defining-principal authorization, authorized linker, receipt field presence) would be implemented incorrectly as written.
+
+
+## Round 2 (r3, verbatim)
+
+I'll start by reading the full review prompt and the LLP review skill so I can judge 0056 independently from the inlined documents.The full prompt is large, so I’ll read it in sections and pull the LLP review skill so the review follows that process.I’ll keep reading the inlined documents in chunks so the lockstep, fold, and pin checks rest on the actual text.I’ll keep going through the remaining inlined documents so the registry, envelope, and pin checks can be compared directly.DOC 1 and DOC 2 are in. Next I’ll read the round-1 reviews and the dark-implementation excerpts.The prompt file’s structure looks inconsistent in the first chunk, so I’ll re-read the missing middle of DOC 1 and the rest of DOC 6.I’ll extract the two registry tables and envelope sections so the lockstep and envelope-shape checks are exact, not visual.I have the full inlined corpus and a byte-level table compare. Next I’ll write the independent READY/NOT READY review from those checks, not from the round-1 artifacts.## Overall Assessment
+
+This is a strong, implementable ibex leg of Exact LLP 0413.001 §6. Per-package content roots, a digest-only host-held commitment, a complete verifier-held expectations struct, envelope-side generation attestation, an ordinalized 38-row registry with one default per step, defining-principal authorization on the authorized linker, and tagged report shapes are the right architecture for fail-closed package-aware admission.
+
+r3 does the two things a lockstep spec must do after r2: it records that Exact Amendment A1 adopted §6.2, and it pins the two dark-lane discoveries instead of leaving them as competing authorities. I independently confirmed the 38 registry rows and the Defaults paragraph are byte-identical across the two documents. Envelope shapes in §3.2, §3.3, and §4.8 match what 0413.001 r7 adopted.
+
+No remaining issue changes admission outcomes, unique reachability, or the identity guarantee. Residual problems are wording traps and Exact-side note gaps. They should be polished; they do not block acceptance of this document.
+
+## Conformance Findings (MATERIAL/MINOR, cite section numbers)
+
+**MATERIAL:** none.
+
+**MINOR**
+
+- **§6 / §11 stale acceptance conjunction.** §11 still states, as a normative sentence, that the spec does not reach `Accepted` and O-2 is not discharged until A1 *and* generated-halves parity. The next sentence (“Resolved at r3”) retracts the peer blocker and keeps only the implementation gate. §6 has the same two-layer wording (“discharged when … generated registry byte-matches … and F-i …”; then “discharged at the document level”). Operative intent is clear; an acceptor should not have to rank two adjacent sentences.
+- **§6.2 “0056-relative in both repositories” is not actually declared on the Exact side.** The shared table bytes contain `§4.4` / `§4.8` / `§10` (#17, #22, #34). 0056 correctly defines those as 0056-relative. 0413.001 §4.1’s surrounding prose does not. In Exact, §10 is Obligations, not the authorized-linker policy. The unique predicates remain readable in English, so this is a footgun, not a semantic fork.
+- **§9.1 last paragraph is stale versus r3.** It still says “Until the O-1 package lands … leg 1 starts only against the landed O-1 schemas,” while Summary / §11 record that a seed *has* landed and leg 1 *holds* until it is r7-shaped.
+- **#11 predicate still says committed `(role, packageRoot)`** after item 2 became triples. The digest check is still against `packageRoot`; generation is #22. Harmless, slightly stale.
+- **0413.001 §4 step-2b narrative (peer, not 0056) omits #5 and authority-generation.** 0056 §5 2b names both. Exact’s table and “predicate order = ordinals” rule win; the Exact step list is incomplete relative to the amended table.
+
+## Fold Verification (r1 -> r2/r3: held / not held, per finding)
+
+Mandatory set:
+
+| Finding | Result |
+| --- | --- |
+| Full ordinalized 38-row registry; one precedence tuple `(step, ordinal, roleOrder)`; one default per step (r1 dual-default at step 3 gone) | **Held** — §5, §6.2, Defaults `1→#1 … 8→#38` |
+| Covering map total and injective on its own terms | **Held** — §6.1 classes each have a §6.4 disposition; splits (`_CORRUPT`→#14/#25, `_ENTRY`→#35/#36, `DEV_COMMITTED_*`→channel/#5) are unique-predicate splits, not overlapping live codes; `_DEPLOYMENT` is only #21 (r1 three-way split is gone); `carrier.rs:170` is producer-side, not on the map |
+| Defining-principal `cross-principal-denied` on the authorized linker | **Held** — §2, §5 step 6, §7.2, §10; v1 generalizes `link_authorized_prepared`, never `link_prepared`; fixture F is a defining-principal craft, not a role-cut duplicate |
+| Decidable generation attestation (§4.8) | **Held** — envelope `(role, packageRoot, producerGeneration)`; package bytes generation-free |
+| Complete verifier inputs (§3.2/#3.3, slim commitment) | **Held** — commitment is `{schema, workflow, compositionRootDigest}`; expectations carry `expectedTarget`, `expectedRoles`, freshness, `resolverInventoryDigest`, `nowUnixMs`; engine identity is a named runtime query |
+| Bounds split by enforcement surface | **Held** — §3.1 envelope vs package-index; limit/limit+1 at both surfaces |
+| Tagged report shapes (§8) as a function of outcome | **Held** — `channel-error` / `refused` / `admitted` / `admitted-startup-error`; step 9 never mints a registry `reasonCode` |
+| Fixture 35a/35b | **Held** — §5 D8, §9.2, and Exact §7 |
+| Alias disjointness | **Held** — §4.7 `aliasId ∩ owned SourceId = ∅` → `alias-conflict`; composition-wide, before step 4 |
+| HBC preflight composition-only | **Held** — §5 step 3, §11 extract “behind parameters” |
+| Purity theorem restated | **Held** — §4.1: app bytes are a pure function of the app graph; agent may name app `SourceId`s only in typed external rows, never app bytes/digests |
+
+Other r1 folds, briefly: encoding sniff #17 **held** (§4.4); D3 fingerprint drop **held**; untokenized I/O/facet/candidate/dev-wrapper sites **held** (§6.1/§6.4); tagged `local`/`external` bindings **held** (§4.5); `mainRoot = app` + monotonic executor + `CompositionSessionV1` **held** (§7.2–§7.5); step-7 order-guarantee **held**; I-JSON **held**; domain literals **held**; thenable honesty **held** (§7.3); OQ-C counts **held**; Exact projection as subset **held** (§8); generated enum from vendored registry **held** (§6.3); D1–D9 **held**.
+
+**Not held (minor only):** grok d5’s explicit “far-future expiry is a policy-digest problem, do not add a second lifetime channel” sentence is not in r3. Expiry vs `nowUnixMs` is specified; the policy note is not.
+
+## Lockstep Verification (6.2 vs 4.1; envelope shapes)
+
+**Tables and Defaults.** Extracted the 38 `| # | … |` rows and the Defaults paragraph from both documents and compared them as printed. **The 38 rows are byte-identical. The Defaults paragraph is byte-identical** (`1→#1, 2a→#2, 2b→#10, 3→#11, 4→#24, 5→#28, 6→#29, 7→#35, 8→#38` plus the totality sentence). No table drift.
+
+**Surrounding prose, consistent where it matters:**
+
+- Precedence tuple `(step, ordinal, roleOrder)`, app before agent: both documents.
+- Within-step order is ordinal order: both documents.
+- D1–D9: 0056 states them; Exact’s O-2-status paragraph points at 0056 D1–D9 and restates D1, D2, D3, D4, the encoding sniff, and D6. D5/D7/D8/D9 are realized in the shared table and in Exact’s 35a/35b split. Not silent substitution.
+- Environment codes stay outside the registry on Exact (`composition-unproducible`, `producer-refused-composition`, `agent-composition-unavailable`, `composition-admission-unimplemented`). 0056 correctly never emits `unavailable-*`. Channel tokens `IBEX_DEV_COMPOSITION_CORRUPT` / `_SCHEMA` / `_ARMED_CONTEXT` match.
+
+**Envelope shapes (task c) — semantic match, no MATERIAL mismatch:**
+
+| Surface | 0056 | 0413.001 r7 | Match |
+| --- | --- | --- | --- |
+| Commitment | §3.2 `ibex/prepared-composition-commitment/1`: `schema`, `workflow`, `compositionRootDigest` only | §3.3 dev-unarmed: digest-only host-held record of that schema, “no envelope fact duplicated” | Yes |
+| Expectations | §3.3 `ibex/composition-verifier-expectations/1`, every field mandatory: `expectedTarget`, `expectedRoles`, `sessionNonce`, `authorityGeneration`, `resolverGeneration`, `policyDigest`, `resolverInventoryDigest`, `nowUnixMs`; I-JSON `0..=2^53-1` | §3.3 lists the same fields, all mandatory, I-JSON integers; `resolverInventoryDigest` structurally discharges O-3’s verifier-input half | Yes |
+| Attestation | §4.8 `(role, packageRoot, producerGeneration)` | §3.1 item 2, same triple; package bytes generation-free; else `generation-splice` | Yes |
+
+DOC 6’s dark `PreparedCompositionV1.packages` is still `(role, packageRoot)` without `producerGeneration`. That is the r6-shaped seed 0056 already flags; it is not a spec-level fork between 0056 and r7.
+
+## Dark-Impl Pin Assessment (d1, d2)
+
+**(d1) Blessing the two-member reason mapping — right call, precise enough.**
+
+DOC 2 §2.5 is a closed two-member enum plus a locality rule: a reason must be derivable from the owning package’s own graph facts and must not reference the other package. DOC 5’s `bindEdge` maps both “specifier resolves to nothing” and “resolves to a record this package does not publish” (boot-core termination; app target outside the external universe) to `"target is not a bundle module"`.
+
+Minting a third member would be wrong. Step-6 #30 must recompute from package-local facts. Distinguishing unresolvable vs resolvable-but-excluded requires the other package or whole-project resolver state, which §2.5 forbids. A third member that named “the other package” would also break §2.1 app-byte identity: the computed bootstrap seam is an app-package host-bridged row, and its reason must not change when `agent` joins.
+
+The blessing text is implementable: it defines the *reason value* on inventory rows, not inventory membership (membership stays 0413.001 §2.4: bound iff local published record, or agent typed-external to `app`). v1 composition produce never applies lowering fallback, so the second member is reserved; any other string, or any set/reason divergence, is #30. One clarifying sentence would help: this reason is only for unbound literal-dynamic inventory rows, never for typed external references. Not required for implementability if §2.4 and §2.5 are read with §4.3.
+
+**(d2) Envelope triple as the only serialized generation carrier — correct and complete.**
+
+`PreparedPackageDeliveryV1` (DOC 6) puts `produceGeneration` beside package bytes. That value sits outside the package root (index bytes only) and outside the composition root (envelope only), so it would be an unauthenticated input to #22 and a second serialized carrier of one fact — the defect class r2 killed by slimming the commitment.
+
+Pinning the envelope triple as the only *serialized* carrier, allowing a producer-internal in-memory ferry, and forbidding O-1 to define a wire sidecar is the right split. Admission must not consume a wrapper if one appears; extra files fall to #13 inventory. Completeness is adequate for admission. Alignment should demote `PreparedPackageDeliveryV1` in `prepared-composition-schema.ts` to a non-exported in-memory type so O-1 cannot grow it into a wire schema.
+
+## Design Concerns (MATERIAL)
+
+None. The r3 pins do not reopen unique reachability, fallback eligibility, or the identity guarantee.
+
+## Design Concerns (MINOR)
+
+- **Step 3 evaluation order vs `admit_package_v1`.** §5’s authority is `(step, ordinal, roleOrder)` and “the table IS the evaluation order.” Step 3’s “`admit_package_v1`, app then agent, in ordinal order #11–#24” is easy to implement as *full app, then full agent*. That would make `(3, #12, app)` beat `(3, #11, agent)`. One sentence that both packages’ #11 run before either package’s #12 would remove the trap. Fixture 38’s property-based lowest-tuple generator is the backstop.
+- **Authorize at both step 6 and step 8.** §5 step 6 runs defining-principal authorization → #34. §7.2’s constructor also authorizes, and step 8 maps any failure to #38. Say that step 8 consumes receipts already decided at step 6 (idempotent), so policy denial cannot migrate to `link-failure`.
+- **`*_for_roots` argument order.** Fixture 1 requires shared app-owned records to evaluate in the agent segment. Pin that `linkage_order_for_roots` / `synchronous_evaluation_order_for_roots` take entry-plan order (agent then app).
+- **d1 identity-guarantee rationale** is implied, not stated. Worth one clause: a third reason member that mentioned the other package would change app inventory bytes when `agent` joins.
+- **g5 expiry/policy note** still absent (fold miss).
+- **Clean §11** to a single current acceptance sentence; drop the exhausted peer-blocker condition.
+- **Ask Exact** to add, *outside* the shared table bytes, the 0056-relative section-ref note.
+
+## Verification Requests (code claims to check)
+
+I did not treat these as defects. They are load-bearing 0056 citations I cannot re-verify from inlined material:
+
+1. §6.1 landed-token sites and the 18-site `_CORRUPT` list at `runner_pipeline.rs` (incl. 3825 = repeated `SourceId`).
+2. `runner_pipeline.rs:3765` / `3734-3738` — fingerprint expectation tautological in dev; independent currency check skipped (D3).
+3. `runner_pipeline.rs:3676-3685` peek making `carrier.rs:327` unreachable; `carrier.rs:339` engine-binding prose.
+4. `carrier.rs:170` producer-side only; admission grouping at `281`/`307`.
+5. `runner_pipeline.rs:6187` `link_prepared` as the unauthorized shortcut r6 forbids for compositions.
+6. Whether landed candidate tables embed a generation field inside package bytes (would fight §4.3 generation-free purity; not introduced by d2).
+7. `ModuleSemanticsV1` / `semanticDigest` preimage does not include a graph-level digest (§4.2 no-circularity).
+8. HBC preflight at `module_runner.rs:459-469` is post-admission on the single-publication lane today (composition-only parameterization claim).
+9. Covering-map completeness of remaining `bail!`/`anyhow!` sites on `admit_committed_publication_v1` + `decode_and_admit` + `verify_for_admission` after the r2 additions.
+
+## Answers to the Standard Review Questions
+
+**What do you think of this proposal? Is it a good idea?**  
+Yes. Whole-publication `deploymentGraphDigest` cannot keep app bytes stable when an agent package joins. Per-package roots plus a composition envelope is the only honest schema. Fail-closed nine-step admission, with ibex owning decode/carrier/link/evaluate, is the right split of 0413.001 §6.
+
+**Do we have a good plan?**  
+Yes. Four legs (schema/corpus → admission/refusals → link/evaluate/C-ABI → Exact host fold), extract `admit_package_v1` behind existing single-publication tests, generate the refusal enum from a vendored registry, and do not admit for real until leg 3. Holding leg 1 until O-1 is r7-shaped is the correct response to the live parity miss.
+
+**How would you change it?**  
+Polish only: one current §11 sentence; ordinal-outer wording at step 3; step-6 vs step-8 authorization idempotence; entry-plan order for `*_for_roots`; Exact-side 0056-relative note; d1 identity-guarantee clause; demote `PreparedPackageDeliveryV1` to in-memory on alignment.
+
+**Add / take away?**  
+Do not add a third host-bridged reason, a serialized delivery sidecar, roles, armed posture, `parseFree`, a second runtime, or ibex-emitted `unavailable-*`. Do not put `entry` or generation back into package bytes. Optional extra fixture: committed inventory with a third reason member → `(6, boundary-inventory-mismatch)`.
+
+**Definitely or possibly wrongheaded?**  
+Not the architecture. Overloading `"target is not a bundle module"` is linguistically slightly dishonest and semantically forced; a third member would be the wrongheaded move. Treating generated-JSON parity as a spec-acceptance peer blocker after A1 would also have been wrongheaded — it would couple this document’s `Accepted` to an implementation artifact 0413.001 itself did not wait for.
+
+**Novel / non-standard improvements (out of v1, not blockers):**  
+Name one package-local “published-record resolution” helper in O-3 and use it at both produce classification and #30, so those cannot drift. Later, optional `callable: true` on descriptors could move non-callable bootstrap from admitted-lane boom to step 7 (0056 already correctly leaves callability to runtime for v1). Merkle of per-record semantic digests inside the package graph digest would cheapen incremental app produce; not needed for correctness.
+
+**Key open questions to refine (implementation, not spec holes):**  
+OQ-A (inline vs digest-referenced artifacts), OQ-B (native invoke shape), OQ-D (thenable bootstrap). Plus Exact-side: delete or un-export `PreparedPackageDeliveryV1` as wire; add `producerGeneration` to envelope `packages[]` in the r7-shaped O-1 seed.
+
+## Recommended Next Step
+
+Author may accept. Optional r4 polish of the MINOR wording items in the same commit is worthwhile and not required for the admission semantics to be frozen. Implementation leg 1 stays blocked on the exact-side r7-shaped O-1 alignment report; do not decode against the r6-shaped seed.
+
+Verdict: READY
