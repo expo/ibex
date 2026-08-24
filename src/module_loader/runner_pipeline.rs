@@ -3409,6 +3409,27 @@ pub(crate) struct CommittedPublicationAdmissionV1 {
     pub(crate) javascript_carrier_count: usize,
 }
 
+/// Parameterized commitment facets for one package admission.
+///
+/// The existing publication arm retains the exact LLP 0042 inputs. The
+/// composition arm is added behind `dev-committed-embedder` by LLP 0056's
+/// admission driver and cannot affect callers of the landed arm.
+enum PackageAdmissionExpectationsV1<'a> {
+    SinglePublication {
+        cache_dir: &'a Path,
+        commitment: &'a PreparedGraphCommitmentV1,
+        project_root: &'a Path,
+        fingerprint_posture: CommittedFingerprintPosture,
+        hbc_engine: Option<&'a CommittedHbcEngineExpectationV1>,
+    },
+}
+
+/// Typed package-admission capability. No caller can construct an admitted
+/// package from raw index records.
+enum AdmittedPackageV1 {
+    SinglePublication(CommittedPublicationAdmissionV1),
+}
+
 /// The loaded-engine identity a committed-admission caller is willing to
 /// execute `hermes-bytecode` carriers against (Exact LLP 0413 §12: the
 /// engine binding and HBC version are admission expectations owned by the
@@ -3535,6 +3556,44 @@ impl FingerprintDigestMemoV1 {
 /// armed snapshot to carry this exact commitment; the dev-unarmed embedder
 /// entry types its non-production authority explicitly.
 pub(crate) fn admit_committed_publication_v1(
+    cache_dir: &Path,
+    commitment: &PreparedGraphCommitmentV1,
+    project_root: &Path,
+    fingerprint_posture: CommittedFingerprintPosture,
+    hbc_engine: Option<&CommittedHbcEngineExpectationV1>,
+) -> Result<CommittedPublicationAdmissionV1> {
+    let AdmittedPackageV1::SinglePublication(admitted) =
+        admit_package_v1(PackageAdmissionExpectationsV1::SinglePublication {
+            cache_dir,
+            commitment,
+            project_root,
+            fingerprint_posture,
+            hbc_engine,
+        })?;
+    Ok(admitted)
+}
+
+// @ref LLP 0056#5-the-nine-steps--the-ibex-half — commitment facets select a lane without weakening the frozen LLP 0042 checks.
+fn admit_package_v1(expectations: PackageAdmissionExpectationsV1<'_>) -> Result<AdmittedPackageV1> {
+    match expectations {
+        PackageAdmissionExpectationsV1::SinglePublication {
+            cache_dir,
+            commitment,
+            project_root,
+            fingerprint_posture,
+            hbc_engine,
+        } => admit_single_publication_package_v1(
+            cache_dir,
+            commitment,
+            project_root,
+            fingerprint_posture,
+            hbc_engine,
+        )
+        .map(AdmittedPackageV1::SinglePublication),
+    }
+}
+
+fn admit_single_publication_package_v1(
     cache_dir: &Path,
     commitment: &PreparedGraphCommitmentV1,
     project_root: &Path,
