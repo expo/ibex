@@ -289,12 +289,151 @@ pub struct ExactEmbedderEndowments {
     pub ui_worklet: Vec<u32>,
 }
 
+pub const EXACT_EMBEDDER_SCHEMA_V1: &str = "exact/host-operation-endowments/1";
+pub const EXACT_EMBEDDER_SCHEMA_V2: &str = "exact/host-operation-endowments/2";
+pub const EXACT_CARRIER_BINDING_SCHEMA: &str = "exact/carrier-binding/1";
+
+/// Wire marker for a schema-identifier field pinned to one constant string.
+macro_rules! schema_const_marker {
+    ($name:ident, $value:expr) => {
+        #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+        pub struct $name;
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str($value)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = String::deserialize(deserializer)?;
+                if value == $value {
+                    Ok(Self)
+                } else {
+                    Err(serde::de::Error::custom(format!(
+                        "schema must be {:?}",
+                        $value
+                    )))
+                }
+            }
+        }
+    };
+}
+
+schema_const_marker!(ExactEmbedderSchemaV1, EXACT_EMBEDDER_SCHEMA_V1);
+schema_const_marker!(ExactEmbedderSchemaV2, EXACT_EMBEDDER_SCHEMA_V2);
+schema_const_marker!(ExactCarrierBindingSchemaV1, EXACT_CARRIER_BINDING_SCHEMA);
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExactEmbedderBinding {
-    pub schema: String,
+pub struct ExactEmbedderBindingV1 {
+    pub schema: ExactEmbedderSchemaV1,
     pub operation_manifest_digest: Digest,
     pub endowments: ExactEmbedderEndowments,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactEmbedderBindingV2 {
+    pub schema: ExactEmbedderSchemaV2,
+    pub operation_manifest_digest: Digest,
+    pub endowments: ExactEmbedderEndowments,
+    pub carrier_binding: ExactCarrierBinding,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactCarrierBinding {
+    pub schema: ExactCarrierBindingSchemaV1,
+    pub mapping_digest: Digest,
+    pub authority_commitment_digest: Digest,
+    pub root_grant_sets: BTreeMap<String, ExactRootGrantSetPin>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactRootGrantSetPin {
+    pub context: ExactCarrierPinContext,
+    pub grant_set_id: String,
+    pub grant_set_digest: Digest,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExactCarrierPinContext {
+    App,
+    AgentIsolate,
+}
+
+// @ref LLP 0053#i2--carrier-identity-in-the-armed-snapshot — /1 no-binding vs /2 binding-required enforced by the type
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ExactEmbedderBinding {
+    V1(ExactEmbedderBindingV1),
+    V2(ExactEmbedderBindingV2),
+}
+
+impl ExactEmbedderBinding {
+    pub fn schema(&self) -> &'static str {
+        match self {
+            Self::V1(_) => EXACT_EMBEDDER_SCHEMA_V1,
+            Self::V2(_) => EXACT_EMBEDDER_SCHEMA_V2,
+        }
+    }
+
+    pub fn operation_manifest_digest(&self) -> &Digest {
+        match self {
+            Self::V1(binding) => &binding.operation_manifest_digest,
+            Self::V2(binding) => &binding.operation_manifest_digest,
+        }
+    }
+
+    pub fn endowments(&self) -> &ExactEmbedderEndowments {
+        match self {
+            Self::V1(binding) => &binding.endowments,
+            Self::V2(binding) => &binding.endowments,
+        }
+    }
+
+    pub fn carrier_binding(&self) -> Option<&ExactCarrierBinding> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(binding) => Some(&binding.carrier_binding),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ExactEmbedderBinding {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Internally tagged on the schema const, dispatched by hand so each
+        // variant struct keeps strict `deny_unknown_fields` ingestion (serde's
+        // derived internal tagging cannot enforce it).
+        let value = Value::deserialize(deserializer)?;
+        let schema = value.get("schema").and_then(Value::as_str).ok_or_else(|| {
+            serde::de::Error::custom("Exact embedder binding schema must be a string")
+        })?;
+        match schema {
+            EXACT_EMBEDDER_SCHEMA_V1 => serde_json::from_value(value)
+                .map(Self::V1)
+                .map_err(serde::de::Error::custom),
+            EXACT_EMBEDDER_SCHEMA_V2 => serde_json::from_value(value)
+                .map(Self::V2)
+                .map_err(serde::de::Error::custom),
+            _ => Err(serde::de::Error::custom(
+                "Exact embedder binding schema is unsupported",
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1711,9 +1850,9 @@ fn validate_expected_protected_artifacts(
             );
         }
         if artifact.role == ProtectedArtifactRole::ExactOperationManifest
-            && exact_binding
-                .as_ref()
-                .is_none_or(|binding| artifact.content_digest != binding.operation_manifest_digest)
+            && exact_binding.as_ref().is_none_or(|binding| {
+                artifact.content_digest != *binding.operation_manifest_digest()
+            })
         {
             return refused(
                 "protected Exact operation manifest digest differs from its armed binding",
@@ -1743,9 +1882,9 @@ fn validate_expected_protected_artifacts(
             );
         }
         if artifact.role == ProtectedArtifactRole::ExactOperationManifest
-            && exact_binding
-                .as_ref()
-                .is_none_or(|binding| artifact.content_digest != binding.operation_manifest_digest)
+            && exact_binding.as_ref().is_none_or(|binding| {
+                artifact.content_digest != *binding.operation_manifest_digest()
+            })
         {
             return refused(
                 "protected embedded Exact operation manifest digest differs from its armed binding",
@@ -1827,13 +1966,11 @@ fn validate_expected_runtime_extension_authority(
 }
 
 fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()> {
-    if binding.schema != "exact/host-operation-endowments/1" {
-        return refused("Exact embedder binding schema is unsupported");
-    }
+    let endowments = binding.endowments();
     let contexts = [
-        (&binding.endowments.app, "app"),
-        (&binding.endowments.agent_isolate, "agent isolate"),
-        (&binding.endowments.ui_worklet, "UI worklet"),
+        (&endowments.app, "app"),
+        (&endowments.agent_isolate, "agent isolate"),
+        (&endowments.ui_worklet, "UI worklet"),
     ];
     let mut all = BTreeSet::new();
     for (operations, label) in contexts {
@@ -1849,11 +1986,60 @@ fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()>
             return refused("Exact operation is endowed to more than one runtime context");
         }
     }
-    if binding.endowments.app.is_empty() || binding.endowments.agent_isolate.is_empty() {
+    if endowments.app.is_empty() || endowments.agent_isolate.is_empty() {
         return refused("Exact app and agent-isolate endowments must be non-empty");
     }
-    if !binding.endowments.ui_worklet.is_empty() {
+    if !endowments.ui_worklet.is_empty() {
         return refused("Exact UI worklet endowment must remain empty");
+    }
+    match binding {
+        ExactEmbedderBinding::V1(_) => Ok(()),
+        ExactEmbedderBinding::V2(v2) => {
+            validate_exact_carrier_binding(&v2.carrier_binding, endowments)
+        }
+    }
+}
+
+/// The /2 carrier binding's authenticated pin table. Digest shapes and the
+/// schema consts are enforced by the ingest types; this validates the bounds,
+/// the frozen root-id grammar, and the per-context arming rule.
+/// @ref LLP 0053#i2--carrier-identity-in-the-armed-snapshot — every endowed context must hold >=1 pin at arming
+fn validate_exact_carrier_binding(
+    carrier: &ExactCarrierBinding,
+    endowments: &ExactEmbedderEndowments,
+) -> Result<()> {
+    let pins = &carrier.root_grant_sets;
+    if pins.is_empty() || pins.len() > 256 {
+        return refused("Exact carrier binding rootGrantSets must hold between 1 and 256 pins");
+    }
+    for (root_id, pin) in pins {
+        // Frozen root-id wire grammar: UTF-8, 1..=256 bytes, no control
+        // characters (NUL included); joins Exact's deployment-manifest
+        // rootId grammar at integration.
+        if root_id.is_empty() || root_id.len() > 256 || root_id.chars().any(char::is_control) {
+            return refused("Exact carrier binding rootId violates the frozen root-id grammar");
+        }
+        if pin.grant_set_id.is_empty()
+            || pin.grant_set_id.len() > 256
+            || pin.grant_set_id.bytes().any(|byte| byte == 0)
+        {
+            return refused("Exact carrier binding grantSetId violates its grammar");
+        }
+    }
+    let contexts = [
+        (&endowments.app, ExactCarrierPinContext::App, "app"),
+        (
+            &endowments.agent_isolate,
+            ExactCarrierPinContext::AgentIsolate,
+            "agent isolate",
+        ),
+    ];
+    for (operations, context, label) in contexts {
+        if !operations.is_empty() && !pins.values().any(|pin| pin.context == context) {
+            return refused(format!(
+                "Exact {label} context is endowed but holds no carrier grant-set pin"
+            ));
+        }
     }
     Ok(())
 }
@@ -3535,10 +3721,11 @@ mod tests {
 
         let armed = ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
         let binding = armed.exact_embedder_binding().unwrap().unwrap();
-        assert_eq!(binding.operation_manifest_digest, manifest_digest);
-        assert_eq!(binding.endowments.app, [7, 11]);
-        assert_eq!(binding.endowments.agent_isolate, [19]);
-        assert!(binding.endowments.ui_worklet.is_empty());
+        assert_eq!(*binding.operation_manifest_digest(), manifest_digest);
+        assert_eq!(binding.endowments().app, [7, 11]);
+        assert_eq!(binding.endowments().agent_isolate, [19]);
+        assert!(binding.endowments().ui_worklet.is_empty());
+        assert!(binding.carrier_binding().is_none());
 
         let mut wrong_manifest = expected;
         wrong_manifest
@@ -3554,6 +3741,229 @@ mod tests {
                 .to_string()
                 .contains("manifest digest differs")
         );
+    }
+
+    fn arm_with_exact_embedder(embedder: Value) -> Result<ArmedSnapshot> {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let manifest_digest =
+            Digest::new(embedder["operationManifestDigest"].as_str().unwrap()).unwrap();
+        value["exactEmbedder"] = embedder;
+        let object = serde_json::json!({
+            "platform": "unix",
+            "volume": "fixture-volume",
+            "file": "exact-operation-manifest"
+        });
+        value["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "role": "exact-operation-manifest",
+                "object": object,
+                "deniedActions": ["fs:write"]
+            }));
+        expected
+            .protected_artifacts
+            .push(ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ExactOperationManifest,
+                host_path: serde_json::from_value(serde_json::json!({
+                    "root": "absolute",
+                    "components": [
+                        {"encoding": "utf8", "value": "fixture"},
+                        {"encoding": "utf8", "value": "exact-operation-manifest"}
+                    ],
+                    "hostBound": true
+                }))
+                .unwrap(),
+                object: serde_json::from_value(object).unwrap(),
+                content_digest: manifest_digest,
+            });
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected)
+    }
+
+    const FIXTURE_MANIFEST_DIGEST: &str = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+    const FIXTURE_MAPPING_DIGEST: &str = "sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMA";
+    const FIXTURE_COMMITMENT_DIGEST: &str = "sha256-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQA";
+    const FIXTURE_GRANT_SET_DIGEST: &str = "sha256-ccccccccccccccccccccccccccccccccccccccccccA";
+
+    fn v2_grant_set_pin(context: &str) -> Value {
+        serde_json::json!({
+            "context": context,
+            "grantSetId": format!("grant-set-{context}"),
+            "grantSetDigest": FIXTURE_GRANT_SET_DIGEST
+        })
+    }
+
+    fn v2_exact_embedder(root_grant_sets: Value) -> Value {
+        serde_json::json!({
+            "schema": "exact/host-operation-endowments/2",
+            "operationManifestDigest": FIXTURE_MANIFEST_DIGEST,
+            "endowments": {
+                "app": [7, 11],
+                "agentIsolate": [19],
+                "uiWorklet": [],
+            },
+            "carrierBinding": {
+                "schema": "exact/carrier-binding/1",
+                "mappingDigest": FIXTURE_MAPPING_DIGEST,
+                "authorityCommitmentDigest": FIXTURE_COMMITMENT_DIGEST,
+                "rootGrantSets": root_grant_sets
+            }
+        })
+    }
+
+    #[test]
+    fn refuses_v1_exact_embedder_with_carrier_binding() {
+        let mut embedder = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        embedder["schema"] = Value::String("exact/host-operation-endowments/1".into());
+        let error = arm_with_exact_embedder(embedder).unwrap_err().to_string();
+        assert!(error.contains("carrierBinding"), "{error}");
+    }
+
+    #[test]
+    fn refuses_v2_exact_embedder_without_carrier_binding() {
+        let mut embedder = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        embedder.as_object_mut().unwrap().remove("carrierBinding");
+        let error = arm_with_exact_embedder(embedder).unwrap_err().to_string();
+        assert!(error.contains("carrierBinding"), "{error}");
+    }
+
+    #[test]
+    fn refuses_unsupported_exact_embedder_schema() {
+        let mut embedder = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        embedder["schema"] = Value::String("exact/host-operation-endowments/3".into());
+        let error = arm_with_exact_embedder(embedder).unwrap_err().to_string();
+        assert!(error.contains("schema is unsupported"), "{error}");
+    }
+
+    #[test]
+    fn authenticates_v2_exact_embedder_with_carrier_binding() {
+        let embedder = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        let armed = arm_with_exact_embedder(embedder).unwrap();
+        let binding = armed.exact_embedder_binding().unwrap().unwrap();
+        assert_eq!(binding.schema(), EXACT_EMBEDDER_SCHEMA_V2);
+        assert_eq!(
+            binding.operation_manifest_digest().as_str(),
+            FIXTURE_MANIFEST_DIGEST
+        );
+        let carrier = binding.carrier_binding().unwrap();
+        assert_eq!(carrier.mapping_digest.as_str(), FIXTURE_MAPPING_DIGEST);
+        assert_eq!(
+            carrier.authority_commitment_digest.as_str(),
+            FIXTURE_COMMITMENT_DIGEST
+        );
+        assert_eq!(carrier.root_grant_sets.len(), 2);
+        let home = &carrier.root_grant_sets["home"];
+        assert_eq!(home.context, ExactCarrierPinContext::App);
+        assert_eq!(home.grant_set_id, "grant-set-app");
+        assert_eq!(home.grant_set_digest.as_str(), FIXTURE_GRANT_SET_DIGEST);
+        assert_eq!(
+            carrier.root_grant_sets["settings"].context,
+            ExactCarrierPinContext::AgentIsolate
+        );
+    }
+
+    #[test]
+    fn refuses_v2_exact_embedder_with_unknown_fields() {
+        let mut top_level = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        top_level["extraField"] = Value::Bool(true);
+        let error = arm_with_exact_embedder(top_level).unwrap_err().to_string();
+        assert!(error.contains("extraField"), "{error}");
+
+        let mut inside_carrier = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        inside_carrier["carrierBinding"]["extraField"] = Value::Bool(true);
+        let error = arm_with_exact_embedder(inside_carrier)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("extraField"), "{error}");
+
+        let mut inside_pin = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        inside_pin["carrierBinding"]["rootGrantSets"]["home"]["extraField"] = Value::Bool(true);
+        let error = arm_with_exact_embedder(inside_pin).unwrap_err().to_string();
+        assert!(error.contains("extraField"), "{error}");
+    }
+
+    #[test]
+    fn refuses_v2_zero_pin_for_an_endowed_context() {
+        let embedder = v2_exact_embedder(serde_json::json!({
+            "home": v2_grant_set_pin("app"),
+        }));
+        let error = arm_with_exact_embedder(embedder).unwrap_err().to_string();
+        assert!(
+            error.contains("agent isolate context is endowed but holds no carrier grant-set pin"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn refuses_v2_root_id_with_embedded_nul() {
+        let embedder = v2_exact_embedder(serde_json::json!({
+            "home\u{0}evil": v2_grant_set_pin("app"),
+            "settings": v2_grant_set_pin("agentIsolate"),
+        }));
+        let error = arm_with_exact_embedder(embedder).unwrap_err().to_string();
+        assert!(
+            error.contains("rootId violates the frozen root-id grammar"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn refuses_v2_root_grant_sets_over_bounds() {
+        let mut sets = serde_json::Map::new();
+        for index in 0..257 {
+            sets.insert(format!("root-{index:03}"), v2_grant_set_pin("app"));
+        }
+        sets.insert("settings".into(), v2_grant_set_pin("agentIsolate"));
+        let embedder = v2_exact_embedder(Value::Object(sets));
+        let error = arm_with_exact_embedder(embedder).unwrap_err().to_string();
+        assert!(
+            error.contains("rootGrantSets must hold between 1 and 256 pins"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn strict_json_still_refuses_duplicate_root_grant_set_keys() {
+        // Duplicate-key refusal is lexical and precedes ingestion; the new
+        // rootGrantSets subtree inherits it unchanged.
+        let text = format!(
+            "{{\"schema\":\"exact/host-operation-endowments/2\",\
+             \"operationManifestDigest\":\"{FIXTURE_MANIFEST_DIGEST}\",\
+             \"endowments\":{{\"app\":[7],\"agentIsolate\":[19],\"uiWorklet\":[]}},\
+             \"carrierBinding\":{{\"schema\":\"exact/carrier-binding/1\",\
+             \"mappingDigest\":\"{FIXTURE_MAPPING_DIGEST}\",\
+             \"authorityCommitmentDigest\":\"{FIXTURE_COMMITMENT_DIGEST}\",\
+             \"rootGrantSets\":{{\
+             \"home\":{{\"context\":\"app\",\"grantSetId\":\"a\",\"grantSetDigest\":\"{FIXTURE_GRANT_SET_DIGEST}\"}},\
+             \"home\":{{\"context\":\"agentIsolate\",\"grantSetId\":\"b\",\"grantSetDigest\":\"{FIXTURE_GRANT_SET_DIGEST}\"}}\
+             }}}}}}"
+        );
+        assert!(parse_strict(&text).is_err());
     }
 
     #[test]

@@ -2623,12 +2623,12 @@ impl Host {
         let Ok(Some(binding)) = snapshot.exact_embedder_binding() else {
             return false;
         };
-        if binding.operation_manifest_digest.as_str() != operation_manifest_digest {
+        if binding.operation_manifest_digest().as_str() != operation_manifest_digest {
             return false;
         }
         let expected = match context_kind {
-            1 => &binding.endowments.app,
-            2 => &binding.endowments.agent_isolate,
+            1 => &binding.endowments().app,
+            2 => &binding.endowments().agent_isolate,
             _ => return false,
         };
         expected == operations
