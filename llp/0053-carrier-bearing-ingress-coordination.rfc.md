@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-23
-**Revised:** 2026-08-24 (r2 — the proposed designs for all four asks, tree-verified (evidence spot-checked byte-for-byte by the orchestrator before fold): I1 = one JS entry point with an optional third positional carrier argument + a sibling C setter ex_hermes_set_exact_host_call_async_v2 with an engine-attributed versioned attribution struct; I2 = one schema addition, exact/host-operation-endowments/2 with a required carrierBinding; I3 = frame-attribution/principal-stack machinery surfaced on the v2 callback, root discriminator resolved from I2 pins — the I3-requires-I2 dependency r1 omitted is now stated; I4 = one record shape with a stage tag. Four r1 corrections folded, incl. the surface-authority miscitation inherited from the Exact carrier-arc plan. Still Draft — this corpus decides.) 2026-08-23 (r1 — the four coordination asks from the Exact 0510 carrier arc, drafted as a proposal into this corpus per that plan's own rule: "their process decides shape; this plan only names the need." Nothing here is decided until this corpus decides it.)
+**Revised:** 2026-08-24 (r3 — dual-review fold (codex gpt-5.6-sol@ultra + grok-4.6@xhigh, both NOT READY, convergent; artifacts under llp/reviews/). The material fixes: (1) authorization is SCHEMA-AWARE ON BOTH PATHS — the existing v1 authorize path itself refuses /2 (the r2 sibling-hook-only construction left v1-on-/2 open, the rounds worst hole); (2) ONE owner-thread tagged ingress latch None|V1|V2 with separately typed slots, all lifecycle helpers on it, schema-aware finalize; (3) the ingest shape is an internally tagged serde enum (/1 no-binding / /2 binding-required), the rootGrantSets dictionary stated implementably (patternProperties), per-context >=1-pin arming rule, zero-pin case specified; (4) root_id gains root_id_len + a frozen no-NUL UTF-8 grammar; (5) attribution capture ordering made normative (capture before app-observable accesses, immediate carrier copy, bootstrap-captured Promise, kNoUserPrincipalId maps to UNAVAILABLE) and the binding reaches the runtime as an installation-time copied immutable projection; (6) /2 replay defused at issuance against live grant pools; all three producer routes get _v2 siblings; (7) I3 restated honestly — root fields are a second authenticated-snapshot channel, not frame attribution; I3-requires-I2 scoped to this construction; multi-root-in-one-runtime = permanently AMBIGUOUS in v1, named; (8) I4 re-homed to the DecisionSet/DecisionContext stage machinery, candidate-commit digest linkage + full-typed-row selector encoding DECIDED, the nonexistent LLP 0052 no-row-collapse citation withdrawn; (9) Fetch principal-stack claim corrected; non-app-suppliable phrasing corrected to engine-observed; surface deltas completed with the new native rows. Still Draft — round 2 next.) 2026-08-24 (r2 — the proposed designs for all four asks, tree-verified (evidence spot-checked byte-for-byte by the orchestrator before fold): I1 = one JS entry point with an optional third positional carrier argument + a sibling C setter ex_hermes_set_exact_host_call_async_v2 with an engine-attributed versioned attribution struct; I2 = one schema addition, exact/host-operation-endowments/2 with a required carrierBinding; I3 = frame-attribution/principal-stack machinery surfaced on the v2 callback, root discriminator resolved from I2 pins — the I3-requires-I2 dependency r1 omitted is now stated; I4 = one record shape with a stage tag. Four r1 corrections folded, incl. the surface-authority miscitation inherited from the Exact carrier-arc plan. Still Draft — this corpus decides.) 2026-08-23 (r1 — the four coordination asks from the Exact 0510 carrier arc, drafted as a proposal into this corpus per that plan's own rule: "their process decides shape; this plan only names the need." Nothing here is decided until this corpus decides it.)
 **Related:** LLP 0002 (host-embedding ABI — I1's surface), LLP 0021 (typed CapSec effect model, armed snapshot — I2's surface), LLP 0049 (Draft — armed-snapshot evolution I2 rides), LLP 0013 / LLP 0040 (principal carriers — I3's natural vehicle), LLP 0024 (Draft — structured evaluation and session semantics — I4's surface), LLP 0052 (durable authority mint/verify — the lease-side machinery already consuming Exact-side lineage), Exact LLP 0510 (native boundary schemas v2 — the carrier model these asks serve; §6.1 dispatch order, §6.2 lease presentation, §6.4 "Ibex is a carrier, never an installer"), Exact LLP 0554 §5 (carrier sequencing), Exact docs/reports/carrier-arc-implementation-plan.md §3 (the tree-verified needs statement this RFC transcribes), `src/engine/root_global_disposition.generated.h` + `capsec/generated/surface-inventory.md` (the actual authorities for the `exact.*` JS global surface — r2 corrects r1s runtime-surface.json citation, which pins the CLI command surface, not JS globals)
 
 ## Summary
@@ -145,7 +145,9 @@ typedef enum ExHermesExactRootAttributionStatus {
 #define EX_HERMES_EXACT_INGRESS_ATTRIBUTION_ABI_VERSION 1u
 
 /* Engine-attributed per-invocation context; borrowed for the callback
-   invocation only. Nothing in it is app-suppliable. Versioned-struct
+   invocation only. Engine-attributed fields cannot be
+   overridden by request data; carrier presence/bytes are engine-OBSERVED
+   presentation facts, unauthenticated until the host validates (r3). Versioned-struct
    discipline per ExHermesAsyncFailureEvent (exact_runtime.h:1421-1432). */
 typedef struct ExHermesExactIngressAttribution {
   uint32_t abi_version;
@@ -157,6 +159,11 @@ typedef struct ExHermesExactIngressAttribution {
   uint64_t runtime_nonce;     /* ex_hermes_current_runtime_nonce() at entry */
   uint64_t principal_id;      /* frame-attributed actor id (:590-593) */
   const char* root_id;        /* borrowed; non-NULL only when ATTRIBUTED (I2) */
+  size_t root_id_len;         /* r3 — UTF-8 byte length; the id grammar forbids
+                                 embedded NUL (refused at arming) but the ABI
+                                 still carries an explicit length so two
+                                 authenticated ids can never collapse at a
+                                 C-string consumer */
 } ExHermesExactIngressAttribution;
 
 /* Sibling of ex_hermes_set_exact_host_call_async (exact_runtime.h:1972).
@@ -195,17 +202,55 @@ may not install against a snapshot that does not pin what issuance
 is bound to). Snapshot bound at /2 => v1 REFUSED (a carrier-armed
 artifact never runs behind the carrier-less surface), v2 allowed.
 Unarmed diagnostic => both allowed; attribution still delivered
-with root_status = UNAVAILABLE. Enforced by a carrier_capable input
-to Host::authorizes_exact_endowment (src/host/mod.rs:2606-2630) via
-a sibling ex_host_authorize_exact_endowment_v2 hook. Absence of a
+with root_status = UNAVAILABLE.
+**Enforcement, restated at r3 (both reviewers proved the r2
+sibling-hook-only construction left the worst hole open — a /2
+snapshot would still authorize the EXISTING v1 setter, whose
+authorize path never reads binding.schema):** the matrix is
+enforced by making authorization SCHEMA-AWARE ON BOTH PATHS —
+Host::authorizes_exact_endowment (src/host/mod.rs:2606-2630) gains
+the schema dimension, and the V1 PATH ITSELF refuses
+schema == …/2 (this is a semantic change to the existing hook,
+named as such; the sibling _v2 hook carries the carrier_capable
+ask). Finalization reporting becomes schema-aware too — the single
+EXACT_INGRESS capability bit cannot detect a /1-vs-v2 or /2-vs-v1
+mismatch, so the finalize check asserts the latch tag against the
+armed schema. And the two setters share ONE owner-thread tagged
+ingress latch — `None | V1(fn) | V2(fn)` with separately typed
+callback slots — on which every lifecycle helper (one-shot check,
+begin/finalize embedder-capability transaction, JS dispatch,
+rollback, seal, disposition activation) operates; the r2 reading
+of "a second independent pointer" is withdrawn as a torn-state
+bug. Attribution capture ordering is normative (r3): the engine
+captures every attribution field AND carrier presence BEFORE any
+app-observable property access (the current dispatch is
+Promise-executor-mediated and the byte-view helper invokes
+observable getters/proxy traps — hermes_runtime.cc:16846,
+hermes_runtime_internal.h:2355); carrier bytes are copied
+immediately at capture; dispatch uses a bootstrap-captured trusted
+Promise constructor or a native primitive, never the mutable
+global binding; and kNoUserPrincipalId (0xFFFFFFFE) maps to
+principal_status = UNAVAILABLE, never conflated with root
+principal 0. The authenticated binding reaches the runtime as an
+INSTALLATION-TIME COPIED IMMUTABLE PROJECTION owned by the runtime
+at v2-setter success (r3 — there is no trusted live Rust→C++
+channel: the boolean hooks transfer nothing and
+exact_embedder_binding() returns an owned clone, so the projection
+is copied once under the same authorization that admitted the
+setter). Absence of a
 carrier on a JS call is NEVER an ibex refusal — delivered with
 carrier_status = ABSENT; presence policy is the host session's
 (Exact 0510 §6.3), exactly the boundary r1 assigned.
 
-Surface deltas: NO runtime-surface.json change (no new command, no
-new JS property — see the r2 correction above); regenerate the
-root-global disposition manifest + capsec surface inventory for the
-changed semantics of the existing exact.invokeHostAsync row.
+Surface deltas (r3 — completed; r2 under-counted): NO
+runtime-surface.json change (no new command, no new JS property);
+regenerate the root-global disposition manifest for the changed
+semantics of the existing exact.invokeHostAsync row (the generator
+is the authority; capsec/generated/surface-inventory.md is
+generated REVIEW OUTPUT, not itself an authority — r3 tightens
+r2's phrasing); and the NEW native surfaces each get their rows —
+the v2 C setter, the _v2 authorize hook, the three _v2 producers,
+and a host-task-ingress-inventory row for the v2 ingress.
 
 ## r2 §I2 — Carrier identity in the armed snapshot
 
@@ -214,10 +259,34 @@ staged** — exact/host-operation-endowments/2 with a REQUIRED
 carrierBinding object: {schema: "exact/carrier-binding/1",
 mappingDigest, authorityCommitmentDigest, rootGrantSets}, where
 rootGrantSets maps Exact rootId -> {context: "app"|"agentIsolate",
-grantSetId, grantSetDigest} (1..=256 entries, additionalProperties
-false throughout, digest fields on the snapshot's common tagged
-digest $def — one deliberate divergence from transport's raw
-grantSetSha256 hex; the producer converts).
+grantSetId, grantSetDigest} (r3 — the dictionary shape stated
+implementably: `patternProperties` keyed by the frozen rootId
+grammar WITH `additionalProperties: false` alongside — the JSON
+Schema dictionary idiom, not a bare closed object; minProperties 1
+/ maxProperties 256 TOTAL; and a new arming rule — every endowed
+context MUST hold ≥1 pin at arming, refused otherwise, which makes
+armed-/2 zero-pin runtimes structurally unreachable; if the
+invariant is somehow violated at runtime, root_status =
+UNAVAILABLE and the host fails closed. Value objects stay
+`additionalProperties: false` with digest fields on the snapshot's
+common tagged digest $def — one deliberate divergence from
+transport's raw grantSetSha256 hex; the producer converts). The
+Rust ingest shape is an INTERNALLY TAGGED ENUM on the schema const
+(r3): `V1 {…no carrierBinding…}` / `V2 {…carrierBinding
+required…}` — "/1 ⇒ field absent, /2 ⇒ field present" is enforced
+by the type, not by an Option cross-check, and
+validate_exact_embedder_binding dispatches on the tag. Producer
+siblings cover ALL THREE Exact-bearing routes (r3 — prepare,
+ordinary build, runtime-extension build; exact_runtime.h:2088+),
+not one. Replay (r3): a persisted /2 snapshot replayed into
+another Host is defused at ISSUANCE — the host validates the pins
+against its live grant pools at mint (mapping digest, commitment
+digest, per-root grant-set ids); rotated pools refuse with the
+existing mismatch classes, so stale pins are inert even where the
+install transaction accepts the bytes. Root-id wire grammar (r3,
+frozen before ABI v1): UTF-8, 1..=256 bytes, NO embedded NUL
+(refused at arming), pattern joining Exact's deployment-manifest
+rootId grammar at implementation.
 
 Rationale: the only consumer (Exact's mint_host_custody_grants,
 exact:packages/exact-native-runtime/src/host_custody.rs:210-267)
@@ -251,34 +320,57 @@ compares, never mints.
 
 ## r2 §I3 — Derived-root attribution on ingress
 
-**Decision (open question 3): rides the EXISTING frame-attribution /
-principal-stack machinery — no parallel channel** — surfaced as the
-engine-populated attribution struct on the v2 callback. Engine truth
-captured inline at the JSI entry; there is no request field and
-nowhere in the JS arity for one.
+**Decision (open question 3), restated honestly at r3:** the
+PRINCIPAL fields (`principal_id`, `principal_status`,
+`runtime_nonce`) ride the existing frame-attribution machinery;
+the ROOT fields (`root_id`, `root_status`) are a DIFFERENT thing —
+a lookup of I2's authenticated pins against the runtime's
+installed `ExactEmbedderContext`, which is runtime-granularity
+context labeling, not per-frame attribution (r3 withdraws r2's
+"no parallel channel" phrasing: the root discriminator IS a second
+channel, an authenticated-snapshot one, and saying otherwise
+obscured exactly the multi-root limitation §I3 must own). Both are
+surfaced on the engine-populated attribution struct on the v2
+callback; there is no request field and nowhere in the JS arity
+for one.
 
 The mechanism, by its code names (r2 correction: "real-input/no-user
 principal carriers" names nothing in this engine's source): per-entry
 frame attribution (src/engine/hermes_runtime_internal.h:745-749,
 EXACT_HAVE_FRAME_ATTRIBUTION) surfaced as
 ex_hermes_current_principal_id paired with the runtime nonce
-(include/exact_runtime.h:585-593); principal stacks carried across
-async hops (TimerEntry/NextTickEntry/FetchCallbackEntry,
+(include/exact_runtime.h:585-593); principal identity carried across
+async hops (r3 correction: TimerEntry/NextTickEntry carry
+principalStack; FetchCallbackEntry carries a SINGLE principal —
 hermes_runtime_internal.h:65-107); and the engine-attributed-status
 discipline of ExHermesAsyncFailureEvent (authenticated/unavailable/
 ambiguous; missing ownership never replaced with the root principal
 — exact_runtime.h:1397-1432), copied verbatim.
 
-**Structural fact r1 omitted, now stated: I3 DEPENDS ON I2.** Ibex
-principals cannot represent Exact roots by prior decision (LLP 0052
-§1: no Principal variant carries root/view/scope identity; execution
-scope is a separate native-owner binding). Exact rootIds enter the
-ibex trust domain for the first time as I2's rootGrantSets keys. The
-root discriminator resolves the calling context against those
-authenticated pins: exactly one pinned root for the context =>
-ATTRIBUTED with root_id; multiple => AMBIGUOUS in v1 (the Exact host
-fails the dispatch closed per 0510 §6.1 step 3); unarmed =>
-UNAVAILABLE. The engine supplies the trusted side of 0510's
+**Dependency, scoped precisely at r3 (r2's "I3 DEPENDS ON I2"
+overstated it as structural):** the dependency is true FOR THE
+CONSTRUCTION CHOSEN HERE — ATTRIBUTED Exact root_id strings enter
+the ibex trust domain only as I2's rootGrantSets keys, because
+ibex principals cannot represent Exact roots by prior decision
+(LLP 0052 §1: no Principal variant carries root/view/scope
+identity). It is not structural for I3-in-general: the rest of the
+attribution struct is deliverable unarmed as UNAVAILABLE, and a
+future multi-root design could join roots through LLP 0052's
+execution-scope carriers instead. The matrix also couples I1's v2
+setter to I2 (v2 refuses /1 snapshots) — a deliberate
+serialization, named here so it is chosen, not discovered. The
+root discriminator resolves the runtime's installed context
+against the authenticated pins: exactly one pinned root for the
+context => ATTRIBUTED with root_id; multiple => AMBIGUOUS in v1
+(the Exact host fails the dispatch closed per 0510 §6.1 step 3 —
+and note the honest consequence: a production topology hosting
+multiple Exact roots in ONE app runtime makes v1 I3 permanently
+AMBIGUOUS; the current topology is a single bundled root per
+LLP 0002, and the multi-root answer is the LLP 0052 growth path,
+not a v1 widened rule); zero matching pins on an armed /2 runtime
+=> structurally unreachable per §I2's per-context arming rule,
+and if violated anyway, UNAVAILABLE + host fails closed; unarmed
+=> UNAVAILABLE. The engine supplies the trusted side of 0510's
 three-way rootId equality; the echo and grant-side comparisons are
 host-session acts; ibex never sees the grant. Finer-than-runtime
 attribution (which view within a multi-root runtime) is out of scope
@@ -298,12 +390,25 @@ exact/carrier-presentation-record/1 with {stage:
 capabilityMajor, mappingDigest, selectorSet,
 authorityCommitmentDigest, mintGenerationTuple, rootId}, embeddedRow
 {resources, selectors, hostCalls, moduleCalls?, rootId}, derivedRoot
-{rootId, status}}, joined to the session-semantics surface as
-generated model outputs, additive to LLP 0052's stage facts and
-never re-interpreting them. Punted to implementation: the
-candidate<->commit linkage (digest-link vs replay) and the
-selector-set encoding — both constrained by LLP 0052's
-no-row-collapse rule, neither changes the shape answer.
+{rootId, status}}. RE-HOMED at r3 (both reviewers: r2's
+session-semantics join point repeated r1's authority-miscitation
+class — capsec/session-semantics/ is LLP 0024's evaluation-session
+generator, not stage ingestion): the record joins the strict
+DecisionSet/DecisionContext stage machinery
+(crates/capsec-semantics/src/model.rs; stage vocabulary already on
+capsec/schema/effect.schema.json) as a versioned addition to the
+decision-context schema, additive to LLP 0052's stage facts and
+never re-interpreting them; if the record carries its own stage
+field beside DecisionContext.stage, exact equality is enforced.
+DECIDED at r3 (no longer punted — candidate↔commit linkage is
+substitution-critical, not an implementation detail): the commit
+record embeds the candidate record's digest (presentationDigest),
+so a commit cannot be paired with a substituted candidate; the
+selector-set encoding is FULL TYPED ROWS (canonical equality —
+digests don't compose across distinct scope/grant identities; r3
+withdraws r2's "LLP 0052 no-row-collapse rule" citation, which
+named no rule that exists in 0052, and states the requirement
+directly).
 
 ## r2: What this design does NOT decide
 
