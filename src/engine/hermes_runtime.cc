@@ -541,6 +541,15 @@ extern "C" int32_t ex_host_authorize_exact_endowment(
     const char* operation_manifest_digest,
     const uint32_t* operation_ids,
     size_t operation_count);
+extern "C" int32_t ex_host_authorize_exact_endowment_v2(
+    uint64_t host_context_id,
+    uint32_t context_kind,
+    const char* operation_manifest_digest,
+    const uint32_t* operation_ids,
+    size_t operation_count,
+    uint32_t carrier_capable,
+    uint32_t* out_root_status,
+    char** out_root_id);
 extern "C" int32_t ex_host_authorize_embedder_capability_set(
     uint64_t host_context_id,
     uint32_t installed_flags);
@@ -4634,14 +4643,24 @@ void removeProvisionalExactCapability(
 void rollbackExactHostIngress(ExactHermesRuntime* runtime) noexcept {
   if (!runtime) return;
   removeProvisionalExactCapability(runtime, "invokeHostAsync");
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — rollback resets
+  // the whole tagged latch: tag, both typed slots, endowment state, the
+  // copied carrier-root projection, and the captured Promise constructor.
+  runtime->exact_host_ingress_tag = ExactHostIngressTag::None;
   runtime->exact_host_call_async_fn = nullptr;
+  runtime->exact_host_call_async_v2_fn = nullptr;
   runtime->exact_host_call_async_context = nullptr;
   runtime->exact_host_context = 0;
   runtime->exact_host_operations.clear();
+  runtime->exact_root_attribution_status = 0;
+  runtime->exact_root_id.clear();
+  runtime->exact_ingress_promise_ctor.reset();
 }
 
 bool sealExactHostIngress(ExactHermesRuntime* runtime) {
-  if (!runtime->exact_host_call_async_fn) return true;
+  if (runtime->exact_host_ingress_tag == ExactHostIngressTag::None) {
+    return true;
+  }
   auto& rt = *runtime->runtime;
   auto exactValue = rt.global().getProperty(rt, "exact");
   if (!exactValue.isObject()) return false;
@@ -8366,9 +8385,21 @@ static bool exactAuthenticatedHostIngressActive(
   if (!handle ||
       handle->embedder_capability_state !=
           EmbedderCapabilityState::Finalized ||
-      handle->exact_host_call_async_fn == nullptr ||
       handle->exact_host_operations.empty()) {
     return false;
+  }
+  // Disposition activation operates on the tagged latch: the slot named by
+  // the tag must be populated (either ingress flavor activates the row).
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi
+  switch (handle->exact_host_ingress_tag) {
+    case ExactHostIngressTag::V1:
+      if (handle->exact_host_call_async_fn == nullptr) return false;
+      break;
+    case ExactHostIngressTag::V2:
+      if (handle->exact_host_call_async_v2_fn == nullptr) return false;
+      break;
+    case ExactHostIngressTag::None:
+      return false;
   }
   return handle->exact_host_context == EXACT_EMBEDDER_CONTEXT_APP ||
       handle->exact_host_context == EXACT_EMBEDDER_CONTEXT_AGENT;
@@ -16662,11 +16693,33 @@ namespace {
 constexpr size_t kMaxExactHostOperationCount = 4096;
 constexpr size_t kMaxExactHostPayloadBytes = 16 * 1024 * 1024;
 constexpr size_t kMaxExactPendingHostCalls = 1024;
+constexpr size_t kMaxExactHostCarrierBytes = 64;
 constexpr uint32_t kEmbedderCapabilityExactIngress = 1u << 0;
+// Schema-aware finalize reporting: the single EXACT_INGRESS bit cannot
+// distinguish a V1 latch behind a /2 snapshot (or a V2 latch behind /1), so
+// the carrier-capable schema adds its own flag and the Rust host asserts the
+// exact set. Bit 0 keeps its shipped meaning.
+// @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — schema-aware finalize
+constexpr uint32_t kEmbedderCapabilityExactIngressCarrier = 1u << 1;
 
 bool exactHostContextIsValid(uint32_t context) {
   return context == EXACT_EMBEDDER_CONTEXT_APP ||
       context == EXACT_EMBEDDER_CONTEXT_AGENT;
+}
+
+// Installed embedder-capability flags derived from the tagged ingress latch.
+uint32_t exactInstalledEmbedderCapabilityFlags(
+    const ExactHermesRuntime* runtime) {
+  switch (runtime->exact_host_ingress_tag) {
+    case ExactHostIngressTag::V1:
+      return kEmbedderCapabilityExactIngress;
+    case ExactHostIngressTag::V2:
+      return kEmbedderCapabilityExactIngress |
+          kEmbedderCapabilityExactIngressCarrier;
+    case ExactHostIngressTag::None:
+      break;
+  }
+  return 0;
 }
 
 }  // namespace
@@ -16685,7 +16738,8 @@ extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
   }
   if (runtime->embedder_capability_state !=
           EmbedderCapabilityState::LegacyAutoFinalize ||
-      runtime->user_execution_started || runtime->exact_host_call_async_fn) {
+      runtime->user_execution_started ||
+      runtime->exact_host_ingress_tag != ExactHostIngressTag::None) {
     return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
   }
   runtime->embedder_capability_state = EmbedderCapabilityState::Configuring;
@@ -16719,10 +16773,10 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
     return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
   }
 
-  uint32_t installed = 0;
-  if (runtime->exact_host_call_async_fn) {
-    installed |= kEmbedderCapabilityExactIngress;
-  }
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — schema-aware
+  // finalize: the flags assert the latch tag against the armed schema, so a
+  // V1 latch behind a /2 snapshot (or V2 behind /1) fails authentication.
+  uint32_t installed = exactInstalledEmbedderCapabilityFlags(runtime);
   if (ex_host_authorize_embedder_capability_set(
           runtime->host_context_id, installed) != 1) {
     rollbackExactHostIngress(runtime);
@@ -16776,7 +16830,10 @@ extern "C" int ex_hermes_set_exact_host_call_async(
       allowed_operation_count > kMaxExactHostOperationCount) {
     return -4;
   }
-  if (runtime->exact_host_call_async_fn != nullptr ||
+  // One-shot across BOTH setter flavors: the tagged latch admits at most one
+  // successful installation per runtime.
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — the tagged latch
+  if (runtime->exact_host_ingress_tag != ExactHostIngressTag::None ||
       runtime->exact_host_context != 0 ||
       !runtime->exact_host_operations.empty()) {
     return -5;
@@ -16795,6 +16852,10 @@ extern "C" int ex_hermes_set_exact_host_call_async(
     operations.insert(operation);
     previous = operation;
   }
+  // Authorization is schema-aware on BOTH setter paths: the Rust side of
+  // this v1 hook refuses when the armed binding is carrier-bearing (/2), so
+  // a carrier-armed artifact never runs behind the carrier-less surface.
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi
   if (ex_host_authorize_exact_endowment(
           runtime->host_context_id,
           rawContext,
@@ -16804,6 +16865,7 @@ extern "C" int ex_hermes_set_exact_host_call_async(
     return -8;
   }
 
+  runtime->exact_host_ingress_tag = ExactHostIngressTag::V1;
   runtime->exact_host_context = rawContext;
   runtime->exact_host_operations = std::move(operations);
   runtime->exact_host_call_async_fn = callback;
@@ -16825,7 +16887,8 @@ extern "C" int ex_hermes_set_exact_host_call_async(
                   const facebook::jsi::Value&,
                   const facebook::jsi::Value* args,
                   size_t count) -> facebook::jsi::Value {
-          if (!runtime->exact_host_call_async_fn || count != 2 ||
+          if (runtime->exact_host_ingress_tag != ExactHostIngressTag::V1 ||
+              !runtime->exact_host_call_async_fn || count != 2 ||
               !args[0].isNumber() || !args[1].isObject()) {
             throw facebook::jsi::JSError(
                 rt, "exact.invokeHostAsync requires an operation ID and bytes");
@@ -16925,7 +16988,318 @@ extern "C" int ex_hermes_set_exact_host_call_async(
       return 0;
     }
     if (ex_host_authorize_embedder_capability_set(
-            runtime->host_context_id, kEmbedderCapabilityExactIngress) != 1 ||
+            runtime->host_context_id,
+            exactInstalledEmbedderCapabilityFlags(runtime)) != 1 ||
+        !finalizeCompartmentBaselineForEmbedder(runtime) ||
+        !sealExactHostIngress(runtime)) {
+      throw facebook::jsi::JSError(
+          rt,
+          "exact.invokeHostAsync could not authenticate and finalize the package-compartment baseline");
+    }
+    if (!finalizeEmbedderCapabilityDisposition(runtime)) return -6;
+  } catch (...) {
+    rollbackExactHostIngress(runtime);
+    return -6;
+  }
+  return 0;
+}
+
+extern "C" int ex_hermes_set_exact_host_call_async_v2(
+    ExactHermesRuntime* runtime,
+    ExactEmbedderContext context_kind,
+    const uint32_t* allowed_operation_ids,
+    size_t allowed_operation_count,
+    const char* operation_manifest_digest,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     uint32_t operation_id,
+                     const uint8_t* payload,
+                     size_t payload_len,
+                     const uint8_t* carrier,
+                     size_t carrier_len,
+                     const ExHermesExactIngressAttribution* attribution,
+                     void* context),
+    void* context) {
+  // Carrier-bearing sibling of ex_hermes_set_exact_host_call_async: identical
+  // thread, one-shot, endowment, and pending-cap rules; the tagged latch
+  // ensures at most one of the two flavors succeeds per runtime.
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi
+  if (!runtime || !callback) return -1;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    return drive.status() == EXACT_RUNTIME_DRIVE_OFF_OWNER ? -7 : -9;
+  }
+  if (!runtime->runtime) return -1;
+  if (runtime->restricted) return -2;
+  auto rawContext = static_cast<uint32_t>(context_kind);
+  if (!exactHostContextIsValid(rawContext)) return -3;
+  if (!allowed_operation_ids || allowed_operation_count == 0 ||
+      allowed_operation_count > kMaxExactHostOperationCount) {
+    return -4;
+  }
+  if (runtime->exact_host_ingress_tag != ExactHostIngressTag::None ||
+      runtime->exact_host_context != 0 ||
+      !runtime->exact_host_operations.empty()) {
+    return -5;
+  }
+  if (runtime->embedder_capability_state == EmbedderCapabilityState::Finalized ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return -9;
+  }
+
+  std::unordered_set<uint32_t> operations;
+  operations.reserve(allowed_operation_count);
+  uint32_t previous = 0;
+  for (size_t index = 0; index < allowed_operation_count; ++index) {
+    uint32_t operation = allowed_operation_ids[index];
+    if (operation == 0 || (index > 0 && operation <= previous)) return -4;
+    operations.insert(operation);
+    previous = operation;
+  }
+  // Schema-aware authorization for the carrier-capable path: a /1 snapshot
+  // (or one with no carrier binding) refuses this setter, and on success the
+  // Rust host resolves the installed context against the authenticated /2
+  // carrier-binding root pins and returns the installation-time copied
+  // immutable projection — the engine never re-queries at call time.
+  // @ref LLP 0053#r2-i3--derived-root-attribution-on-ingress
+  uint32_t rootStatus = EX_HERMES_EXACT_ROOT_UNAVAILABLE;
+  char* rootId = nullptr;
+  if (ex_host_authorize_exact_endowment_v2(
+          runtime->host_context_id,
+          rawContext,
+          operation_manifest_digest,
+          allowed_operation_ids,
+          allowed_operation_count,
+          /*carrier_capable=*/1,
+          &rootStatus,
+          &rootId) != 1) {
+    if (rootId) ex_host_free_string(rootId);
+    return -8;
+  }
+  if (rootStatus != EX_HERMES_EXACT_ROOT_ATTRIBUTED &&
+      rootStatus != EX_HERMES_EXACT_ROOT_AMBIGUOUS) {
+    // Missing/unknown projection states are explicit, never defaulted to a
+    // root (the ExHermesAsyncFailureEvent discipline).
+    rootStatus = EX_HERMES_EXACT_ROOT_UNAVAILABLE;
+  }
+
+  runtime->exact_host_ingress_tag = ExactHostIngressTag::V2;
+  runtime->exact_host_context = rawContext;
+  runtime->exact_host_operations = std::move(operations);
+  runtime->exact_host_call_async_v2_fn = callback;
+  runtime->exact_host_call_async_context = context;
+  runtime->exact_root_attribution_status = rootStatus;
+  runtime->exact_root_id.clear();
+  if (rootId) {
+    if (rootStatus == EX_HERMES_EXACT_ROOT_ATTRIBUTED) {
+      runtime->exact_root_id.assign(rootId);
+    }
+    ex_host_free_string(rootId);
+  }
+  if (rootStatus == EX_HERMES_EXACT_ROOT_ATTRIBUTED &&
+      runtime->exact_root_id.empty()) {
+    // An attributed projection without an id is malformed; fail closed to
+    // UNAVAILABLE rather than delivering an empty attributed root.
+    runtime->exact_root_attribution_status = EX_HERMES_EXACT_ROOT_UNAVAILABLE;
+  }
+
+  try {
+    auto& rt = *runtime->runtime;
+    auto exactValue = rt.global().getProperty(rt, "exact");
+    if (!exactValue.isObject()) {
+      throw facebook::jsi::JSError(
+          rt, "exact.invokeHostAsync requires the predeclared Exact capability object");
+    }
+    auto exactObject = exactValue.getObject(rt);
+    // Capture the trusted Promise constructor once, under the same
+    // authorization that admitted this setter. v2 dispatch never reads the
+    // mutable global binding again.
+    // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — capture ordering
+    runtime->exact_ingress_promise_ctor =
+        std::make_shared<facebook::jsi::Function>(
+            rt.global().getPropertyAsFunction(rt, "Promise"));
+    auto invoke = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "invokeHostAsync"),
+        3,
+        [runtime](facebook::jsi::Runtime& rt,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+          // Exactly 2 arguments => carrier ABSENT; exactly 3 => the third is
+          // the carrier; no other arity.
+          if (runtime->exact_host_ingress_tag != ExactHostIngressTag::V2 ||
+              !runtime->exact_host_call_async_v2_fn ||
+              (count != 2 && count != 3) ||
+              !args[0].isNumber() || !args[1].isObject()) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync requires an operation ID and bytes");
+          }
+          double rawOperation = args[0].asNumber();
+          if (!std::isfinite(rawOperation) || rawOperation < 1.0 ||
+              rawOperation > static_cast<double>(UINT32_MAX) ||
+              std::floor(rawOperation) != rawOperation) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync operation ID must be a uint32");
+          }
+          auto operation = static_cast<uint32_t>(rawOperation);
+          if (runtime->exact_host_operations.find(operation) ==
+              runtime->exact_host_operations.end()) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync operation is not endowed");
+          }
+
+          // NORMATIVE CAPTURE ORDERING: every attribution field (context,
+          // carrier presence, runtime nonce, frame-attributed principal, and
+          // the copied root projection) is captured BEFORE any app-observable
+          // property access — extractArrayBufferView below invokes observable
+          // getters/proxy traps that could re-enter application code.
+          // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi
+          ExHermesExactIngressAttribution attribution{};
+          attribution.abi_version =
+              EX_HERMES_EXACT_INGRESS_ATTRIBUTION_ABI_VERSION;
+          attribution.struct_size = static_cast<uint32_t>(
+              sizeof(ExHermesExactIngressAttribution));
+          attribution.context_kind = runtime->exact_host_context;
+          attribution.carrier_status = count == 3
+              ? EX_HERMES_EXACT_CARRIER_PRESENT
+              : EX_HERMES_EXACT_CARRIER_ABSENT;
+          attribution.runtime_nonce = ex_hermes_current_runtime_nonce();
+          uint64_t principal = currentPrincipalId();
+          attribution.principal_id = principal;
+          // kNoUserPrincipalId maps to UNAVAILABLE; zero remains the
+          // legitimate root principal and stays AUTHENTICATED.
+          attribution.principal_status =
+              principal == static_cast<uint64_t>(kNoUserPrincipalId)
+              ? EX_HERMES_ASYNC_FAILURE_PRINCIPAL_UNAVAILABLE
+              : EX_HERMES_ASYNC_FAILURE_PRINCIPAL_AUTHENTICATED;
+          attribution.root_status = runtime->exact_root_attribution_status;
+          if (attribution.root_status == EX_HERMES_EXACT_ROOT_ATTRIBUTED) {
+            attribution.root_id = runtime->exact_root_id.c_str();
+            attribution.root_id_len = runtime->exact_root_id.size();
+          } else {
+            attribution.root_id = nullptr;
+            attribution.root_id_len = 0;
+          }
+
+          // App-observable accesses begin here; bytes are copied immediately
+          // at extraction.
+          auto payloadObject = args[1].asObject(rt);
+          const uint8_t* payloadData = nullptr;
+          size_t payloadLength = 0;
+          if (!extractArrayBufferView(
+                  rt, payloadObject, payloadData, payloadLength)) {
+            throw facebook::jsi::JSError(
+                rt,
+                "exact.invokeHostAsync payload must be an ArrayBuffer or view");
+          }
+          if (payloadLength > kMaxExactHostPayloadBytes) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync payload exceeds 16 MiB");
+          }
+          auto payload = std::make_shared<std::vector<uint8_t>>();
+          if (payloadLength > 0) {
+            payload->assign(payloadData, payloadData + payloadLength);
+          }
+
+          auto carrier = std::make_shared<std::vector<uint8_t>>();
+          if (count == 3) {
+            if (!args[2].isObject()) {
+              throw facebook::jsi::JSError(
+                  rt,
+                  "exact.invokeHostAsync carrier must be an ArrayBuffer or view");
+            }
+            auto carrierObject = args[2].asObject(rt);
+            const uint8_t* carrierData = nullptr;
+            size_t carrierLength = 0;
+            if (!extractArrayBufferView(
+                    rt, carrierObject, carrierData, carrierLength)) {
+              throw facebook::jsi::JSError(
+                  rt,
+                  "exact.invokeHostAsync carrier must be an ArrayBuffer or view");
+            }
+            if (carrierLength == 0 ||
+                carrierLength > kMaxExactHostCarrierBytes) {
+              throw facebook::jsi::JSError(
+                  rt, "exact.invokeHostAsync carrier must be 1..=64 bytes");
+            }
+            carrier->assign(carrierData, carrierData + carrierLength);
+          }
+
+          // Dispatch through the constructor captured at installation, never
+          // the mutable global binding.
+          if (!runtime->exact_ingress_promise_ctor) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync trusted Promise constructor is unavailable");
+          }
+          auto executor = facebook::jsi::Function::createFromHostFunction(
+              rt,
+              facebook::jsi::PropNameID::forAscii(rt, "executor"),
+              2,
+              [runtime, operation, payload, carrier, attribution](
+                  facebook::jsi::Runtime& rt,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+                if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+                  throw facebook::jsi::JSError(
+                      rt, "exact.invokeHostAsync malformed Promise executor");
+                }
+                auto resolve = exactMakeTrackedJsiCallbackOwner(
+                    runtime->runtime_thread, args[0].asObject(rt).asFunction(rt));
+                auto reject = exactMakeTrackedJsiCallbackOwner(
+                    runtime->runtime_thread, args[1].asObject(rt).asFunction(rt));
+                {
+                  std::lock_guard<std::mutex> lock(
+                      runtime->exactHostCallAsyncMutex);
+                  if (runtime->exactHostCallAsyncCallbacks.size() >=
+                      kMaxExactPendingHostCalls) {
+                    throw facebook::jsi::JSError(
+                        rt,
+                        "exact.invokeHostAsync pending-call budget exhausted");
+                  }
+                }
+                auto target = exactRuntimeCallbackTarget(runtime);
+                uint64_t callId = registerHostCallTarget(target);
+                if (callId == 0) {
+                  throw facebook::jsi::JSError(
+                      rt, "exact.invokeHostAsync call ID space exhausted");
+                }
+                {
+                  std::lock_guard<std::mutex> lock(
+                      runtime->exactHostCallAsyncMutex);
+                  runtime->exactHostCallAsyncCallbacks[callId] = {
+                      std::move(resolve), std::move(reject)};
+                }
+                // The attribution record is borrowed for this callback
+                // invocation only; root_id borrows the runtime-owned copy.
+                ExHermesExactIngressAttribution attributionRecord = attribution;
+                runtime->exact_host_call_async_v2_fn(
+                    runtime,
+                    callId,
+                    operation,
+                    payload->empty() ? nullptr : payload->data(),
+                    payload->size(),
+                    carrier->empty() ? nullptr : carrier->data(),
+                    carrier->size(),
+                    &attributionRecord,
+                    runtime->exact_host_call_async_context);
+                return facebook::jsi::Value::undefined();
+              });
+          return runtime->exact_ingress_promise_ctor->callAsConstructor(
+              rt, executor);
+        });
+    // Keep the property removable until the package baseline refresh succeeds
+    // (same transaction rules as the v1 flavor).
+    defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(invoke), true);
+    if (runtime->embedder_capability_state ==
+        EmbedderCapabilityState::Configuring) {
+      return 0;
+    }
+    if (ex_host_authorize_embedder_capability_set(
+            runtime->host_context_id,
+            exactInstalledEmbedderCapabilityFlags(runtime)) != 1 ||
         !finalizeCompartmentBaselineForEmbedder(runtime) ||
         !sealExactHostIngress(runtime)) {
       throw facebook::jsi::JSError(

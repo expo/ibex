@@ -207,6 +207,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "ex_hermes_resolve_exact_host_call",
       "ex_hermes_resolve_host_call",
       "ex_hermes_set_exact_host_call_async",
+      "ex_hermes_set_exact_host_call_async_v2",
       "ex_hermes_set_host_call_async",
       "exactCreateReferenceError",
       "exactCreateSyntaxError",
