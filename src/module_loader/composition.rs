@@ -1,10 +1,10 @@
-//! Frozen package-aware composition wire and digest surfaces.
-//!
-//! This module deliberately contains no admission driver. It parses the two
-//! independent channel records, validates envelope-shaped JSON bounds, and
-//! exposes the evidence digest used by later LLP 0056 implementation legs.
+//! Package-aware composition wire, admission, and report surfaces.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(feature = "dev-committed-embedder")]
+use std::path::Path;
+#[cfg(feature = "dev-committed-embedder")]
+use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use capsec_semantics::model::{Digest, NonEmptyString};
@@ -401,6 +401,150 @@ pub struct PreparedPackageCarrierIndexV1 {
 pub struct PreparedPackageCandidateTableIndexV1 {
     pub file: String,
     pub digest: Digest,
+}
+
+/// Per-package verification state carried by composition receipts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompositionPackageVerificationStatusV1 {
+    NotChecked,
+    Verified,
+    Refused,
+}
+
+/// Package row shared by every §8 report variant.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionReportPackageV1 {
+    pub role: CompositionRole,
+    pub package_root_prefix: String,
+    pub record_count: u64,
+    pub carrier_count: u64,
+    pub hbc_carrier_count: u64,
+    pub javascript_carrier_count: u64,
+    pub verification_status: CompositionPackageVerificationStatusV1,
+}
+
+/// Fields present on every composition startup report.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionReportCommonV1 {
+    pub schema: &'static str,
+    pub composition_schema_version: u32,
+    pub authority: &'static str,
+    pub posture: &'static str,
+    pub non_production: bool,
+    pub fingerprint_posture: &'static str,
+    pub attribution: &'static str,
+    pub declared_roles: Option<Vec<String>>,
+    pub composition_root_prefix: Option<String>,
+    pub entry_plan: Option<CompositionEntryPlanV1>,
+    pub engine_binding_digest_prefix: Option<String>,
+    pub packages: Vec<CompositionReportPackageV1>,
+    pub commitment_parse_us: u64,
+    pub admission_us: u64,
+    pub graph_link_us: u64,
+    pub agent_evaluate_us: u64,
+    pub agent_invoke_us: u64,
+    pub app_evaluate_us: u64,
+    pub agent_evaluated_record_count: u64,
+    pub app_evaluated_record_count: u64,
+    pub shared_evaluated_record_count: u64,
+}
+
+/// Total §8 report. Slice 2 serializes `channel-error` and `refused`; the
+/// admitted variants are defined now for the slice-3 handoff.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "admissionStatus", rename_all = "kebab-case")]
+pub enum DevUnarmedCompositionStartupReportV1 {
+    ChannelError {
+        #[serde(flatten)]
+        common: CompositionReportCommonV1,
+        channel_token: String,
+        detail: String,
+    },
+    Refused {
+        #[serde(flatten)]
+        common: CompositionReportCommonV1,
+        failure_stage: u32,
+        #[serde(serialize_with = "serialize_composition_refusal_code")]
+        reason_code: CompositionRefusalCode,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        package_role: Option<CompositionRole>,
+        detail: String,
+    },
+    Admitted {
+        #[serde(flatten)]
+        common: CompositionReportCommonV1,
+        agent_invoke_returned_thenable: bool,
+    },
+    AdmittedStartupError {
+        #[serde(flatten)]
+        common: CompositionReportCommonV1,
+        startup_phase: CompositionStartupPhaseV1,
+        error_detail: String,
+        agent_invoke_returned_thenable: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompositionStartupPhaseV1 {
+    AgentEvaluate,
+    AgentInvoke,
+    AppEvaluate,
+}
+
+fn serialize_composition_refusal_code<S>(
+    code: &CompositionRefusalCode,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(code.as_str())
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Clone, Debug)]
+struct CompositionAuthorizedEdgeV1 {
+    origin: SourceId,
+    target: SourceId,
+    specifier: String,
+    resolution_kind: ResolutionKind,
+}
+
+/// Step-6 capability proving the union plan passed structural closure and the
+/// defining-principal policy. Slice 3 consumes this without a fresh policy
+/// decision.
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Debug)]
+pub struct AuthorizedCompositionPlanV1 {
+    packages: BTreeMap<CompositionRole, super::runner_pipeline::AdmittedCompositionPackageV1>,
+    authorized_edges: Vec<CompositionAuthorizedEdgeV1>,
+    roots: Vec<SourceId>,
+    main_root: SourceId,
+}
+
+/// Successful steps-0–7 handoff to the link/evaluate slice.
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Debug)]
+pub struct AdmittedCompositionV1 {
+    pub authorized: AuthorizedCompositionPlanV1,
+    pub envelope: PreparedCompositionV1,
+    pub commitment: PreparedCompositionCommitmentV1,
+    pub expectations: CompositionVerifierExpectationsV1,
+    pub report: DevUnarmedCompositionStartupReportV1,
+}
+
+/// Admission driver result is total: channel failure, registry refusal, or a
+/// typed step-7 capability. No prose-only error escapes this boundary.
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Debug)]
+pub enum CompositionAdmissionOutcomeV1 {
+    ChannelError(DevUnarmedCompositionStartupReportV1),
+    Refused(DevUnarmedCompositionStartupReportV1),
+    Admitted(AdmittedCompositionV1),
 }
 
 impl PreparedCompositionV1 {

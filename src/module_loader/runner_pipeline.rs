@@ -26,19 +26,28 @@ use super::artifact::{
     digest_bytes, source_integrity, ArtifactAdmissionV1, DynamicEdgeV1, ModuleArtifactV1,
     StaticEdgeV1, TransformFingerprintV1, VerifiedModuleArtifactV1,
 };
+#[cfg(feature = "dev-committed-embedder")]
+use super::artifact::{ProducerIdentityV1, MODULE_ARTIFACT_SCHEMA_V1};
 use super::carrier::{
     AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedCarrierEncodingV2,
     PreparedCarrierEngineBindingV2, PreparedModuleCarrierV2, VerifiedPreparedCarrierEntryV2,
 };
+#[cfg(feature = "dev-committed-embedder")]
+use super::carrier::{AdmittedPreparedCarrierV3, PreparedCarrierAdmissionV3};
 use super::compatibility::LegacyModuleRunnerRequirement;
 #[cfg(feature = "dev-committed-embedder")]
 use super::composition::{
     parse_composition_verifier_expectations_v1, parse_prepared_composition_commitment_v1,
-    CompositionVerifierExpectationsV1, PreparedCompositionCommitmentV1,
+    CompositionRefusalCode, CompositionRole, CompositionVerifierExpectationsV1,
+    HostBridgedInventoryRowV1, PreparedCompositionCommitmentV1, PreparedPackageV1,
+    MAX_PACKAGE_CANDIDATE_TABLE_BYTES_V1, MAX_PACKAGE_CARRIER_BYTES_V1, MAX_PACKAGE_INDEX_BYTES_V1,
+    MAX_PACKAGE_MANIFEST_BYTES_V1, PREPARED_PACKAGE_ROOT_DOMAIN_V1, PREPARED_PACKAGE_SCHEMA_V1,
 };
 use super::computed_candidates::{
     ComputedCandidateTableV1, ComputedCandidateTargetV1, COMPUTED_CANDIDATES_SCHEMA_V1,
 };
+#[cfg(feature = "dev-committed-embedder")]
+use super::computed_candidates::{ComputedCandidateTableV2, COMPUTED_CANDIDATES_SCHEMA_V2};
 use super::embedded_graph::{
     EmbeddedCarrierBindingV1, EmbeddedCarrierFactV1, EmbeddedModuleEdgeV1, EmbeddedModuleGraphV1,
     EmbeddedModuleRecordV1, VirtualSourceLabelV1, EMBEDDED_MODULE_GRAPH_SCHEMA_V1,
@@ -3242,7 +3251,11 @@ fn read_authenticated_prepared_file(path: &Path, expected: &[u8], role: &str) ->
 /// Retain one cache file without following links and without allocating from
 /// an attacker-controlled length. Content authentication is performed by the
 /// caller against the independently armed publication root.
-fn read_bounded_prepared_file(path: &Path, maximum_len: u64, role: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_bounded_prepared_file(
+    path: &Path,
+    maximum_len: u64,
+    role: &str,
+) -> Result<Vec<u8>> {
     use std::io::Read as _;
 
     let mut options = std::fs::OpenOptions::new();
@@ -3422,12 +3435,89 @@ enum PackageAdmissionExpectationsV1<'a> {
         fingerprint_posture: CommittedFingerprintPosture,
         hbc_engine: Option<&'a CommittedHbcEngineExpectationV1>,
     },
+    #[cfg(feature = "dev-committed-embedder")]
+    Composition {
+        package_dir: &'a Path,
+        role: CompositionRole,
+        expected_package_root: &'a Digest,
+        producer_generation: u64,
+        project_root: &'a Path,
+        hbc_engine: Option<&'a CommittedHbcEngineExpectationV1>,
+    },
 }
 
 /// Typed package-admission capability. No caller can construct an admitted
 /// package from raw index records.
 enum AdmittedPackageV1 {
     SinglePublication(CommittedPublicationAdmissionV1),
+    #[cfg(feature = "dev-committed-embedder")]
+    Composition(AdmittedCompositionPackageV1),
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Debug)]
+pub(crate) struct CompositionPackageAdmissionFailureV1 {
+    pub(crate) code: CompositionRefusalCode,
+    pub(crate) role: CompositionRole,
+    pub(crate) detail: String,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl std::fmt::Display for CompositionPackageAdmissionFailureV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} package {}: {}",
+            self.role.as_str(),
+            self.code.as_str(),
+            self.detail
+        )
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl std::error::Error for CompositionPackageAdmissionFailureV1 {}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Debug)]
+pub(crate) struct AdmittedCompositionPackageRecordV1 {
+    pub(crate) artifact: ModuleArtifactV1,
+    pub(crate) bindings: Vec<super::composition::PreparedPackageBindingV1>,
+    pub(crate) carrier: Arc<AdmittedPreparedCarrierV3>,
+    pub(crate) entry_id: NonEmptyString,
+    pub(crate) candidate_tables: Vec<ComputedCandidateTableV1>,
+    admission: ArtifactAdmissionV1,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl AdmittedCompositionPackageRecordV1 {
+    pub(crate) fn verified(&self) -> VerifiedModuleArtifactV1<'_> {
+        self.artifact
+            .verify_for_admission_with_semantic_hint(
+                &self.admission,
+                self.carrier
+                    .verified_entry_semantics(self.entry_id.as_str()),
+            )
+            .expect("AdmittedCompositionPackageRecordV1 retains its admission proof")
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Debug)]
+pub(crate) struct AdmittedCompositionPackageV1 {
+    pub(crate) role: CompositionRole,
+    pub(crate) package_root: Digest,
+    pub(crate) package_graph_digest: Digest,
+    pub(crate) producer_id: NonEmptyString,
+    pub(crate) producer_binary_digest: Digest,
+    pub(crate) producer_generation: u64,
+    pub(crate) records: BTreeMap<SourceId, AdmittedCompositionPackageRecordV1>,
+    pub(crate) principals: Vec<Principal>,
+    pub(crate) host_bridged_inventory: Vec<HostBridgedInventoryRowV1>,
+    pub(crate) duplicate_source_id: bool,
+    pub(crate) carrier_count: usize,
+    pub(crate) hbc_carrier_count: usize,
+    pub(crate) javascript_carrier_count: usize,
 }
 
 /// The loaded-engine identity a committed-admission caller is willing to
@@ -3562,15 +3652,19 @@ pub(crate) fn admit_committed_publication_v1(
     fingerprint_posture: CommittedFingerprintPosture,
     hbc_engine: Option<&CommittedHbcEngineExpectationV1>,
 ) -> Result<CommittedPublicationAdmissionV1> {
-    let AdmittedPackageV1::SinglePublication(admitted) =
-        admit_package_v1(PackageAdmissionExpectationsV1::SinglePublication {
-            cache_dir,
-            commitment,
-            project_root,
-            fingerprint_posture,
-            hbc_engine,
-        })?;
-    Ok(admitted)
+    match admit_package_v1(PackageAdmissionExpectationsV1::SinglePublication {
+        cache_dir,
+        commitment,
+        project_root,
+        fingerprint_posture,
+        hbc_engine,
+    })? {
+        AdmittedPackageV1::SinglePublication(admitted) => Ok(admitted),
+        #[cfg(feature = "dev-committed-embedder")]
+        AdmittedPackageV1::Composition(_) => {
+            unreachable!("single-publication request returned a composition capability")
+        }
+    }
 }
 
 // @ref LLP 0056#5-the-nine-steps--the-ibex-half — commitment facets select a lane without weakening the frozen LLP 0042 checks.
@@ -3590,7 +3684,573 @@ fn admit_package_v1(expectations: PackageAdmissionExpectationsV1<'_>) -> Result<
             hbc_engine,
         )
         .map(AdmittedPackageV1::SinglePublication),
+        #[cfg(feature = "dev-committed-embedder")]
+        PackageAdmissionExpectationsV1::Composition {
+            package_dir,
+            role,
+            expected_package_root,
+            producer_generation,
+            project_root,
+            hbc_engine,
+        } => admit_composition_package_core_v1(
+            package_dir,
+            role,
+            expected_package_root,
+            producer_generation,
+            project_root,
+            hbc_engine,
+        )
+        .map(AdmittedPackageV1::Composition)
+        .map_err(anyhow::Error::new),
     }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn admit_composition_package_v1(
+    package_dir: &Path,
+    role: CompositionRole,
+    expected_package_root: &Digest,
+    producer_generation: u64,
+    project_root: &Path,
+    hbc_engine: Option<&CommittedHbcEngineExpectationV1>,
+) -> std::result::Result<AdmittedCompositionPackageV1, CompositionPackageAdmissionFailureV1> {
+    match admit_package_v1(PackageAdmissionExpectationsV1::Composition {
+        package_dir,
+        role,
+        expected_package_root,
+        producer_generation,
+        project_root,
+        hbc_engine,
+    }) {
+        Ok(AdmittedPackageV1::Composition(admitted)) => Ok(admitted),
+        Ok(AdmittedPackageV1::SinglePublication(_)) => {
+            unreachable!("composition request returned the single-publication capability")
+        }
+        Err(error) => match error.downcast::<CompositionPackageAdmissionFailureV1>() {
+            Ok(failure) => Err(failure),
+            Err(error) => Err(package_failure(
+                role,
+                CompositionRefusalCode::PackageRootMismatch,
+                format!("novel package admission failure: {error:#}"),
+            )),
+        },
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn package_failure(
+    role: CompositionRole,
+    code: CompositionRefusalCode,
+    detail: impl Into<String>,
+) -> CompositionPackageAdmissionFailureV1 {
+    CompositionPackageAdmissionFailureV1 {
+        code,
+        role,
+        detail: detail.into(),
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn package_files_v1(
+    package: &PreparedPackageV1,
+    role: CompositionRole,
+) -> std::result::Result<BTreeSet<String>, CompositionPackageAdmissionFailureV1> {
+    let mut files = BTreeSet::from(["index.json".to_owned()]);
+    let mut insert = |name: &str, file_role: &str| {
+        if name.is_empty()
+            || name.contains(['/', '\\'])
+            || matches!(name, "." | "..")
+            || !files.insert(name.to_owned())
+        {
+            return Err(package_failure(
+                role,
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared {file_role} filename is unsafe or repeated"),
+            ));
+        }
+        Ok(())
+    };
+    for carrier in &package.carriers {
+        insert(&carrier.manifest_file, "carrier manifest")?;
+        insert(&carrier.bytes_file, "carrier bytes")?;
+    }
+    for candidate in &package.candidate_tables {
+        insert(&candidate.file, "candidate table")?;
+    }
+    Ok(files)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn candidate_table_schema_v1(bytes: &[u8]) -> Result<String> {
+    let text = std::str::from_utf8(bytes).context("computed-candidate table is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .map_err(|error| anyhow!("computed-candidate table is not strict JSON: {error}"))?;
+    if capsec_semantics::canonical::to_jcs_bytes(&value)? != bytes {
+        bail!("computed-candidate table is not canonical JCS");
+    }
+    value
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("computed-candidate table has no schema identifier"))
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[allow(clippy::too_many_arguments)]
+fn admit_composition_package_core_v1(
+    package_dir: &Path,
+    role: CompositionRole,
+    expected_package_root: &Digest,
+    producer_generation: u64,
+    project_root: &Path,
+    hbc_engine: Option<&CommittedHbcEngineExpectationV1>,
+) -> std::result::Result<AdmittedCompositionPackageV1, CompositionPackageAdmissionFailureV1> {
+    let corrupt = |detail: String| {
+        package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+            detail,
+        )
+    };
+    let index_bytes = read_bounded_prepared_file(
+        &package_dir.join("index.json"),
+        MAX_PACKAGE_INDEX_BYTES_V1,
+        "package index",
+    )
+    .map_err(|error| corrupt(format!("{error:#}")))?;
+    let observed_root = digest_bytes(PREPARED_PACKAGE_ROOT_DOMAIN_V1, &index_bytes)
+        .map_err(|error| corrupt(format!("cannot digest prepared-package index: {error}")))?;
+    if &observed_root != expected_package_root {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::PackageRootMismatch,
+            "package index digest differs from the envelope attestation",
+        ));
+    }
+
+    // Schema dispatch precedes the v1 closed-shape decode. This keeps a
+    // different prepared index version at #12 rather than #14.
+    let text = std::str::from_utf8(&index_bytes)
+        .map_err(|error| corrupt(format!("package index is not UTF-8: {error}")))?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .map_err(|error| corrupt(format!("package index is not strict JSON: {error}")))?;
+    if capsec_semantics::canonical::to_jcs_bytes(&value)
+        .map_err(|error| corrupt(format!("cannot canonicalize package index: {error}")))?
+        != index_bytes
+    {
+        return Err(corrupt("package index is not canonical JCS".into()));
+    }
+    if value.get("schema").and_then(serde_json::Value::as_str) != Some(PREPARED_PACKAGE_SCHEMA_V1) {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            "unsupported prepared-package index schema",
+        ));
+    }
+    if !matches!(
+        value.get("role").and_then(serde_json::Value::as_str),
+        Some("app" | "agent")
+    ) {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            "unsupported prepared-package role",
+        ));
+    }
+    let package = PreparedPackageV1::decode_canonical(&index_bytes)
+        .map_err(|error| corrupt(format!("{error:#}")))?;
+    if package.role != role {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            format!(
+                "prepared package role {:?} differs from its served role {:?}",
+                package.role, role
+            ),
+        ));
+    }
+    if package.records.is_empty() || package.carriers.is_empty() {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            "prepared package is empty",
+        ));
+    }
+    if package.records.iter().any(|record| {
+        !matches!(
+            &record.artifact.producer,
+            ProducerIdentityV1::PreparedPackage { .. }
+        )
+    }) {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            "composition package contains a non-prepared-package artifact identity",
+        ));
+    }
+    if package
+        .records
+        .iter()
+        .any(|record| record.artifact.schema != MODULE_ARTIFACT_SCHEMA_V1)
+    {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            "composition package contains an unsupported artifact schema",
+        ));
+    }
+
+    let root_principal = package
+        .records
+        .iter()
+        .filter_map(|record| record.source_id.defining_principal())
+        .find(|principal| principal.is_root())
+        .cloned()
+        .ok_or_else(|| {
+            package_failure(
+                role,
+                CompositionRefusalCode::IbexPreparedCommitmentSchema,
+                "prepared package has no root principal",
+            )
+        })?;
+    let mut principals_by_key = BTreeMap::new();
+    for record in &package.records {
+        let principal = record
+            .source_id
+            .defining_principal()
+            .cloned()
+            .unwrap_or_else(|| root_principal.clone());
+        let key = principal
+            .canonical_order_key()
+            .map_err(|error| corrupt(format!("cannot canonicalize package principal: {error}")))?;
+        principals_by_key.insert(key, principal);
+    }
+    let principals = principals_by_key.into_values().collect::<Vec<_>>();
+
+    let expected_files = package_files_v1(&package, role)?;
+    let mut actual_files = BTreeSet::new();
+    for entry in std::fs::read_dir(package_dir)
+        .map_err(|error| corrupt(format!("cannot enumerate package directory: {error}")))?
+    {
+        let entry = entry
+            .map_err(|error| corrupt(format!("cannot enumerate package directory: {error}")))?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| corrupt("package contains a non-UTF-8 filename".into()))?;
+        if name == "activation" {
+            let kind = entry.file_type().map_err(|error| {
+                corrupt(format!("cannot inspect activation directory: {error}"))
+            })?;
+            if !kind.is_dir() || kind.is_symlink() {
+                return Err(corrupt("activation root is not a real directory".into()));
+            }
+            continue;
+        }
+        actual_files.insert(name);
+    }
+    if actual_files != expected_files {
+        return Err(package_failure(
+            role,
+            CompositionRefusalCode::IbexPackageInventory,
+            "package file inventory differs from its index",
+        ));
+    }
+
+    let mut candidate_tables = Vec::with_capacity(package.candidate_tables.len());
+    let mut candidate_digests = BTreeSet::new();
+    for candidate in &package.candidate_tables {
+        if !candidate_digests.insert(candidate.digest.clone()) {
+            return Err(corrupt("duplicate candidate-table digest".into()));
+        }
+        let bytes = read_bounded_prepared_file(
+            &package_dir.join(&candidate.file),
+            MAX_PACKAGE_CANDIDATE_TABLE_BYTES_V1,
+            "computed-candidate table",
+        )
+        .map_err(|error| corrupt(format!("{error:#}")))?;
+        let schema =
+            candidate_table_schema_v1(&bytes).map_err(|error| corrupt(format!("{error:#}")))?;
+        if schema != COMPUTED_CANDIDATES_SCHEMA_V2 {
+            return Err(package_failure(
+                role,
+                CompositionRefusalCode::IbexPreparedCommitmentSchema,
+                format!("unsupported composition candidate-table schema {schema:?}"),
+            ));
+        }
+        let table = ComputedCandidateTableV2::decode_canonical(&bytes)
+            .map_err(|error| corrupt(format!("{error:#}")))?;
+        // Authenticate the generation-free WIRE form before stamping.
+        if table
+            .digest()
+            .map_err(|error| corrupt(format!("cannot digest candidate table: {error}")))?
+            != candidate.digest
+        {
+            return Err(corrupt("candidate-table digest differs from index".into()));
+        }
+        let requester = package
+            .records
+            .iter()
+            .find(|record| record.source_id == table.requester.0)
+            .ok_or_else(|| corrupt("candidate requester is absent from package".into()))?;
+        table
+            .validate_requester(&requester.artifact)
+            .map_err(|error| corrupt(format!("{error:#}")))?;
+        candidate_tables.push(
+            table
+                .stamp_generation(producer_generation)
+                .map_err(|error| corrupt(format!("{error:#}")))?,
+        );
+    }
+
+    let authorized_semantic_digests = Arc::new(
+        package
+            .records
+            .iter()
+            .map(|record| record.artifact.semantic_digest.clone())
+            .collect::<BTreeSet<_>>(),
+    );
+    let mut carrier_principals: BTreeMap<usize, Principal> = BTreeMap::new();
+    for record in &package.records {
+        if record.carrier_index >= package.carriers.len() {
+            return Err(corrupt("record names an absent carrier".into()));
+        }
+        let principal = record
+            .source_id
+            .defining_principal()
+            .cloned()
+            .unwrap_or_else(|| root_principal.clone());
+        if carrier_principals
+            .insert(record.carrier_index, principal.clone())
+            .is_some_and(|prior| prior != principal)
+        {
+            return Err(package_failure(
+                role,
+                CompositionRefusalCode::IbexPrincipalGrouping,
+                "carrier crosses defining principals",
+            ));
+        }
+    }
+    if carrier_principals.len() != package.carriers.len() {
+        return Err(corrupt("package contains an unreferenced carrier".into()));
+    }
+
+    let mut carriers = Vec::with_capacity(package.carriers.len());
+    let mut hbc_carrier_count = 0usize;
+    let mut javascript_carrier_count = 0usize;
+    for (carrier_index, carrier) in package.carriers.iter().enumerate() {
+        let manifest_bytes = read_bounded_prepared_file(
+            &package_dir.join(&carrier.manifest_file),
+            MAX_PACKAGE_MANIFEST_BYTES_V1,
+            "carrier manifest",
+        )
+        .map_err(|error| corrupt(format!("{error:#}")))?;
+        let carrier_bytes = read_bounded_prepared_file(
+            &package_dir.join(&carrier.bytes_file),
+            MAX_PACKAGE_CARRIER_BYTES_V1,
+            "carrier bytes",
+        )
+        .map_err(|error| corrupt(format!("{error:#}")))?;
+        let declares_hbc = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("encoding")
+                    .and_then(|encoding| encoding.get("kind"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(|kind| kind == "hermes-bytecode")
+            })
+            .unwrap_or(false);
+        let (expected_engine_binding, expected_bytecode_version) = if declares_hbc {
+            match hbc_engine {
+                Some(engine) => (
+                    Some(engine.engine_binding.clone()),
+                    Some(engine.bytecode_version),
+                ),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+        let admission = PreparedCarrierAdmissionV3 {
+            expected_principal: carrier_principals
+                .get(&carrier_index)
+                .cloned()
+                .expect("complete package carrier-principal map"),
+            expected_producer_id: package.producer_id.clone(),
+            producer_binary_digest: package.producer_binary_digest.clone(),
+            package_graph_digest: package.package_graph_digest.clone(),
+            authorized_semantic_digests: authorized_semantic_digests.clone(),
+            expected_engine_binding,
+            expected_bytecode_version,
+        };
+        let admitted = Arc::new(
+            AdmittedPreparedCarrierV3::decode_and_admit(
+                &manifest_bytes,
+                &carrier_bytes,
+                &admission,
+            )
+            .map_err(|error| package_failure(role, error.code, error.detail))?,
+        );
+        match admitted.manifest().encoding {
+            PreparedCarrierEncodingV2::HermesBytecode { .. } => {
+                hbc_carrier_count += 1;
+                crate::engine::module_runner::preflight_hermes_bytecode(admitted.bytes()).map_err(
+                    |error| {
+                        package_failure(
+                            role,
+                            CompositionRefusalCode::IbexBytecodePreflight,
+                            format!("Hermes engine preflight rejected carrier: {error}"),
+                        )
+                    },
+                )?;
+            }
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => {
+                javascript_carrier_count += 1;
+            }
+        }
+        carriers.push(admitted);
+    }
+
+    let mut records = BTreeMap::new();
+    let mut duplicate_source_id = false;
+    let mut fingerprint_digests = FingerprintDigestMemoV1::default();
+    for indexed in package.records {
+        if indexed.artifact.semantics.source_id.0 != indexed.source_id {
+            return Err(corrupt("record identity differs from artifact".into()));
+        }
+        let mut binding_keys = BTreeSet::new();
+        for binding in &indexed.bindings {
+            if !binding_keys.insert(GraphEdgeKey::new(
+                binding.specifier.clone(),
+                binding.resolution_kind,
+            )) {
+                return Err(corrupt("record repeats a typed binding".into()));
+            }
+        }
+        let carrier = carriers
+            .get(indexed.carrier_index)
+            .cloned()
+            .ok_or_else(|| corrupt("prepared record names an absent carrier".into()))?;
+        let ProducerIdentityV1::PreparedPackage {
+            producer_id,
+            producer_binary_digest,
+            package_graph_digest,
+        } = &indexed.artifact.producer
+        else {
+            unreachable!("prepared-package identity checked before carrier admission");
+        };
+        if producer_id != &package.producer_id
+            || producer_binary_digest != &package.producer_binary_digest
+        {
+            return Err(corrupt(
+                "artifact producer identity differs from authenticated package index".into(),
+            ));
+        }
+        if package_graph_digest != &package.package_graph_digest
+            || !authorized_semantic_digests.contains(&indexed.artifact.semantic_digest)
+        {
+            return Err(package_failure(
+                role,
+                CompositionRefusalCode::IbexPackageGraphBinding,
+                "artifact is outside the authenticated package graph",
+            ));
+        }
+        let (artifact_carrier_digest, artifact_entry_id) = match &indexed.artifact.payload {
+            super::artifact::ModulePayloadV1::Carrier {
+                carrier_digest,
+                entry_id,
+                ..
+            } => (carrier_digest, entry_id),
+            super::artifact::ModulePayloadV1::Inline { .. } => {
+                return Err(package_failure(
+                    role,
+                    CompositionRefusalCode::IbexPreparedCommitmentSchema,
+                    "prepared-package artifact carries an inline payload",
+                ));
+            }
+        };
+        if artifact_carrier_digest != &carrier.manifest().carrier_digest
+            || artifact_entry_id != &indexed.entry_id
+        {
+            return Err(package_failure(
+                role,
+                CompositionRefusalCode::CarrierIntegrity,
+                "record carrier digest or entry binding differs from admitted carrier",
+            ));
+        }
+        let admission = ArtifactAdmissionV1::DigestBoundPreparedPackage {
+            expected_source_id: indexed.source_id.clone(),
+            expected_source_integrity: indexed.artifact.semantics.source_integrity.clone(),
+            expected_producer_id: package.producer_id.clone(),
+            producer_binary_digest: package.producer_binary_digest.clone(),
+            package_graph_digest: package.package_graph_digest.clone(),
+            expected_carrier_digest: carrier.manifest().carrier_digest.clone(),
+            expected_entry_id: indexed.entry_id.clone(),
+            authorized_semantic_digests: authorized_semantic_digests.clone(),
+            transform_fingerprint_digest: fingerprint_digests
+                .digest_for(&indexed.artifact.semantics.transform_fingerprint)
+                .map_err(|error| corrupt(format!("{error:#}")))?,
+        };
+        let verified_semantics = carrier.verified_entry_semantics(indexed.entry_id.as_str());
+        indexed
+            .artifact
+            .verify_for_admission_with_semantic_hint(&admission, verified_semantics)
+            .map_err(|error| corrupt(format!("artifact admission failed: {error:#}")))?;
+        carrier
+            .entry(indexed.entry_id.as_str())
+            .map_err(|error| corrupt(format!("{error:#}")))?;
+        portable_record_display(&indexed.source_id)
+            .map_err(|error| corrupt(format!("{error:#}")))?;
+        if let SourceId::File { path, .. } = &indexed.source_id {
+            let _path = path
+                .iter()
+                .fold(project_root.to_path_buf(), |path, component| {
+                    path.join(std::ffi::OsString::from(
+                        String::from_utf8_lossy(component.bytes()).into_owned(),
+                    ))
+                });
+        }
+        let record_candidate_tables = candidate_tables
+            .iter()
+            .filter(|table| table.requester.0 == indexed.source_id)
+            .cloned()
+            .collect();
+        let source_id = indexed.source_id.clone();
+        if records
+            .insert(
+                source_id,
+                AdmittedCompositionPackageRecordV1 {
+                    artifact: indexed.artifact,
+                    bindings: indexed.bindings,
+                    carrier,
+                    entry_id: indexed.entry_id,
+                    candidate_tables: record_candidate_tables,
+                    admission,
+                },
+            )
+            .is_some()
+        {
+            duplicate_source_id = true;
+        }
+    }
+
+    Ok(AdmittedCompositionPackageV1 {
+        role,
+        package_root: observed_root,
+        package_graph_digest: package.package_graph_digest,
+        producer_id: package.producer_id,
+        producer_binary_digest: package.producer_binary_digest,
+        producer_generation,
+        records,
+        principals,
+        host_bridged_inventory: package.host_bridged_inventory,
+        duplicate_source_id,
+        carrier_count: carriers.len(),
+        hbc_carrier_count,
+        javascript_carrier_count,
+    })
 }
 
 fn admit_single_publication_package_v1(
