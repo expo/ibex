@@ -556,6 +556,7 @@ if (
                     &graph_entry,
                     producer_digest,
                     &hermes_target,
+                    ibex_runtime::module_loader::generation::ExecutionGeneration::INITIAL,
                 )? {
                     SourceModuleGraphBuildV1::Native(graph) => graph,
                     SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(

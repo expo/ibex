@@ -55,6 +55,7 @@ use super::embedded_graph::{
     EmbeddedCarrierBindingV1, EmbeddedCarrierFactV1, EmbeddedModuleEdgeV1, EmbeddedModuleGraphV1,
     EmbeddedModuleRecordV1, VirtualSourceLabelV1, EMBEDDED_MODULE_GRAPH_SCHEMA_V1,
 };
+use super::generation::ExecutionGeneration;
 use super::graph::{
     ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
 };
@@ -375,6 +376,7 @@ pub trait PreparedActivationCacheLocatorV1: Send + Sync {
 pub struct SourceModuleGraphV1 {
     entry: SourceId,
     entry_vfs_source_id: Option<crate::vfs::SourceId>,
+    execution_generation: ExecutionGeneration,
     snapshot: Arc<ArmedSnapshot>,
     principal_ids: BTreeMap<Principal, u32>,
     producer_binary_digest: Digest,
@@ -440,6 +442,10 @@ impl SourceModuleGraphV1 {
 
     pub fn entry(&self) -> &SourceId {
         &self.entry
+    }
+
+    pub fn execution_generation(&self) -> ExecutionGeneration {
+        self.execution_generation
     }
 
     pub fn snapshot(&self) -> &ArmedSnapshot {
@@ -1152,6 +1158,13 @@ impl SourceModuleGraphV1 {
         BTreeMap<SourceId, NativeModuleRecordConfig>,
         BTreeMap<SourceId, super::security::GraphAuthorityContext>,
     )> {
+        if graph_generation != self.execution_generation.get() {
+            bail!(
+                "native execution inputs generation {} does not match the graph's execution generation {}",
+                graph_generation,
+                self.execution_generation.get()
+            );
+        }
         for table in self
             .records
             .values()
@@ -2042,12 +2055,14 @@ fn graph_edge_decision(
 pub fn build_authenticated_source_graph_v1(
     entry: &Path,
     producer_binary_digest: Digest,
+    execution_generation: ExecutionGeneration,
 ) -> Result<SourceModuleGraphBuildV1> {
     build_authenticated_source_graph_v1_with_host(
         &InstalledSourceGraphHost,
         None,
         entry,
         producer_binary_digest,
+        execution_generation,
     )
 }
 
@@ -2060,12 +2075,14 @@ pub fn build_authenticated_source_graph_v1_for_host(
     entry: &Path,
     producer_binary_digest: Digest,
     _hermes_target: &str,
+    execution_generation: ExecutionGeneration,
 ) -> Result<SourceModuleGraphBuildV1> {
     build_authenticated_source_graph_v1_with_host(
         host,
         Some(host.clone()),
         entry,
         producer_binary_digest,
+        execution_generation,
     )
 }
 
@@ -2074,10 +2091,12 @@ fn build_authenticated_source_graph_v1_with_host(
     activation_host: Option<crate::host::Host>,
     entry: &Path,
     producer_binary_digest: Digest,
+    // @ref LLP 0055#1-the-hotrevision-counter-and-successor-law — execution coordinate is session-minted, never the authority counter.
+    execution_generation: ExecutionGeneration,
 ) -> Result<SourceModuleGraphBuildV1> {
     let snapshot = host.snapshot()?;
     let authorizer = ModuleGraphAuthorizer::new(snapshot.as_ref());
-    let graph_generation = snapshot.generations().dynamic.get().max(1);
+    let graph_generation = execution_generation.get();
     let mut source_access_receipts = Vec::new();
     let canonical_entry = std::fs::canonicalize(entry)
         .with_context(|| format!("cannot canonicalize module entry {}", entry.display()))?;
@@ -2407,6 +2426,7 @@ fn build_authenticated_source_graph_v1_with_host(
     let graph = SourceModuleGraphV1 {
         entry: entry_id,
         entry_vfs_source_id: Some(entry_vfs_source_id),
+        execution_generation,
         snapshot,
         principal_ids,
         producer_binary_digest,
@@ -3555,6 +3575,7 @@ pub fn load_prepared_graph_committed_v1(
     commitment: &PreparedGraphCommitmentV1,
     entry_vfs_source_id: crate::vfs::SourceId,
     project_root: &Path,
+    execution_generation: ExecutionGeneration,
 ) -> Result<SourceModuleGraphV1> {
     let started = std::time::Instant::now();
     let snapshot = host
@@ -3601,6 +3622,7 @@ pub fn load_prepared_graph_committed_v1(
     let graph = SourceModuleGraphV1 {
         entry,
         entry_vfs_source_id: Some(entry_vfs_source_id),
+        execution_generation,
         snapshot,
         principal_ids,
         producer_binary_digest: commitment.producer.binary_digest.clone(),
@@ -5132,6 +5154,7 @@ pub fn load_prepared_source_graph_v1(
     let graph = SourceModuleGraphV1 {
         entry: authenticated_source_graph.entry.clone(),
         entry_vfs_source_id: authenticated_source_graph.entry_vfs_source_id.clone(),
+        execution_generation: authenticated_source_graph.execution_generation,
         snapshot: authenticated_source_graph.snapshot.clone(),
         principal_ids: authenticated_source_graph.principal_ids.clone(),
         producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
@@ -5578,6 +5601,7 @@ mod tests {
             &entry,
             producer.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -5616,6 +5640,7 @@ mod tests {
             &entry,
             producer,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -5640,6 +5665,7 @@ mod tests {
             &commitment_a,
             entry_vfs_source_id.clone(),
             project.path(),
+            ExecutionGeneration::INITIAL,
         )
         .expect("committed admission must not reacquire application source");
         assert!(admitted.prepared_entries().unwrap().is_some());
@@ -5651,6 +5677,7 @@ mod tests {
             &commitment_a,
             entry_vfs_source_id,
             project.path(),
+            ExecutionGeneration::INITIAL,
         ) {
             Ok(_) => panic!("self-consistent sibling publication was admitted"),
             Err(error) => error,
@@ -5679,6 +5706,7 @@ mod tests {
             &entry,
             producer_digest.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -5755,6 +5783,7 @@ mod tests {
             &entry,
             producer_digest.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -5824,6 +5853,7 @@ mod tests {
             &entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )? {
             SourceModuleGraphBuildV1::Native(graph) => Ok(graph),
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
@@ -6208,6 +6238,50 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn authenticated_source_graph_binds_native_inputs_to_its_execution_generation() {
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(&entry, "export const value = 7;\n").unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let execution_generation = ExecutionGeneration::new(7).unwrap();
+        let host = armed_file_host(project.path());
+
+        let graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+            execution_generation,
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!("generation fixture unexpectedly required legacy: {requirement:?}")
+            }
+        };
+
+        assert_eq!(graph.execution_generation(), execution_generation);
+        let (_, contexts) = graph.native_execution_inputs(7).unwrap();
+        assert!(!contexts.is_empty());
+        assert!(contexts
+            .values()
+            .all(|context| context.graph_generation == 7));
+
+        let error = match graph.native_execution_inputs(1) {
+            Ok(_) => panic!("native inputs accepted a mismatched execution generation"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.to_string(),
+            "native execution inputs generation 1 does not match the graph's execution generation 7"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn initial_source_graph_coalesces_identical_literal_dynamic_import_attributes() {
         let project = tempfile::tempdir().unwrap();
         let graph = build_test_source_graph(
@@ -6322,6 +6396,7 @@ mod tests {
             &entry,
             producer_digest.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6351,6 +6426,7 @@ mod tests {
             &cjs_entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6389,6 +6465,7 @@ mod tests {
             &entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6454,6 +6531,7 @@ mod tests {
             &entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6530,6 +6608,7 @@ mod tests {
             &entry,
             producer_digest.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6561,6 +6640,7 @@ mod tests {
             &entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6657,6 +6737,7 @@ mod tests {
             &entry,
             producer_digest.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6691,6 +6772,7 @@ mod tests {
             &entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6763,6 +6845,7 @@ mod tests {
             &entry,
             producer_digest.clone(),
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -6808,6 +6891,7 @@ mod tests {
             &entry,
             producer_digest,
             "hermes-test",
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
@@ -7512,7 +7596,7 @@ pub mod dev_committed_embedder {
             }
         }
 
-        const DEV_GRAPH_GENERATION: u64 = 1;
+        let execution_generation = ExecutionGeneration::INITIAL;
         let plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
             records
                 .iter()
@@ -7570,7 +7654,7 @@ pub mod dev_committed_embedder {
                     principal_id,
                     principal_id,
                     [principal_id],
-                    DEV_GRAPH_GENERATION,
+                    execution_generation.get(),
                 )
                 .map_err(pre_evaluation)?,
                 source_label.clone(),

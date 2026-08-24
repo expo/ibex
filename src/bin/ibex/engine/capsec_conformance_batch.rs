@@ -5235,6 +5235,7 @@ async fn execute_authenticated_module_runner_public_graph(
                     &graph_entry,
                     graph_producer_digest,
                     &graph_hermes_target,
+                    ibex_runtime::module_loader::generation::ExecutionGeneration::INITIAL,
                 )? {
                     SourceModuleGraphBuildV1::Native(graph) => graph,
                     SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(

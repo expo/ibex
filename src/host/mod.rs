@@ -11741,6 +11741,7 @@ mod tests {
 
         use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
         use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::generation::ExecutionGeneration;
         use crate::module_loader::runner_pipeline::{
             build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
             publish_prepared_source_graph_v1, SourceModuleGraphBuildV1, SourceModuleGraphV1,
@@ -11820,7 +11821,13 @@ mod tests {
         assert_ne!(crate::host::abi::install_host(host.clone()), 0);
 
         let producer = digest_bytes("package-compartment-module-graph", b"producer").unwrap();
-        let source_graph = match build_authenticated_source_graph_v1(&entry, producer).unwrap() {
+        let source_graph = match build_authenticated_source_graph_v1(
+            &entry,
+            producer,
+            ExecutionGeneration::INITIAL,
+        )
+        .unwrap()
+        {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
                 panic!(
@@ -11912,6 +11919,7 @@ mod tests {
 
         use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
         use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::generation::ExecutionGeneration;
         use crate::module_loader::runner_pipeline::{
             build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
             publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
@@ -11944,7 +11952,13 @@ mod tests {
             value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
         }));
         let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
-        let graph = match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
+        let graph = match build_authenticated_source_graph_v1(
+            &entry,
+            producer.clone(),
+            ExecutionGeneration::INITIAL,
+        )
+        .unwrap()
+        {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
                 panic!(
@@ -12123,6 +12137,7 @@ mod tests {
 
         use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
         use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::generation::ExecutionGeneration;
         use crate::module_loader::runner_pipeline::{
             build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
             publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
@@ -12183,7 +12198,13 @@ mod tests {
 
         crate::host::abi::install_host(example_armed_host());
         let producer = digest_bytes("module-runner-performance", b"producer").unwrap();
-        let initial = match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
+        let initial = match build_authenticated_source_graph_v1(
+            &entry,
+            producer.clone(),
+            ExecutionGeneration::INITIAL,
+        )
+        .unwrap()
+        {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
                 panic!("performance graph required legacy loader: {}", requirement)
@@ -12195,21 +12216,26 @@ mod tests {
         std::fs::create_dir(&artifact_dir).unwrap();
         let prepared_cache =
             publish_prepared_source_graph_v1(&initial, &artifact_dir, deployment.clone()).unwrap();
-        let entry_join = initial.authenticated_entry_join_for_test().unwrap();
 
         let collect_source_samples = |generation_offset: usize| {
             let mut collected = Vec::with_capacity(samples);
             for sample in 0..samples {
+                let generation = (generation_offset + sample + 1) as u64;
+                let execution_generation = ExecutionGeneration::new(generation).unwrap();
                 let started = Instant::now();
-                let graph =
-                    match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
-                        SourceModuleGraphBuildV1::Native(graph) => graph,
-                        SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                            panic!("source sample required legacy loader: {}", requirement)
-                        }
-                    };
-                let generation = generation_offset + sample + 1;
-                let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+                let graph = match build_authenticated_source_graph_v1(
+                    &entry,
+                    producer.clone(),
+                    execution_generation,
+                )
+                .unwrap()
+                {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        panic!("source sample required legacy loader: {}", requirement)
+                    }
+                };
+                let (configs, contexts) = graph.native_execution_inputs(generation).unwrap();
                 collected.push((
                     graph,
                     started.elapsed().as_secs_f64() * 1000.0,
@@ -12222,16 +12248,30 @@ mod tests {
         let collect_prepared_samples = |generation_offset: usize| {
             let mut collected = Vec::with_capacity(samples);
             for sample in 0..samples {
+                let generation = (generation_offset + sample + 1) as u64;
+                let execution_generation = ExecutionGeneration::new(generation).unwrap();
+                let authenticated = match build_authenticated_source_graph_v1(
+                    &entry,
+                    producer.clone(),
+                    execution_generation,
+                )
+                .unwrap()
+                {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        panic!("prepared sample required legacy loader: {}", requirement)
+                    }
+                };
+                let entry_join = authenticated.authenticated_entry_join_for_test().unwrap();
                 let started = Instant::now();
                 let graph = load_prepared_source_graph_v1(
                     &prepared_cache,
-                    &initial,
+                    &authenticated,
                     &entry_join,
                     &deployment,
                 )
                 .unwrap();
-                let generation = generation_offset + sample + 1;
-                let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+                let (configs, contexts) = graph.native_execution_inputs(generation).unwrap();
                 collected.push((
                     graph,
                     started.elapsed().as_secs_f64() * 1000.0,

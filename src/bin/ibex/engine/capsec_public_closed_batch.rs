@@ -1134,6 +1134,7 @@ if (
                         &graph_entry,
                         producer_digest,
                         &hermes_target,
+                        ibex_runtime::module_loader::generation::ExecutionGeneration::INITIAL,
                     )? {
                         SourceModuleGraphBuildV1::Native(graph) => graph,
                         SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(
@@ -5856,8 +5857,12 @@ async fn execute_closed_module_runner_namespace(
     // @ref LLP 0027#canonical-encoding-and-validation
     let producer_digest = crate::runtime::module_producer_binary_digest()
         .expect("authenticate mapped Ibex module producer");
-    let graph = match build_authenticated_source_graph_v1(&entry, producer_digest.clone())
-        .expect("build authenticated closed module-runner graph")
+    let graph = match build_authenticated_source_graph_v1(
+        &entry,
+        producer_digest.clone(),
+        ibex_runtime::module_loader::generation::ExecutionGeneration::INITIAL,
+    )
+    .expect("build authenticated closed module-runner graph")
     {
         SourceModuleGraphBuildV1::Native(graph) => graph,
         SourceModuleGraphBuildV1::LegacyRequired(requirement) => panic!(
@@ -5881,7 +5886,8 @@ async fn execute_closed_module_runner_namespace(
     let error = runtime
         .with_runtime(|raw| -> anyhow::Result<String> {
             let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
-            let pin_status = unsafe { ex_hermes_module_pin_generation(raw, nonce, 1) };
+            let generation = graph.execution_generation().get();
+            let pin_status = unsafe { ex_hermes_module_pin_generation(raw, nonce, generation) };
             anyhow::ensure!(
                 pin_status == 0,
                 "module generation pin refused ({pin_status})"
@@ -5891,7 +5897,8 @@ async fn execute_closed_module_runner_namespace(
                     .expect("loaded Hermes runtime pointer is non-null");
                 let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
                 let plan = graph.plan()?;
-                let (configs, authority_contexts) = graph.native_execution_inputs(1)?;
+                let (configs, authority_contexts) =
+                    graph.native_execution_inputs(generation)?;
                 let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
                 let linked = NativeSynchronousGraph::link_authorized(
                     &native,

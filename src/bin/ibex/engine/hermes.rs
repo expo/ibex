@@ -1912,7 +1912,12 @@ impl SharedRuntime {
     }
 
     #[cfg(feature = "module-runner")]
-    fn ensure_module_generation_pinned(&self, nonce: u64, generation: u64) -> Result<()> {
+    fn ensure_module_generation_pinned(
+        &self,
+        lease: &OwnerRuntimeLease<'_>,
+        nonce: u64,
+        generation: u64,
+    ) -> Result<()> {
         let pinned = self.module_generation_pinned.load(Ordering::Acquire);
         if pinned != 0 {
             anyhow::ensure!(
@@ -1921,9 +1926,12 @@ impl SharedRuntime {
             );
             return Ok(());
         }
-        let status = self.with_runtime(|raw| unsafe {
-            ex_hermes_module_pin_generation(raw, nonce, generation)
-        })?;
+        let raw = lease.raw();
+        anyhow::ensure!(
+            self.raw.load(Ordering::Acquire) == raw,
+            "Hermes runtime changed before module generation pin"
+        );
+        let status = unsafe { ex_hermes_module_pin_generation(raw, nonce, generation) };
         if status != 0 {
             anyhow::bail!("native module graph generation pin refused ({status})");
         }
@@ -2607,9 +2615,6 @@ impl HermesEngine {
         self.maybe_enable_debugger().await?;
         self.ensure_thread()?;
         let runtime = self.ensure_runtime().await?;
-        let generation = 1;
-        let nonce = runtime.with_runtime(|raw| unsafe { ex_hermes_runtime_nonce(raw) })?;
-        runtime.ensure_module_generation_pinned(nonce, generation)?;
         // This local, owner-thread future holds the runtime lease across TLA
         // waits. Aborting it drops native graph records and the structured
         // evaluation guard on the owner thread before releasing the FFI lock;
@@ -2694,7 +2699,10 @@ impl HermesEngine {
                 return Ok(authenticated_evaluation(evaluation));
             }
         };
+        // @ref LLP 0055#1-the-hotrevision-counter-and-successor-law — execution coordinate is session-minted, never the authority counter.
+        let generation = graph.execution_generation().get();
         let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+        runtime.ensure_module_generation_pinned(&lease, nonce, generation)?;
         let raw_module_runtime = NonNull::new(raw.cast())
             .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
         let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, nonce)? };

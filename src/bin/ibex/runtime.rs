@@ -3250,6 +3250,7 @@ impl AuthenticatedFileIngress {
         request: &ibex_runtime::engine::evaluation::SourceRequest,
     ) -> Result<crate::engine::AuthenticatedModuleGraphPreparation> {
         use crate::engine::AuthenticatedModuleGraphPreparation;
+        use ibex_runtime::module_loader::generation::ExecutionGeneration;
         use ibex_runtime::module_loader::runner_pipeline::{
             build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
         };
@@ -3297,11 +3298,13 @@ impl AuthenticatedFileIngress {
         // between native admission and evaluation.
         // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
         // @ref LLP 0027#canonical-encoding-and-validation
+        // @ref LLP 0055#1-the-hotrevision-counter-and-successor-law — v1 boot mints INITIAL; the producing-session mint arrives with Exact H2 wiring.
         let mut graph = match build_authenticated_source_graph_v1_for_host(
             &self.host,
             &source_entry,
             module_producer_binary_digest()?,
             &engine::hermes::bytecode_cache_identity(),
+            ExecutionGeneration::INITIAL,
         )? {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
@@ -3447,6 +3450,7 @@ impl AuthenticatedFileIngress {
         commitment: &capsec_semantics::arming::PreparedGraphCommitmentV1,
     ) -> Result<Option<ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1>> {
         use ibex_runtime::module_loader::artifact::digest_bytes;
+        use ibex_runtime::module_loader::generation::ExecutionGeneration;
         use ibex_runtime::module_loader::runner_pipeline::{
             load_prepared_graph_committed_v1, prepared_graph_cache_dir,
         };
@@ -3519,6 +3523,7 @@ impl AuthenticatedFileIngress {
                     commitment,
                     entry_vfs_source_id,
                     &self.project_root,
+                    ExecutionGeneration::INITIAL,
                 )
                 .map(Some);
             }
@@ -14749,6 +14754,7 @@ pub(crate) mod tests {
     ))]
     #[tokio::test(flavor = "current_thread")]
     async fn authenticated_engine_refuses_prebuilt_graph_with_stale_entry_bytes() {
+        use ibex_runtime::module_loader::generation::ExecutionGeneration;
         use ibex_runtime::module_loader::runner_pipeline::{
             build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
         };
@@ -14781,6 +14787,7 @@ pub(crate) mod tests {
             &entry,
             module_producer_binary_digest().unwrap(),
             &engine::hermes::bytecode_cache_identity(),
+            ExecutionGeneration::INITIAL,
         )
         .unwrap()
         {
