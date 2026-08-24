@@ -1372,7 +1372,8 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
         )
         .unwrap();
     // The public begin path refuses builtin targets. Mutating the private test
-    // transaction exercises the clone-and-swap ceiling backstop directly.
+    // transaction reaches commit, where the principal-less backstop now fires
+    // first; the ceiling's bootstrap row is asserted directly below.
     bootstrap_change
         .invalidated
         .insert(bootstrap_source.clone());
@@ -2193,4 +2194,75 @@ fn commit_backstop_refuses_principal_less_invalidation() {
         "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
     );
     assert_eq!(live_snapshot(&generations), before);
+}
+
+#[test]
+fn transactions_never_cross_managers_at_commit() {
+    let a = source(root(), "entry.mjs");
+    let current_policy = policy("authority");
+    let build = |generation: ExecutionGeneration| {
+        ModuleExecutionGenerationsV2::new(
+            GenerationMode::Development,
+            generation,
+            &current_policy,
+            typed_graph([(artifact(a.clone(), 1), self_facts(&a))]),
+        )
+        .unwrap()
+    };
+    let minting = build(execution_generation());
+    let mut transaction = minting
+        .begin_revision(
+            &current_policy,
+            HmrOrigin::Exact,
+            (minting.current_generation(), minting.current_revision()),
+            [a.clone()],
+        )
+        .unwrap();
+    transaction
+        .stage_replacements([typed_record(&artifact(a.clone(), 2), self_facts(&a))])
+        .unwrap();
+    let token = transaction.shadow_publication_token(&a).unwrap();
+    transaction
+        .shadow_publish(&token, GenerationPublicationKind::Evaluation)
+        .unwrap();
+
+    // Same generation, same base, same policy, equal graph — still refused,
+    // and the foreign manager's live state is untouched.
+    let mut same_generation = build(execution_generation());
+    let before = live_snapshot(&same_generation);
+    assert_eq!(
+        same_generation
+            .commit_revision(&current_policy, transaction)
+            .unwrap_err()
+            .to_string(),
+        "hot revision transaction belongs to another hot revision surface"
+    );
+    assert_eq!(live_snapshot(&same_generation), before);
+
+    // Cross-generation manager: same refusal.
+    let mut cross_generation = build(ExecutionGeneration::new(9).unwrap());
+    let mut foreign = minting
+        .begin_revision(
+            &current_policy,
+            HmrOrigin::Exact,
+            (minting.current_generation(), minting.current_revision()),
+            [a.clone()],
+        )
+        .unwrap();
+    foreign
+        .stage_replacements([typed_record(&artifact(a.clone(), 3), self_facts(&a))])
+        .unwrap();
+    let token = foreign.shadow_publication_token(&a).unwrap();
+    foreign
+        .shadow_publish(&token, GenerationPublicationKind::TopLevelAwait)
+        .unwrap();
+    let before = live_snapshot(&cross_generation);
+    assert_eq!(
+        cross_generation
+            .commit_revision(&current_policy, foreign)
+            .unwrap_err()
+            .to_string(),
+        "hot revision transaction belongs to another hot revision surface"
+    );
+    assert_eq!(live_snapshot(&cross_generation), before);
 }

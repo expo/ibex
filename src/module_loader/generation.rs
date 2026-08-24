@@ -125,9 +125,18 @@ pub struct ShadowPublicationToken {
     transaction_nonce: u64,
 }
 
-/// Process-unique owner identity so shadow tokens cannot cross managers:
-/// per-manager nonces alone would collide (every manager counts from 1).
+/// Process-unique owner identity so shadow tokens and transactions cannot
+/// cross managers: per-manager nonces alone would collide (every manager
+/// counts from 1). Exhaustion refuses rather than wrapping into reuse.
 static NEXT_MANAGER_IDENTITY: AtomicU64 = AtomicU64::new(1);
+
+fn mint_manager_identity() -> Result<u64> {
+    let identity = NEXT_MANAGER_IDENTITY.fetch_add(1, Ordering::Relaxed);
+    if identity == 0 || identity == u64::MAX {
+        bail!("hot revision manager identity space is exhausted");
+    }
+    Ok(identity)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerationPublicationReceipt {
@@ -242,14 +251,16 @@ pub struct GenerationRecordV2 {
 }
 
 impl GenerationRecordV2 {
-    /// The typed rows this constructor accepts are AUTHENTICATED UPSTREAM:
-    /// resolved binding targets and deferred classification come from the
-    /// authenticated link plan / armed resolution, and candidate-site pins
-    /// from validated `ibex/computed-candidates/1` sidecars
-    /// (`validate_requester` included). The artifact's own declarations
-    /// authenticate spellings, kinds, and site ordinals, and agreement with
-    /// them is enforced here; the slice-3 surface is the only production
-    /// caller and owns supplying plan-derived rows.
+    /// Per-row authentication sources (LLP 0055 r10 §4): the artifact's own
+    /// declarations authenticate spellings, resolution kinds, and site
+    /// ordinals — agreement with them is enforced HERE, two-sided; resolved
+    /// binding targets and deferred classification are authenticated by the
+    /// armed resolution / link plan that produced them, and candidate-site
+    /// pins by validated `ibex/computed-candidates/1` sidecars
+    /// (`validate_requester` included) — those sources are UPSTREAM of this
+    /// constructor, which is why raw typed maps are not a production path:
+    /// the slice-3 surface is the only production caller and owns supplying
+    /// plan-derived rows.
     /// @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4
     pub fn from_verified(
         verified: VerifiedModuleArtifactV1<'_>,
@@ -1038,7 +1049,7 @@ impl ModuleExecutionGenerationsV2 {
                 graph: initial,
                 install_revisions,
             },
-            manager_identity: NEXT_MANAGER_IDENTITY.fetch_add(1, Ordering::Relaxed),
+            manager_identity: mint_manager_identity()?,
             next_transaction_nonce: Cell::new(1),
         })
     }
@@ -1173,6 +1184,12 @@ impl ModuleExecutionGenerationsV2 {
         policy: &P,
         transaction: HotRevisionTransactionV1,
     ) -> Result<HotRevisionCommitV1> {
+        // A transaction is bound to the surface that minted it: a foreign
+        // manager must never adopt its replacements or shadow receipts, even
+        // when generation, base, policy, and graph coincide.
+        if transaction.manager_identity != self.manager_identity {
+            bail!("hot revision transaction belongs to another hot revision surface");
+        }
         if policy.snapshot_digest() != &self.admission.authority_digest
             || policy.snapshot_generations() != self.admission.authority_generations
         {
