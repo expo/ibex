@@ -99,10 +99,11 @@ pub fn install_pinned_catalog_directory(
     }
 }
 
-fn admit_catalog_directory(
-    root: &Path,
-    expected_digest: &str,
-) -> Result<(Vec<u8>, BTreeMap<String, Vec<u8>>)> {
+/// Manifest bytes plus the digest-keyed artifact payload map one admitted
+/// catalog directory yields.
+type AdmittedCatalogArtifacts = (Vec<u8>, BTreeMap<String, Vec<u8>>);
+
+fn admit_catalog_directory(root: &Path, expected_digest: &str) -> Result<AdmittedCatalogArtifacts> {
     let metadata = std::fs::symlink_metadata(root).map_err(|error| {
         Error::Installation(format!(
             "cannot inspect catalog directory {}: {error}",
@@ -161,7 +162,7 @@ fn admit_app_bound_catalog_directory(
     root: &Path,
     expected_digest: &str,
     manifest_bytes: Vec<u8>,
-) -> Result<(Vec<u8>, BTreeMap<String, Vec<u8>>)> {
+) -> Result<AdmittedCatalogArtifacts> {
     let catalog = app_bound::PinnedCatalogV2::load(&manifest_bytes, expected_digest)?;
     let mut artifacts = BTreeMap::new();
     for entry in &catalog.manifest().entries {

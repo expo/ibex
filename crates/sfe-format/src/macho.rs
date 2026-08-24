@@ -112,7 +112,7 @@ pub fn linkedit_vmsize_v1(unsigned_stub: &[u8]) -> Result<u64> {
             "stub-core reconstruction facts require an uninjected signature-stripped Mach-O".into(),
         ));
     }
-    Ok(read_u64(unsigned_stub, facts.linkedit.command_offset + 32)?)
+    read_u64(unsigned_stub, facts.linkedit.command_offset + 32)
 }
 
 /// Project the catalog's signature-stripped stub bytes back out of an injected

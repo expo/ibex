@@ -4316,7 +4316,11 @@ mod tests {
                 .unwrap()
         };
 
-        let parsed = parse_dev_composition_channel_records_v1(
+        // The unchecked half: the armed-context gate on the public seam is
+        // process-global state that sibling lib tests mutate concurrently
+        // (see the helper's doc); parsing behavior is what this golden test
+        // pins, and the gate keeps its own coverage on the integration lane.
+        let parsed = parse_dev_composition_channel_records_unchecked_v1(
             vector("prepared-composition-commitment-record"),
             vector("composition-verifier-expectations"),
         );
@@ -5933,6 +5937,26 @@ pub(crate) fn parse_dev_composition_channel_records_v1(
             super::composition::IBEX_DEV_COMPOSITION_ARMED_CONTEXT
         );
     }
+    parse_dev_composition_channel_records_unchecked_v1(commitment_text, expectations_text)
+}
+
+/// The pure channel-parsing half of the step-0 seam, with the ambient
+/// armed-context gate factored out so the golden-vector unit test is not
+/// raced by sibling lib tests that install an armed process-global Host
+/// (`install_host` replaces the process host; the lib suite runs many
+/// arming tests in parallel). Every non-test caller goes through
+/// `parse_dev_composition_channel_records_v1`, which applies the
+/// unconditional armed exclusion FIRST — never call this directly from
+/// admission code.
+#[cfg(feature = "dev-committed-embedder")]
+#[allow(dead_code)]
+pub(crate) fn parse_dev_composition_channel_records_unchecked_v1(
+    commitment_text: &str,
+    expectations_text: &str,
+) -> Result<(
+    PreparedCompositionCommitmentV1,
+    CompositionVerifierExpectationsV1,
+)> {
     let commitment = parse_prepared_composition_commitment_v1(commitment_text)?;
     let expectations = parse_composition_verifier_expectations_v1(expectations_text)?;
     Ok((commitment, expectations))
