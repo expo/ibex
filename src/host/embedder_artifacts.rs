@@ -11,8 +11,9 @@
 use anyhow::{Context as _, Result};
 use base64::Engine as _;
 use capsec_semantics::arming::{
-    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExpectedArmingIdentity,
-    ExpectedProtectedArtifact, ProtectedArtifactRole,
+    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderBindingV1, ExactEmbedderEndowments,
+    ExactEmbedderSchemaV1, ExpectedArmingIdentity, ExpectedProtectedArtifact,
+    ProtectedArtifactRole,
 };
 use capsec_semantics::digest::{
     compute_checked_contract_digest, compute_domain_digest, DigestKind,
@@ -288,15 +289,15 @@ fn parse_exact_operation_manifest(bytes: &[u8]) -> Result<ExactEmbedderBinding> 
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
     ))
     .map_err(anyhow::Error::msg)?;
-    Ok(ExactEmbedderBinding {
-        schema: "exact/host-operation-endowments/1".into(),
+    Ok(ExactEmbedderBinding::V1(ExactEmbedderBindingV1 {
+        schema: ExactEmbedderSchemaV1,
         operation_manifest_digest: manifest_digest,
         endowments: ExactEmbedderEndowments {
             app: manifest.endowments.app,
             agent_isolate: manifest.endowments.agent_isolate,
             ui_worklet: manifest.endowments.ui_worklet,
         },
-    })
+    }))
 }
 
 fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
@@ -1267,7 +1268,7 @@ fn build_exact_embedder_artifacts_inner(
     let manifest_artifact = materialize_protected_artifact(
         "exact-operation-manifest",
         operation_manifest_bytes,
-        &binding.operation_manifest_digest,
+        binding.operation_manifest_digest(),
     )?;
     let runtime_extension_capsule_artifact =
         if let Some((capsule, _, canonical_bytes)) = runtime_extension.as_ref() {
@@ -1424,7 +1425,7 @@ pub fn prepare_exact_embedder_artifacts(
     let manifest = materialize_protected_artifact(
         "exact-operation-manifest",
         operation_manifest_bytes,
-        &binding.operation_manifest_digest,
+        binding.operation_manifest_digest(),
     )?;
     let mut document = template.document().clone();
     document["exactEmbedder"] = serde_json::to_value(binding)?;
@@ -2623,8 +2624,8 @@ mod tests {
         let returned_snapshot = serde_json::to_vec(&artifacts["snapshot"]).unwrap();
         let reingested = ArmedSnapshot::load(&returned_snapshot, &returned_expected).unwrap();
         let binding = reingested.exact_embedder_binding().unwrap().unwrap();
-        assert_eq!(binding.endowments.app, [7, 11]);
-        assert_eq!(binding.endowments.agent_isolate, [19]);
+        assert_eq!(binding.endowments().app, [7, 11]);
+        assert_eq!(binding.endowments().agent_isolate, [19]);
         assert!(returned_expected
             .protected_artifacts
             .iter()

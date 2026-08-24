@@ -73,25 +73,51 @@
       "additionalProperties": false
     },
     "exactEmbedder": {
-      "type": "object",
-      "required": ["schema", "operationManifestDigest", "endowments"],
-      "properties": {
-        "schema": { "const": "exact/host-operation-endowments/1" },
-        "operationManifestDigest": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "endowments": {
+      "oneOf": [
+        {
           "type": "object",
-          "required": ["app", "agentIsolate", "uiWorklet"],
+          "required": ["schema", "operationManifestDigest", "endowments"],
           "properties": {
-            "app": { "$ref": "#/$defs/exactOperationEndowment" },
-            "agentIsolate": { "$ref": "#/$defs/exactOperationEndowment" },
-            "uiWorklet": { "$ref": "#/$defs/exactOperationEndowment" }
+            "schema": { "const": "exact/host-operation-endowments/1" },
+            "operationManifestDigest": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+            },
+            "endowments": {
+              "type": "object",
+              "required": ["app", "agentIsolate", "uiWorklet"],
+              "properties": {
+                "app": { "$ref": "#/$defs/exactOperationEndowment" },
+                "agentIsolate": { "$ref": "#/$defs/exactOperationEndowment" },
+                "uiWorklet": { "$ref": "#/$defs/exactOperationEndowment" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["schema", "operationManifestDigest", "endowments", "carrierBinding"],
+          "properties": {
+            "schema": { "const": "exact/host-operation-endowments/2" },
+            "operationManifestDigest": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+            },
+            "endowments": {
+              "type": "object",
+              "required": ["app", "agentIsolate", "uiWorklet"],
+              "properties": {
+                "app": { "$ref": "#/$defs/exactOperationEndowment" },
+                "agentIsolate": { "$ref": "#/$defs/exactOperationEndowment" },
+                "uiWorklet": { "$ref": "#/$defs/exactOperationEndowment" }
+              },
+              "additionalProperties": false
+            },
+            "carrierBinding": { "$ref": "#/$defs/exactCarrierBinding" }
           },
           "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      ]
     },
     "runtimeExtensions": {
       "$ref": "#/$defs/runtimeExtensionAuthorityCapsule"
@@ -826,6 +852,52 @@
       "maxItems": 4096,
       "uniqueItems": true,
       "items": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+    },
+    "exactCarrierBinding": {
+      "type": "object",
+      "required": [
+        "schema",
+        "mappingDigest",
+        "authorityCommitmentDigest",
+        "rootGrantSets"
+      ],
+      "properties": {
+        "schema": { "const": "exact/carrier-binding/1" },
+        "mappingDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "authorityCommitmentDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "rootGrantSets": {
+          "description": "Per-root grant-set pins keyed by Exact rootId. The key grammar is UTF-8, 1..=256 bytes, no embedded NUL; the pattern below is a conservative printable-no-control approximation (character-counted) that joins Exact's deployment-manifest rootId grammar at integration. Ingestion enforces the byte-exact grammar.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 256,
+          "patternProperties": {
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,256}$": {
+              "$ref": "#/$defs/exactRootGrantSetPin"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "exactRootGrantSetPin": {
+      "type": "object",
+      "required": ["context", "grantSetId", "grantSetDigest"],
+      "properties": {
+        "context": { "enum": ["app", "agentIsolate"] },
+        "grantSetId": {
+          "type": "string",
+          "pattern": "^[^\\u0000]{1,256}$"
+        },
+        "grantSetDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        }
+      },
+      "additionalProperties": false
     },
     "generation": {
       "type": "integer",
