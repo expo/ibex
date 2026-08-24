@@ -98,3 +98,75 @@ One record with a stage tag is a fine shape. The join point is wrong in the same
 8. Host-task-ingress-inventory row for the v2 setter.
 
 **VERDICT 0053: NOT READY** — MATERIAL: v1 can still authorize on a `/2` snapshot if only a sibling hook is added; v1/v2 callback-slot/latch torn state; `/1`/`/2` ingest shape unspecified (map `additionalProperties` unimplementable as written); I3 zero-pin status unspecified and “no parallel channel” false for `root_id`.
+
+---
+
+## Round 2 (2026-08-24) — punch-list delta
+Target: LLP 0053 r3 (sha256 75b47d7c9c183ab6c9a629d13371917b46b15ed6f5397561bf12ef322eedc44c, ibex revision 268d35607). Per-family capsules, own punch list only.
+
+### Verbatim body
+
+I'll run this as a punch-list delta review: read the LLP 0053 skill and materials first, then verify each disposition against the r3 bytes without using the shell.Punch list is loaded. Next I’ll read LLP 0053 and the related RFCs so I can check each r3 disposition against the actual text.I’ll verify the r3 claims against the cited code, schemas, and related LLPs rather than taking the punch-list wording at face value.I’ll read the cited surfaces next and check whether the r3 line numbers and mechanisms still match the tree.The per-context pin rule may clash with a rootId-keyed dictionary. I’ll check LLP 0002 topology and the 0052/I2 shapes next.Checking one I4 join-point detail and whether the always-both-endowed tree actually collides with the r3 pin rule.**VERDICT 0053: READY**
+
+No MATERIAL concerns. Bind: sha256 `75b47d7c9c183ab6c9a629d13371917b46b15ed6f5397561bf12ef322eedc44c` (ibex revision `268d35607`). Status remains Draft; this is a punch-list delta, not an accept.
+
+The r3 folds land as real design changes, not wording. Tree cites I re-read check out. Leftover r1 problem-statement text and implementation join points stay below the altitude line.
+
+---
+
+## Disposition check (round-1 grok → r3)
+
+| ID | Claimed fold | Against the bytes | Result |
+|---|---|---|---|
+| **M1** | Schema-aware authorize on **both** paths; existing v1 hook refuses `/2` | r2 §I1 matrix + enforcement paragraph. Today `authorizes_exact_endowment` (`src/host/mod.rs:2611-2635`) matches digest/context/ops only and never reads `binding.schema`. `ex_host_authorize_exact_endowment` is a boolean C hook (`src/host/abi.rs:4407-4439`). Refusing `/2` inside the existing v1 path, with a sibling `_v2` hook carrying the carrier-capable ask, closes the r2 hole without pretending a second setter is enough. Finalize asserting latch tag vs armed schema is required: `authorizes_embedder_capability_set` still has a single `EXACT_INGRESS` bit (`mod.rs:2637-2648`). | **Folded, sound** |
+| **M2** | One owner-thread tagged latch `None \| V1(fn) \| V2(fn)`; all helpers on it | Current state is one v1 function pointer (`hermes_runtime_internal.h:965-970`). Every named helper actually touches it: one-shot (`hermes_runtime.cc:16779`), begin (`16688`), finalize installed-bit (`16723`), JS dispatch (`16828`, `16905`), rollback (`4637`), seal (`4644`), disposition activation (`8369`). v1 and v2 callbacks are different C types, so separately typed slots are required. | **Folded, sound** |
+| **M3** | Internally tagged serde enum; `patternProperties` + `additionalProperties: false`; min/max TOTAL | Today `ExactEmbedderBinding` is a struct with `schema: String` + `deny_unknown_fields` (`arming.rs:292-298`) and `validate_exact_embedder_binding` hard-requires `/1` (`1829-1831`). `V1 {…no carrierBinding…} / V2 {…required…}` is the type-level version of “`/1` ⇒ field absent, `/2` ⇒ field present.” `patternProperties` + `additionalProperties: false` is the 2020-12 dictionary idiom this corpus’s schemas already use (`common.schema.json` `$schema`). A bare closed object cannot carry dynamic `rootId` keys. | **Folded, sound** |
+| **M4** | Per-context ≥1-pin arming; zero-pin unreachable; 1..=256 TOTAL | Specified at r2 §I2 and consumed at §I3 (zero matching pins on armed `/2` → unreachable, else `UNAVAILABLE` + host fails closed). JSON Schema cannot cheaply say “≥1 pin per `context` value”; putting that at arming is the right layer. `maxProperties` 256 as a **total** dictionary bound is stated as such. | **Folded, sound** |
+| **M5** | Root fields are a second authenticated-snapshot channel; r2 “no parallel channel” withdrawn | §I3 now splits principal fields (frame attribution) from root fields (pin lookup vs installed `ExactEmbedderContext`). Multi-root in one app runtime is permanently `AMBIGUOUS` in v1; growth is LLP 0052 execution-scope carriers. LLP 0052 §1 does say no `Principal` variant carries root/view/scope identity (`model.rs:306-324` is `Package/Root/Runtime/ModuleLoader/Quarantine`). | **Folded, sound** |
+
+Non-material punch-list items are present, not cosmetic substitutes:
+
+- I1-v2 serialized behind I2 is named as a chosen coupling (§I3).
+- I4 Decision re-homes to `DecisionSet`/`DecisionContext` (`model.rs:1678-1706`; stage vocabulary on `capsec/schema/effect.schema.json`). `capsec/session-semantics/` is LLP 0024’s evaluation-session generator (`manifest.json` model source `session-semantics-model.mjs`).
+- The withdrawn “LLP 0052 no-row-collapse” cite was a miscitation: 0052:319 is about durable-upload provenance rows, not I4 selector encoding. 0053 now requires full typed rows directly.
+- Fetch correction matches the tree: `TimerEntry`/`NextTickEntry` have `principalStack`; `FetchCallbackEntry` has a single `uint64_t principal` (`hermes_runtime_internal.h:65-107`; store at `hermes_runtime_fetch.cc:304-310`).
+- `kNoUserPrincipalId` is `0xFFFFFFFEu` (`hermes_runtime_internal.h:1644`); mapping to `UNAVAILABLE` and not to root principal 0 is the right status discipline.
+- Host-task-ingress-inventory already has the v1 setter row (`host-task-ingress-inventory.json:1025-1036`); a v2 sibling row is the existing generator’s shape.
+- Open questions 1–4 are decided in the r2 Decision headers; r3 also freezes `root_id_len` + no-NUL grammar, capture-before-observable, issuance-time replay defuse, candidate `presentationDigest`, and selector encoding. Remaining calendar/token/pattern items are explicitly assigned in “What this design does NOT decide.”
+
+---
+
+## r3 vs the tree (soundness)
+
+Load-bearing cites are in the right neighborhood:
+
+- JS arity-2 throw: `hermes_runtime.cc:16828-16831`.
+- `extractArrayBufferView` does `hasProperty`/`getProperty` on `buffer`/`byteOffset`/`byteLength` (`hermes_runtime_internal.h:2355-2413`) — observable.
+- Dispatch takes `Promise` from the mutable global (`hermes_runtime.cc:16864-16865`).
+- Callback is owner-thread, inline (`exact_runtime.h:1960-1967`).
+- Three Exact-bearing producers: `ex_host_prepare_exact_armed_embedder_artifacts`, `ex_host_build_exact_armed_embedder_artifacts`, `ex_host_build_exact_runtime_extension_armed_embedder_artifacts` (`exact_runtime.h:2094-2135`). Binding is written, then `freshen_document` (`embedder_artifacts.rs:1239` / `1430` then `1448`) — “embed before nonce freshening” is the actual order.
+- `exact_embedder_binding()` returns an owned clone (`arming.rs:665-672`). Authorize hooks return `i32` 0/1 and transfer no projection.
+- `exactEmbedder` is optional, const `/1`, `additionalProperties: false` (`armed-snapshot.schema.json:75-95`).
+- Disposition row `exact.invokeHostAsync` is at `root_global_disposition.generated.h:1029`. `capsec/generated/surface-inventory.md` is generated review output (file header says so).
+- App and agent-isolate endowments are both required nonempty; UI worklet must stay empty (`arming.rs:1852-1857`). Pin contexts `"app"|"agentIsolate"` match that closed pair.
+
+The installation-time copied projection is the right consequence of the boolean-hook gap: I3 root lookup has to run in C++ at JS-call time against pins the setter already authorized. Capture-before-observable + immediate carrier copy + bootstrap Promise is the right order relative to today’s executor-mediated dispatch.
+
+Replay-at-issuance (not at ibex install) respects 0510 §6.4: pins are authenticated inputs to Exact mint, not ibex authority.
+
+---
+
+## Non-blocking notes (not READY-gating)
+
+1. **r1 problem statement is still r1.** Summary still says the RFC “deliberately does not design” the asks; Need/Related still point I4 at `capsec/session-semantics/` and still name `surface-inventory.md` as a JS-global authority. r2/r3 Decisions override this. Hygiene, not a second join point.
+2. **Original “Open questions 1–4” section is still listed as open.** Answers live in the r2 Decision headers. Do not treat that leftover list as undecided.
+3. **Per-context ≥1 pin + unique `rootId` keys + always-both-endowed snapshots.** A legal `/2` snapshot needs ≥1 `app` pin and ≥1 `agentIsolate` pin, hence ≥2 dictionary keys. That is compatible with “exactly one matching pin **for the installed context** ⇒ ATTRIBUTED.” It is not a demand that Exact’s deployment-manifest use one `rootId` for both isolates. If Exact’s mint wants one root identity in both contexts, the dict would have to become a list or a composite key — that is an Exact-join detail, not an ibex hole in the stated shape.
+4. **LLP 0002 “single bundled root”** (`0002:754`) is the artifact producer’s one project root, not Exact `rootId` cardinality. Harmless as topology color; the operative I3 rule is the per-context pin count.
+5. **I4 remaining field list is still a sketch** (leasePredicate members, `selectorSet` name vs “full typed rows”). Join point, candidate↔commit digest, and selector equality are decided. Schema combinator, DecisionSet version bump, and the C++ projection-copy API may finalize at implementation.
+6. **Revised header** claims review artifacts under `llp/reviews/`; this tree has no `0053-*.md` reviews. Provenance nit, not a design defect.
+
+---
+
+**MATERIAL concerns:** none.
+
+**VERDICT 0053: READY**

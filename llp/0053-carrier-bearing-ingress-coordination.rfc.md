@@ -5,8 +5,8 @@
 **Systems:** Host ABI, Engine, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-23
-**Revised:** 2026-08-24 (r3 — dual-review fold (codex gpt-5.6-sol@ultra + grok-4.6@xhigh, both NOT READY, convergent; artifacts under llp/reviews/). The material fixes: (1) authorization is SCHEMA-AWARE ON BOTH PATHS — the existing v1 authorize path itself refuses /2 (the r2 sibling-hook-only construction left v1-on-/2 open, the rounds worst hole); (2) ONE owner-thread tagged ingress latch None|V1|V2 with separately typed slots, all lifecycle helpers on it, schema-aware finalize; (3) the ingest shape is an internally tagged serde enum (/1 no-binding / /2 binding-required), the rootGrantSets dictionary stated implementably (patternProperties), per-context >=1-pin arming rule, zero-pin case specified; (4) root_id gains root_id_len + a frozen no-NUL UTF-8 grammar; (5) attribution capture ordering made normative (capture before app-observable accesses, immediate carrier copy, bootstrap-captured Promise, kNoUserPrincipalId maps to UNAVAILABLE) and the binding reaches the runtime as an installation-time copied immutable projection; (6) /2 replay defused at issuance against live grant pools; all three producer routes get _v2 siblings; (7) I3 restated honestly — root fields are a second authenticated-snapshot channel, not frame attribution; I3-requires-I2 scoped to this construction; multi-root-in-one-runtime = permanently AMBIGUOUS in v1, named; (8) I4 re-homed to the DecisionSet/DecisionContext stage machinery, candidate-commit digest linkage + full-typed-row selector encoding DECIDED, the nonexistent LLP 0052 no-row-collapse citation withdrawn; (9) Fetch principal-stack claim corrected; non-app-suppliable phrasing corrected to engine-observed; surface deltas completed with the new native rows. Still Draft — round 2 next.) 2026-08-24 (r2 — the proposed designs for all four asks, tree-verified (evidence spot-checked byte-for-byte by the orchestrator before fold): I1 = one JS entry point with an optional third positional carrier argument + a sibling C setter ex_hermes_set_exact_host_call_async_v2 with an engine-attributed versioned attribution struct; I2 = one schema addition, exact/host-operation-endowments/2 with a required carrierBinding; I3 = frame-attribution/principal-stack machinery surfaced on the v2 callback, root discriminator resolved from I2 pins — the I3-requires-I2 dependency r1 omitted is now stated; I4 = one record shape with a stage tag. Four r1 corrections folded, incl. the surface-authority miscitation inherited from the Exact carrier-arc plan. Still Draft — this corpus decides.) 2026-08-23 (r1 — the four coordination asks from the Exact 0510 carrier arc, drafted as a proposal into this corpus per that plan's own rule: "their process decides shape; this plan only names the need." Nothing here is decided until this corpus decides it.)
-**Related:** LLP 0002 (host-embedding ABI — I1's surface), LLP 0021 (typed CapSec effect model, armed snapshot — I2's surface), LLP 0049 (Draft — armed-snapshot evolution I2 rides), LLP 0013 / LLP 0040 (principal carriers — I3's natural vehicle), LLP 0024 (Draft — structured evaluation and session semantics — I4's surface), LLP 0052 (durable authority mint/verify — the lease-side machinery already consuming Exact-side lineage), Exact LLP 0510 (native boundary schemas v2 — the carrier model these asks serve; §6.1 dispatch order, §6.2 lease presentation, §6.4 "Ibex is a carrier, never an installer"), Exact LLP 0554 §5 (carrier sequencing), Exact docs/reports/carrier-arc-implementation-plan.md §3 (the tree-verified needs statement this RFC transcribes), `src/engine/root_global_disposition.generated.h` + `capsec/generated/surface-inventory.md` (the actual authorities for the `exact.*` JS global surface — r2 corrects r1s runtime-surface.json citation, which pins the CLI command surface, not JS globals)
+**Revised:** 2026-08-24 (r4 — round-2 split fold: grok READY at r3; codex NOT READY with five residues, all verified and closed: grantSetId gains its 1..=256-byte no-NUL grammar; the issuance replay check compares the COMPLETE pin (grantSetId AND grantSetDigest); the three repudiated-but-live r1/r2 prose sites (surface-inventory-as-authority in Related+I1, the real-input/no-user I3 vehicle sentence, the I4 session-semantics placement) each carry explicit SUPERSEDED corrections in place; and the LLP 0052 rows-never-collapse citation is RESTORED — r3 withdrew it on grok r1s unverified no-such-rule claim, codex proved the rule exists verbatim at 0052:314-320, and the verify-before-fold lesson is recorded in the text. Codexs fifth finding (review artifacts absent from the checkout) is REFUTED as capsule blindness: the artifacts are structurally excluded from review capsules and exist on this repos main.) 2026-08-24 (r3 — dual-review fold (codex gpt-5.6-sol@ultra + grok-4.6@xhigh, both NOT READY, convergent; artifacts under llp/reviews/). The material fixes: (1) authorization is SCHEMA-AWARE ON BOTH PATHS — the existing v1 authorize path itself refuses /2 (the r2 sibling-hook-only construction left v1-on-/2 open, the rounds worst hole); (2) ONE owner-thread tagged ingress latch None|V1|V2 with separately typed slots, all lifecycle helpers on it, schema-aware finalize; (3) the ingest shape is an internally tagged serde enum (/1 no-binding / /2 binding-required), the rootGrantSets dictionary stated implementably (patternProperties), per-context >=1-pin arming rule, zero-pin case specified; (4) root_id gains root_id_len + a frozen no-NUL UTF-8 grammar; (5) attribution capture ordering made normative (capture before app-observable accesses, immediate carrier copy, bootstrap-captured Promise, kNoUserPrincipalId maps to UNAVAILABLE) and the binding reaches the runtime as an installation-time copied immutable projection; (6) /2 replay defused at issuance against live grant pools; all three producer routes get _v2 siblings; (7) I3 restated honestly — root fields are a second authenticated-snapshot channel, not frame attribution; I3-requires-I2 scoped to this construction; multi-root-in-one-runtime = permanently AMBIGUOUS in v1, named; (8) I4 re-homed to the DecisionSet/DecisionContext stage machinery, candidate-commit digest linkage + full-typed-row selector encoding DECIDED, the nonexistent LLP 0052 no-row-collapse citation withdrawn; (9) Fetch principal-stack claim corrected; non-app-suppliable phrasing corrected to engine-observed; surface deltas completed with the new native rows. Still Draft — round 2 next.) 2026-08-24 (r2 — the proposed designs for all four asks, tree-verified (evidence spot-checked byte-for-byte by the orchestrator before fold): I1 = one JS entry point with an optional third positional carrier argument + a sibling C setter ex_hermes_set_exact_host_call_async_v2 with an engine-attributed versioned attribution struct; I2 = one schema addition, exact/host-operation-endowments/2 with a required carrierBinding; I3 = frame-attribution/principal-stack machinery surfaced on the v2 callback, root discriminator resolved from I2 pins — the I3-requires-I2 dependency r1 omitted is now stated; I4 = one record shape with a stage tag. Four r1 corrections folded, incl. the surface-authority miscitation inherited from the Exact carrier-arc plan. Still Draft — this corpus decides.) 2026-08-23 (r1 — the four coordination asks from the Exact 0510 carrier arc, drafted as a proposal into this corpus per that plan's own rule: "their process decides shape; this plan only names the need." Nothing here is decided until this corpus decides it.)
+**Related:** LLP 0002 (host-embedding ABI — I1's surface), LLP 0021 (typed CapSec effect model, armed snapshot — I2's surface), LLP 0049 (Draft — armed-snapshot evolution I2 rides), LLP 0013 / LLP 0040 (principal carriers — I3's natural vehicle), LLP 0024 (Draft — structured evaluation and session semantics — I4's surface), LLP 0052 (durable authority mint/verify — the lease-side machinery already consuming Exact-side lineage), Exact LLP 0510 (native boundary schemas v2 — the carrier model these asks serve; §6.1 dispatch order, §6.2 lease presentation, §6.4 "Ibex is a carrier, never an installer"), Exact LLP 0554 §5 (carrier sequencing), Exact docs/reports/carrier-arc-implementation-plan.md §3 (the tree-verified needs statement this RFC transcribes), `src/engine/root_global_disposition.generated.h` via its generator (the authority for the `exact.*` JS global surface — r2 corrects r1s runtime-surface.json citation, which pins the CLI command surface, not JS globals; r4 tightens r2: `capsec/generated/surface-inventory.md` is generated review OUTPUT to regenerate, per its own header, not a second authority)
 
 ## Summary
 
@@ -30,7 +30,7 @@ sibling entry point — delivered to the host callback alongside
 
 **Boundary rules:** ibex transports the handle opaquely; validation,
 consumption, and attenuation are host-session acts. Any new `exact.*`
-surface joins the root-global disposition manifest and capsec surface inventory (r2 CORRECTION: r1 cited `runtime-surface.json` here, inheriting the error from the Exact carrier-arc plan §3 — that file pins the ibex CLI command surface; the JS `exact.*` surface authorities are `src/engine/root_global_disposition.generated.h` and `capsec/generated/surface-inventory.md`).
+surface joins the root-global disposition manifest — the generator is the authority; the capsec surface inventory is generated REVIEW OUTPUT that must be regenerated, not an authority (r3 tightening; r2 CORRECTION: r1 cited `runtime-surface.json` here, inheriting the error from the Exact carrier-arc plan §3 — that file pins the ibex CLI command surface; the JS `exact.*` surface authorities are `src/engine/root_global_disposition.generated.h` and `capsec/generated/surface-inventory.md`).
 Absence of a carrier on an armed target is a host-side refusal, not
 an ibex default — the ABI must make "no carrier presented"
 distinguishable from "carrier field absent because old ABI."
@@ -54,9 +54,12 @@ themselves.
 
 **Need:** Exact LLP 0510 §6.1 step 3 requires the engine/host
 session's own attribution of which admitted root's execution issued a
-call. The principal-carrier machinery (LLP 0013/0040 class — the
-real-input/no-user carriers already in the engine) is the natural
-vehicle. What Exact needs surfaced is a **trusted root discriminator
+call. (r1's "principal-carrier machinery (LLP 0013/0040 class — the
+real-input/no-user carriers)" phrasing is SUPERSEDED at r2/r3: that
+name exists nowhere in this engine's source; the real mechanisms
+are frame attribution + principal stacks + currentPrincipalId, and
+the root fields ride a second authenticated-snapshot channel — see
+the design §I3 below.) What Exact needs surfaced is a **trusted root discriminator
 on the ingress callback** — engine-attributed, never a request field
 the app supplies.
 
@@ -71,8 +74,11 @@ separates real-input from synthetic principals is the precedent.
 plus the embedded row and derived root) is presented to capsec at
 candidate and commit stages, additive to the LLP 0052/Exact-0476
 stage facts. The presentation record's capsec-side shape belongs to
-this corpus (LLP 0024/0021's session-semantics surface under
-`capsec/session-semantics/`).
+this corpus. (r1's placement "under `capsec/session-semantics/`"
+is SUPERSEDED at r3: that directory is LLP 0024's
+evaluation-session generator, not stage ingestion — the record
+joins the DecisionSet/DecisionContext stage machinery; see the
+design §I4 below.)
 
 **Boundary rules:** additive to existing stage facts — no removal or
 re-interpretation of what LLP 0052 already presents; the shape is
@@ -259,7 +265,7 @@ staged** — exact/host-operation-endowments/2 with a REQUIRED
 carrierBinding object: {schema: "exact/carrier-binding/1",
 mappingDigest, authorityCommitmentDigest, rootGrantSets}, where
 rootGrantSets maps Exact rootId -> {context: "app"|"agentIsolate",
-grantSetId, grantSetDigest} (r3 — the dictionary shape stated
+grantSetId (r4: UTF-8, 1..=256 bytes, no embedded NUL — the bound the r3 punch list promised but the text lacked), grantSetDigest} (r3 — the dictionary shape stated
 implementably: `patternProperties` keyed by the frozen rootId
 grammar WITH `additionalProperties: false` alongside — the JSON
 Schema dictionary idiom, not a bare closed object; minProperties 1
@@ -280,8 +286,8 @@ siblings cover ALL THREE Exact-bearing routes (r3 — prepare,
 ordinary build, runtime-extension build; exact_runtime.h:2088+),
 not one. Replay (r3): a persisted /2 snapshot replayed into
 another Host is defused at ISSUANCE — the host validates the pins
-against its live grant pools at mint (mapping digest, commitment
-digest, per-root grant-set ids); rotated pools refuse with the
+against its live grant pools at mint — the COMPLETE pin per root (r4: grantSetId AND grantSetDigest, not ids alone; plus mapping digest, commitment
+digest); rotated pools refuse with the
 existing mismatch classes, so stale pins are inert even where the
 install transaction accepts the bytes. Root-id wire grammar (r3,
 frozen before ABI v1): UTF-8, 1..=256 bytes, NO embedded NUL
@@ -405,10 +411,14 @@ substitution-critical, not an implementation detail): the commit
 record embeds the candidate record's digest (presentationDigest),
 so a commit cannot be paired with a substituted candidate; the
 selector-set encoding is FULL TYPED ROWS (canonical equality —
-digests don't compose across distinct scope/grant identities; r3
-withdraws r2's "LLP 0052 no-row-collapse rule" citation, which
-named no rule that exists in 0052, and states the requirement
-directly).
+digests don't compose across distinct scope/grant identities,
+which is exactly LLP 0052's rule: "rows from distinct scope/grant
+identities never collapse," 0052 lines 314–320. r4 RESTORES this
+citation: r3 withdrew it on one reviewer family's unverified claim
+that no such rule exists — the rule exists verbatim, the other
+family caught the false withdrawal, and the lesson is recorded:
+reviewer claims fold only after byte verification, in both
+directions).
 
 ## r2: What this design does NOT decide
 

@@ -78,3 +78,31 @@ Required conformance should cover the full snapshot/setter cross-product in both
 The document hash matches the supplied SHA-256. This capsule contains no `.git`, so revision `58899c284` and the claimed ancestry could not be independently verified. The workspace was read-only, so no `llp/reviews/` artifact was written.
 
 VERDICT 0053: NOT READY + MATERIAL concerns. Binds to sha256 032e0710be81393ca700c38063f54e2be1285c54d4d34c5ac8c139be7da1d06d (ibex revision 58899c284).
+---
+
+## Round 2 (2026-08-24) — punch-list delta
+Target: LLP 0053 r3 (sha256 75b47d7c9c183ab6c9a629d13371917b46b15ed6f5397561bf12ef322eedc44c, ibex revision 268d35607). Per-family capsules, own punch list only.
+
+### Verbatim body
+
+The bound SHA-256 matches. Dispositions 1–5 are substantively closed at Draft-RFC altitude; 6–9 and the corrections labeling contain material disposition errors.
+
+Material concerns:
+
+1. `PUNCHLIST.txt:7` promises a `grantSetId` bound of 1..=256 characters, but LLP 0053 only names the field at line 262; no grammar or bound exists.
+
+2. The replay comparison at lines 281–285 omits `grantSetDigest`, despite each pin containing both `grantSetId` and `grantSetDigest`. Comparing only IDs does not validate the complete pin.
+
+3. Several corrections were appended without removing repudiated active prose:
+
+   - Lines 9 and 31–33 still call generated `surface-inventory.md` authoritative, contradicting lines 245–250 and that file’s own “review output” header.
+   - Lines 57–58 retain the nonexistent “real-input/no-user carriers” as I3’s natural vehicle, contradicting lines 323–338.
+   - Lines 9 and 73–75 still place I4 under session semantics, contradicting its re-home at lines 393–400.
+
+4. Lines 409–410 falsely say LLP 0052 contains no row-collapse rule. LLP 0052:314–320 explicitly requires distinct scope/grant rows never to collapse.
+
+5. The r3 metadata says the two reviews are retained under `llp/reviews/`, but this checkout contains no LLP 0053 review artifact—a newly created provenance/honesty contradiction.
+
+I did not elevate transfer-ABI details, the exact rootId regex, or candidate-digest storage/canonicalization; those legitimately finalize during implementation.
+
+VERDICT 0053: NOT READY + MATERIAL concerns. Binds to sha256 75b47d7c9c183ab6c9a629d13371917b46b15ed6f5397561bf12ef322eedc44c (ibex revision 268d35607).
