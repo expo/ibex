@@ -3450,7 +3450,12 @@ enum PackageAdmissionExpectationsV1<'a> {
 /// package from raw index records.
 enum AdmittedPackageV1 {
     SinglePublication(CommittedPublicationAdmissionV1),
+    // driver-wiring pending the LLP 0056 §10 amendment
+    // (issues/20260824-llp0056-s10-grant-authority-defect.md): constructed
+    // only through admit_composition_package_v1, which the blocked step-3
+    // driver will call.
     #[cfg(feature = "dev-committed-embedder")]
+    #[allow(dead_code)]
     Composition(AdmittedCompositionPackageV1),
 }
 
@@ -3480,6 +3485,8 @@ impl std::error::Error for CompositionPackageAdmissionFailureV1 {}
 
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
+// driver-wiring pending the §10 amendment: read by the blocked steps 4-8.
+#[allow(dead_code)]
 pub(crate) struct AdmittedCompositionPackageRecordV1 {
     pub(crate) artifact: ModuleArtifactV1,
     pub(crate) bindings: Vec<super::composition::PreparedPackageBindingV1>,
@@ -3491,6 +3498,9 @@ pub(crate) struct AdmittedCompositionPackageRecordV1 {
 
 #[cfg(feature = "dev-committed-embedder")]
 impl AdmittedCompositionPackageRecordV1 {
+    // driver-wiring pending the §10 amendment: the blocked slice-3 linker
+    // re-derives the verified view from the retained admission proof.
+    #[allow(dead_code)]
     pub(crate) fn verified(&self) -> VerifiedModuleArtifactV1<'_> {
         self.artifact
             .verify_for_admission_with_semantic_hint(
@@ -3504,6 +3514,9 @@ impl AdmittedCompositionPackageRecordV1 {
 
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
+// driver-wiring pending the §10 amendment: read by the blocked composition
+// driver's steps 3-8 and the §8 per-package report rows.
+#[allow(dead_code)]
 pub(crate) struct AdmittedCompositionPackageV1 {
     pub(crate) role: CompositionRole,
     pub(crate) package_root: Digest,
@@ -3707,6 +3720,9 @@ fn admit_package_v1(expectations: PackageAdmissionExpectationsV1<'_>) -> Result<
 
 #[cfg(feature = "dev-committed-embedder")]
 #[allow(clippy::too_many_arguments)]
+// driver-wiring pending the §10 amendment: the step-3 sweep of the blocked
+// admission driver is this function's only intended caller.
+#[allow(dead_code)]
 pub(crate) fn admit_composition_package_v1(
     package_dir: &Path,
     role: CompositionRole,

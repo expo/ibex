@@ -1,10 +1,6 @@
 //! Package-aware composition wire, admission, and report surfaces.
 
-use std::collections::{BTreeMap, BTreeSet};
-#[cfg(feature = "dev-committed-embedder")]
-use std::path::Path;
-#[cfg(feature = "dev-committed-embedder")]
-use std::time::Instant;
+use std::collections::BTreeMap;
 
 use anyhow::{anyhow, bail, Context, Result};
 use capsec_semantics::model::{Digest, NonEmptyString};
@@ -507,6 +503,10 @@ where
 
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Clone, Debug)]
+// driver-wiring pending the LLP 0056 §10 amendment
+// (issues/20260824-llp0056-s10-grant-authority-defect.md): consumed by the
+// blocked step-6/slice-3 driver, constructed by nothing yet.
+#[allow(dead_code)]
 struct CompositionAuthorizedEdgeV1 {
     origin: SourceId,
     target: SourceId,
@@ -519,6 +519,9 @@ struct CompositionAuthorizedEdgeV1 {
 /// decision.
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
+// driver-wiring pending the §10 amendment: fields are read by the blocked
+// slice-3 linker consumption; nothing constructs this yet.
+#[allow(dead_code)]
 pub struct AuthorizedCompositionPlanV1 {
     packages: BTreeMap<CompositionRole, super::runner_pipeline::AdmittedCompositionPackageV1>,
     authorized_edges: Vec<CompositionAuthorizedEdgeV1>,
@@ -544,7 +547,7 @@ pub struct AdmittedCompositionV1 {
 pub enum CompositionAdmissionOutcomeV1 {
     ChannelError(DevUnarmedCompositionStartupReportV1),
     Refused(DevUnarmedCompositionStartupReportV1),
-    Admitted(AdmittedCompositionV1),
+    Admitted(Box<AdmittedCompositionV1>),
 }
 
 impl PreparedCompositionV1 {
@@ -816,7 +819,7 @@ fn parse_canonical_served_value(bytes: &[u8], record: &str) -> Result<Value> {
     Ok(value)
 }
 
-fn array_len_at<'a>(value: &'a Value, path: &[&str]) -> Option<usize> {
+fn array_len_at(value: &Value, path: &[&str]) -> Option<usize> {
     let mut current = value;
     for key in path {
         current = current.get(*key)?;
