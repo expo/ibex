@@ -253,7 +253,9 @@ under the same custody rule (private key only in the producing session's
 process memory; never on disk; rotated with `runId`). The public verifier is
 delivered in the startup session envelope in the v1 loopback posture; the
 LAN/device follow-up binds it at boot enrollment instead (open question 1's
-channel work, jointly with Exact LLP 0417 §5/OQ5). Each update payload is
+channel work, jointly with Exact LLP 0417 §5/OQ5). The verifier travels
+beside the commitment and is **not** HMAC-covered; the production commitment
+schema structurally rejects the keypair fields. Each update payload is
 signed (Ed25519, RFC 8032) over its JCS-canonical body in the
 `ibex/hot-update-signature/1` domain, binding `runId`, the authority stamp,
 `ExecutionGeneration`, base and target `HotRevision`, `updateId`, the

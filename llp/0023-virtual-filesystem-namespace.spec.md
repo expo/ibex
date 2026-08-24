@@ -768,13 +768,22 @@ it does not replace keep their install revision. The extension does not enter
 `SourceId`, portable artifact identity, source
 maps, or authorization. Two incarnations still identify the same source; they
 must not share live cells, namespaces, promises, cached errors, or CommonJS
-exports — the cross-generation prohibition applies with the same force at the
-incarnation boundary (LLP 0055 §2.1; the `hot.data` dispose/accept handoff of
-plain values is the one deliberate exception). Outside importers reach a
-replaced boundary through a **stable logical slot** — a generation-owned
+exports — the cross-generation prohibition applies at the incarnation
+boundary with two named exceptions (LLP 0055 §2.1): the `hot.data`
+dispose/accept handoff (whose value algebra is Exact 0417 OQ4, owned there —
+no live record, cell, or namespace may ride it), and v1's unretired ambient
+effects (timers, subscriptions, host registrations, and global mutations a
+replaced incarnation's dispose does not clean up — guarded by the
+effect-class admission until the candidate-effect lease exists). What
+incarnations must never share, precisely: module environments, binding cells,
+promises, cached errors, and CommonJS export objects. Outside importers reach
+a replaced boundary through a **stable logical slot** — a generation-owned
 forwarding binding target that targets exactly one incarnation's records at a
-time; a slot is never a live namespace shared between incarnations, so this
-paragraph's prohibition is preserved (LLP 0055 §2.3). Production has exactly
+time — and the ESM namespace exotic object they hold is **slot-owned**: one
+per `(ExecutionGeneration, SourceId)`, identity-stable for the generation,
+its per-export getters resolving through the slot at call time. The slot and
+its facade are generation property, never an incarnation's live namespace, so
+this paragraph's prohibition is preserved (LLP 0055 §2.3). Production has exactly
 one execution generation and revision 0. A development
 generation transition is atomic and may reuse immutable parse/transform
 artifacts by semantic digest, never live module state. This is the LLP 0026 §8

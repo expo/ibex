@@ -196,7 +196,9 @@ strict canonical JCS. Reload requires every writable-cache byte to equal the
 deterministic publication rendered from that authenticated graph, independently
 admits every carrier and artifact, re-authenticates each source identity and
 integrity, re-resolves each authored edge against the current armed snapshot,
-and rejects mixed inline/prepared graphs before linking.
+and rejects mixed inline/prepared graphs before linking (a
+boot/rejoin-admission rule; the LLP 0055 hot-revision commit is the
+sanctioned post-boot exception — see the pin/retirement paragraph below).
 
 `transform_fingerprint` includes parser/transform versions, Hermes target,
 TypeScript/JSX options, module-runner ABI, Hermes-compat pass version, CommonJS
@@ -286,16 +288,23 @@ operation.
 Development hot revisions (LLP 0055) do not unpin: a committed revision
 replaces the records of its accepted closure *within* the pinned generation
 through the LLP 0055 §5.3 owner-thread publication step — slot retargets,
-per-slot install-revision advance, loader-cache invalidation, and
-prepared-carrier memo eviction for the replaced `SourceId`s, atomically. This
+per-slot install-revision advance, loader-cache invalidation, and — for the
+replaced `SourceId`s — a prepared-carrier **provenance switch**: their records
+adopt inline source-artifact provenance and retire their references into the
+shared carrier table (keyed per principal/compartment/carrier digest), which
+is released only when no live prepared record references it; all atomically. This
 is the sanctioned post-boot path by which replacement **inline source-artifact
 records join a live generation whose other records carry prepared-carrier
 provenance**: boot admission is not relaxed, carrier admission is unchanged,
-untouched records keep their carrier provenance and memo entries, and HBC
+untouched records keep their carrier provenance and table references, and HBC
 carriers are never mutated, patched, or partially replaced. Publication
 fencing for CommonJS cache records, ESM adapters, and dynamic-import
 completions is per slot (LLP 0055 §2.2): a replaced incarnation's stale
 completion refuses while unchanged records' completions still publish.
+CJS→ESM adapter namespaces are detected-name snapshots, so a boundary
+consumed from outside the invalidation closure through CJS named imports is
+ineligible for hot replacement and refuses into the full-reload class
+(LLP 0055 §2.3).
 
 For `require(ESM)`, an explicit ESM export named `'module.exports'` is returned
 directly. Otherwise the namespace object is returned, with `__esModule`

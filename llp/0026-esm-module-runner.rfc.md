@@ -208,8 +208,10 @@ identity would regress both correctness and CapSec attribution.
   authenticated `SourceId` per LLP 0023 and appears nowhere else as an input.
 - **Execution graph generation** — a monotonic counter over coherent
   development graph states (§8). A record instance under one generation is a
-  **module incarnation**, keyed `(ModuleKey, execution generation)`;
-  production has exactly one generation.
+  **module incarnation**, keyed `(ModuleKey, execution generation, install
+  revision)` — the install revision is the LLP 0055 `HotRevision` at which
+  the record was installed (0 for boot records); production has exactly one
+  generation and revision 0.
 - **Authority snapshot** — the armed CapSec snapshot the runtime was created
   under (LLP 0021). Execution generations never mutate it: package principals,
   integrity-bound bytes, import axes, bindings, and policy edges change only
@@ -1067,7 +1069,9 @@ new machinery. The cache is an optimization only: every hit verifies the
 artifact fingerprint, source integrity, `SourceId`, and authenticated graph
 context before publication.
 
-Development invalidation creates a new graph generation. It does not mutate an
+Development invalidation creates a new graph generation — or, where the
+runner adopts LLP 0055's hot revisions, commits an intra-generation hot
+revision for exactly the accepted invalidation closure. Neither mutates an
 evaluating record in place. Importers either remain on the old coherent
 generation or relink to the new one through an explicit HMR transaction. Stale
 dynamic-import completions cannot publish records into a newer generation.
