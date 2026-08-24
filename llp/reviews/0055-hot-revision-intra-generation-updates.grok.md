@@ -215,3 +215,51 @@ After de-fanging receipts, stale-base restage (and ask 2 taken: keep-last-good, 
 ## Verdict
 
 **NOT READY** (blocking: 1, 2, 3).
+
+---
+
+# Round 4 (r4 delta review)
+
+**Reviewer:** grok-4.6, xhigh, headless, r4 delta + full r4 text inlined. **Target:** r4 @6306c3a0e. **Verdict:** NOT READY (1 blocker: capacity folded into full-reload cannot retire a runId-scoped table). Folded into r5; its round-3 blockers all RESOLVED.
+
+I'll start by reading the LLP review skill and the full prompt so the round-4 review follows the required format.The prompt is long; I’ll continue from the spec body so the disposition ledger can be checked against the actual r4 text.I’ll load the round-3 reviews and the r4 delta so I can check each disposition against the rewritten sections.I’ll check Exact 0553.001 and 0417 on replay lifetime, capacity rotation, and ceiling recovery so the delta hunt is source-backed.The r3 blockers are closed in the body. One r4 composition is still unsound: session-lifetime replay versus the leftover full-reload capacity class.
+
+## Overall Assessment
+
+r4 applies the prescribed fixes for grok 1–3, and the body matches the disposition ledger on those three. Replay records only authenticated terminal outcomes, with pending in-flight reservations and no check-1 inserts; ceiling recovery is restart-join until ask 3 and reload-class after, with the contradictory reload-recovery sentence gone; restage is a credential-gated consumer-status read, not the payload GET. Codex’s session-lifetime move is in §6, but §10 still maps capacity to `full-reload-current-authority`. Under consumer-executed recovery that class does not retire a `runId`-scoped table, so the r4 capacity path does not unstick.
+
+## Resolution Table (round-3 blockers)
+
+| ID | Status | Cite | Note |
+| --- | --- | --- | --- |
+| **1** (busy/replay poisoning) | **RESOLVED** | §6, §5.2 checks 1–2, §5.3.7, F2(a), F9 | Check-1 failures never enter the table. Same-`updateId` in flight is pending busy, not a sealed busy receipt; settlement overwrites pending with the terminal outcome; a different-id surface-busy nack is not recorded. Fence finalizes the pre-reserved record; transport is post-fence. F2(a)/F9 pin retry-after-settle and unauthenticated-then-legitimate begin. Residual of the session-lifetime fold is new finding 1, not a miss of this fix. |
+| **2** (ceiling-breach contradiction) | **RESOLVED** | §4, §10 ceiling row, F4, §12 ask 3 | The “recovery is the reload class’s re-derivation” instruction is gone. Until ask 3, every ceiling breach — same-authority widening included — is restart-family strings **and** the host restart join; v1 re-arm with unchanged authority is a no-op policy regeneration, not a plain ws reload. After the ask, same-authority widening moves to `full-reload-current-authority` and F4’s same-authority fixtures flip by recorded amendment. Declining in-corpus class reassignment on 0417 taxonomy ownership is sound; both ask-3 outcomes are now implementable without answering restart with reload. |
+| **3** (restage pull vehicle) | **RESOLVED** | §9.1, §1 | The vehicle is a credential-gated consumer-status read of live `(ExecutionGeneration, HotRevision)` and the live v2 digest. v1 loopback may be in-process/status under the §5 session credential; Exact H2 names the wire route. Payload GET is no longer cited. Last-success is a warm-path shortcut only; it is not the stale-base answer. |
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+**1. Blocking — session-lifetime capacity recovery is still specified as consumer full-reload, which cannot retire the table.**
+
+r4 moved the replay table to **session (`runId`) lifetime** and made capacity “refusal-until-session-rotation, never eviction”: the consumer refuses **new** `updateId`s with a diagnostic naming session rotation, and the **producing session** rotates `runId` (new keypair, commitment, generation) to drop the table (§6). §10 still maps that refusal, together with `HotRevision` overflow, to `full-reload-current-authority`. §9.1 makes class-correct recovery **consumer-executed** from the consumer’s own verdict; receipts are not a correctness-bearing control path, and the status read returns only `(g, r)` plus the live v2 digest — not occupancy, and not a command to rotate `runId`.
+
+Full-reload mints a new `ExecutionGeneration` under the **same** `runId` (§3). That is the right answer for overflow; it is not session rotation. After a capacity-driven recreate the table is still full, the next new `updateId` is refused again, and a producer that restages from the status read (the §9.1 rule) loops. Until ask 1 is taken, an Exact server that only sees the §10 class will also `reload` rather than rotate the session.
+
+This is the r3 generation-scoped recovery left in place after the table’s lifetime changed. It is the same shape as r3 finding 2: two incompatible recovery instructions for one refusal.
+
+**Fix:** Split the §10 row. `HotRevision` overflow stays `full-reload-current-authority`. Replay-table capacity is not a consumer reload: keep-last-good occupancy (last-good stands; further **new** ids refuse) until the producer rotates `runId`, which is what actually retires the table. Do not fold capacity into a generation transition, and do not require the producer to take that rotation from an advisory receipt — the apply NACK’s distinct diagnostic is the producer-visible signal.
+
+## Minor Findings
+
+- §5.2 still introduces the pre-begin list as “each recorded as an attempt outcome … including refusals and drops.” Check 1 and §6 say the opposite for unauthenticated failures and occupancy nacks. Retract the parenthetical to “authenticated terminal outcomes per §6.”
+- §9.1’s heading still says receipt authenticity is “**discharged** by de-fanging”; the paragraph and §12 correctly say **MITIGATED**, residual named, discharge at H2. Align the heading with the body.
+- §12’s 0553.001 O-3 line still reads “unqualified **within-generation** idempotence, rotate-before-evict.” The r4 law is session-lifetime, rotate-`runId`-before-evict.
+- Converse no-op (§5.2.5, §10, F2(d)): pin the quantifier. Keep-last-good “nothing to apply” holds when **every** invalidated replacement is row-identical to live (candidate v2 digest equals live), not when **any** one member is. A mixed closure with unchanged siblings must still apply the members that changed; §2.3 already does not re-run importers.
+- F2(a) “after the in-flight apply settles, the **same** update begins normally” is true only for a **different** `updateId` (the §10 busy nack). A same-id retry after settlement is F9’s terminal hit, not a new begin.
+- F4’s title still says every fixture asserts the restart-family string; the ask-3 taken path is the recorded class flip in the §4 adversarial paragraph. Scope the title as until-taken.
+- §13.2 still describes v1 ceiling recovery as “the §4 same-authority re-derivation.” Until ask 3 that recovery is the host restart join (§4/§10).
+- Fail-stop quarantine/recreate does not say what happens to a **pending** slot. Under session-lifetime the table survives the generation transition; pin that pending is dropped or finalized before the dying runtime yields, so a same-id remint is not busy forever. (Remint will usually carry a new `updateId`; still define the slot.)
+- Begun-transaction **refusals** skip the §5.3 bundle, so they never hit step 7. §6 already requires pending → terminal on authenticated refusal; say that overwrite happens before the refusal is yielded, same durability as the in-fence success write.
+
+## Verdict
+
+**NOT READY** (blocking: 1).

@@ -5,6 +5,26 @@
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r5 — round-4 dual-family fold (codex NOT READY 1–2; grok NOT READY 1;
+convergent residue of the r4 replay/converse rewrites). Adopted: the replay table is pinned
+**host-held** (survives v1 runtime-recreate; dies with the session), and **quarantine
+settles**: an invariant-quarantine terminalizes the pending entry through the pre-reserved
+outcome record before update processing resumes, and a begun transaction's ordinary refusal
+overwrites pending→terminal **before the refusal is yielded** — no pending entry can outlive
+its transaction (codex 1 + grok minors); the converse no-op quantifier is corrected — a
+transaction is a no-op only when the **entire** staged set is row-identical (the
+transaction-wide changed set is empty); an individual unchanged member inside a changed
+closure is legitimate and required, since 0417 re-evaluates the invalidated importer chain
+(unchanged importers become new incarnations with advanced install revisions) — F2(d) gains
+the changed-leaf + unchanged-importer commit fixture (codex 2; supersedes the r4 per-member
+rule); the §10 capacity row is split from overflow — replay-table capacity is a
+`keep-last-good` **occupancy refusal** carrying the session-rotation diagnostic, retired only
+by producer `runId` rotation, never by a reload (a reload mints a new generation under the
+SAME `runId` and would loop) — overflow alone stays full-reload (grok 1); plus the convergent
+minors: §5.2's recording parenthetical scoped to authenticated accepted-for-processing
+attempts, §9.1's heading aligned to MITIGATED, §12's O-3 line updated to session-lifetime
+semantics, F2(a)'s same-id-after-settle clarified as F9's terminal hit, F4's title scoped
+until-ask-3, §13.2's recovery description made conditional.)
 **Revised:** 2026-08-24 (r4 — round-3 dual-family fold (codex NOT READY 1–4; grok NOT READY 1–3;
 convergent, with one cross-family conflict adjudicated). Adopted: commit-time authority and
 stamp comparisons are demoted to quarantining backstops beside the base CAS — ordinary
@@ -397,8 +417,8 @@ pipeline: **every fallible admission check completes before the first app-visibl
 (Exact 0417 §4.8 rule 1) — under single-flight plus base-currency-at-begin, a transaction that
 reaches evaluation cannot be doomed by identity, currency, ceiling, or shape.
 
-**Named pre-begin consumer checks, in order** (each recorded as an attempt outcome in the §6
-replay table — including refusals and drops):
+**Named pre-begin consumer checks, in order** (only authenticated, accepted-for-processing
+attempts enter the §6 replay table — check-1 failures and other-id busy nacks never do):
 
 1. **Signature and identity-field verification** (§6) — the signature, then every bound
    identity field (`runId`, authority stamp, normalized target descriptor, entry/profile,
@@ -429,11 +449,15 @@ Then:
    validation, export-shape comparison (§2.3), CJS-boundary eligibility (§2.3), **full ceiling
    validation of the candidate graph (§4), and the converse check**, which is two-sided with
    two distinct dispositions: a change *outside* the invalidation set refuses (full-reload
-   class — producer/consumer desync), while an invalidated module whose staged replacement is
-   row-identical to its live incarnation is a **no-op** and refuses `keep-last-good`
-   ("nothing to apply") — a touched-but-unchanged save must never trigger a reload. Failures
-   refuse with zero app-visible effects. After `Preflighted`, the only remaining fallible
-   steps are the transaction's own evaluation and preparation.
+   class — producer/consumer desync), while a transaction whose **entire** staged set is
+   row-identical to the live incarnations (the transaction-wide changed set is empty) is a
+   **no-op** and refuses `keep-last-good` ("nothing to apply") — a touched-but-unchanged save
+   must never trigger a reload. An **individual** unchanged member inside a closure whose
+   changed set is non-empty is legitimate and required: 0417's closure semantics re-evaluate
+   the accepted boundary AND its invalidated importer chain, so unchanged importers inside
+   the set become new incarnations (their install revisions advance) even though their rows
+   did not change. Failures refuse with zero app-visible effects. After `Preflighted`, the
+   only remaining fallible steps are the transaction's own evaluation and preparation.
 6. **Evaluation → `Evaluated`.** Class-appropriate, per Exact 0417 §4.8:
    - `contract-staged-pure`: shadow-evaluate the staged incarnations under the §2.2 shadow
      predicate; a throw refuses (`keep-last-good`) with the live graph untouched.
@@ -573,7 +597,9 @@ production commitment schema structurally rejects the keypair fields.
   its `(session, producer, updateId)`):** `updateId` is unique and content-bound — one
   `updateId` maps to exactly one **signed-envelope digest**. The consumer keeps a
   **session-lifetime** table `(updateId) → (envelopeDigest, entry)` scoped to the `runId` —
-  not the generation — and checks it at §5.2 check 2. Entry semantics, precisely:
+  not the generation — **held by the host shell, not the runtime**, so it survives v1
+  runtime-recreate generation transitions and dies only with the session. Checked at §5.2
+  check 2. Entry semantics, precisely:
   - **Only authenticated outcomes enter the table.** A §5.2 check-1 failure (signature or
     identity-field) is never recorded — an unauthenticated attempt cannot poison a later
     legitimate signed body carrying the same `updateId`.
@@ -582,7 +608,14 @@ production commitment schema structurally rejects the keypair fields.
     retry stays possible). Settlement — commit or any authenticated refusal of a *begun*
     transaction — **overwrites pending with the terminal receipt**. A surface-busy nack for a
     *different* in-flight `updateId` is a transport-level occupancy answer and is not
-    recorded at all.
+    recorded at all. **Quarantine settles too:** an invariant-quarantine (§5.2 item 8, §5.3)
+    terminalizes the pending entry through the pre-reserved outcome record — an infallible
+    field write recording `quarantined` at the live coordinates — **before** update
+    processing resumes, so no pending entry can outlive its transaction and answer busy
+    forever across a recreate (the table is host-held; recreation does not clear it). For a
+    begun transaction that refuses before the §5.3 bundle, the pending→terminal overwrite
+    happens **before the refusal is yielded**, with the same durability as the in-fence
+    success write.
   - **Terminal entries are idempotent, unqualified, for the session's life:** an exact
     duplicate (same `updateId`, same envelope digest) returns the prior terminal receipt and
     applies nothing — commits and refusals alike (the §5.3 fence finalizes the outcome record
@@ -590,10 +623,15 @@ production commitment schema structurally rejects the keypair fields.
     different digest refuses `update-identity-conflict`.
   - **Capacity (4096 terminal entries) forces refusal-until-session-rotation, never
     eviction:** at capacity the consumer refuses further *new* `updateId`s with a distinct
-    diagnostic naming session rotation; the producing session rotates `runId` (new keypair,
-    commitment, generation — revoking everything prior), which retires the table whole.
-    Duplicates from a rotated-away session fail check 1 (`runId`), which is refusal, not
-    replay.
+    diagnostic naming session rotation — an **occupancy refusal in the `keep-last-good`
+    class**: last-good stands, terminal duplicates still answer idempotently, and **no
+    generation transition is implied or performed** (a reload mints a new generation under
+    the SAME `runId` and cannot retire a `runId`-scoped table — folding capacity into a
+    reload would loop). Only the producing session's `runId` rotation (new keypair,
+    commitment, generation — revoking everything prior) retires the table, and the distinct
+    diagnostic on the apply NACK is the producer-visible signal — it never depends on an
+    advisory receipt. Duplicates from a rotated-away session fail check 1 (`runId`), which
+    is refusal, not replay.
 - **Limits:** canonical update body ≤ 16 MiB; ≤ 512 replaced modules per revision (within LLP
   0042's manifest limit class). Oversize refuses before decode completes.
 - **Clock domains:** stage timings are stamped per domain (server stamps server stages, device
@@ -645,7 +683,7 @@ flip (§5.3.4) it needs.
 The Exact H0 security review recorded three MATERIAL findings against the spike's evidence
 plumbing. Dispositions, honest about what the v1 loopback posture can and cannot provide:
 
-1. **Receipt authenticity — discharged by de-fanging, not by authentication.** In the v1
+1. **Receipt authenticity — mitigated by de-fanging; discharge completes at H2.** In the v1
    loopback posture every local process can obtain the envelope-served credentials, so no
    receipt signature scheme available here authenticates the sender. Therefore **receipts are
    advisory, fully**: apply/refuse receipts echo `(updateId, ExecutionGeneration, HotRevision)`
@@ -707,13 +745,14 @@ Every refusal this surface produces belongs to exactly one Exact 0417 §4.8 clas
 | declared `effectful-unknown` (refused structurally at stage) | `full-reload-current-authority` |
 | observed effect-class mismatch | `full-reload-current-authority` |
 | throwing dispose (0417 rule 5) | `full-reload-current-authority` |
-| `HotRevision` overflow; replay-table capacity rotation (§6) | `full-reload-current-authority` |
+| `HotRevision` overflow | `full-reload-current-authority` |
+| replay-table capacity (§6) | `keep-last-good` — an occupancy refusal for new `updateId`s carrying the session-rotation diagnostic; retired only by producer `runId` rotation, never by a reload |
 | ANY v2 ceiling breach — edge added/retargeted, candidate site added/changed, deferred bit flipped, bootstrap-internal set change | restart-family strings and the restart class's recovery — the host restart join — until Exact-owner ask 3 is taken (§4); in v1 that recovery is materially reload-recreate + no-op policy regeneration under unchanged authority; after the ask, same-authority widening moves to `full-reload-current-authority` |
 | authority drift (`SnapshotGenerations` / snapshot digest) | `regenerate-policy-and-restart-runtime` |
 | integrity-pinned package source change | `regenerate-policy-and-restart-runtime` |
 | defining-principal change | `regenerate-policy-and-restart-runtime` |
 | any commit-time backstop failure — base coordinate, authority snapshot, or authority stamp (§5.2 item 8) | not a class — invariant violation: quarantine into recreate |
-| no-op replacement (staged rows identical to live — §5.2.5) | `keep-last-good` ("nothing to apply") |
+| no-op transaction (the ENTIRE staged set row-identical to live — §5.2.5) | `keep-last-good` ("nothing to apply") |
 | stale publication token (per-slot predicate) | not a revision refusal — the stale completion itself refuses; the revision is unaffected |
 | production `begin_update` / `begin_revision` | refused structurally; no dev class applies |
 
@@ -738,15 +777,21 @@ Each is named so Exact 0417 H2's gate can cite green runs:
   invalidated source; live publish is blind to shadow rows; a dropped transaction drops them.
 - **F2 — single-flight and stale-base:** (a) a second `begin` while one transaction is in
   flight refuses busy — no dispose, no evaluation, no reload, and **nothing is sealed in the
-  replay table** (after the in-flight apply settles, the same update begins normally); (b) a
+  replay table** (a different-id update begins normally after the in-flight apply settles; a
+  same-id retry after settlement is F9's terminal hit — idempotent receipt or conflict —
+  never a fresh begin); (b) a
   `begin` against a stale base refuses with the consumer's committed coordinates — a
   dispose-count witness proves no effect ran; (c) the commit-time TOCTOU backstops are
   unreachable by construction (type-level where expressible, else a runtime test proving
-  refusal precedes them); (d) a no-op replacement (staged rows identical to live) refuses
-  keep-last-good, never a reload class.
+  refusal precedes them); (d) a no-op transaction (the entire staged set row-identical to
+  live) refuses keep-last-good, never a reload class — while a changed leaf plus an unchanged
+  accepting importer, both invalidated, COMMITS with both install revisions advanced; (e) a
+  forced backstop failure and a mid-bundle fail-stop each terminalize the pending replay
+  entry (a post-recreate duplicate returns the quarantined terminal receipt, never busy).
 - **F3 — package-edit refusal into the restart class:** an integrity-pinned package replacement
   refuses with the restart diagnostic, never the reload one.
-- **F4 — ceiling breadth (each asserting the restart-family string):** (a) two same-spelling
+- **F4 — ceiling breadth (each asserting the restart-family string — the until-ask-3
+  posture; §4 records the class-assertion flip):** (a) two same-spelling
   edges of distinct `resolution_kind` over non-empty binding maps — distinct digest rows;
   widening one kind refuses despite the other being authorized; (b) candidate-site
   digest/attribute change refuses; (c) deferred→eager flip refuses; (d) bootstrap-internal set
@@ -808,8 +853,9 @@ in-fence-finalized record; **discharge completes at Exact H2** when owner ask 1 
 receipts become enrollment-keyed — the forged-receipt-induced redundant server reload is the
 named residual until then); bounded ingestion/retention → §9.2;
 harness isolation → §9.3 (**operating rule, Exact-owned — scheduled, not discharged here**).
-Exact 0553.001 O-3 → §1 (successor law) + §6 (replay law: unqualified within-generation
-idempotence, rotate-before-evict). Exact 0417 OQ4 (slot granularity, `hot.data` algebra) →
+Exact 0553.001 O-3 → §1 (successor law) + §6 (replay law: session-lifetime terminal
+idempotence, pending reservation, refusal-until-session-rotation at capacity). Exact 0417 OQ4
+(slot granularity, `hot.data` algebra) →
 **explicitly left open, owned by Exact** (§2.3).
 
 **Recorded Exact-owner asks (this lane files the Exact-repo ticket; none is taken here):**
@@ -829,8 +875,9 @@ idempotence, rotate-before-evict). Exact 0417 OQ4 (slot granularity, `hot.data` 
    fetchModule-style form for large boundaries is admissible later without changing §6's
    signature shape (the payload digest covers whichever body form is declared).
 2. **Computed-candidate refresh:** v1 refuses candidate-set change at the ceiling (restart
-   strings as backstop; server pre-classifies to reload; recovery is the §4 same-authority
-   re-derivation). Should a later version admit same-site candidate re-derivation under a live
+   strings; until ask 3 the recovery is the host restart join — §4/§10 — and after it, the
+   reload class's same-authority re-derivation). Should a later version admit same-site
+   candidate re-derivation under a live
    ceiling when the armed policy already authorizes every candidate target? Requires its own
    adversarial fixtures; not v1.
 3. **Surviving-runtime advance-and-retire:** the §3 retirement-fixture set is enumerated; the

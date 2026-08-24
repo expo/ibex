@@ -180,3 +180,41 @@ Four MATERIAL defects remain: an ordinary-fallible authority check still follows
 ## Verdict
 
 **NOT READY (blocking findings 1–4).**
+---
+
+# Round 4 (r4 delta review)
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r4 @6306c3a0e. **Verdict:** NOT READY (2 MATERIALs: quarantine-stranded pending entry; converse no-op quantifier too broad). Folded into r5.
+
+## Overall Assessment
+
+r4 at `6306c3a0eba4febb3e3deb39af7bf0cbf5175e0e` is improved but not ready. Findings 1, 3, and 4 are substantively resolved. Replay handling is mostly corrected, but invariant-quarantine can strand a session-lifetime pending entry. The new converse wording also rejects legitimate mixed invalidation closures.
+
+## Resolution Table (round-3 findings)
+
+| Finding | Status | Cite | Assessment |
+| --- | --- | --- | --- |
+| 1 — authority check after effects | RESOLVED | §5.2 checks 1, 3, item 8; §10 backstop row | Ordinary authority admission precedes effects; all commit comparisons are invariant backstops that quarantine rather than ordinarily refuse. |
+| 2 — replay scope/durability | PARTIAL | §5.3 steps 7/post-fence; §6 replay law | Session lifetime, envelope-digest binding, pending/terminal states, capacity behavior, and normal commit durability are corrected. Invariant-quarantine does not settle or retire pending entries; finding 1 below. |
+| 3 — ask-1 until-taken behavior | RESOLVED | §9.1; §12 H0 ledger | The residual forged-receipt reload is now explicitly acknowledged and authenticity is classified as mitigated pending H2. The stale §9.1 heading is minor. |
+| 4 — ask-3 not-taken behavior | RESOLVED | §4 two recovery grades; §10 ceiling row; F4 | Until ask 3, every breach reaches restart/re-arm; after it, same-authority widening moves to reload. The normative conditional is sound. |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **MATERIAL — invariant-quarantine can strand a replay identity as pending for the remainder of the session.** §6 changes replay retention from generation lifetime to `runId` lifetime and converts pending to terminal only on commit or authenticated refusal. But §5.2 item 8 classifies a backstop mismatch as neither, and §5.3 permits mid-bundle invariant detection to quarantine/recreate before step 7 finalizes the outcome. A v1 recreate rotates `ExecutionGeneration`, not necessarily `runId`, so the pending entry survives and exact duplicates answer busy indefinitely, contradicting §6’s session-lifetime terminal-idempotence guarantee. Cites: §3; §5.2 item 8; §5.3 opening and step 7; §6 pending/terminal law.  
+   **Smallest fix:** require every invariant-quarantine to either infallibly terminalize its pending entry before update processing resumes or rotate/revoke `runId` and retire the replay table. Fixture both a forced item-8 failure and a mid-bundle fail-stop.
+
+2. **MATERIAL — the converse split treats any unchanged member as making the whole invalidation closure a no-op.** §5.2.5 refuses when “an invalidated module” is row-identical to live. Legitimate accepted closures can contain a changed leaf plus unchanged accepting/importer modules that must re-evaluate; the new rule would discard the real edit. This is broader than the intended touched-but-unchanged transaction case. Cites: §5.2.5; §10 no-op row; F2(d); Exact 0417 §§4.1 and 4.8.  
+   **Smallest fix:** refuse as no-op only when the transaction-wide changed set is empty—all staged replacement rows are identical—not when any individual closure member is unchanged. Add a changed-leaf plus unchanged-accepting-importer fixture.
+
+## Minor Findings
+
+- §5.2’s pre-begin introduction still says every check outcome is recorded, contradicting the explicit check-1 and surface-busy exclusions. Scope it to authenticated, accepted-for-processing attempts.
+- §9.1’s heading still says authenticity is “discharged,” while its corrected body and §12 say “mitigated.”
+- §12 still summarizes replay as “within-generation idempotence, rotate-before-evict”; it should say session-lifetime idempotence and refusal-until-session-rotation.
+- §13.2 still states unconditional same-authority re-derivation, and F4’s heading is unconditionally restart-stringed. Both should mirror the ask-3 conditional in §4.
+- F2(a)’s “same update begins normally” is only true if the first transaction settles without committing. If it commits, the producer must pull the new coordinates and re-mint.
+
+## Verdict
+
+NOT READY (blocking findings 1–2).
