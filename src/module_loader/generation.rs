@@ -7,6 +7,7 @@
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{anyhow, bail, Result};
 use capsec_semantics::arming::SnapshotGenerations;
@@ -120,8 +121,13 @@ pub struct ShadowPublicationToken {
     source_id: SourceId,
     install_revision: HotRevision,
     semantic_digest: Digest,
+    manager_identity: u64,
     transaction_nonce: u64,
 }
+
+/// Process-unique owner identity so shadow tokens cannot cross managers:
+/// per-manager nonces alone would collide (every manager counts from 1).
+static NEXT_MANAGER_IDENTITY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerationPublicationReceipt {
@@ -236,6 +242,15 @@ pub struct GenerationRecordV2 {
 }
 
 impl GenerationRecordV2 {
+    /// The typed rows this constructor accepts are AUTHENTICATED UPSTREAM:
+    /// resolved binding targets and deferred classification come from the
+    /// authenticated link plan / armed resolution, and candidate-site pins
+    /// from validated `ibex/computed-candidates/1` sidecars
+    /// (`validate_requester` included). The artifact's own declarations
+    /// authenticate spellings, kinds, and site ordinals, and agreement with
+    /// them is enforced here; the slice-3 surface is the only production
+    /// caller and owns supplying plan-derived rows.
+    /// @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4
     pub fn from_verified(
         verified: VerifiedModuleArtifactV1<'_>,
         bindings: BTreeMap<GraphEdgeKey, SourceId>,
@@ -323,6 +338,19 @@ impl GenerationRecordV2 {
             bail!(DISAGREEMENT);
         }
 
+        // Two-sided agreement: declared link-time edges must be represented.
+        // A declared literal dynamic-import or CommonJS-require key MAY be
+        // unbound (LLP 0027's unresolved call-time edges are left unbound;
+        // they contribute no linkage, mint no authority, and admit no bytes),
+        // but every declared ESM-static key must be bound — an under-claiming
+        // replacement must not ride the exact-edge ceiling.
+        // @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4
+        if declared_bindings.iter().any(|key| {
+            key.resolution_kind == ResolutionKind::EsmStatic && !self.bindings.contains_key(key)
+        }) {
+            bail!(DISAGREEMENT);
+        }
+
         let declared_bootstrap_internal = if self.source_id().defining_principal().is_none() {
             declared_commonjs_require
                 .iter()
@@ -406,10 +434,10 @@ impl AuthenticatedGenerationGraphV2 {
             bail!("module generation graph cannot be empty");
         }
 
-        // SynchronousGraphPlan additionally requires artifact-derived edge
-        // completeness and graph-global candidate/deferred inputs. V2 accepts
-        // already authenticated typed rows, so its fitting validation is the
-        // direct invariant needed here: every target names exactly one row.
+        // Per-record agreement above enforces artifact/typed-row
+        // completeness both ways (extras refuse; declared ESM-static keys
+        // must be bound). The remaining graph-global invariant: every bound
+        // target names exactly one admitted row.
         for record in owned.values() {
             for target in record.bindings.values() {
                 if !owned.contains_key(target) {
@@ -982,6 +1010,7 @@ pub struct ModuleExecutionGenerationsV2 {
     mode: GenerationMode,
     admission: ImmutableGenerationAdmissionV2,
     current: PublishedHotRevisionV1,
+    manager_identity: u64,
     next_transaction_nonce: Cell<u64>,
 }
 
@@ -1009,6 +1038,7 @@ impl ModuleExecutionGenerationsV2 {
                 graph: initial,
                 install_revisions,
             },
+            manager_identity: NEXT_MANAGER_IDENTITY.fetch_add(1, Ordering::Relaxed),
             next_transaction_nonce: Cell::new(1),
         })
     }
@@ -1130,6 +1160,7 @@ impl ModuleExecutionGenerationsV2 {
             base_revision: base.1,
             authority_digest: self.admission.authority_digest.clone(),
             authority_generations: self.admission.authority_generations,
+            manager_identity: self.manager_identity,
             transaction_nonce,
             invalidated,
             replacements: None,
@@ -1162,6 +1193,19 @@ impl ModuleExecutionGenerationsV2 {
             || transaction.base_revision != self.current.revision
         {
             bail!("hot revision commit-time base compare failed after begin; invariant violation");
+        }
+        // Commit backstop for the begin-time builtin refusal: the public path
+        // cannot reach here with a principal-less id, so this mirrors the
+        // never-hot-replaceable rule on the clone-and-swap seam too.
+        // @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4
+        if transaction
+            .invalidated
+            .iter()
+            .any(|source_id| source_id.defining_principal().is_none())
+        {
+            bail!(
+                "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
+            );
         }
         let revision = transaction.base_revision.next()?;
         let replacements = transaction
@@ -1323,6 +1367,7 @@ pub struct HotRevisionTransactionV1 {
     base_revision: HotRevision,
     authority_digest: Digest,
     authority_generations: SnapshotGenerations,
+    manager_identity: u64,
     transaction_nonce: u64,
     invalidated: BTreeSet<SourceId>,
     replacements: Option<BTreeMap<SourceId, GenerationRecordV2>>,
@@ -1368,6 +1413,7 @@ impl HotRevisionTransactionV1 {
             source_id: source_id.clone(),
             install_revision: self.candidate_revision()?,
             semantic_digest: record.artifact.semantic_digest.clone(),
+            manager_identity: self.manager_identity,
             transaction_nonce: self.transaction_nonce,
         })
     }
@@ -1377,7 +1423,9 @@ impl HotRevisionTransactionV1 {
         token: &ShadowPublicationToken,
         kind: GenerationPublicationKind,
     ) -> Result<GenerationPublicationReceipt> {
-        if token.transaction_nonce != self.transaction_nonce {
+        if token.manager_identity != self.manager_identity
+            || token.transaction_nonce != self.transaction_nonce
+        {
             bail!("shadow publication token belongs to another hot revision transaction");
         }
         if token.install_revision != self.candidate_revision()? {

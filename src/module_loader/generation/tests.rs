@@ -1382,9 +1382,28 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
             typed_record(&bootstrap_revision, changed_bootstrap),
         ])
         .unwrap();
+    // The commit backstop for principal-less ids now fires before the
+    // ceiling (grok round-2 minor adopted): assert it, then pin the ceiling's
+    // bootstrap row directly against a mutated candidate graph.
     assert_eq!(
         bootstrap_generations
             .commit_revision(&current_policy, bootstrap_change)
+            .unwrap_err()
+            .to_string(),
+        "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
+    );
+    let mut changed_bootstrap_again = TypedFacts::default();
+    changed_bootstrap_again
+        .bootstrap_internal_commonjs
+        .insert("internal/util".to_owned());
+    let mutated_graph = typed_graph([
+        (root_boot.clone(), self_facts(&root_source)),
+        (bootstrap_revision.clone(), changed_bootstrap_again),
+    ]);
+    assert_eq!(
+        bootstrap_generations
+            .admission
+            .validate_graph(&mutated_graph)
             .unwrap_err()
             .to_string(),
         "HMR bootstrap-internal CommonJS set changed; regenerate policy and restart the runtime"
@@ -1954,4 +1973,224 @@ fn hot_revision_slot_swaps_owner_value_only_with_a_successful_revision() {
     assert_eq!(commit.revision.get(), 1);
     assert_eq!(retired, "native-revision-0");
     assert_eq!(*slot.current(), "native-revision-1");
+}
+
+#[test]
+fn under_claiming_replacement_refuses_and_unbound_call_time_edges_admit() {
+    let a = source(root(), "entry.mjs");
+    // Declared artifact carries self plus an extra ESM-static "./secret";
+    // supplied bindings keep only self — the under-claim refuses agreement.
+    let declared_facts = facts([
+        (edge("./self", ResolutionKind::EsmStatic), a.clone()),
+        (edge("./secret", ResolutionKind::EsmStatic), a.clone()),
+    ]);
+    let declared_artifact = artifact_with_typed_facts(&artifact(a.clone(), 2), &declared_facts);
+    let only_self = self_facts(&a);
+    assert_eq!(
+        GenerationRecordV2::from_verified(
+            verified(&declared_artifact),
+            only_self.bindings.clone(),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap_err()
+        .to_string(),
+        "hot update typed metadata disagrees with the verified artifact"
+    );
+
+    // Declared literal dynamic-import / CommonJS-require keys MAY stay
+    // unbound: LLP 0027 leaves unresolved call-time edges unbound — no
+    // linkage, no authority, no bytes.
+    let call_time_facts = facts([
+        (edge("./self", ResolutionKind::EsmStatic), a.clone()),
+        (edge("./lazy", ResolutionKind::DynamicImport), a.clone()),
+    ]);
+    let call_time_artifact = artifact_with_typed_facts(&artifact(a.clone(), 3), &call_time_facts);
+    assert!(GenerationRecordV2::from_verified(
+        verified(&call_time_artifact),
+        only_self.bindings,
+        BTreeMap::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+    )
+    .is_ok());
+
+    // The CommonJS-require unbound case needs a CommonJs-goal artifact.
+    let c = source(root(), "entry.cjs");
+    let cjs_facts = facts([
+        (edge("./self", ResolutionKind::CommonJsRequire), c.clone()),
+        (edge("./maybe", ResolutionKind::CommonJsRequire), c.clone()),
+    ]);
+    let cjs_artifact = artifact_with_typed_facts(&commonjs_artifact(c.clone(), 1), &cjs_facts);
+    assert!(GenerationRecordV2::from_verified(
+        verified(&cjs_artifact),
+        commonjs_self_facts(&c).bindings,
+        BTreeMap::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+    )
+    .is_ok());
+}
+
+#[test]
+fn clone_and_swap_revalidates_under_claimed_rows_at_commit() {
+    let a = source(root(), "entry.mjs");
+    let current_policy = policy("authority");
+    let mut generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([(artifact(a.clone(), 1), self_facts(&a))]),
+    )
+    .unwrap();
+    let mut transaction = generations
+        .begin_revision(
+            &current_policy,
+            HmrOrigin::Exact,
+            (
+                generations.current_generation(),
+                generations.current_revision(),
+            ),
+            [a.clone()],
+        )
+        .unwrap();
+    let full_facts = facts([
+        (edge("./self", ResolutionKind::EsmStatic), a.clone()),
+        (edge("./secret", ResolutionKind::EsmStatic), a.clone()),
+    ]);
+    let declared_artifact = artifact_with_typed_facts(&artifact(a.clone(), 2), &full_facts);
+    let mut record = GenerationRecordV2::from_verified(
+        verified(&declared_artifact),
+        full_facts.bindings,
+        BTreeMap::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    // Test-private mutation: drop the declared edge's binding after
+    // construction, so only the clone-and-swap revalidation can catch it.
+    record
+        .bindings
+        .remove(&edge("./secret", ResolutionKind::EsmStatic));
+    transaction.replacements = Some(BTreeMap::from([(a.clone(), record)]));
+    let before = live_snapshot(&generations);
+    assert_eq!(
+        generations
+            .commit_revision(&current_policy, transaction)
+            .unwrap_err()
+            .to_string(),
+        "hot update typed metadata disagrees with the verified artifact"
+    );
+    assert_eq!(live_snapshot(&generations), before);
+}
+
+#[test]
+fn shadow_tokens_never_cross_managers_or_generations() {
+    let a = source(root(), "entry.mjs");
+    let current_policy = policy("authority");
+    let build = |generation: ExecutionGeneration| {
+        ModuleExecutionGenerationsV2::new(
+            GenerationMode::Development,
+            generation,
+            &current_policy,
+            typed_graph([(artifact(a.clone(), 1), self_facts(&a))]),
+        )
+        .unwrap()
+    };
+    let begin_and_stage = |generations: &ModuleExecutionGenerationsV2| {
+        let mut transaction = generations
+            .begin_revision(
+                &current_policy,
+                HmrOrigin::Exact,
+                (
+                    generations.current_generation(),
+                    generations.current_revision(),
+                ),
+                [a.clone()],
+            )
+            .unwrap();
+        transaction
+            .stage_replacements([typed_record(&artifact(a.clone(), 2), self_facts(&a))])
+            .unwrap();
+        transaction
+    };
+
+    // Same generation, two independent managers: both mint nonce 1.
+    let first = build(execution_generation());
+    let second = build(execution_generation());
+    let transaction_one = begin_and_stage(&first);
+    let mut transaction_two = begin_and_stage(&second);
+    let foreign = transaction_one.shadow_publication_token(&a).unwrap();
+    assert_eq!(
+        transaction_two
+            .shadow_publish(&foreign, GenerationPublicationKind::Evaluation)
+            .unwrap_err()
+            .to_string(),
+        "shadow publication token belongs to another hot revision transaction"
+    );
+
+    // Cross-generation manager: still refused.
+    let third = build(ExecutionGeneration::new(7).unwrap());
+    let mut transaction_three = begin_and_stage(&third);
+    assert_eq!(
+        transaction_three
+            .shadow_publish(&foreign, GenerationPublicationKind::Evaluation)
+            .unwrap_err()
+            .to_string(),
+        "shadow publication token belongs to another hot revision transaction"
+    );
+}
+
+#[test]
+fn commit_backstop_refuses_principal_less_invalidation() {
+    let root_source = source(root(), "entry.mjs");
+    let builtin_source = SourceId::builtin("ibex-runtime", "generation-backstop-test").unwrap();
+    let root_facts = facts([(
+        edge("ibex:member", ResolutionKind::EsmStatic),
+        builtin_source.clone(),
+    )]);
+    let builtin_artifact =
+        artifact_with_shape(builtin_source.clone(), 1, SourceGoalV1::Builtin, &[]);
+    let current_policy = policy("authority");
+    let mut generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([
+            (artifact(root_source.clone(), 1), root_facts.clone()),
+            (builtin_artifact, TypedFacts::default()),
+        ]),
+    )
+    .unwrap();
+    let mut transaction = generations
+        .begin_revision(
+            &current_policy,
+            HmrOrigin::Exact,
+            (
+                generations.current_generation(),
+                generations.current_revision(),
+            ),
+            [root_source.clone()],
+        )
+        .unwrap();
+    transaction
+        .stage_replacements([typed_record(&artifact(root_source, 2), root_facts)])
+        .unwrap();
+    // Test-private mutation: the public begin path already refuses this id;
+    // the commit backstop must mirror it on the clone-and-swap seam.
+    transaction.invalidated.insert(builtin_source);
+    let before = live_snapshot(&generations);
+    assert_eq!(
+        generations
+            .commit_revision(&current_policy, transaction)
+            .unwrap_err()
+            .to_string(),
+        "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
+    );
+    assert_eq!(live_snapshot(&generations), before);
 }
