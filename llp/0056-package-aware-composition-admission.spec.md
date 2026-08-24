@@ -1,11 +1,16 @@
 # LLP 0056: Package-Aware Composition Admission (the ibex leg of Exact LLP 0413.001 §6)
 
 **Type:** Spec
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-24 (r5 — round-3 delta fold (grok-4.6 READY, 0
+**Revised:** 2026-08-24 (ACCEPTED by Charlie Cheever — decision relayed
+via session exact-b7; basis = r5 dual-READY (round-4 final delta:
+codex gpt-5.6-sol xhigh READY + grok-4.6 READY x3, 0 MATERIAL in both
+families on r5 @494fad727) plus the byte-verified A1 lockstep;
+recorded Exact-side @3ef12a99b. Mechanical status edit only — no
+normative text changed.) 2026-08-24 (r5 — round-3 delta fold (grok-4.6 READY, 0
 MATERIAL, second consecutive; codex gpt-5.6-sol xhigh NOT READY, 2
 MATERIAL, both verified): §3.3's authority claim made precise — the
 landed expectations schema is field-for-field on names/requiredness
