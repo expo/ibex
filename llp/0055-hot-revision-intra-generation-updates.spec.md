@@ -8,6 +8,19 @@ pending — the review loop does not accept on the author's behalf)
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r10 — second correction-class addendum, from the code RE-review
+round (codex 3 residues, grok 1 — convergent on the agreement seam). §4's typed-metadata
+paragraph now names the **authentication source per row** — artifact declarations for
+spellings/kinds/ordinals; the armed resolution / link plan for resolved targets and deferred
+classification; validated `ibex/computed-candidates/1` sidecars (requester validation
+included) for candidate pins — correcting r9's over-attribution of everything to artifact
+declarations (codex residue 1 + grok's wording minor), and states **two-sided agreement**:
+declared ESM-static keys must be bound (an under-claim must not ride the exact-edge ceiling;
+the joint blocker), while declared literal call-time keys may stay unbound per LLP 0027's
+unresolved-edge rule. F4's title records "edge removal included" (codex minor). The
+matching code fixes (two-sided validator, process-unique manager identity in shadow tokens,
+principal-less commit backstop) land in the same branch; both families verify this addendum
+and that code in the final round.)
 **Revised:** 2026-08-24 (r9 — **post-READY correction-class addendum from the slice-2 CODE
 review round** (codex 7 findings, grok 2 — the code round exposed three gaps at doc level
 that neither family caught in the eight doc rounds; both families re-verify this addendum in
@@ -436,13 +449,19 @@ declarations; a file-principal record may not mint them. (The V1 ceiling require
 principal for every member and therefore could not admit the live graph's builtin records;
 V2 corrects that without weakening any pin.)
 
-**Typed metadata is never self-authenticating.** Replacement records enter as
-`VerifiedModuleArtifactV1` tokens *plus* typed edge/candidate/deferred/bootstrap metadata
-(§5.2 step 4), and the typed rows MUST agree with the verified artifact's own declared
-semantics — its typed static and dynamic edge declarations, computed-site ordinals and
-attributes, CJS-require declarations, and bootstrap-internal declarations. Disagreement
-refuses at stage; graph construction from raw typed maps is not a public path, and a
-clone-and-swap candidate revalidates the same agreement.
+**Typed metadata is never self-authenticating — and each row has a named authentication
+source.** Replacement records enter as `VerifiedModuleArtifactV1` tokens *plus* typed
+edge/candidate/deferred/bootstrap metadata (§5.2 step 4). The artifact's own declarations
+authenticate **spellings, resolution kinds, and computed-site ordinals**; resolved binding
+**targets** and **deferred classification** are authenticated by the armed resolution / link
+plan that produced them; **candidate-site pins** (table digest + attributes) by the validated
+`ibex/computed-candidates/1` sidecars, requester validation included — the §5 surface
+supplies plan-derived rows and is the only production construction path; raw typed maps are
+not a public path, and a clone-and-swap candidate revalidates the same agreement. Agreement
+is **two-sided**: a typed row absent from the declarations refuses, and a declared
+ESM-static key absent from the bindings refuses (an under-claiming replacement must not ride
+the exact-edge ceiling); declared literal dynamic-import / CommonJS-require keys may be
+unbound (LLP 0027's unresolved call-time edges — no linkage, no authority, no bytes).
 
 **The two recovery grades (why everyday edits never weaken this).** A ceiling is derived
 `from_initial` for one generation and is immutable for that generation's life. Recovery from a
@@ -926,8 +945,8 @@ Each is named so Exact 0417 H2's gate can cite green runs:
   busy; after producer `runId` rotation the old session's duplicates fail check 1.
 - **F3 — package-edit refusal into the restart class:** an integrity-pinned package replacement
   refuses with the restart diagnostic, never the reload one.
-- **F4 — ceiling breadth (each asserting the restart-family string — the until-ask-3
-  posture; §4 records the class-assertion flip):** (a) two same-spelling
+- **F4 — ceiling breadth, edge removal included (each asserting the restart-family string —
+  the until-ask-3 posture; §4 records the class-assertion flip):** (a) two same-spelling
   edges of distinct `resolution_kind` over non-empty binding maps — distinct digest rows;
   widening one kind refuses despite the other being authorized; (b) candidate-site
   digest/attribute change refuses; (c) deferred→eager flip refuses; (d) bootstrap-internal set
