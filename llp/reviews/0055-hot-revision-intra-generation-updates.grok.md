@@ -383,3 +383,58 @@ None.
 ## Verdict
 
 READY
+
+---
+
+# Round 8 (r8 delta review) — TERMINAL: READY
+
+**Reviewer:** grok-4.6, xhigh, headless, r8 delta + full text inlined. **Target:** r8 @c1205c3cb. **Verdict:** READY — busy gate judged sound, no new ordering hole; three presentation-only minors recorded here and deliberately NOT folded (the spec stays byte-stable at the dual-approved r8 text). Loop terminal: both families READY on r8.
+
+I'll start by reading the full prompt and the LLP review skill so the round-8 review follows the same conventions as earlier rounds.The prompt was truncated; next I’ll pull the rest of the r8 spec, my r7 review, and the delta so I can judge the busy-gate change against the prior READY.I have r7 and the delta. Next I’ll walk the live r8 pipeline, F2/F9, and leftover busy/capacity wording so the busy-gate judgment is against the full spec.Walked the r8 order: rotation → table → busy → capacity → reservation → currency. The busy gate sits in the right place, so this is a READY call with leftover wording only.
+
+## Overall Assessment
+
+r8 closes the Codex r7 hole without reopening the rotation or duplicate-first seams. The numbered pre-begin order now refuses a different-`updateId` attempt while one is in flight **before** any pending reservation, so busy cannot terminalize. Same-`updateId` still dies at check 2 off the pending row. Only a non-busy, under-capacity miss reserves, and check-3 currency refusals still terminalize that reservation before yield.
+
+Grok r7 minors are folded in the delta: check 1’s no-entry claim is scoped to validation failures; §6’s pending bullet is re-anchored to the check-3 reservation point with settlement covering reserved attempts; the §6 verification-order summary names the rotation, busy, and capacity gates. Prior grok blockers (rotation gate in the numbered order; record authenticated currency refusals) stay resolved.
+
+No new MATERIAL in the delta.
+
+## Judgment on the Busy Gate
+
+The insertion is the right law and the right place. The load-bearing order is:
+
+**rotation gate → table lookup (check 2) → busy gate → capacity gate → reservation → currency (check 3)**
+
+Busy **after** check 2 is required, for the same reason currency is after the table. A check-2 hit must win:
+
+- exact duplicate of a terminal row, including a post-commit retransmit whose currency fields name the old base, returns its receipt and proceeds no further — even if another `updateId` is in flight. Busy-before-lookup would answer occupancy instead of the terminal receipt (the Exact 0553.001 duplicate-first defect, applied to occupancy).
+- same-`updateId` / different digest is `update-identity-conflict` against the existing terminal row, not busy.
+- pending same-`updateId` answers busy from the row and seals nothing. The new gate’s same-id sentence is correct: that arrival never falls through.
+
+Busy **before** capacity and reservation is required, which is the Codex r7 fix:
+
+- different-`updateId` while one is in flight: check-2 miss, busy on the update channel’s direct response, **no reservation, no entry**. F2(a) is reachable. Check 3 never runs, so busy cannot be written as a terminal outcome and needs no unstated exception.
+- at-capacity + in-flight + new id answers busy (retry after settle), not the session-rotation diagnostic. After settle the retry hits capacity. Transient occupancy precedes session-lifetime occupancy.
+- at-capacity, nothing in flight, new id: busy passes, capacity refuses, still no reservation. Occupancy nack, no entry.
+- non-busy, under-capacity miss: reserve, then live currency. A check-3 refusal terminalizes before yield (content binding). A success is the one in-flight pending row.
+
+Poisoned sessions never reach the new gate: the rotation gate still stops after check 1, so a stranded pending row cannot answer busy and a new id cannot begin. Exclusive owner-thread `&mut` plus reserve-before-`begin_revision` keeps the invariant the same-id sentence needs: in-flight means that `updateId` already has a pending row, so same-id cannot miss check 2 and fall into the different-id gate.
+
+The remaining occupancy nacks (capacity, rotation-required) still record nothing. The table still records only authenticated reserved attempts that settle.
+
+No new ordering hole.
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+None.
+
+## Minor Findings
+
+- **Capacity is still not a titled §5.2 paragraph**, while rotation and busy now are. The verification-order summary and the busy-gate title treat it as a peer between checks 2 and 3; the law remains in §6 (new `updateId`s refuse, terminal duplicates still replay, no generation transition). Check 3 already requires “past the … capacity gate” before reserve, so this is presentation, not a skippable step.
+- **§5.2’s single-flight lead still locates busy at `begin_revision`.** The numbered gate is the stop; `begin_revision` is not reached for a different-id occupancy nack. Follow the numbered order and the lead is a summary, not a second reservation-then-busy path.
+- **§6 still says “For a begun transaction that refuses before the §5.3 bundle.”** The sentence above now settles any reserved attempt, check-3 included. The leftover is the post-`Begun` pre-bundle path and is still true there.
+
+## Verdict
+
+READY

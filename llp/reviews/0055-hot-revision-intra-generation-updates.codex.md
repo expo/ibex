@@ -323,3 +323,33 @@ One ordering gap remains: the different-`updateId` single-flight busy gate is no
 ## Verdict
 
 NOT READY (blocking finding 1).
+---
+
+# Round 8 (r8 delta review) — TERMINAL: READY
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r8 @c1205c3cb. **Verdict:** READY — no MATERIALs, no minors; all round-7 items resolved. Loop terminal: both families READY on r8.
+
+## Overall Assessment
+
+r8 fully resolves the round-7 blocker and associated minors. The delta introduces no new MATERIAL issue.
+
+## Resolution Table
+
+| Round-7 item | Resolution | Assessment |
+| --- | --- | --- |
+| Finding 1 — reservation preceded different-ID busy refusal | RESOLVED | The named busy gate now follows duplicate lookup and precedes capacity and reservation. Different-ID busy attempts receive a direct response and create no entry; only non-busy, under-capacity attempts reserve. [§5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:502) |
+| Minor — “only failure disposition” overclaim | RESOLVED | The statement is scoped to validation failures and distinguishes occupancy nacks. [§5.2 check 1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:481) |
+| Minor — pending reservation/settlement wording | RESOLVED | Reservation is anchored before currency validation, past all three gates; settlement covers every reserved attempt, including check-3 refusals. [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:697) |
+| Minor — verification-order summary omitted gates | RESOLVED | The summary names rotation, busy, and capacity in their correct positions. [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:676) |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+None.
+
+## Minor Findings
+
+None.
+
+## Verdict
+
+READY

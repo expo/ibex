@@ -1,7 +1,10 @@
 # LLP 0055: Hot Revisions — Intra-Generation Module Updates (Exact 0417 H1 Surface)
 
 **Type:** Spec
-**Status:** Draft
+**Status:** Review (r8 dual-family READY, 2026-08-24 — codex gpt-5.6-sol xhigh READY with no
+findings; grok-4.6 xhigh READY with three presentation-only minors recorded in
+`llp/reviews/`, text left byte-stable at the dual-approved revision; author acceptance
+pending — the review loop does not accept on the author's behalf)
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
