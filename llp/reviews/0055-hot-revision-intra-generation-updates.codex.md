@@ -254,3 +254,36 @@ This verdict binds to r5 commit `5eb732839`; no later revision was present.
 ## Verdict
 
 NOT READY (blocking findings 1–2).
+---
+
+# Round 6 (r6 delta review)
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r6 @ace96ed86. **Verdict:** NOT READY (1 MATERIAL: check-3 refusals lacked replay reservation semantics). Folded into r7.
+
+## Overall Assessment
+
+r6 resolves both round-5 blockers at the intended outcome level. The split verification order is spoof-safe: the complete envelope is signature-authenticated and session-addressed before replay lookup, while generation, revision, and graph-digest currency remain before staging. Session poisoning also avoids inventing a fourth receipt outcome and gives the producer a bounded recovery path.
+
+However, r6 introduces one MATERIAL inconsistency: authenticated attempts that fail the new check 3 are still asserted not to create replay entries. That breaks session-scoped `updateId` content binding and Exact 0553.001’s outcome replay law.
+
+## Resolution Table
+
+| Round-5 finding | Status | Cite | Assessment |
+| --- | --- | --- | --- |
+| 1 — post-commit duplicates unreachable | RESOLVED | [§5.2 checks 1–3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:440), [§6 verification order](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:618), [F2(b)](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:817) | An authenticated exact duplicate now reaches its terminal entry before moving currency is compared. Deferring currency creates no spoof window because signature and stable session/addressing bindings precede lookup. |
+| 2 — `quarantined` unrepresentable | RESOLVED | [§5.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:522), [§6 quarantine law](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:644), [F2(e)](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:824) | Quarantine no longer creates an outcome outside the closed receipt union. Runtime recreation, session poisoning, and eventual whole-table retirement on `runId` rotation form a coherent fail-stop recovery. |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **MATERIAL — check-3 refusals have no coherent replay reservation semantics.** r6 moves stale generation, revision, and base-graph digest from check 1 to authenticated live-currency check 3. Yet F9 still says those failures create no replay entry and that a later differently signed body may reuse the same `updateId`. This contradicts §6’s session-lifetime content-binding law and Exact 0553.001, which records authenticated stage-4 outcomes so exact retries replay the refusal and different bytes conflict. The phrase “reserves … at `begin`” is ambiguous because check 3 itself invokes `begin_revision`. Cites: [§5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:440), [§6 replay law](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:625), [F9](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:851), [Exact 0553.001 §2.2](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:212), [Exact verification order](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:519).  
+   **Smallest fix:** after a check-2 miss—and after different-ID busy and capacity gates—reserve `pending` before check-3 currency validation. Terminalize every check-3 refusal before yielding. Split F9 so only check-1 authentication/addressing failures create no entry; stale generation/revision/digest and successor failures become terminal replay entries.
+
+## Minor Findings
+
+- Explicitly place the host-held `rotation-required` gate after check 1 and before check 2. Otherwise §5.2 says a stranded pending duplicate answers busy while §6/F2(e) says poison overrides it with the rotation diagnostic. Also state that the marker is set before recreation or update processing resumes.
+- Qualify §5.3’s statement that a later exact duplicate “always” returns a receipt: invariant quarantine is the specified fail-stop exception and returns the direct rotation-required diagnostic instead.
+- A validly signed but wrongly addressed envelope is authenticated-but-misaddressed, not “unauthenticated” as §5.2 check 1 currently says. The no-table disposition remains sound.
+
+## Verdict
+
+NOT READY (blocking finding 1).

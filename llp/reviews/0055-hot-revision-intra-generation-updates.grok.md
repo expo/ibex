@@ -297,3 +297,50 @@ None.
 ## Verdict
 
 READY
+
+---
+
+# Round 6 (r6 delta review)
+
+**Reviewer:** grok-4.6, xhigh, headless, r6 delta + full text inlined. **Target:** r6 @ace96ed86. **Verdict:** NOT READY (1 blocker: the rotation-required mark was not consulted by the numbered pipeline). Folded into r7; its F9 dont-record-currency-refusals minor adjudicated AGAINST on 0553.001 content-binding grounds (codex r6-1 wins; recorded).
+
+I'll start by reading the full offloaded prompt and the round-6 spec so the review is based on the complete delta, not the truncated excerpt.The prompt was truncated mid-spec. I'll load the rest of the r6 text, the prior reviews, and the round-6 artifacts so the delta hunt is against the full document.I'll hunt leftover r5 wording and any check-order or quarantine contradictions, then read Exact 0553.001 if it's in the workspace.I'll pull Exact 0553.001's duplicate-first order and closed receipt union, and scan the r6 spec for leftover r5 wording.The check-order split matches Exact 0553.001, but the poison mark is still missing from the numbered pre-begin pipeline, so I’m treating that as a blocking wiring defect.
+
+## Overall Assessment
+
+r6 adopts both Codex r5 findings in substance, and the check-order split is sound. Signature still covers the live-currency fields; check 1 still binds the session; deferring live equality until after the table is exactly Exact 0553.001’s duplicate-first rule, so a post-commit retransmit meets its terminal receipt. Session-poison is the right closed-union answer: no fourth receipt, recreate for the torn generation, host-held table stays until the producer rotates `runId`.
+
+The poison law is not in the ordered pipeline. §5.2 check 2 still says a pending same-`updateId` answers busy, with no rotation-required exception. After quarantine that pending row still exists (host-held, survives recreate), so a literal walk of the numbered checks yields busy, which F2(e) and §6 forbid. That is the same “fixture unreachable under the stated order” defect r6 just fixed for currency.
+
+Grok r5 minors 1–3 and the Codex r5 carrier minor are folded.
+
+## Judgment on the Two r6 Changes
+
+**Check-order split — sound.** Check 1 verifies the signature over the whole body, then the session-stable addressing tuple (`runId`, authority stamp, target descriptor, entry/profile, boot/consumer identity). A foreign or unsigned envelope never reaches the table. Currency fields still cannot be spliced without failing the signature. What moved to check 3 is live *equality* (generation, hot revision, committed base-graph digest), which changes on every commit, not authentication.
+
+No spoof window: a new `updateId` with stale currency misses the table and dies at check 3; an exact duplicate hits check 2 and returns the prior receipt because the envelope digest covers those currency claims, so the hit is that same envelope. Same-`updateId` / different-digest still conflicts before currency, which is what 0553.001 stage 4 does. Digest-at-begin is the right placement: it is the live v2 digest installed at §5.3.1, compared only for attempts that are not already table hits. F2(b) and the new F9 sentence pin the witness (fresh stale-base refuses; known duplicate naming the old base returns its receipt).
+
+**Session-poison quarantine — right mechanism, incomplete wiring.** `quarantined` is not in 0553.001 §5.1’s closed union (`committed | committed-degraded | refused {class, code}`), and this spec correctly mints no fourth outcome. Recreate is the §3 fail-stop for a half-published generation. The table is host-held and would otherwise keep the pending row, so answering busy forever is the r4 stranding bug; poisoning the session until producer `runId` rotation retires the table whole is the alternative Codex r4 already offered. Ordinary refusals and commits keep the grok r5 sequencing pin (record constructed before backstops; pending→terminal before yield). Producer recovery is rotate-`runId`, same as capacity, and must not depend on a receipt that does not exist.
+
+The gap: that session gate is not a numbered pre-begin check. Check 2 still states pending→busy as the lookup result. After recreate, a retransmit of the stranded id takes that path unless an exception is written there. New `updateId`s against the fresh generation can miss the pending row, pass check 3, and begin, which is not “every further update answers rotation-required.”
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+**1. Blocking — the rotation-required mark is not in the numbered pre-begin order, so F2(e) is unreachable under §5.2 as written.**
+
+§6 and F2(e) require that after invariant-quarantine every further update — stranded duplicates included — answers rotation-required, never busy, until producer `runId` rotation. The ordered pipeline does not consult that mark. Check 2 still says a pending same-`updateId` answers busy. The pending row survives v1 recreate (host-held table). A walk of checks 1–2 therefore returns busy for the stranded id, and a new `updateId` on the recreated generation can miss that row, pass live currency, and begin.
+
+That is the same class of defect as Codex r5-1: a later-stated replay law whose required outcome the numbered order cannot produce.
+
+**Fix:** After check 1, before any table lookup: if the host-held session is rotation-required, answer the rotation-required diagnostic on the update channel (the same Exact H2 carrier capacity already uses; not the §9 receipt stream) and stop. Pending→busy, terminal replay, identity-conflict, and capacity apply only when the session is not so marked. The mark survives v1 recreate and clears only when `runId` rotation retires the table. Narrow check 2’s pending→busy sentence to that non-poisoned case.
+
+## Minor Findings
+
+- **F9’s first adversarial list** still groups stale-generation, stale-revision, and base-graph-digest mismatch with check-1 “no replay entry” failures. The added post-commit sentence distinguishes a known duplicate, and §5.2 forbids comparing those fields at check 1, but the list can still be read as “compare digest before the table so it never records.” Split the list: session/addressing and signature failures stay no-entry; currency mismatches are check 3 (fresh attempt refuses and does not record; known duplicate is F2(b)).
+- **§6 “check-1 failure (signature or identity-field)”** is leftover r5 wording. Check 1 is signature plus session/addressing; live-currency fields are not identity-fields at that check. Say “signature or session/addressing.”
+- **Poison diagnostic vs §10.** Capacity is an explicit `keep-last-good` occupancy refusal, no generation transition, carrier named. Post-quarantine answers are “not a class” on the backstop row even though §10 says every refusal this surface produces has exactly one 0417 class, and the recreate already happened. Map follow-up poison answers the same way as capacity (occupancy, last-good of the new generation stands, no further generation transition) so an Exact class-driven reload cannot loop recreates under the same `runId`.
+- **Item 8** still says ordinary authority admission happened at check 3. The stamp comparison is now check 1; check 3’s “re-validates authority” is the remaining begin admission. Align the pointer.
+
+## Verdict
+
+NOT READY (1).

@@ -5,6 +5,26 @@
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r7 — round-6 fold (codex NOT READY 1; grok NOT READY 1 — the two
+findings are two halves of one seam: the r6 session-poison and check-order rewrites were not
+wired into the numbered pipeline). Adopted: a **rotation gate** sits after check 1 and before
+any table lookup — a rotation-required session answers the rotation-required diagnostic on
+the update channel's direct response and stops (pending→busy, terminal replay,
+identity-conflict, and capacity apply only to non-poisoned sessions; a stranded pending row
+can never answer busy; the mark is set before recreation or processing resumes, survives v1
+recreate, clears only on `runId` rotation) (grok 1 + codex minor 1); **check-3 refusals gain
+replay semantics** — on a check-2 miss the update reserves its pending entry BEFORE currency
+validation, and every check-3 refusal terminalizes it before yielding, so an exact retry
+replays the refusal and a different-bytes re-mint conflicts; F9 is split into the check-1
+class (no entry) and the check-3 class (terminal entries) (codex 1). The cross-family
+conflict — grok's F9 minor wanted fresh currency refusals NOT recorded — is adjudicated for
+codex on Exact 0553.001's content-binding law (an updateId that refused on currency must not
+be silently reusable with different bytes); recorded here. Minors: post-quarantine answers
+get a §10 class row (keep-last-good occupancy of the poisoned session — a class-driven
+reload must never loop recreates) (grok 3); §5.3's "always returns the prior receipt" gains
+its quarantine exception (codex 2); "unauthenticated" → "unauthenticated or misaddressed"
+(codex 3); §6's "identity-field" leftover → "session/addressing" (grok 2); item 8's
+authority-admission pointer now names checks 1 and 3 (grok 4).)
 **Revised:** 2026-08-24 (r6 — round-5 fold. Grok r5: READY (its round-4 blocker and both codex
 round-4 items verified resolved; three minors, folded). Codex r5: NOT READY with two MATERIALs,
 both adopted: (1) the §5.2 check order is split so **live-currency fields (execution
@@ -447,14 +467,30 @@ attempts enter the §6 replay table — check-1 failures and other-id busy nacks
    NOT compared here**: they move with every commit, and comparing them before the table
    lookup would make a post-commit retransmit fail currency instead of returning its terminal
    receipt — the exact defect Exact 0553.001's duplicate-first order exists to prevent. A
-   failure here is unauthenticated and is **never** recorded in the replay table.
-2. **Duplicate/identity lookup** (§6 replay law) — a pending same-`updateId` entry answers
+   failure here is unauthenticated or misaddressed and is **never** recorded in the replay
+   table — the ONLY failure disposition with no entry.
+
+   **Rotation gate (after check 1, before any table lookup):** if the host-held session is
+   marked rotation-required (§6), the update channel's direct response answers the
+   rotation-required diagnostic and processing stops — pending→busy, terminal replay,
+   identity-conflict, and the capacity gate all apply only to a non-poisoned session, so a
+   stranded pending row can never answer busy on a poisoned one. The mark is set before
+   recreation or update processing resumes, survives v1 recreate (the table is host-held),
+   and clears only when `runId` rotation retires the table.
+
+2. **Duplicate/identity lookup** (§6 replay law; non-poisoned sessions only — the gate
+   above) — a pending same-`updateId` entry answers
    busy (the in-flight reservation, not a terminal outcome); an exact duplicate of a terminal
    entry returns the prior receipt idempotently and proceeds no further — **including a
    retransmit after the commit it names already published** (its currency fields name the old
    base; that is why this check precedes currency); a same-`updateId`/different-digest
    payload refuses `update-identity-conflict`.
-3. **Live currency:** the committed base-graph digest is verified against the live v2 digest,
+3. **Live currency, under a pending reservation:** on a check-2 miss (and past the rotation
+   and capacity gates), the update **reserves its `pending` entry before currency
+   validation**, and every check-3 refusal **terminalizes that entry before it is yielded** —
+   an exact retry replays the refusal idempotently; a re-mint of the same `updateId` with
+   different bytes conflicts (0553.001's content binding). Then: the committed base-graph
+   digest is verified against the live v2 digest,
    and `begin_revision(policy, origin, base, invalidated)` refuses `base ≠ live` ("hot update
    base is stale") **reporting the consumer's committed `(g, r)`**; refuses in production
    mode; re-validates authority; refuses an empty invalidation set (keep-last-good —
@@ -511,7 +547,8 @@ Then:
    **linear ownership of the activation token** (the token is *held*, not applied — the flip
    runs only at §5.3.4); then `commit(policy, txn)`. **All three commit-time comparisons —
    authority snapshot, transaction authority stamp, and the base coordinate — are TOCTOU
-   backstops:** ordinary authority admission already happened at check 3, and the armed
+   backstops:** ordinary authority admission already happened at checks 1 (the stamp, with
+   the session/addressing fields) and 3 (the begin-time policy re-validation), and the armed
    snapshot is immutable for the runtime's life, so under single-flight none of them can fail
    after `Begun`; if any does, that is an invariant violation and the runtime quarantines into
    recreate (§5.3), never an ordinary refusal. Then the §5.3 bundle.
@@ -526,7 +563,8 @@ which is **precomputed on the frozen candidate before the fence** and merely ins
 it, and the transaction's **terminal outcome record** (the §6 receipt content and its replay-
 table slot), which is **pre-reserved and constructed before the fence** so that finalizing it
 at step 7 is an infallible field write — a later exact duplicate can therefore always return
-the prior receipt (§6), whatever happens to transport. The bundle is a sequence of
+the prior receipt (§6), whatever happens to transport (the one exception is the quarantine
+fail-stop, where the rotation-required diagnostic answers instead — §6). The bundle is a sequence of
 infallible, prevalidated publication operations executed as one
 owner-thread critical section with **no app/user JavaScript interleaved**; if an invariant
 violation is nevertheless detected mid-bundle, the runtime **quarantines and recreates**
@@ -630,8 +668,11 @@ production commitment schema structurally rejects the keypair fields.
   runtime-recreate generation transitions and dies only with the session. Checked at §5.2
   check 2. Entry semantics, precisely:
   - **Only authenticated outcomes enter the table.** A §5.2 check-1 failure (signature or
-    identity-field) is never recorded — an unauthenticated attempt cannot poison a later
-    legitimate signed body carrying the same `updateId`.
+    session/addressing) is never recorded — an unauthenticated or misaddressed attempt
+    cannot poison a later legitimate signed body carrying the same `updateId`.
+    **Authenticated currency refusals DO record:** a check-3 refusal terminalizes its
+    reserved pending entry before yielding (§5.2), so its exact retry replays the refusal
+    and a different-bytes re-mint conflicts.
   - **An accepted-for-processing update reserves a `pending` entry** at `begin`; a duplicate
     arriving while it is pending answers **busy** without sealing anything (the §10 busy row's
     retry stays possible). Settlement — commit or any authenticated refusal of a *begun*
@@ -781,6 +822,7 @@ Every refusal this surface produces belongs to exactly one Exact 0417 §4.8 clas
 | throwing dispose (0417 rule 5) | `full-reload-current-authority` |
 | `HotRevision` overflow | `full-reload-current-authority` |
 | replay-table capacity (§6) | `keep-last-good` — an occupancy refusal for new `updateId`s carrying the session-rotation diagnostic; retired only by producer `runId` rotation, never by a reload |
+| any update arriving on a rotation-required session (§5.2's rotation gate) | `keep-last-good` — occupancy of the poisoned session; the recreated generation's last-good stands; retired only by producer `runId` rotation (no further generation transition — a class-driven reload must never loop recreates) |
 | ANY v2 ceiling breach — edge added/retargeted, candidate site added/changed, deferred bit flipped, bootstrap-internal set change | restart-family strings and the restart class's recovery — the host restart join — until Exact-owner ask 3 is taken (§4); in v1 that recovery is materially reload-recreate + no-op policy regeneration under unchanged authority; after the ask, same-authority widening moves to `full-reload-current-authority` |
 | authority drift (`SnapshotGenerations` / snapshot digest) | `regenerate-policy-and-restart-runtime` |
 | integrity-pinned package source change | `regenerate-policy-and-restart-runtime` |
@@ -848,11 +890,14 @@ Each is named so Exact 0417 H2's gate can cite green runs:
   transition (v1 recreate) produces module/cache/record state equivalent to a fresh boot of the
   same content (record-level equivalence; Exact owns the pixel-level half of the §4.8
   equivalence obligation), including a fresh same-authority ceiling derivation (§4).
-- **F9 — signature adversarial set:** cross-target, cross-entry, wrong-profile, cross-consumer
-  (boot identity), stale-generation, stale-revision, `target ≠ base+1`, tampered-body,
-  wrong-domain, `runId`-mismatch, authority-stamp-mismatch, and **base-graph-digest mismatch
-  after one committed revision** all refuse before staging **and none of them creates a replay
-  entry** (a later legitimate signed body with the same `updateId` begins normally); the
+- **F9 — signature adversarial set, split by disposition:** the **check-1 class** —
+  tampered-body, wrong-domain, `runId`-mismatch, authority-stamp-mismatch, cross-target,
+  cross-entry, wrong-profile, cross-consumer (boot identity) — refuses before staging and
+  creates **no replay entry** (a later legitimate signed body with the same `updateId` begins
+  normally); the **check-3 class** — stale-generation, stale-revision, `target ≠ base+1`, and
+  **base-graph-digest mismatch after one committed revision** — refuses under a pending
+  reservation and **terminalizes it** (the exact retry replays the refusal; a
+  different-bytes re-mint conflicts); the
   exact-duplicate replay returns the prior terminal outcome — commit and refused-attempt cases
   both, and the **post-commit retransmit** case explicitly (a fresh stale-base attempt refuses
   while a known duplicate whose currency fields name the old base returns its receipt); a
