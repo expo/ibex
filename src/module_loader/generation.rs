@@ -5,6 +5,7 @@
 //! promises, errors, or CommonJS exports from another generation.
 //! @ref LLP 0026#8-development-hmr-and-invalidation
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, bail, Result};
@@ -12,10 +13,11 @@ use capsec_semantics::arming::SnapshotGenerations;
 use capsec_semantics::model::{Digest, Principal};
 
 use super::artifact::{
-    digest_bytes, ExportDescriptorV1, ModuleArtifactV1, SourceGoalV1, VerifiedModuleArtifactV1,
+    digest_bytes, DynamicEdgeV1, ExportDescriptorV1, ModuleArtifactV1, SourceGoalV1, StaticEdgeV1,
+    VerifiedModuleArtifactV1,
 };
 use super::graph::{GraphEdgeKey, SynchronousGraphPlan};
-use super::identity::SourceId;
+use super::identity::{ResolutionKind, SourceId};
 use super::security::GraphImportPolicy;
 
 pub const GENERATION_GRAPH_DIGEST_DOMAIN_V1: &str = "ibex/module-generation-graph/1";
@@ -26,6 +28,13 @@ pub struct ExecutionGeneration(u64);
 
 impl ExecutionGeneration {
     pub const INITIAL: Self = Self(1);
+
+    pub fn new(value: u64) -> Result<Self> {
+        if value == 0 {
+            bail!("module execution generation must be nonzero");
+        }
+        Ok(Self(value))
+    }
 
     pub fn get(self) -> u64 {
         self.0
@@ -101,6 +110,17 @@ pub struct GenerationPublicationToken {
     source_id: SourceId,
     install_revision: HotRevision,
     semantic_digest: Digest,
+}
+
+/// Transaction-local publication authority. It is intentionally a distinct
+/// type from [`GenerationPublicationToken`], so a shadow completion cannot be
+/// supplied to the live [`ModuleExecutionGenerationsV2::publish`] path.
+#[derive(Debug, Clone)]
+pub struct ShadowPublicationToken {
+    source_id: SourceId,
+    install_revision: HotRevision,
+    semantic_digest: Digest,
+    transaction_nonce: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,8 +221,8 @@ pub struct CandidateSitePinV1 {
     pub attributes_digest: Digest,
 }
 
-/// One authenticated V2 graph row. Construction checks the record-local
-/// deferred predicates before the row can enter either a graph or transaction.
+/// One authenticated V2 graph row. Construction authenticates every typed row
+/// against the verified artifact before it can enter a graph or transaction.
 // @ref LLP 0055#4-the-typed-authenticated-graph-obligation-4 — edge identity includes
 // resolution kind and the digest covers candidate/deferred/bootstrap facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,7 +252,7 @@ impl GenerationRecordV2 {
             deferred_commonjs_require,
             bootstrap_internal_commonjs,
         };
-        record.validate_deferred_membership()?;
+        record.validate_typed_metadata_agreement()?;
         Ok(record)
     }
 
@@ -244,19 +264,76 @@ impl GenerationRecordV2 {
         &self.artifact.semantics.source_id.0
     }
 
-    fn validate_deferred_membership(&self) -> Result<()> {
-        use super::identity::ResolutionKind;
+    fn validate_typed_metadata_agreement(&self) -> Result<()> {
+        const DISAGREEMENT: &str = "hot update typed metadata disagrees with the verified artifact";
 
-        if self.deferred_dynamic.iter().any(|key| {
-            key.resolution_kind != ResolutionKind::DynamicImport || !self.bindings.contains_key(key)
-        }) {
-            bail!("deferred dynamic edges must be dynamic-import binding keys");
+        let mut declared_bindings = BTreeSet::new();
+        let mut declared_dynamic = BTreeSet::new();
+        let mut declared_commonjs_require = BTreeSet::new();
+        for edge in &self.artifact.semantics.static_edges {
+            let (specifier, resolution_kind) = match edge {
+                StaticEdgeV1::CommonJsRequire { specifier } => {
+                    (specifier.as_str(), ResolutionKind::CommonJsRequire)
+                }
+                StaticEdgeV1::SideEffect { specifier, .. }
+                | StaticEdgeV1::Default { specifier, .. }
+                | StaticEdgeV1::Namespace { specifier, .. }
+                | StaticEdgeV1::Named { specifier, .. }
+                | StaticEdgeV1::ReExportNamed { specifier, .. }
+                | StaticEdgeV1::ReExportStar { specifier, .. }
+                | StaticEdgeV1::ReExportNamespace { specifier, .. } => {
+                    (specifier.as_str(), ResolutionKind::EsmStatic)
+                }
+            };
+            let key = GraphEdgeKey::new(specifier, resolution_kind);
+            if resolution_kind == ResolutionKind::CommonJsRequire {
+                declared_commonjs_require.insert(key.clone());
+            }
+            declared_bindings.insert(key);
         }
-        if self.deferred_commonjs_require.iter().any(|key| {
-            key.resolution_kind != ResolutionKind::CommonJsRequire
-                || !self.bindings.contains_key(key)
-        }) {
-            bail!("deferred CommonJS require edges must be CommonJS-require binding keys");
+
+        let mut declared_computed_sites = BTreeSet::new();
+        for edge in &self.artifact.semantics.dynamic_edges {
+            match edge {
+                DynamicEdgeV1::Literal { specifier, .. } => {
+                    let key = GraphEdgeKey::new(specifier.as_str(), ResolutionKind::DynamicImport);
+                    declared_dynamic.insert(key.clone());
+                    declared_bindings.insert(key);
+                }
+                DynamicEdgeV1::Computed { site } => {
+                    declared_computed_sites.insert(u64::from(*site));
+                }
+            }
+        }
+
+        if self
+            .bindings
+            .keys()
+            .any(|key| !declared_bindings.contains(key))
+            || !self
+                .candidate_sites
+                .keys()
+                .copied()
+                .eq(declared_computed_sites.iter().copied())
+            || !self.deferred_dynamic.is_subset(&declared_dynamic)
+            || !self
+                .deferred_commonjs_require
+                .is_subset(&declared_commonjs_require)
+        {
+            bail!(DISAGREEMENT);
+        }
+
+        let declared_bootstrap_internal = if self.source_id().defining_principal().is_none() {
+            declared_commonjs_require
+                .iter()
+                .filter(|key| super::is_bootstrap_internal_module_specifier(&key.specifier))
+                .map(|key| key.specifier.clone())
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
+        if self.bootstrap_internal_commonjs != declared_bootstrap_internal {
+            bail!(DISAGREEMENT);
         }
         Ok(())
     }
@@ -317,7 +394,9 @@ impl AuthenticatedGenerationGraphV2 {
     fn from_records(records: impl IntoIterator<Item = GenerationRecordV2>) -> Result<Self> {
         let mut owned = BTreeMap::new();
         for record in records {
-            record.validate_deferred_membership()?;
+            // Clone-and-swap candidates must authenticate their stored typed
+            // rows again rather than trusting a prior construction site.
+            record.validate_typed_metadata_agreement()?;
             let source_id = record.source_id().clone();
             if owned.insert(source_id, record).is_some() {
                 bail!("module generation graph contains a duplicate SourceId");
@@ -417,6 +496,7 @@ fn graph_digest_v2(records: &BTreeMap<SourceId, GenerationRecordV2>) -> Result<D
 pub struct ImmutableGenerationAdmissionV2 {
     authority_digest: Digest,
     authority_generations: SnapshotGenerations,
+    members: BTreeSet<SourceId>,
     defining_principals: BTreeMap<SourceId, Principal>,
     pinned_integrities: BTreeMap<SourceId, Digest>,
     authorized_edges: BTreeSet<(SourceId, GraphEdgeKey, SourceId)>,
@@ -431,6 +511,7 @@ impl ImmutableGenerationAdmissionV2 {
         policy: &P,
         graph: &AuthenticatedGenerationGraphV2,
     ) -> Result<Self> {
+        let mut members = BTreeSet::new();
         let mut defining_principals = BTreeMap::new();
         let mut pinned_integrities = BTreeMap::new();
         let mut authorized_edges = BTreeSet::new();
@@ -440,17 +521,24 @@ impl ImmutableGenerationAdmissionV2 {
         let mut bootstrap_internal_commonjs = BTreeMap::new();
 
         for (source_id, record) in &graph.records {
-            let principal = source_id
-                .defining_principal()
-                .ok_or_else(|| anyhow!("HMR requires a SourceId with a defining principal"))?
-                .clone();
-            if !matches!(principal, Principal::Root { .. }) {
-                pinned_integrities.insert(
-                    source_id.clone(),
-                    record.artifact.semantics.source_integrity.clone(),
-                );
+            members.insert(source_id.clone());
+            match source_id.defining_principal() {
+                Some(principal) => {
+                    if !matches!(principal, Principal::Root { .. }) {
+                        pinned_integrities.insert(
+                            source_id.clone(),
+                            record.artifact.semantics.source_integrity.clone(),
+                        );
+                    }
+                    defining_principals.insert(source_id.clone(), principal.clone());
+                }
+                None => {
+                    pinned_integrities.insert(
+                        source_id.clone(),
+                        record.artifact.semantics.source_integrity.clone(),
+                    );
+                }
             }
-            defining_principals.insert(source_id.clone(), principal);
             for (key, target) in &record.bindings {
                 authorized_edges.insert((source_id.clone(), key.clone(), target.clone()));
             }
@@ -469,6 +557,7 @@ impl ImmutableGenerationAdmissionV2 {
         Ok(Self {
             authority_digest: policy.snapshot_digest().clone(),
             authority_generations: policy.snapshot_generations(),
+            members,
             defining_principals,
             pinned_integrities,
             authorized_edges,
@@ -489,20 +578,24 @@ impl ImmutableGenerationAdmissionV2 {
     }
 
     fn validate_graph(&self, graph: &AuthenticatedGenerationGraphV2) -> Result<()> {
-        if !graph.records.keys().eq(self.defining_principals.keys()) {
+        if !graph.records.keys().eq(self.members.iter()) {
             bail!("HMR graph membership changed; regenerate policy and restart the runtime");
         }
 
+        let mut candidate_edges = BTreeSet::new();
         let mut candidate_sites = BTreeMap::new();
         let mut deferred_dynamic = BTreeMap::new();
         let mut deferred_commonjs_require = BTreeMap::new();
         let mut bootstrap_internal_commonjs = BTreeMap::new();
 
         for (source_id, record) in &graph.records {
-            let expected_principal = self.defining_principals.get(source_id).ok_or_else(|| {
-                anyhow!("HMR graph widened; regenerate policy and restart the runtime")
-            })?;
-            if source_id.defining_principal() != Some(expected_principal) {
+            if let Some(expected_principal) = self.defining_principals.get(source_id) {
+                if source_id.defining_principal() != Some(expected_principal) {
+                    bail!(
+                        "HMR changed a module defining principal; regenerate policy and restart the runtime"
+                    );
+                }
+            } else if source_id.defining_principal().is_some() {
                 bail!(
                     "HMR changed a module defining principal; regenerate policy and restart the runtime"
                 );
@@ -513,13 +606,7 @@ impl ImmutableGenerationAdmissionV2 {
                 }
             }
             for (key, target) in &record.bindings {
-                if !self.authorized_edges.contains(&(
-                    source_id.clone(),
-                    key.clone(),
-                    target.clone(),
-                )) {
-                    bail!("HMR graph edge widened; regenerate policy and restart the runtime");
-                }
+                candidate_edges.insert((source_id.clone(), key.clone(), target.clone()));
             }
             for (ordinal, pin) in &record.candidate_sites {
                 candidate_sites.insert((source_id.clone(), *ordinal), pin.clone());
@@ -533,6 +620,9 @@ impl ImmutableGenerationAdmissionV2 {
             );
         }
 
+        if candidate_edges != self.authorized_edges {
+            bail!("HMR graph edge widened; regenerate policy and restart the runtime");
+        }
         if candidate_sites != self.candidate_sites {
             bail!("HMR candidate site changed; regenerate policy and restart the runtime");
         }
@@ -887,16 +977,18 @@ struct PublishedHotRevisionV1 {
 }
 
 /// Development graph owner for intra-generation replacement transactions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ModuleExecutionGenerationsV2 {
     mode: GenerationMode,
     admission: ImmutableGenerationAdmissionV2,
     current: PublishedHotRevisionV1,
+    next_transaction_nonce: Cell<u64>,
 }
 
 impl ModuleExecutionGenerationsV2 {
     pub fn new<P: GraphImportPolicy>(
         mode: GenerationMode,
+        generation: ExecutionGeneration,
         policy: &P,
         initial: AuthenticatedGenerationGraphV2,
     ) -> Result<Self> {
@@ -912,11 +1004,12 @@ impl ModuleExecutionGenerationsV2 {
             mode,
             admission,
             current: PublishedHotRevisionV1 {
-                generation: ExecutionGeneration::INITIAL,
+                generation,
                 revision: HotRevision::BOOT,
                 graph: initial,
                 install_revisions,
             },
+            next_transaction_nonce: Cell::new(1),
         })
     }
 
@@ -1000,10 +1093,7 @@ impl ModuleExecutionGenerationsV2 {
         self.admission.validate_authority(policy)?;
         // @ref LLP 0055#5.2 — check 3 requires the supplied base to equal the live
         // committed coordinates.
-        if base.0 != self.current.generation {
-            bail!("HMR revision base generation does not match the live execution generation");
-        }
-        if base.1 != self.current.revision {
+        if base.0 != self.current.generation || base.1 != self.current.revision {
             bail!(
                 "hot update base is stale; committed coordinates are generation {} revision {}",
                 self.current.generation.get(),
@@ -1019,14 +1109,28 @@ impl ModuleExecutionGenerationsV2 {
             .iter()
             .any(|source_id| !self.current.graph.records.contains_key(source_id))
         {
-            bail!("HMR invalidation widened the authenticated source graph");
+            bail!("HMR invalidation widened the authenticated source graph; full reload required");
         }
+        if invalidated
+            .iter()
+            .any(|source_id| source_id.defining_principal().is_none())
+        {
+            bail!(
+                "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
+            );
+        }
+        let transaction_nonce = self.next_transaction_nonce.get();
+        let next_transaction_nonce = transaction_nonce
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("hot revision transaction nonce space is exhausted"))?;
+        self.next_transaction_nonce.set(next_transaction_nonce);
         Ok(HotRevisionTransactionV1 {
             origin,
             base_generation: base.0,
             base_revision: base.1,
             authority_digest: self.admission.authority_digest.clone(),
             authority_generations: self.admission.authority_generations,
+            transaction_nonce,
             invalidated,
             replacements: None,
             shadow_publications: Vec::new(),
@@ -1070,7 +1174,6 @@ impl ModuleExecutionGenerationsV2 {
         }
         let candidate_graph =
             AuthenticatedGenerationGraphV2::from_records(candidate_records.into_values())?;
-        self.admission.validate_graph(&candidate_graph)?;
 
         let changed = changed_sources_v2(&self.current.graph, &candidate_graph);
         if changed
@@ -1103,27 +1206,44 @@ impl ModuleExecutionGenerationsV2 {
             let replacement = replacements.get(source_id).ok_or_else(|| {
                 anyhow!("hot revision transaction is missing an invalidated replacement")
             })?;
-            if export_descriptor_set(&current.artifact.semantics.export_descriptors)?
-                != export_descriptor_set(&replacement.artifact.semantics.export_descriptors)?
-            {
+            if export_shape(&current.artifact)? != export_shape(&replacement.artifact)? {
                 bail!("hot revision changed the module export shape; full reload required");
             }
         }
 
         // @ref LLP 0055#23-stable-logical-slots-every-cross-module-use-resolves-through-the-slot
         // — v1 cannot safely retain a CommonJS object across an invalidation boundary.
-        for (source_id, replacement) in &replacements {
-            if replacement.artifact.semantics.source_goal == SourceGoalV1::CommonJs
-                && candidate_graph.records.iter().any(|(requester, record)| {
-                    !transaction.invalidated.contains(requester)
-                        && record.bindings.values().any(|target| target == source_id)
-                })
-            {
+        for source_id in &transaction.invalidated {
+            let current_is_commonjs = self
+                .current
+                .graph
+                .record(source_id)?
+                .artifact
+                .semantics
+                .source_goal
+                == SourceGoalV1::CommonJs;
+            let replacement_is_commonjs = replacements.get(source_id).is_some_and(|record| {
+                record.artifact.semantics.source_goal == SourceGoalV1::CommonJs
+            });
+            let crosses_boundary = candidate_graph.records.iter().any(|(requester, record)| {
+                !transaction.invalidated.contains(requester)
+                    && record.bindings.iter().any(|(key, target)| {
+                        target == source_id
+                            && (key.resolution_kind == ResolutionKind::CommonJsRequire
+                                || current_is_commonjs
+                                || replacement_is_commonjs)
+                    })
+            });
+            if crosses_boundary {
                 bail!(
                     "hot revision boundary is consumed across the closure through CommonJS; full reload required"
                 );
             }
         }
+
+        // @ref LLP 0055#5.2
+        // — specific preflight refusals precede the ceiling backstop.
+        self.admission.validate_graph(&candidate_graph)?;
 
         let mut install_revisions = self.current.install_revisions.clone();
         for source_id in &transaction.invalidated {
@@ -1184,6 +1304,18 @@ fn export_descriptor_set(descriptors: &[ExportDescriptorV1]) -> Result<BTreeSet<
         .collect()
 }
 
+fn export_shape(artifact: &ModuleArtifactV1) -> Result<(SourceGoalV1, BTreeSet<Vec<u8>>, Vec<u8>)> {
+    let commonjs_exports = capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(
+        &artifact.semantics.commonjs_exports,
+    )?)
+    .map_err(|error| anyhow!("cannot canonicalize CommonJS export shape: {error}"))?;
+    Ok((
+        artifact.semantics.source_goal,
+        export_descriptor_set(&artifact.semantics.export_descriptors)?,
+        commonjs_exports,
+    ))
+}
+
 #[derive(Debug)]
 pub struct HotRevisionTransactionV1 {
     origin: HmrOrigin,
@@ -1191,6 +1323,7 @@ pub struct HotRevisionTransactionV1 {
     base_revision: HotRevision,
     authority_digest: Digest,
     authority_generations: SnapshotGenerations,
+    transaction_nonce: u64,
     invalidated: BTreeSet<SourceId>,
     replacements: Option<BTreeMap<SourceId, GenerationRecordV2>>,
     shadow_publications: Vec<GenerationPublicationReceipt>,
@@ -1210,7 +1343,7 @@ impl HotRevisionTransactionV1 {
         }
         let mut replacements = BTreeMap::new();
         for record in records {
-            record.validate_deferred_membership()?;
+            record.validate_typed_metadata_agreement()?;
             let source_id = record.source_id().clone();
             if replacements.insert(source_id, record).is_some() {
                 bail!("hot revision transaction repeats a replacement SourceId");
@@ -1222,10 +1355,7 @@ impl HotRevisionTransactionV1 {
 
     // @ref LLP 0055#22-per-slot-incarnation-predicate-exact-0417-h1-entry-obligation-1 —
     // staged completions are transaction-local and use the candidate install revision.
-    pub fn shadow_publication_token(
-        &self,
-        source_id: &SourceId,
-    ) -> Result<GenerationPublicationToken> {
+    pub fn shadow_publication_token(&self, source_id: &SourceId) -> Result<ShadowPublicationToken> {
         if !self.invalidated.contains(source_id) {
             bail!("shadow publication source is outside the invalidation set");
         }
@@ -1234,21 +1364,21 @@ impl HotRevisionTransactionV1 {
             .as_ref()
             .and_then(|records| records.get(source_id))
             .ok_or_else(|| anyhow!("shadow publication source has no staged replacement"))?;
-        Ok(GenerationPublicationToken {
-            generation: self.base_generation,
+        Ok(ShadowPublicationToken {
             source_id: source_id.clone(),
             install_revision: self.candidate_revision()?,
             semantic_digest: record.artifact.semantic_digest.clone(),
+            transaction_nonce: self.transaction_nonce,
         })
     }
 
     pub fn shadow_publish(
         &mut self,
-        token: &GenerationPublicationToken,
+        token: &ShadowPublicationToken,
         kind: GenerationPublicationKind,
     ) -> Result<GenerationPublicationReceipt> {
-        if token.generation != self.base_generation {
-            bail!("shadow publication belongs to another execution generation");
+        if token.transaction_nonce != self.transaction_nonce {
+            bail!("shadow publication token belongs to another hot revision transaction");
         }
         if token.install_revision != self.candidate_revision()? {
             bail!("stale shadow module-revision completion cannot publish");
@@ -1267,7 +1397,7 @@ impl HotRevisionTransactionV1 {
         let receipt = GenerationPublicationReceipt {
             incarnation: ModuleIncarnationKey {
                 source_id: token.source_id.clone(),
-                generation: token.generation,
+                generation: self.base_generation,
                 install_revision: token.install_revision,
             },
             kind,

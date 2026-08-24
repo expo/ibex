@@ -1,10 +1,11 @@
 use super::*;
 use crate::module_loader::artifact::{
-    source_integrity, ArtifactAdmissionV1, CanonicalSourceId, CommonJsExportsV1,
-    ExportDescriptorV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1,
-    SourceMapV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+    source_integrity, ArtifactAdmissionV1, CanonicalSourceId, CommonJsExportsV1, DynamicEdgeV1,
+    ExportDescriptorV1, ModulePayloadV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1,
+    SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
+    MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
 };
-use crate::module_loader::identity::{ResolutionKind, SourceId};
+use crate::module_loader::identity::{ImportAttributes, ResolutionKind, SourceId};
 use capsec_semantics::model::{NonEmptyString, PathComponent, SafeUint};
 
 #[derive(Clone)]
@@ -47,6 +48,10 @@ fn policy(label: &str) -> Policy {
             handle: SafeUint::new(1).unwrap(),
         },
     }
+}
+
+fn execution_generation() -> ExecutionGeneration {
+    ExecutionGeneration::new(41).unwrap()
 }
 
 fn root() -> Principal {
@@ -92,12 +97,13 @@ fn artifact_with_shape(
             local: NonEmptyString::new(*local).unwrap(),
         })
         .collect();
-    let commonjs_exports = (source_goal == SourceGoalV1::CommonJs).then(|| CommonJsExportsV1 {
-        detector: NonEmptyString::new("detector").unwrap(),
-        detector_version: NonEmptyString::new("1").unwrap(),
-        names: vec![NonEmptyString::new("value").unwrap()],
-        reexports: Vec::new(),
-    });
+    let commonjs_exports = matches!(source_goal, SourceGoalV1::CommonJs | SourceGoalV1::Builtin)
+        .then(|| CommonJsExportsV1 {
+            detector: NonEmptyString::new("detector").unwrap(),
+            detector_version: NonEmptyString::new("1").unwrap(),
+            names: vec![NonEmptyString::new("value").unwrap()],
+            reexports: Vec::new(),
+        });
     ModuleArtifactV1::new_inline(
         ModuleSemanticsV1 {
             source_id: CanonicalSourceId(source_id.clone()),
@@ -141,6 +147,29 @@ fn artifact_with_shape(
 
 fn commonjs_artifact(source_id: SourceId, value: u32) -> ModuleArtifactV1 {
     artifact_with_shape(source_id, value, SourceGoalV1::CommonJs, &[])
+}
+
+fn rebuild_inline_artifact(
+    artifact: &ModuleArtifactV1,
+    semantics: ModuleSemanticsV1,
+) -> ModuleArtifactV1 {
+    let factory_source = match &artifact.payload {
+        ModulePayloadV1::Inline { factory_source, .. } => factory_source.clone(),
+        ModulePayloadV1::Carrier { .. } => panic!("generation fixtures use inline artifacts"),
+    };
+    ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer.clone()).unwrap()
+}
+
+fn artifact_with_export_descriptors(
+    source_id: SourceId,
+    value: u32,
+    source_goal: SourceGoalV1,
+    export_descriptors: Vec<ExportDescriptorV1>,
+) -> ModuleArtifactV1 {
+    let artifact = artifact_with_shape(source_id, value, source_goal, &[]);
+    let mut semantics = artifact.semantics.clone();
+    semantics.export_descriptors = export_descriptors;
+    rebuild_inline_artifact(&artifact, semantics)
 }
 
 fn verified(artifact: &ModuleArtifactV1) -> VerifiedModuleArtifactV1<'_> {
@@ -192,10 +221,67 @@ fn self_facts(source_id: &SourceId) -> TypedFacts {
     facts([(edge("./self", ResolutionKind::EsmStatic), source_id.clone())])
 }
 
+fn commonjs_self_facts(source_id: &SourceId) -> TypedFacts {
+    facts([(
+        edge("./self", ResolutionKind::CommonJsRequire),
+        source_id.clone(),
+    )])
+}
+
+fn artifact_with_typed_facts(artifact: &ModuleArtifactV1, facts: &TypedFacts) -> ModuleArtifactV1 {
+    let mut semantics = artifact.semantics.clone();
+    semantics.static_edges.clear();
+    semantics.dynamic_edges.clear();
+    for key in facts.bindings.keys() {
+        match key.resolution_kind {
+            ResolutionKind::EsmStatic => {
+                semantics.static_edges.push(StaticEdgeV1::SideEffect {
+                    specifier: NonEmptyString::new(key.specifier.clone()).unwrap(),
+                    attributes: ImportAttributes::default(),
+                });
+            }
+            ResolutionKind::DynamicImport => {
+                semantics.dynamic_edges.push(DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new(key.specifier.clone()).unwrap(),
+                    attributes: ImportAttributes::default(),
+                });
+            }
+            ResolutionKind::CommonJsRequire => {
+                semantics.static_edges.push(StaticEdgeV1::CommonJsRequire {
+                    specifier: NonEmptyString::new(key.specifier.clone()).unwrap(),
+                });
+            }
+            ResolutionKind::Entry => {}
+        }
+    }
+    for site in facts.candidate_sites.keys() {
+        semantics.dynamic_edges.push(DynamicEdgeV1::Computed {
+            site: u32::try_from(*site).unwrap(),
+        });
+    }
+    for specifier in &facts.bootstrap_internal_commonjs {
+        if !semantics.static_edges.iter().any(|edge| {
+            matches!(edge, StaticEdgeV1::CommonJsRequire { specifier: declared }
+                if declared.as_str() == specifier)
+        }) {
+            semantics.static_edges.push(StaticEdgeV1::CommonJsRequire {
+                specifier: NonEmptyString::new(specifier.clone()).unwrap(),
+            });
+        }
+    }
+    semantics.static_edges.sort_by_key(|edge| {
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(edge).unwrap()).unwrap()
+    });
+    semantics.dynamic_edges.sort_by_key(|edge| {
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(edge).unwrap()).unwrap()
+    });
+    rebuild_inline_artifact(artifact, semantics)
+}
+
 fn typed_record(artifact: &ModuleArtifactV1, facts: TypedFacts) -> GenerationRecordV2 {
-    assert!(!facts.bindings.is_empty());
+    let artifact = artifact_with_typed_facts(artifact, &facts);
     GenerationRecordV2::from_verified(
-        verified(artifact),
+        verified(&artifact),
         facts.bindings,
         facts.candidate_sites,
         facts.deferred_dynamic,
@@ -209,8 +295,11 @@ fn typed_graph(
     rows: impl IntoIterator<Item = (ModuleArtifactV1, TypedFacts)>,
 ) -> AuthenticatedGenerationGraphV2 {
     let rows: Vec<_> = rows.into_iter().collect();
-    assert!(rows.iter().all(|(_, facts)| !facts.bindings.is_empty()));
-    AuthenticatedGenerationGraphV2::from_verified(rows.iter().map(|(artifact, facts)| {
+    let declared = rows
+        .iter()
+        .map(|(artifact, facts)| (artifact_with_typed_facts(artifact, facts), facts))
+        .collect::<Vec<_>>();
+    AuthenticatedGenerationGraphV2::from_verified(declared.iter().map(|(artifact, facts)| {
         (
             verified(artifact),
             facts.bindings.clone(),
@@ -433,6 +522,7 @@ fn f1_per_slot_publication_fences_only_the_replaced_incarnation() {
     let current_policy = policy("authority");
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(a_artifact, a_facts.clone()), (b_boot, b_facts.clone())]),
     )
@@ -480,6 +570,7 @@ fn f1_shadow_publications_are_transaction_local_and_drop_whole() {
     let current_policy = policy("authority");
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(a_artifact, a_facts), (b_boot, b_facts.clone())]),
     )
@@ -495,10 +586,10 @@ fn f1_shadow_publications_are_transaction_local_and_drop_whole() {
     );
     let shadow_b = transaction.shadow_publication_token(&b).unwrap();
     assert_eq!(shadow_b.install_revision.get(), 1);
-    transaction
-        .shadow_publish(&shadow_b, GenerationPublicationKind::TopLevelAwait)
-        .unwrap();
-    assert_eq!(transaction.shadow_publication_count(), 1);
+    for kind in publication_kinds() {
+        transaction.shadow_publish(&shadow_b, kind).unwrap();
+    }
+    assert_eq!(transaction.shadow_publication_count(), 6);
     assert!(transaction.shadow_publication_token(&a).is_err());
     assert!(generations
         .publish(&live_b, GenerationPublicationKind::Evaluation)
@@ -517,14 +608,25 @@ fn f1_shadow_publications_are_transaction_local_and_drop_whole() {
         [b.clone()],
         [typed_record(&b_revision, self_facts(&b))],
     );
+    assert_ne!(shadow_b.transaction_nonce, committed.transaction_nonce);
+    assert_eq!(live_b.install_revision, HotRevision::BOOT);
+    assert_ne!(live_b.install_revision, shadow_b.install_revision);
+    assert_eq!(
+        committed
+            .shadow_publish(&shadow_b, GenerationPublicationKind::Evaluation)
+            .unwrap_err()
+            .to_string(),
+        "shadow publication token belongs to another hot revision transaction"
+    );
     let committed_token = committed.shadow_publication_token(&b).unwrap();
-    let shadow_receipt = committed
-        .shadow_publish(&committed_token, GenerationPublicationKind::DynamicImport)
-        .unwrap();
+    let shadow_receipts = publication_kinds()
+        .into_iter()
+        .map(|kind| committed.shadow_publish(&committed_token, kind).unwrap())
+        .collect::<Vec<_>>();
     let commit = generations
         .commit_revision(&current_policy, committed)
         .unwrap();
-    assert_eq!(commit.shadow_publications, [shadow_receipt]);
+    assert_eq!(commit.shadow_publications, shadow_receipts);
 }
 
 #[test]
@@ -537,6 +639,7 @@ fn f2_stale_begin_refuses_and_same_base_commit_has_one_winner() {
     let current_policy = policy("authority");
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(boot, row_facts.clone())]),
     )
@@ -561,7 +664,8 @@ fn f2_stale_begin_refuses_and_same_base_commit_has_one_winner() {
         .commit_revision(&current_policy, winner)
         .unwrap();
     let winner_state = live_snapshot(&generations);
-    let winner_digest = winner_artifact.semantic_digest.clone();
+    let winner_digest =
+        artifact_with_typed_facts(&winner_artifact, &self_facts(&source_id)).semantic_digest;
     assert_eq!(
         generations
             .current
@@ -588,7 +692,7 @@ fn f2_stale_begin_refuses_and_same_base_commit_has_one_winner() {
             .unwrap()
             .artifact
             .semantic_digest,
-        winner_artifact.semantic_digest
+        winner_digest
     );
 
     let stale_begin_state = live_snapshot(&generations);
@@ -596,21 +700,76 @@ fn f2_stale_begin_refuses_and_same_base_commit_has_one_winner() {
         .begin_revision(&current_policy, HmrOrigin::Exact, base, [source_id.clone()])
         .unwrap_err()
         .to_string();
-    assert!(stale_error.contains("committed coordinates are generation 1 revision 1"));
+    assert_eq!(
+        stale_error,
+        "hot update base is stale; committed coordinates are generation 41 revision 1"
+    );
     assert_eq!(live_snapshot(&generations), stale_begin_state);
 
     let generation_error = generations
         .begin_revision(
             &current_policy,
             HmrOrigin::Exact,
-            (ExecutionGeneration(2), HotRevision::at(1)),
+            (ExecutionGeneration::new(42).unwrap(), HotRevision::at(1)),
             [source_id.clone()],
         )
         .unwrap_err()
         .to_string();
     assert_eq!(
         generation_error,
-        "HMR revision base generation does not match the live execution generation"
+        "hot update base is stale; committed coordinates are generation 41 revision 1"
+    );
+    assert_eq!(live_snapshot(&generations), stale_begin_state);
+
+    assert_eq!(generations.current_generation().get(), 41);
+    assert_eq!(
+        ExecutionGeneration::new(0).unwrap_err().to_string(),
+        "module execution generation must be nonzero"
+    );
+    assert_eq!(
+        generations
+            .begin_revision(
+                &current_policy,
+                HmrOrigin::Exact,
+                (
+                    generations.current_generation(),
+                    generations.current_revision(),
+                ),
+                [],
+            )
+            .unwrap_err()
+            .to_string(),
+        "HMR update must invalidate at least one module"
+    );
+    assert_eq!(
+        generations
+            .begin_revision(
+                &current_policy,
+                HmrOrigin::Exact,
+                (
+                    generations.current_generation(),
+                    generations.current_revision(),
+                ),
+                [source(root(), "absent.mjs")],
+            )
+            .unwrap_err()
+            .to_string(),
+        "HMR invalidation widened the authenticated source graph; full reload required"
+    );
+    assert_eq!(
+        generations
+            .begin_revision(
+                &policy("begin-authority-drift"),
+                HmrOrigin::Exact,
+                (
+                    generations.current_generation(),
+                    generations.current_revision(),
+                ),
+                [source_id.clone()],
+            )
+            .unwrap_err()
+            .to_string(),
+        "HMR authority changed; regenerate policy and restart the runtime"
     );
     assert_eq!(live_snapshot(&generations), stale_begin_state);
 
@@ -662,6 +821,7 @@ fn no_op_replacement_refuses_without_requesting_full_reload() {
     let current_policy = policy("authority");
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(boot.clone(), row_facts.clone())]),
     )
@@ -695,6 +855,7 @@ fn f2_mixed_closure_advances_unchanged_importer_install_revision() {
     let current_policy = policy("authority");
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(a_boot.clone(), a_facts.clone()), (b_boot, b_facts.clone())]),
     )
@@ -735,6 +896,7 @@ fn f3_integrity_pinned_package_replacement_requires_restart() {
     let current_policy = policy("authority");
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(boot, row_facts.clone())]),
     )
@@ -746,11 +908,153 @@ fn f3_integrity_pinned_package_replacement_requires_restart() {
         [package_id],
         [typed_record(&replacement, row_facts)],
     );
+    let before = live_snapshot(&generations);
+    assert_eq!(
+        generations
+            .commit_revision(&current_policy, transaction)
+            .unwrap_err()
+            .to_string(),
+        "HMR changed integrity-pinned package/runtime source; restart required"
+    );
+    assert_eq!(live_snapshot(&generations), before);
+}
+
+#[test]
+fn typed_metadata_must_agree_with_the_verified_artifact_at_every_seam() {
+    const DISAGREEMENT: &str = "hot update typed metadata disagrees with the verified artifact";
+    let source_id = source(root(), "typed.mjs");
+    let boot = artifact(source_id.clone(), 1);
+    let replacement = artifact(source_id.clone(), 2);
+    let row_facts = self_facts(&source_id);
+
+    let undeclared = GenerationRecordV2::from_verified(
+        verified(&replacement),
+        row_facts.bindings.clone(),
+        BTreeMap::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+    );
+    assert_eq!(undeclared.unwrap_err().to_string(), DISAGREEMENT);
+
+    let current_policy = policy("authority");
+    let mut generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([(boot, row_facts.clone())]),
+    )
+    .unwrap();
+    let base = (
+        generations.current_generation(),
+        generations.current_revision(),
+    );
+
+    let mut stage_refusal = generations
+        .begin_revision(&current_policy, HmrOrigin::Exact, base, [source_id.clone()])
+        .unwrap();
+    let mut tampered = typed_record(&replacement, row_facts.clone());
+    tampered.bindings.insert(
+        edge("./undeclared", ResolutionKind::EsmStatic),
+        source_id.clone(),
+    );
+    assert_eq!(
+        stage_refusal
+            .stage_replacements([tampered])
+            .unwrap_err()
+            .to_string(),
+        DISAGREEMENT
+    );
+
+    let mut clone_and_swap = generations
+        .begin_revision(&current_policy, HmrOrigin::Exact, base, [source_id.clone()])
+        .unwrap();
+    clone_and_swap
+        .stage_replacements([typed_record(&replacement, row_facts)])
+        .unwrap();
+    clone_and_swap
+        .replacements
+        .as_mut()
+        .unwrap()
+        .get_mut(&source_id)
+        .unwrap()
+        .bindings
+        .insert(edge("./undeclared", ResolutionKind::EsmStatic), source_id);
+    assert_eq!(
+        generations
+            .commit_revision(&current_policy, clone_and_swap)
+            .unwrap_err()
+            .to_string(),
+        DISAGREEMENT
+    );
+}
+
+#[test]
+fn principal_less_members_admit_are_integrity_pinned_and_cannot_hot_reload() {
+    let root_source = source(root(), "entry.mjs");
+    let builtin_source = SourceId::builtin("ibex-runtime", "generation-member-test").unwrap();
+    let root_facts = facts([(
+        edge("ibex:member", ResolutionKind::EsmStatic),
+        builtin_source.clone(),
+    )]);
+    let mut builtin_facts = TypedFacts::default();
+    builtin_facts
+        .bootstrap_internal_commonjs
+        .insert("internal/test/binding".to_owned());
+    let builtin_artifact =
+        artifact_with_shape(builtin_source.clone(), 1, SourceGoalV1::Builtin, &[]);
+    let current_policy = policy("authority");
+    let generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([
+            (artifact(root_source, 1), root_facts),
+            (builtin_artifact, builtin_facts),
+        ]),
+    )
+    .unwrap();
     assert!(generations
-        .commit_revision(&current_policy, transaction)
+        .admission
+        .pinned_integrities
+        .contains_key(&builtin_source));
+    let before = live_snapshot(&generations);
+    assert_eq!(
+        generations
+            .begin_revision(
+                &current_policy,
+                HmrOrigin::Exact,
+                (
+                    generations.current_generation(),
+                    generations.current_revision(),
+                ),
+                [builtin_source],
+            )
+            .unwrap_err()
+            .to_string(),
+        "builtin/synthetic sources cannot hot-reload; regenerate policy and restart the runtime"
+    );
+    assert_eq!(live_snapshot(&generations), before);
+
+    let file_source = source(root(), "bootstrap.cjs");
+    let mut file_facts = commonjs_self_facts(&file_source);
+    file_facts
+        .bootstrap_internal_commonjs
+        .insert("internal/test/binding".to_owned());
+    let file_artifact = artifact_with_typed_facts(&commonjs_artifact(file_source, 1), &file_facts);
+    assert_eq!(
+        GenerationRecordV2::from_verified(
+            verified(&file_artifact),
+            file_facts.bindings,
+            file_facts.candidate_sites,
+            file_facts.deferred_dynamic,
+            file_facts.deferred_commonjs_require,
+            file_facts.bootstrap_internal_commonjs,
+        )
         .unwrap_err()
-        .to_string()
-        .contains("restart"));
+        .to_string(),
+        "hot update typed metadata disagrees with the verified artifact"
+    );
 }
 
 #[test]
@@ -792,10 +1096,14 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
     assert_ne!(static_graph.digest(), dynamic_graph.digest());
 
     let current_policy = policy("authority");
-    let mut generations =
-        ModuleExecutionGenerationsV2::new(GenerationMode::Development, &current_policy, both_graph)
-            .unwrap();
-    let widened = facts([(static_key.clone(), b), (dynamic_key.clone(), c)]);
+    let mut generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        both_graph,
+    )
+    .unwrap();
+    let widened = facts([(static_key.clone(), b.clone()), (dynamic_key.clone(), c)]);
     let transaction = begin_staged_revision(
         &generations,
         &current_policy,
@@ -803,11 +1111,31 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
         [a.clone()],
         [typed_record(&a_revision, widened)],
     );
-    assert!(generations
-        .commit_revision(&current_policy, transaction)
-        .unwrap_err()
-        .to_string()
-        .contains("restart"));
+    assert_eq!(
+        generations
+            .commit_revision(&current_policy, transaction)
+            .unwrap_err()
+            .to_string(),
+        "HMR graph edge widened; regenerate policy and restart the runtime"
+    );
+
+    let removed = begin_staged_revision(
+        &generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [a.clone()],
+        [typed_record(
+            &a_revision,
+            facts([(static_key.clone(), b.clone())]),
+        )],
+    );
+    assert_eq!(
+        generations
+            .commit_revision(&current_policy, removed)
+            .unwrap_err()
+            .to_string(),
+        "HMR graph edge widened; regenerate policy and restart the runtime"
+    );
 
     let site_source = source(root(), "site.mjs");
     let site_boot = artifact(site_source.clone(), 1);
@@ -820,9 +1148,20 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
             attributes_digest: digest("attributes-a"),
         },
     );
-    let site_graph = typed_graph([(site_boot, site_facts.clone())]);
-    let site_admission =
-        ImmutableGenerationAdmissionV2::from_initial(&current_policy, &site_graph).unwrap();
+    let site_graph = typed_graph([(site_boot.clone(), site_facts.clone())]);
+    let mut changed_pin = site_facts.clone();
+    changed_pin.candidate_sites.get_mut(&7).unwrap().digest = digest("site-b");
+    assert_ne!(
+        site_graph.digest(),
+        typed_graph([(site_boot.clone(), changed_pin)]).digest()
+    );
+    let mut site_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        site_graph,
+    )
+    .unwrap();
     for (candidate_digest, attributes_digest) in [
         (digest("site-b"), digest("attributes-a")),
         (digest("site-a"), digest("attributes-b")),
@@ -835,13 +1174,57 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
                 attributes_digest,
             },
         );
-        let candidate = typed_graph([(site_revision.clone(), changed)]);
-        assert!(site_admission
-            .validate_graph(&candidate)
-            .unwrap_err()
-            .to_string()
-            .contains("restart"));
+        let transaction = begin_staged_revision(
+            &site_generations,
+            &current_policy,
+            HmrOrigin::Exact,
+            [site_source.clone()],
+            [typed_record(&site_revision, changed)],
+        );
+        assert_eq!(
+            site_generations
+                .commit_revision(&current_policy, transaction)
+                .unwrap_err()
+                .to_string(),
+            "HMR candidate site changed; regenerate policy and restart the runtime"
+        );
     }
+    let removed_site = begin_staged_revision(
+        &site_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [site_source.clone()],
+        [typed_record(&site_revision, self_facts(&site_source))],
+    );
+    assert_eq!(
+        site_generations
+            .commit_revision(&current_policy, removed_site)
+            .unwrap_err()
+            .to_string(),
+        "HMR candidate site changed; regenerate policy and restart the runtime"
+    );
+
+    let mut added_site_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([(site_boot, self_facts(&site_source))]),
+    )
+    .unwrap();
+    let added_site = begin_staged_revision(
+        &added_site_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [site_source.clone()],
+        [typed_record(&site_revision, site_facts)],
+    );
+    assert_eq!(
+        added_site_generations
+            .commit_revision(&current_policy, added_site)
+            .unwrap_err()
+            .to_string(),
+        "HMR candidate site changed; regenerate policy and restart the runtime"
+    );
 
     let deferred_source = source(root(), "deferred.mjs");
     let deferred_boot = artifact(deferred_source.clone(), 1);
@@ -849,61 +1232,163 @@ fn f4_typed_digest_and_ceiling_cover_every_v2_shape_fact() {
     let deferred_key = edge("./later", ResolutionKind::DynamicImport);
     let mut deferred_facts = facts([(deferred_key.clone(), deferred_source.clone())]);
     deferred_facts.deferred_dynamic.insert(deferred_key.clone());
-    let deferred_graph = typed_graph([(deferred_boot, deferred_facts)]);
-    let deferred_admission =
-        ImmutableGenerationAdmissionV2::from_initial(&current_policy, &deferred_graph).unwrap();
     let eager = facts([(deferred_key.clone(), deferred_source.clone())]);
-    assert!(deferred_admission
-        .validate_graph(&typed_graph([(deferred_revision, eager)]))
-        .unwrap_err()
-        .to_string()
-        .contains("restart"));
+    let deferred_graph = typed_graph([(deferred_boot.clone(), deferred_facts.clone())]);
+    assert_ne!(
+        deferred_graph.digest(),
+        typed_graph([(deferred_boot, eager.clone())]).digest()
+    );
+    let mut deferred_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        deferred_graph,
+    )
+    .unwrap();
+    let eager_transaction = begin_staged_revision(
+        &deferred_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [deferred_source.clone()],
+        [typed_record(&deferred_revision, eager)],
+    );
+    assert_eq!(
+        deferred_generations
+            .commit_revision(&current_policy, eager_transaction)
+            .unwrap_err()
+            .to_string(),
+        "HMR deferred membership changed; regenerate policy and restart the runtime"
+    );
 
+    let wrong_kind_artifact = artifact_with_typed_facts(
+        &artifact(deferred_source.clone(), 3),
+        &self_facts(&deferred_source),
+    );
     let invalid_deferred = GenerationRecordV2::from_verified(
-        verified(&artifact(deferred_source.clone(), 3)),
-        facts([(deferred_key, deferred_source.clone())]).bindings,
+        verified(&wrong_kind_artifact),
+        self_facts(&deferred_source).bindings,
         BTreeMap::new(),
-        [edge("./wrong-kind", ResolutionKind::EsmStatic)]
+        [edge("./self", ResolutionKind::EsmStatic)]
             .into_iter()
             .collect(),
         BTreeSet::new(),
         BTreeSet::new(),
     );
-    assert!(invalid_deferred.is_err());
+    assert_eq!(
+        invalid_deferred.unwrap_err().to_string(),
+        "hot update typed metadata disagrees with the verified artifact"
+    );
+
+    let deferred_cjs_source = source(root(), "deferred.cjs");
+    let deferred_cjs_boot = commonjs_artifact(deferred_cjs_source.clone(), 1);
+    let deferred_cjs_revision = commonjs_artifact(deferred_cjs_source.clone(), 2);
+    let deferred_cjs_key = edge("./self", ResolutionKind::CommonJsRequire);
+    let mut deferred_cjs_facts = commonjs_self_facts(&deferred_cjs_source);
+    deferred_cjs_facts
+        .deferred_commonjs_require
+        .insert(deferred_cjs_key);
+    let mut deferred_cjs_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([(deferred_cjs_boot, deferred_cjs_facts)]),
+    )
+    .unwrap();
+    let eager_cjs = begin_staged_revision(
+        &deferred_cjs_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [deferred_cjs_source.clone()],
+        [typed_record(
+            &deferred_cjs_revision,
+            commonjs_self_facts(&deferred_cjs_source),
+        )],
+    );
+    assert_eq!(
+        deferred_cjs_generations
+            .commit_revision(&current_policy, eager_cjs)
+            .unwrap_err()
+            .to_string(),
+        "HMR deferred membership changed; regenerate policy and restart the runtime"
+    );
 
     let absent_target = source(root(), "absent.mjs");
     let orphan = artifact(source(root(), "orphan.mjs"), 1);
-    assert!(AuthenticatedGenerationGraphV2::from_verified([(
-        verified(&orphan),
-        [(edge("./absent", ResolutionKind::EsmStatic), absent_target,)]
-            .into_iter()
-            .collect(),
-        BTreeMap::new(),
-        BTreeSet::new(),
-        BTreeSet::new(),
-        BTreeSet::new(),
-    )])
-    .is_err());
+    let orphan_facts = facts([(edge("./absent", ResolutionKind::EsmStatic), absent_target)]);
+    let declared_orphan = artifact_with_typed_facts(&orphan, &orphan_facts);
+    assert_eq!(
+        AuthenticatedGenerationGraphV2::from_verified([(
+            verified(&declared_orphan),
+            orphan_facts.bindings,
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )])
+        .unwrap_err()
+        .to_string(),
+        "typed module generation edge targets an absent SourceId"
+    );
 
-    let bootstrap_source = source(root(), "bootstrap.mjs");
-    let bootstrap_boot = artifact(bootstrap_source.clone(), 1);
-    let bootstrap_revision = artifact(bootstrap_source.clone(), 2);
-    let mut bootstrap_facts = self_facts(&bootstrap_source);
+    let bootstrap_source = SourceId::builtin("ibex-runtime", "generation-bootstrap-test").unwrap();
+    let bootstrap_boot =
+        artifact_with_shape(bootstrap_source.clone(), 1, SourceGoalV1::Builtin, &[]);
+    let bootstrap_revision = bootstrap_boot.clone();
+    let mut bootstrap_facts = TypedFacts::default();
     bootstrap_facts
         .bootstrap_internal_commonjs
-        .insert("internal-a".to_owned());
-    let bootstrap_graph = typed_graph([(bootstrap_boot, bootstrap_facts)]);
-    let bootstrap_admission =
-        ImmutableGenerationAdmissionV2::from_initial(&current_policy, &bootstrap_graph).unwrap();
-    let mut changed_bootstrap = self_facts(&bootstrap_source);
+        .insert("internal/test/binding".to_owned());
+    let mut changed_bootstrap = TypedFacts::default();
     changed_bootstrap
         .bootstrap_internal_commonjs
-        .insert("internal-b".to_owned());
-    assert!(bootstrap_admission
-        .validate_graph(&typed_graph([(bootstrap_revision, changed_bootstrap)]))
-        .unwrap_err()
-        .to_string()
-        .contains("restart"));
+        .insert("internal/util".to_owned());
+    assert_ne!(
+        typed_graph([(bootstrap_boot.clone(), bootstrap_facts.clone())]).digest(),
+        typed_graph([(bootstrap_revision.clone(), changed_bootstrap.clone())]).digest()
+    );
+
+    let root_source = source(root(), "bootstrap-root.mjs");
+    let root_boot = artifact(root_source.clone(), 1);
+    let root_facts = self_facts(&root_source);
+    let mut bootstrap_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([
+            (root_boot.clone(), root_facts.clone()),
+            (bootstrap_boot, bootstrap_facts),
+        ]),
+    )
+    .unwrap();
+    let mut bootstrap_change = bootstrap_generations
+        .begin_revision(
+            &current_policy,
+            HmrOrigin::Exact,
+            (
+                bootstrap_generations.current_generation(),
+                bootstrap_generations.current_revision(),
+            ),
+            [root_source.clone()],
+        )
+        .unwrap();
+    // The public begin path refuses builtin targets. Mutating the private test
+    // transaction exercises the clone-and-swap ceiling backstop directly.
+    bootstrap_change
+        .invalidated
+        .insert(bootstrap_source.clone());
+    bootstrap_change
+        .stage_replacements([
+            typed_record(&root_boot, root_facts),
+            typed_record(&bootstrap_revision, changed_bootstrap),
+        ])
+        .unwrap();
+    assert_eq!(
+        bootstrap_generations
+            .commit_revision(&current_policy, bootstrap_change)
+            .unwrap_err()
+            .to_string(),
+        "HMR bootstrap-internal CommonJS set changed; regenerate policy and restart the runtime"
+    );
 }
 
 #[test]
@@ -912,7 +1397,7 @@ fn f6_export_shape_changes_refuse_but_factory_only_replacement_commits() {
     let current_policy = policy("authority");
     let boot = artifact(source_id.clone(), 1);
     let row_facts = self_facts(&source_id);
-    let changed_shapes = [
+    let changed_shapes = vec![
         artifact_with_shape(
             source_id.clone(),
             2,
@@ -926,10 +1411,29 @@ fn f6_export_shape_changes_refuse_but_factory_only_replacement_commits() {
             SourceGoalV1::Module,
             &[("renamed", "value")],
         ),
+        artifact_with_export_descriptors(
+            source_id.clone(),
+            2,
+            SourceGoalV1::Module,
+            vec![ExportDescriptorV1::Indirect {
+                exported: NonEmptyString::new("value").unwrap(),
+                specifier: NonEmptyString::new("./dep").unwrap(),
+                imported: NonEmptyString::new("value").unwrap(),
+            }],
+        ),
+        artifact_with_export_descriptors(
+            source_id.clone(),
+            2,
+            SourceGoalV1::Module,
+            vec![ExportDescriptorV1::Star {
+                specifier: NonEmptyString::new("./dep").unwrap(),
+            }],
+        ),
     ];
     for replacement in changed_shapes {
         let mut generations = ModuleExecutionGenerationsV2::new(
             GenerationMode::Development,
+            execution_generation(),
             &current_policy,
             typed_graph([(boot.clone(), row_facts.clone())]),
         )
@@ -941,6 +1445,7 @@ fn f6_export_shape_changes_refuse_but_factory_only_replacement_commits() {
             [source_id.clone()],
             [typed_record(&replacement, row_facts.clone())],
         );
+        let before = live_snapshot(&generations);
         assert_eq!(
             generations
                 .commit_revision(&current_policy, transaction)
@@ -948,11 +1453,83 @@ fn f6_export_shape_changes_refuse_but_factory_only_replacement_commits() {
                 .to_string(),
             "hot revision changed the module export shape; full reload required"
         );
+        assert_eq!(live_snapshot(&generations), before);
     }
+
+    for (boot, boot_facts, replacement, replacement_facts) in [
+        (
+            artifact_with_shape(source_id.clone(), 1, SourceGoalV1::Module, &[]),
+            self_facts(&source_id),
+            commonjs_artifact(source_id.clone(), 2),
+            commonjs_self_facts(&source_id),
+        ),
+        (
+            commonjs_artifact(source_id.clone(), 1),
+            commonjs_self_facts(&source_id),
+            artifact_with_shape(source_id.clone(), 2, SourceGoalV1::Module, &[]),
+            self_facts(&source_id),
+        ),
+    ] {
+        let mut generations = ModuleExecutionGenerationsV2::new(
+            GenerationMode::Development,
+            execution_generation(),
+            &current_policy,
+            typed_graph([(boot, boot_facts)]),
+        )
+        .unwrap();
+        let transaction = begin_staged_revision(
+            &generations,
+            &current_policy,
+            HmrOrigin::Exact,
+            [source_id.clone()],
+            [typed_record(&replacement, replacement_facts)],
+        );
+        let before = live_snapshot(&generations);
+        assert_eq!(
+            generations
+                .commit_revision(&current_policy, transaction)
+                .unwrap_err()
+                .to_string(),
+            "hot revision changed the module export shape; full reload required"
+        );
+        assert_eq!(live_snapshot(&generations), before);
+    }
+
+    let cjs_boot = commonjs_artifact(source_id.clone(), 1);
+    let cjs_replacement_base = commonjs_artifact(source_id.clone(), 2);
+    let mut cjs_semantics = cjs_replacement_base.semantics.clone();
+    cjs_semantics.commonjs_exports.as_mut().unwrap().names = vec![
+        NonEmptyString::new("extra").unwrap(),
+        NonEmptyString::new("value").unwrap(),
+    ];
+    let cjs_replacement = rebuild_inline_artifact(&cjs_replacement_base, cjs_semantics);
+    let cjs_facts = commonjs_self_facts(&source_id);
+    let mut cjs_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([(cjs_boot, cjs_facts.clone())]),
+    )
+    .unwrap();
+    let cjs_shape_change = begin_staged_revision(
+        &cjs_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [source_id.clone()],
+        [typed_record(&cjs_replacement, cjs_facts)],
+    );
+    assert_eq!(
+        cjs_generations
+            .commit_revision(&current_policy, cjs_shape_change)
+            .unwrap_err()
+            .to_string(),
+        "hot revision changed the module export shape; full reload required"
+    );
 
     let replacement = artifact(source_id.clone(), 9);
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([(boot, row_facts.clone())]),
     )
@@ -961,12 +1538,46 @@ fn f6_export_shape_changes_refuse_but_factory_only_replacement_commits() {
         &generations,
         &current_policy,
         HmrOrigin::Vite,
-        [source_id],
+        [source_id.clone()],
         [typed_record(&replacement, row_facts)],
     );
     assert_eq!(
         generations
             .commit_revision(&current_policy, transaction)
+            .unwrap()
+            .revision
+            .get(),
+        1
+    );
+
+    let duplicate_descriptor = ExportDescriptorV1::Local {
+        exported: NonEmptyString::new("value").unwrap(),
+        local: NonEmptyString::new("value").unwrap(),
+    };
+    let duplicate_replacement = artifact_with_export_descriptors(
+        source_id.clone(),
+        10,
+        SourceGoalV1::Module,
+        vec![duplicate_descriptor.clone(), duplicate_descriptor],
+    );
+    let duplicate_boot = artifact(source_id.clone(), 1);
+    let mut duplicate_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([(duplicate_boot, self_facts(&source_id))]),
+    )
+    .unwrap();
+    let duplicate_collapse = begin_staged_revision(
+        &duplicate_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [source_id.clone()],
+        [typed_record(&duplicate_replacement, self_facts(&source_id))],
+    );
+    assert_eq!(
+        duplicate_generations
+            .commit_revision(&current_policy, duplicate_collapse)
             .unwrap()
             .revision
             .get(),
@@ -989,6 +1600,7 @@ fn f7_ceiling_and_converse_refusals_leave_live_state_unchanged() {
     let c_facts = self_facts(&c);
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([
             (a_boot.clone(), a_facts.clone()),
@@ -1073,14 +1685,57 @@ fn f10_commonjs_cross_boundary_refuses_for_any_outside_edge_kind() {
     let consumer = source(root(), "consumer.mjs");
     let boundary = source(root(), "boundary.cjs");
     let current_policy = policy("authority");
+
+    // An outside CommonJS require snapshots even an ESM namespace boundary.
+    let consumer_boot = commonjs_artifact(consumer.clone(), 1);
+    let boundary_boot = artifact(boundary.clone(), 1);
+    let boundary_revision = artifact(boundary.clone(), 2);
+    let consumer_facts = facts([(
+        edge("./boundary", ResolutionKind::CommonJsRequire),
+        boundary.clone(),
+    )]);
+    let boundary_facts = self_facts(&boundary);
+    let mut esm_boundary = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([
+            (consumer_boot, consumer_facts),
+            (boundary_boot, boundary_facts.clone()),
+        ]),
+    )
+    .unwrap();
+    let transaction = begin_staged_revision(
+        &esm_boundary,
+        &current_policy,
+        HmrOrigin::Exact,
+        [boundary.clone()],
+        [typed_record(&boundary_revision, boundary_facts)],
+    );
+    let before = live_snapshot(&esm_boundary);
+    assert_eq!(
+        esm_boundary
+            .commit_revision(&current_policy, transaction)
+            .unwrap_err()
+            .to_string(),
+        "hot revision boundary is consumed across the closure through CommonJS; full reload required"
+    );
+    assert_eq!(live_snapshot(&esm_boundary), before);
+
+    // A CommonJS live/replacement row refuses every outside binding kind.
     for resolution_kind in [ResolutionKind::CommonJsRequire, ResolutionKind::EsmStatic] {
-        let consumer_boot = artifact(consumer.clone(), 1);
+        let consumer_boot = if resolution_kind == ResolutionKind::CommonJsRequire {
+            commonjs_artifact(consumer.clone(), 1)
+        } else {
+            artifact(consumer.clone(), 1)
+        };
         let boundary_boot = commonjs_artifact(boundary.clone(), 1);
         let boundary_revision = commonjs_artifact(boundary.clone(), 2);
         let consumer_facts = facts([(edge("./boundary", resolution_kind), boundary.clone())]);
-        let boundary_facts = self_facts(&boundary);
+        let boundary_facts = commonjs_self_facts(&boundary);
         let mut generations = ModuleExecutionGenerationsV2::new(
             GenerationMode::Development,
+            execution_generation(),
             &current_policy,
             typed_graph([
                 (consumer_boot, consumer_facts),
@@ -1095,6 +1750,7 @@ fn f10_commonjs_cross_boundary_refuses_for_any_outside_edge_kind() {
             [boundary.clone()],
             [typed_record(&boundary_revision, boundary_facts)],
         );
+        let before = live_snapshot(&generations);
         assert_eq!(
             generations
                 .commit_revision(&current_policy, transaction)
@@ -1102,19 +1758,21 @@ fn f10_commonjs_cross_boundary_refuses_for_any_outside_edge_kind() {
                 .to_string(),
             "hot revision boundary is consumed across the closure through CommonJS; full reload required"
         );
+        assert_eq!(live_snapshot(&generations), before);
     }
 
-    let consumer_boot = artifact(consumer.clone(), 1);
-    let consumer_revision = artifact(consumer.clone(), 2);
+    let consumer_boot = commonjs_artifact(consumer.clone(), 1);
+    let consumer_revision = commonjs_artifact(consumer.clone(), 2);
     let boundary_boot = commonjs_artifact(boundary.clone(), 1);
     let boundary_revision = commonjs_artifact(boundary.clone(), 2);
     let consumer_facts = facts([(
         edge("./boundary", ResolutionKind::CommonJsRequire),
         boundary.clone(),
     )]);
-    let boundary_facts = self_facts(&boundary);
+    let boundary_facts = commonjs_self_facts(&boundary);
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         typed_graph([
             (consumer_boot, consumer_facts.clone()),
@@ -1135,7 +1793,46 @@ fn f10_commonjs_cross_boundary_refuses_for_any_outside_edge_kind() {
     let commit = generations
         .commit_revision(&current_policy, transaction)
         .unwrap();
-    assert_eq!(commit.changed, [consumer, boundary].into_iter().collect());
+    assert_eq!(
+        commit.changed,
+        [consumer.clone(), boundary.clone()].into_iter().collect()
+    );
+
+    // A CJS-to-ESM goal flip is both a CJS boundary defect and an export-shape
+    // defect; LLP 0055 §5.2.5 requires the shape diagnostic to win.
+    let consumer_boot = artifact(consumer.clone(), 1);
+    let boundary_boot = commonjs_artifact(boundary.clone(), 1);
+    let boundary_revision = artifact_with_shape(boundary.clone(), 2, SourceGoalV1::Module, &[]);
+    let consumer_facts = facts([(
+        edge("./boundary", ResolutionKind::EsmStatic),
+        boundary.clone(),
+    )]);
+    let mut flip_generations = ModuleExecutionGenerationsV2::new(
+        GenerationMode::Development,
+        execution_generation(),
+        &current_policy,
+        typed_graph([
+            (consumer_boot, consumer_facts),
+            (boundary_boot, commonjs_self_facts(&boundary)),
+        ]),
+    )
+    .unwrap();
+    let flip = begin_staged_revision(
+        &flip_generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [boundary.clone()],
+        [typed_record(&boundary_revision, self_facts(&boundary))],
+    );
+    let before = live_snapshot(&flip_generations);
+    assert_eq!(
+        flip_generations
+            .commit_revision(&current_policy, flip)
+            .unwrap_err()
+            .to_string(),
+        "hot revision changed the module export shape; full reload required"
+    );
+    assert_eq!(live_snapshot(&flip_generations), before);
 }
 
 #[test]
@@ -1149,6 +1846,7 @@ fn hot_revisions_are_monotonic_production_closed_and_overflow_checked() {
     let initial_graph = typed_graph([(boot.clone(), row_facts.clone())]);
     let mut generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
         initial_graph.clone(),
     )
@@ -1174,6 +1872,7 @@ fn hot_revisions_are_monotonic_production_closed_and_overflow_checked() {
 
     let production = ModuleExecutionGenerationsV2::new(
         GenerationMode::Production,
+        execution_generation(),
         &current_policy,
         initial_graph,
     )
@@ -1183,32 +1882,33 @@ fn hot_revisions_are_monotonic_production_closed_and_overflow_checked() {
             .begin_revision(
                 &current_policy,
                 HmrOrigin::Exact,
-                (ExecutionGeneration::INITIAL, HotRevision::BOOT),
+                (execution_generation(), HotRevision::BOOT),
                 [source_id.clone()],
             )
             .unwrap_err()
             .to_string(),
         "production module graphs have exactly one execution generation and revision"
     );
-    assert!(HotRevision::at(u64::MAX)
-        .next()
-        .unwrap_err()
-        .to_string()
-        .contains("full reload"));
+    assert_eq!(
+        HotRevision::at(u64::MAX).next().unwrap_err().to_string(),
+        "hot revision space is exhausted; full reload required"
+    );
     generations.current.revision = HotRevision::at(u64::MAX);
-    assert!(generations
-        .begin_revision(
-            &current_policy,
-            HmrOrigin::Exact,
-            (
-                generations.current_generation(),
-                generations.current_revision(),
-            ),
-            [source_id],
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("full reload"));
+    assert_eq!(
+        generations
+            .begin_revision(
+                &current_policy,
+                HmrOrigin::Exact,
+                (
+                    generations.current_generation(),
+                    generations.current_revision(),
+                ),
+                [source_id],
+            )
+            .unwrap_err()
+            .to_string(),
+        "hot revision space is exhausted; full reload required"
+    );
 }
 
 #[test]
@@ -1220,11 +1920,27 @@ fn hot_revision_slot_swaps_owner_value_only_with_a_successful_revision() {
     let current_policy = policy("authority");
     let generations = ModuleExecutionGenerationsV2::new(
         GenerationMode::Development,
+        execution_generation(),
         &current_policy,
-        typed_graph([(boot, row_facts.clone())]),
+        typed_graph([(boot.clone(), row_facts.clone())]),
     )
     .unwrap();
+    let refused = begin_staged_revision(
+        &generations,
+        &current_policy,
+        HmrOrigin::Exact,
+        [source_id.clone()],
+        [typed_record(&boot, row_facts.clone())],
+    );
     let mut slot = HotRevisionSlotV1::new(generations, "native-revision-0");
+    assert_eq!(
+        slot.commit_revision(&current_policy, refused, "must-not-publish")
+            .unwrap_err()
+            .to_string(),
+        "hot revision changed nothing; nothing to apply"
+    );
+    assert_eq!(*slot.current(), "native-revision-0");
+    assert_eq!(slot.generations().current_revision(), HotRevision::BOOT);
     let transaction = begin_staged_revision(
         slot.generations(),
         &current_policy,
