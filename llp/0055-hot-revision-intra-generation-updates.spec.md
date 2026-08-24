@@ -5,6 +5,43 @@
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r4 — round-3 dual-family fold (codex NOT READY 1–4; grok NOT READY 1–3;
+convergent, with one cross-family conflict adjudicated). Adopted: commit-time authority and
+stamp comparisons are demoted to quarantining backstops beside the base CAS — ordinary
+authority admission happens at `begin` (check 3), and the armed snapshot is immutable for the
+runtime's life, so a post-`Begun` mismatch is an invariant violation, never an ordinary
+refusal (codex 1, grok minor 2); the §6 replay law is rewritten — the table records only
+**authenticated terminal** outcomes (signature failures are never inserted; a same-`updateId`
+later signed body cannot be poisoned by an unauthenticated attempt), an in-flight `updateId`
+is reserved **pending** (a duplicate during flight answers busy without sealing busy as
+terminal; settlement overwrites pending with the terminal receipt, so §10's post-settle retry
+is a table miss), entries bind the full signed-envelope digest, retention is for the
+**session (`runId`) lifetime** — not the generation — and capacity forces
+refusal-until-session-rotation, never eviction; the terminal outcome record is pre-reserved
+before the §5.3 fence and finalized infallibly at step 7 (duplicates can always return the
+prior receipt), with transport alone post-fence best-effort (codex 2 + grok 1); ask 1's
+until-taken statement is made honest — H0 MATERIAL 1 is **mitigated, not discharged**, until
+the 0417 §4.3 amendment is taken (or receipts are enrollment-keyed): a forged receipt can
+still trigger a redundant-but-coherent server reload, named as the bounded residual of the
+loopback trust model, and the discharge completes at H2 (codex 3); the ceiling-breach row is
+made self-consistent and conformant under BOTH ask-3 outcomes — the class stays 0417's
+restart until ask 3 is taken, the recovery instruction routes to the **host restart join**
+(whose v1 recovery — teardown + re-arm + fresh same-authority ceiling — is materially the
+reload-recreate with a no-op policy regeneration), the contradictory "recovery is the reload
+class's re-derivation" sentence is deleted, and F4 keeps restart-string assertions with a
+recorded flip-to-class-assertion if ask 3 is taken; grok's alternative (assign
+same-authority widening to the reload class in-corpus now) is DECLINED on the same
+taxonomy-ownership ground as the race row (codex 4 + grok 2, adjudicated); the restage
+coordinate pull gains a real vehicle — a **credential-gated consumer-status read** returning
+live `(ExecutionGeneration, HotRevision)` and the live v2 digest (v1 loopback: an in-process
+or status read under the §5 session credential; Exact H2 names the wire route) — replacing
+the miscited payload GET, which fetches payload bytes and returns no coordinates (grok 3);
+§5.2 check 1 is split precisely (signature + identity-field verification; base currency is
+check 3's); `ready()` takes **linear ownership** of the activation token — the flip runs only
+at §5.3.4 (grok minors); the converse check is split so a no-op replacement (staged rows
+identical to live) refuses `keep-last-good` ("nothing to apply"), never full reload — a
+slice-2 implementation finding; pointer and header-count corrections ("three" owner asks;
+§5.2 item 8).)
 **Revised:** 2026-08-24 (r3 — round-2 dual-family fold (both NOT READY; grok blockers 1–3, codex
 residues 3/7/8 + new 11–13 — convergent on three defects; artifacts in `llp/reviews/`). The
 admission pipeline is reordered so no fallible admission check follows an app-visible effect:
@@ -23,7 +60,7 @@ precomputes the candidate v2 digest before the fence, ends at counter advance, a
 advisory receipt AFTER the fence best-effort; commit-time CAS becomes a TOCTOU backstop that
 quarantines if it ever fires (under single-flight it cannot). Receipt de-fanging completed: the
 producer restages from a credential-gated pull of live coordinates, never from receipt bodies;
-two **Exact-owner asks are recorded, not taken** (amend 0417 §4.3 so the server's class-driven
+three **Exact-owner asks are recorded, not taken** (amend 0417 §4.3 so the server's class-driven
 reload response becomes advisory — consumer-executed recovery; refine the race row to
 keep-last-good; narrow §4.8's restart-row "edge widening" to authority-relevant widening) —
 filed as an Exact-repo ticket by this lane. §4 replaces the pre-classification story with the
@@ -105,7 +142,7 @@ coordinate `(ExecutionGeneration g, HotRevision r)`. The surface is **single-fli
 consumer's committed `(g, r)`; a transaction that begins therefore holds the live base, and the
 committed revision is `r + 1`, installed at a single owner-thread publication point under
 exclusive access (`&mut`). The commit-time compare is retained as a TOCTOU backstop that can
-only fire on an invariant violation (§5.2.6). There is no other legal successor: no skips, no
+only fire on an invariant violation (§5.2 item 8). There is no other legal successor: no skips, no
 out-of-order commit, no merge — a producer whose update refuses on a stale base re-obtains the
 consumer's live coordinates through the credential-gated pull (§9.1) and restages; the refusal
 receipt is only the advisory hint to do so, never the coordinate source. This confirms Exact
@@ -312,18 +349,24 @@ the same authority, so nothing is bypassed and no policy regeneration is needed.
 reload-recreate performs exactly this by construction (§3). That is distinct from the **restart
 class proper**, whose trigger is authority-relevant drift (policy digest/generations, package
 integrity, defining principals) and whose recovery additionally regenerates policy and re-arms.
-The producing server classifies shape-changing edits into the reload class **before** staging a
-revision (its boundary computation sees the graph change); an update that reaches this ceiling
-with a widened edge is a defense-in-depth refusal, not the everyday path. **Recorded Exact-owner
-ask (§12):** Exact 0417 §4.8's restart-class row currently reads "principal or edge widening" —
-this spec recommends narrowing it to authority-relevant widening, since same-authority edge
-growth is served by the reload class's generation re-derivation; until taken, the refusal
-strings here remain the landed restart family and the classes are reconciled at the Exact layer.
+An update that reaches this ceiling with a widened edge is a defense-in-depth refusal, not the
+everyday path: the producing server routes shape-changing edits **before staging** to whatever
+class Exact 0417 assigns them. **Recorded Exact-owner ask (§12):** Exact 0417 §4.8's
+restart-class row currently reads "principal or edge widening" — this spec recommends
+narrowing it to authority-relevant widening. **Until the ask is taken, every ceiling breach —
+same-authority edge growth included — routes to the restart class's recovery: the host restart
+join (teardown + re-arm).** In v1 that recovery is materially the reload-recreate plus a
+policy regeneration that is a no-op under unchanged authority, so conformance costs nothing
+extra; after the ask is taken, same-authority widening moves to the reload class and only
+authority/integrity/principal drift restarts. Both outcomes are sound; a consumer never
+answers a restart-class refusal with a plain ws reload under either.
 
 **Adversarial tests.** Every ceiling/adversarial test is rebuilt over **non-empty typed binding
 maps** (the landed tests use empty maps, so the ceiling was never exercised against real edges),
 and each ceiling-breach fixture asserts the restart-family string, so the landed disposition
-cannot silently become a plain reload. Named acceptance fixtures (§11 F4): (a) one record
+cannot silently become a plain reload (if Exact-owner ask 3 is taken, the same-authority
+widening fixtures flip to asserting the reload **class** — a recorded fixture amendment, not a
+silent drift). Named acceptance fixtures (§11 F4): (a) one record
 carrying **two same-spelling edges of distinct `resolution_kind`** over a non-empty binding
 map, proving both edges enter the digest and ceiling distinctly, and that a candidate widening
 one kind refuses even when the identically spelled other kind is authorized; (b) a
@@ -357,10 +400,16 @@ reaches evaluation cannot be doomed by identity, currency, ceiling, or shape.
 **Named pre-begin consumer checks, in order** (each recorded as an attempt outcome in the §6
 replay table — including refusals and drops):
 
-1. **Signature verification** (§6) — before anything else touches the payload.
-2. **Duplicate/identity lookup** (§6 replay law) — an exact duplicate returns the prior receipt
-   idempotently and proceeds no further; a same-`updateId`/different-digest payload refuses
-   `update-identity-conflict`.
+1. **Signature and identity-field verification** (§6) — the signature, then every bound
+   identity field (`runId`, authority stamp, normalized target descriptor, entry/profile,
+   boot/consumer identity, committed base-graph digest) against the consumer's live session
+   state, before anything else touches the payload. Base-**coordinate** currency is check 3's,
+   at `begin`. A failure here is unauthenticated and is **never** recorded in the replay
+   table.
+2. **Duplicate/identity lookup** (§6 replay law) — a pending same-`updateId` entry answers
+   busy (the in-flight reservation, not a terminal outcome); an exact duplicate of a terminal
+   entry returns the prior receipt idempotently and proceeds no further; a
+   same-`updateId`/different-digest payload refuses `update-identity-conflict`.
 3. **Base currency:** `begin_revision(policy, origin, base, invalidated)` refuses `base ≠ live`
    ("hot update base is stale") **reporting the consumer's committed `(g, r)`**; refuses in
    production mode; re-validates authority; refuses an empty invalidation set (keep-last-good —
@@ -378,9 +427,13 @@ Then:
    revision `base + 1`.
 5. `preflight(txn) → Preflighted` — with **zero app code**: factory compile, link-plan
    validation, export-shape comparison (§2.3), CJS-boundary eligibility (§2.3), **full ceiling
-   validation of the candidate graph (§4), and the converse check** (no change outside the
-   invalidation set). Failures refuse with zero app-visible effects. After `Preflighted`, the
-   only remaining fallible steps are the transaction's own evaluation and preparation.
+   validation of the candidate graph (§4), and the converse check**, which is two-sided with
+   two distinct dispositions: a change *outside* the invalidation set refuses (full-reload
+   class — producer/consumer desync), while an invalidated module whose staged replacement is
+   row-identical to its live incarnation is a **no-op** and refuses `keep-last-good`
+   ("nothing to apply") — a touched-but-unchanged save must never trigger a reload. Failures
+   refuse with zero app-visible effects. After `Preflighted`, the only remaining fallible
+   steps are the transaction's own evaluation and preparation.
 6. **Evaluation → `Evaluated`.** Class-appropriate, per Exact 0417 §4.8:
    - `contract-staged-pure`: shadow-evaluate the staged incarnations under the §2.2 shadow
      predicate; a throw refuses (`keep-last-good`) with the live graph untouched.
@@ -405,12 +458,14 @@ Then:
    accept-callback failure refuses `keep-last-good`** — exactly Exact 0417 §4.8's
    remount-failure-inside-the-joint-transaction rule: last-good records, slots, and pixels
    stand. A consumer with nothing to activate deposits the trivial token.
-8. `ready(txn) → ReadyToPublish` — the surface verifies the state invariants above and
-   **consumes the activation token**; then `commit(policy, txn)`: authority re-validation and
-   the transaction authority-stamp staleness check (fallible, effect-free — refusals here are
-   ordinary), then the base compare as a **TOCTOU backstop: under single-flight and
-   base-currency-at-begin it cannot fail; if it does, that is an invariant violation and the
-   runtime quarantines into recreate (§5.3), never an ordinary refusal.** Then the §5.3 bundle.
+8. `ready(txn) → ReadyToPublish` — the surface verifies the state invariants above and takes
+   **linear ownership of the activation token** (the token is *held*, not applied — the flip
+   runs only at §5.3.4); then `commit(policy, txn)`. **All three commit-time comparisons —
+   authority snapshot, transaction authority stamp, and the base coordinate — are TOCTOU
+   backstops:** ordinary authority admission already happened at check 3, and the armed
+   snapshot is immutable for the runtime's life, so under single-flight none of them can fail
+   after `Begun`; if any does, that is an invariant violation and the runtime quarantines into
+   recreate (§5.3), never an ordinary refusal. Then the §5.3 bundle.
    Any ordinary refusal at any state drops shadow records, shadow completions, and the
    activation token whole; the live graph, revision counter, and install revisions are
    untouched, and the refusal maps to an Exact 0417 §4.8 class (§10).
@@ -419,7 +474,11 @@ Then:
 
 **All fallible work happens before the bundle** — including the candidate v2 graph digest,
 which is **precomputed on the frozen candidate before the fence** and merely installed inside
-it. The bundle is a sequence of infallible, prevalidated publication operations executed as one
+it, and the transaction's **terminal outcome record** (the §6 receipt content and its replay-
+table slot), which is **pre-reserved and constructed before the fence** so that finalizing it
+at step 7 is an infallible field write — a later exact duplicate can therefore always return
+the prior receipt (§6), whatever happens to transport. The bundle is a sequence of
+infallible, prevalidated publication operations executed as one
 owner-thread critical section with **no app/user JavaScript interleaved**; if an invariant
 violation is nevertheless detected mid-bundle, the runtime **quarantines and recreates**
 (fail-stop into the v1 generation transition) — it never returns an ordinary refusal from a
@@ -456,11 +515,14 @@ In order:
    not drop factories still selected by untouched records; the shared table is released only
    when its occupancy reaches zero. Untouched records keep their carrier provenance and their
    table untouched.
-7. **Revision counter advance.** The bundle ends here.
+7. **Revision counter advance and terminal-outcome finalization** (the pre-reserved record's
+   infallible field write — the replay table's pending entry becomes terminal here). The
+   bundle ends here.
 
-**After the fence,** the advisory receipt (§9.1) is synthesized and sent best-effort: a
-transport or allocation failure there is telemetry loss (with bounded retry), never quarantine,
-never recovery, never a publication outcome. A refused revision performs none of the bundle
+**After the fence,** the advisory receipt (§9.1) is **sent** best-effort from the already-
+finalized outcome record: a transport failure there is telemetry loss (with bounded retry),
+never quarantine, never recovery, never a publication outcome — and never a gap in the replay
+table, whose entry was finalized inside the fence. A refused revision performs none of the bundle
 steps. No importer can observe a state between them.
 
 ### 5.4 Mixed record provenance (amends LLP 0027)
@@ -509,16 +571,29 @@ production commitment schema structurally rejects the keypair fields.
   contract).
 - **Replay law (aligned to Exact 0553.001 §2.2; the key is the v1 single-session projection of
   its `(session, producer, updateId)`):** `updateId` is unique and content-bound — one
-  `updateId` maps to exactly one payload digest. The consumer keeps a **per-generation** table
-  `(updateId) → (payloadDigest, attempt outcome/receipt)` recording **every attempt** — commits,
-  refusals, and drops (§5.2's pre-begin checks) — and checks it **first** (§5.2 check 2): an
-  exact duplicate (same `updateId`, same payload digest) is **idempotent** — the prior outcome
-  is returned and nothing applies; the same `updateId` with a different digest refuses
-  `update-identity-conflict`. **Idempotence is unqualified within a generation:** the table
-  never evicts a live-generation entry — if capacity (4096 entries) would be exceeded, the
-  consumer refuses further updates into the full-reload class (rotating the generation, which
-  retires the table) rather than evicting. Superseded generations' entries drop with their
-  generation; their duplicates refuse on stale generation, which is a refusal, not replay.
+  `updateId` maps to exactly one **signed-envelope digest**. The consumer keeps a
+  **session-lifetime** table `(updateId) → (envelopeDigest, entry)` scoped to the `runId` —
+  not the generation — and checks it at §5.2 check 2. Entry semantics, precisely:
+  - **Only authenticated outcomes enter the table.** A §5.2 check-1 failure (signature or
+    identity-field) is never recorded — an unauthenticated attempt cannot poison a later
+    legitimate signed body carrying the same `updateId`.
+  - **An accepted-for-processing update reserves a `pending` entry** at `begin`; a duplicate
+    arriving while it is pending answers **busy** without sealing anything (the §10 busy row's
+    retry stays possible). Settlement — commit or any authenticated refusal of a *begun*
+    transaction — **overwrites pending with the terminal receipt**. A surface-busy nack for a
+    *different* in-flight `updateId` is a transport-level occupancy answer and is not
+    recorded at all.
+  - **Terminal entries are idempotent, unqualified, for the session's life:** an exact
+    duplicate (same `updateId`, same envelope digest) returns the prior terminal receipt and
+    applies nothing — commits and refusals alike (the §5.3 fence finalizes the outcome record
+    before any transport, so the prior receipt always exists). The same `updateId` with a
+    different digest refuses `update-identity-conflict`.
+  - **Capacity (4096 terminal entries) forces refusal-until-session-rotation, never
+    eviction:** at capacity the consumer refuses further *new* `updateId`s with a distinct
+    diagnostic naming session rotation; the producing session rotates `runId` (new keypair,
+    commitment, generation — revoking everything prior), which retires the table whole.
+    Duplicates from a rotated-away session fail check 1 (`runId`), which is refusal, not
+    replay.
 - **Limits:** canonical update body ≤ 16 MiB; ≤ 512 replaced modules per revision (within LLP
   0042's manifest limit class). Oversize refuses before decode completes.
 - **Clock domains:** stage timings are stamped per domain (server stamps server stages, device
@@ -579,15 +654,24 @@ plumbing. Dispositions, honest about what the v1 loopback posture can and cannot
    rides them anywhere**: class-correct recovery is executed by the **consumer itself** from
    its own verdict (the host initiates the reload/recreate — v1's generation transition is
    host-driven by construction, §3 — and the restart class reaches the host teardown + re-arm
-   join directly), and the **producer restages from a credential-gated pull of the consumer's
-   live coordinates** (the existing payload-channel GET under the §5 dev-session credential) or
-   its own last-success record — a refusal receipt is only the advisory hint to pull. Receipts
-   are emitted after the §5.3 fence, best-effort. **Recorded Exact-owner ask (§12):** Exact
-   0417 §4.3's server-response sentence ("only the full-reload class is answered with one
-   reload") predates this advisory plane; this spec asks Exact to amend it so the server's
-   response is advisory/idempotent and recovery is consumer-executed — until taken, an Exact
-   server reload triggered by a (loopback-forgeable) receipt is at worst a redundant coherent
-   reload beside the consumer's own recovery, never the sole recovery path. Order-based commit
+   join directly), and the **producer restages from a credential-gated consumer-status read**
+   that returns the consumer's live `(ExecutionGeneration, HotRevision)` and live v2 graph
+   digest — a named requirement this spec adds, because the existing payload GET fetches
+   payload bytes and returns no coordinates; in the v1 loopback posture this may be an
+   in-process or status read under the §5 dev-session credential, and Exact H2 names the wire
+   route. A refusal receipt is only the advisory hint to pull; the producer's own last-success
+   record is a warm-path shortcut, never the stale-base answer (last-success is exactly the
+   coordinate that just failed). Receipts are emitted after the §5.3 fence, best-effort, from
+   the in-fence-finalized outcome record. **Recorded Exact-owner ask (§12), with the honest
+   until-taken statement:** Exact 0417 §4.3's server-response sentence ("only the full-reload
+   class is answered with one reload") predates this advisory plane; this spec asks Exact to
+   amend it so the server's response is advisory/idempotent and recovery is consumer-executed.
+   **Until the ask is taken, H0 MATERIAL 1 is MITIGATED, not discharged:** the consumer's
+   recovery is self-sufficient and no ibex-side decision rides a receipt, but the unchanged
+   Exact server can still be induced by a forged (loopback-forgeable) receipt to issue a
+   reload the consumer did not need — a redundant-but-coherent action, bounded by the loopback
+   single-user trust model, named here as the explicit residual. The discharge completes at
+   Exact H2 when ask 1 is taken (or receipts become enrollment-keyed). Order-based commit
    correlation (the spike's) is not carryable; the correlation key is the revision coordinate.
    Whether receipts sign under an enrolled device key is the LAN/device follow-up's question
    (§13).
@@ -624,11 +708,12 @@ Every refusal this surface produces belongs to exactly one Exact 0417 §4.8 clas
 | observed effect-class mismatch | `full-reload-current-authority` |
 | throwing dispose (0417 rule 5) | `full-reload-current-authority` |
 | `HotRevision` overflow; replay-table capacity rotation (§6) | `full-reload-current-authority` |
-| ANY v2 ceiling breach — edge added/retargeted, candidate site added/changed, deferred bit flipped, bootstrap-internal set change | restart-family strings at this layer (§4); recovery is the reload class's same-authority generation re-derivation unless authority actually drifted — see §4's recorded Exact-owner ask |
+| ANY v2 ceiling breach — edge added/retargeted, candidate site added/changed, deferred bit flipped, bootstrap-internal set change | restart-family strings and the restart class's recovery — the host restart join — until Exact-owner ask 3 is taken (§4); in v1 that recovery is materially reload-recreate + no-op policy regeneration under unchanged authority; after the ask, same-authority widening moves to `full-reload-current-authority` |
 | authority drift (`SnapshotGenerations` / snapshot digest) | `regenerate-policy-and-restart-runtime` |
 | integrity-pinned package source change | `regenerate-policy-and-restart-runtime` |
 | defining-principal change | `regenerate-policy-and-restart-runtime` |
-| commit-time base compare failure (TOCTOU backstop) | not a class — invariant violation: quarantine into recreate (§5.2.8) |
+| any commit-time backstop failure — base coordinate, authority snapshot, or authority stamp (§5.2 item 8) | not a class — invariant violation: quarantine into recreate |
+| no-op replacement (staged rows identical to live — §5.2.5) | `keep-last-good` ("nothing to apply") |
 | stale publication token (per-slot predicate) | not a revision refusal — the stale completion itself refuses; the revision is unaffected |
 | production `begin_update` / `begin_revision` | refused structurally; no dev class applies |
 
@@ -652,10 +737,13 @@ Each is named so Exact 0417 H2's gate can cite green runs:
   six (§2.2). Plus the shadow twin: a shadow token publishes only at `base+1` for an
   invalidated source; live publish is blind to shadow rows; a dropped transaction drops them.
 - **F2 — single-flight and stale-base:** (a) a second `begin` while one transaction is in
-  flight refuses busy — no dispose, no evaluation, no reload; (b) a `begin` against a stale
-  base refuses with the consumer's committed coordinates — a dispose-count witness proves no
-  effect ran; (c) the commit-time TOCTOU backstop is unreachable by construction
-  (type-level where expressible, else a runtime test proving refusal precedes it).
+  flight refuses busy — no dispose, no evaluation, no reload, and **nothing is sealed in the
+  replay table** (after the in-flight apply settles, the same update begins normally); (b) a
+  `begin` against a stale base refuses with the consumer's committed coordinates — a
+  dispose-count witness proves no effect ran; (c) the commit-time TOCTOU backstops are
+  unreachable by construction (type-level where expressible, else a runtime test proving
+  refusal precedes them); (d) a no-op replacement (staged rows identical to live) refuses
+  keep-last-good, never a reload class.
 - **F3 — package-edit refusal into the restart class:** an integrity-pinned package replacement
   refuses with the restart diagnostic, never the reload one.
 - **F4 — ceiling breadth (each asserting the restart-family string):** (a) two same-spelling
@@ -681,16 +769,21 @@ Each is named so Exact 0417 H2's gate can cite green runs:
 - **F9 — signature adversarial set:** cross-target, cross-entry, wrong-profile, cross-consumer
   (boot identity), stale-generation, stale-revision, `target ≠ base+1`, tampered-body,
   wrong-domain, `runId`-mismatch, authority-stamp-mismatch, and **base-graph-digest mismatch
-  after one committed revision** all refuse before staging; the exact-duplicate replay returns
-  the prior outcome — including a duplicate of a REFUSED attempt; `update-identity-conflict`
-  refuses; capacity forces generation rotation, never live-entry eviction; the matching-tuple
-  envelope verifies (§6). HTTP-selection/WS-routing negatives are Exact H2 fixtures.
+  after one committed revision** all refuse before staging **and none of them creates a replay
+  entry** (a later legitimate signed body with the same `updateId` begins normally); the
+  exact-duplicate replay returns the prior terminal outcome — commit and refused-attempt cases
+  both; a duplicate of a PENDING update answers busy and, after settlement, returns the
+  terminal receipt; `update-identity-conflict` refuses; capacity refuses new `updateId`s until
+  session rotation, never evicting; the matching-tuple envelope verifies (§6).
+  HTTP-selection/WS-routing negatives are Exact H2 fixtures.
 - **F10 — CJS boundary set:** cross-closure CJS named-import consumption refuses
   `cjs-cross-boundary`; whole-closure CJS replacement commits with correct `default`,
   `'module.exports'`, detected-named-export snapshot, and sticky-error/eviction behavior; a CJS
   export object never crosses incarnations.
 - **F11 — state-machine set:** commit from any state but `ReadyToPublish` is impossible by
-  construction; `ready()` without a deposited activation token is impossible; consumer
+  construction; `ready()` without a deposited activation token is impossible; the token held
+  by `ready()` is applied only at §5.3.4 (a flip before live-graph adoption is impossible —
+  linear ownership); consumer
   preparation failure refuses `keep-last-good` with live state intact; throwing dispose refuses
   full-reload class; observed-class mismatch refuses; multi-boundary batch refuses; shadow-TLA
   rejection refuses keep-last-good and its sticky error drops with the transaction; a replaced
@@ -709,8 +802,11 @@ Each is named so Exact 0417 H2's gate can cite green runs:
 | 6 | slot resolution at use time — every cross-module surface | §2.3 (getters, import bindings, aliases, dynamic namespaces; CJS refusal), F5/F10 |
 | 7 | counter unification (OQ1) + staging-seam shape (OQ2) | §1, §5 (single-flight; incl. §5.1's no-capture-table miss rule) |
 
-H0-carried MATERIALs: receipt authenticity → §9.1 (fully advisory plane; consumer-executed
-recovery; producer pulls coordinates; post-fence emission); bounded ingestion/retention → §9.2;
+H0-carried MATERIALs: receipt authenticity → §9.1 (**mitigated**: fully advisory ibex plane,
+consumer-executed recovery, consumer-status coordinate pull, post-fence emission from the
+in-fence-finalized record; **discharge completes at Exact H2** when owner ask 1 is taken or
+receipts become enrollment-keyed — the forged-receipt-induced redundant server reload is the
+named residual until then); bounded ingestion/retention → §9.2;
 harness isolation → §9.3 (**operating rule, Exact-owned — scheduled, not discharged here**).
 Exact 0553.001 O-3 → §1 (successor law) + §6 (replay law: unqualified within-generation
 idempotence, rotate-before-evict). Exact 0417 OQ4 (slot granularity, `hot.data` algebra) →

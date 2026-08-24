@@ -155,3 +155,63 @@ Consequences on this surface, not on a hypothetical double-sending server:
 ## Verdict
 
 **NOT READY** (blocking: 1, 2, 3).
+
+---
+
+# Round 3 (r3 delta review)
+
+**Reviewer:** grok-4.6, xhigh, headless, cumulative r3 diff inlined. **Target:** r3 @ef5e24dcb. **Verdict:** NOT READY (3 blockers). Folded into r4; finding 2's in-corpus class reassignment DECLINED (taxonomy ownership — same ground as the race row), its internal-contradiction half adopted via the restart-join rewrite; findings 1 and 3 adopted whole.
+
+I'll start by reading the full prompt and the LLP review skill so the round-3 delta review follows the required format.The prompt is large; I’ll pull the rest of it and locate the r3 LLP 0055 text plus the prior review artifacts.I’ll keep reading LLP 0055 and the round-2 reviews so the resolution table is grounded in the r3 text.I’ll inspect the r3-only slice, headers, and Exact 0417/0553.001 cites so the delta hunt is against the actual changed text.I’ll pull Exact 0417 and 0553.001 on the cited recovery, remount, and replay rules so the owner-ask analysis is source-backed.Checking one 0553.001 ordering detail so the busy/replay finding is pinned to the source law.## Overall Assessment
+
+r3 closed the three round-2 blockers as specified. Single-flight plus base-currency-at-begin stops dispose on a doomed transaction; receipts are post-fence telemetry; `ActivationPrepared` plus the sharpened §8 fallback carries 0417’s remount keep-last-good. Codex 11–13 are the same three holes; I agree they are resolved.
+
+The r3 delta is not closed. “Record every attempt” plus unqualified within-generation idempotence poisons the busy retry §10 requires. Ceiling-breach recovery is not sound under both outcomes of Exact-owner ask 3: §10 tells the consumer to reload, the next paragraph and 0417 until-taken forbid answering restart with reload, and F4 still asserts restart strings. The restage coordinate pull, which ask 2’s taken outcome depends on, cites a GET that does not return live coordinates.
+
+## Resolution Table (round-2 blockers)
+
+| ID | Status | Cite | Note |
+| --- | --- | --- | --- |
+| **1** / codex 12 | **RESOLVED** | §1, §5.2, §10 race note, F2 | Second `begin` refuses busy; `base ≠ live` refuses at begin with committed `(g, r)` and a no-effect witness; duplicate/identity is named check 2; ceiling/converse/export-shape/CJS complete in preflight; commit CAS is a quarantining TOCTOU backstop. Ask 2’s until-taken full-reload is wasteful-but-sound (no effect has run). Residual is new finding 1 (busy recorded as a terminal replay outcome). |
+| **2** / codex 13 + 8 | **RESOLVED** | §1, §5.3 after-fence, §9.1, §12 ask 1 | Producer must not restage from receipt bodies; receipts emit after counter advance, best-effort; candidate v2 digest is precomputed. Ask 1’s until-taken extra server reload is a coherent superset of consumer-executed recovery, not a sole path. Residual is new finding 3 (the named pull vehicle). |
+| **3** / codex 11 | **RESOLVED** | §5.2.7–8, §5.3.4, §8, §10 remount row, F11 | Prepare/accept runs pre-commit on shadow targets; failure is keep-last-good with live records/slots/pixels standing (`contract-staged-pure` does not dispose first). `ready()` requires a transaction-bound token; §5.3.4 is only the no-JS flip. Unfixturable split withdraws (a) for v1, not “still targeted.” |
+| Codex 3 (residue) | **PARTIAL** | §4, §10 ceiling row | Two recovery grades are the right doctrine and ask 3 is recorded. The until-taken/taken mapping is still contradictory — new finding 2. |
+| Codex 7 (residue) | **RESOLVED** | §6 | Per-generation table, capacity 4096, rotate-before-evict, unqualified idempotence within a generation. |
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+**1. Blocking — busy (and unauthenticated) attempts are sealed as idempotent replay outcomes, so the retry §10 requires cannot apply.**
+
+§5.2 records each pre-begin check in the §6 table, including refusals. §6 then says an exact duplicate returns the prior outcome and applies nothing. §10’s busy row says keep-last-good and “retry after the in-flight apply settles.”
+
+Sequence: U1 in flight; U2 signature-ok, table miss, `begin` busy, U2 → `busy`; U1 commits; producer retries U2 (same `updateId`, same digest); check 2 returns `busy` and proceeds no further. F2(a) and the §10 retry never run. 0553.001 records every *authenticated terminal* attempt so a post-keep-last-good retransmit is identity-conflict rather than stale-base reload — not so that a retryable occupancy nack becomes the payload’s sealed receipt. Recording a signature failure under an unauthenticated `updateId` is the same shape: a later legitimate signed body with that id is either a duplicate of `sig-fail` or `update-identity-conflict`.
+
+**Fix:** The table records only authenticated terminal outcomes (commit, identity-conflict, admission/eval/prepare refusals, drop of a *begun* transaction). Do not insert signature failures. Do not insert surface-busy; an in-flight `updateId` may be reserved as pending so a duplicate during flight is busy without sealing busy as terminal; settlement overwrites pending with the terminal receipt. Then §10’s post-settle retry is a table miss and begins.
+
+**2. Blocking — ceiling-breach recovery is not sound under both outcomes of ask 3.**
+
+§4 keeps generation.rs restart-family strings on every ceiling breach and defers class reconciliation to Exact until ask 3 is taken. §10’s ceiling row then says recovery *is* the reload class’s same-authority re-derivation. The next paragraph says answering the restart class with a plain reload is non-conforming. Recovery is consumer-executed (§9.1), so the consumer is bound by §10.
+
+- **Ask 3 not taken:** 0417 §4.8 still lists “principal or edge widening” under `regenerate-policy-and-restart-runtime` and forbids answering that class with reload. A consumer that follows the ceiling row reloads; a consumer that follows the next paragraph and 0417 re-arms. Both cannot be conforming.
+- **Ask 3 taken:** 0417 agrees same-authority widening is reload, which matches the ceiling row — but F4 still asserts restart-family strings “so the landed disposition cannot silently become a plain reload,” i.e. the fixture forbids the recovery the row prescribes.
+
+Everyday server pre-classification never hitting the ceiling does not save this: a defense-in-depth ceiling hit is a refusal this surface produces and §10 maps.
+
+**Fix:** Assign the class in this corpus and make §4 / §10 / F4 / both ask-3 outcomes agree. Same-authority ceiling widening is `full-reload-current-authority` (reload diagnostic; F4 asserts that class). Restart strings and re-arm stay only for authority/integrity/principal. Until ask 3 is taken, Exact may *additionally* re-arm (strict superset, sound). After ask 3, both sides reload. Delete the instruction that a ceiling breach both emits restart strings and recovers as reload.
+
+**3. Blocking — the restage coordinate pull cites a channel that does not return live coordinates.**
+
+After de-fanging receipts, stale-base restage (and ask 2 taken: keep-last-good, pull, restage) is specified as a “credential-gated pull of the consumer’s live coordinates (the existing payload-channel GET under the §5 dev-session credential)” (§9.1, §1). Exact 0417 §4.3’s existing GET is `GET /__exact/hmr-payload?updateId=…`: the *consumer* fetching *payload bytes* from the producer. It does not return live `(g, r)` or the live v2 digest. “Own last-success record” is not a substitute for stale-base: last-success is the coordinate that just failed, and without a trusted receipt the producer cannot distinguish last-sent from last-committed. The pull is load-bearing; the cited vehicle cannot implement it.
+
+**Fix:** Name a credential-gated consumer-status read that returns live `(ExecutionGeneration, HotRevision)` and the live v2 digest. v1 loopback may be an in-process read of the runner counter under the same session credential. Leave `hmr-payload` as the payload fetch. Receipts stay a hint to pull, never the coordinate source.
+
+## Minor Findings
+
+- `ready()` “consumes” the activation token, then §5.3.4 “applies” it. Pin linear ownership: `ready()` takes the token; the flip runs only at §5.3.4. Consuming-as-applying would root-swap before live-graph adoption.
+- After `Preflighted`, “the only remaining fallible steps are evaluation and preparation,” but `commit` still has ordinary-refusal authority-stamp revalidation after dispose/prepare. The armed snapshot is immutable for the runtime’s life; a commit-time stamp mismatch cannot occur under the stated invariant and should quarantine like the base CAS if it ever fires.
+- §1 cites the TOCTOU backstop as “§5.2.6”; it is §5.2 item 8 (`ready`/`commit`).
+- §6 says check 1 verifies signature *and* every bound field; §5.2 check 1 is signature only. Bound-field currency belongs with check 3 or should be listed as part of check 1 without overlapping begin.
+
+## Verdict
+
+**NOT READY** (blocking: 1, 2, 3).

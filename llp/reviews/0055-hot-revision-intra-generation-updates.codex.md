@@ -130,3 +130,53 @@ The r2 state machine and publication bundle introduce three additional MATERIAL 
 ## Verdict
 
 **NOT READY (blocking findings 3, 7, 8, 11, 12, 13).**
+---
+
+# Round 3 (r3 delta review)
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r3 @ef5e24dcb. **Verdict:** NOT READY (4 MATERIALs). Folded into r4; the ceiling-class conflict with grok's round-3 finding 2 adjudicated in codex's favor on taxonomy-ownership grounds.
+
+## Overall Assessment
+
+r3 at `ef5e24dcb42cde6f38436c8ce599e0c800d4e079` is improved but **NOT READY**. No later revision was present.
+
+Single-flight is coherent with Exact’s serial executor: busy is a defensive refusal normally unreachable through the conforming apply queue. `ActivationPrepared` now mechanically establishes a transaction-bound, no-JS flip with an objective shadow-root fallback. Moving transport send post-fence is also sound.
+
+Four MATERIAL defects remain: an ordinary-fallible authority check still follows app-visible effects; replay lifetime and receipt durability still violate 0553.001; and owner asks 1 and 3 are not sound under their “not taken” outcomes. Owner ask 2 is sound either way.
+
+## Resolution Table (round-2 blockers)
+
+| Blocker | Status | r3 judgment |
+|---|---|---|
+| codex 3 | **PARTIAL** | The two recovery grades are coherent, but same-authority edge widening is routed to reload while accepted Exact still requires re-arm. [0055 §4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:307), [§10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:627), [Exact 0417 §4.8](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:566) |
+| codex 7 | **PARTIAL** | Live-generation eviction is removed, but generation rotation is not session rotation; Exact’s replay key is session-scoped and checked before generation currency. Receipt synthesis can also fail after commit. [0055 §6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:510), [0553.001 §2.2](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:212) |
+| codex 8 | **PARTIAL** | Consumer recovery and producer coordinate-pull are fixed, but the unchanged Exact server still takes a correctness-bearing action from unauthenticated receipts. [0055 §9.1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:573), [Exact 0417 §4.3](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:303) |
+| codex 11 | **RESOLVED** | `ActivationPrepared`, token-consuming `ready()`, the no-JS flip, and the objective shadow-root fallback close the blocker. [0055 §5.2.7](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:400), [§8](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:552) |
+| codex 12 | **RESOLVED** | The stale-transaction/dispose-the-winner defect is closed by single-flight, base currency at begin, and preflight completion before evaluation. [0055 §5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:345) |
+| codex 13 | **RESOLVED** | Candidate digest installation is precomputed, the bundle ends at counter advance, and transport send is post-fence. [0055 §5.3](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:418) |
+| grok 1 | **RESOLVED** | Duplicate/currency/ceiling/converse checks now precede dispose; race keep-last-good is genuinely compatible because stale-base refusal is effect-free. [0055 §5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:357), [§10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:635) |
+| grok 2 | **PARTIAL** | Coordinate pull and post-fence send are fixed; the untaken Exact receipt amendment remains blocking. [0055 §9.1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:582) |
+| grok 3 | **RESOLVED** | Preparation failure is precommit `keep-last-good`; commit performs only a prevalidated token flip. [0055 §5.2.7](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:400), [§5.3.4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:439) |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **MATERIAL — an ordinary-fallible admission check still follows app-visible effects.** Evaluation, dispose, and consumer preparation precede `commit`, but `commit` then performs fallible authority and authority-stamp validation with ordinary refusals. This directly contradicts §5.2’s governing invariant. [0055 §5.2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:353), [evaluation/preparation](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:384), [late check](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:408)  
+   **Smallest fix:** perform ordinary authority/stamp admission before evaluation and hold a transaction-bound immutable authority reservation through publication. Retain commit-time comparison only as an invariant backstop, like the base compare.
+
+2. **MATERIAL — replay scope and outcome durability remain incompatible with 0553.001.** Exact binds `(session, producer, updateId)` and checks it before currency; r3 instead retires entries on generation rotation, although generation is a separate coordinate. Additionally, exact duplicates require the prior receipt, while r3 permits post-commit receipt allocation failure. Best-effort transport is sound; best-effort receipt synthesis/storage is not. [0055 §6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:510), [post-fence allocation](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:461), [0553.001 replay law](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:212), [mandatory receipt](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:547)  
+   **Smallest fix:** retain replay identities for the full session/producer lifetime, bind them to the complete signed-envelope digest, and rotate `runId`/session—not merely generation—before capacity. Pre-reserve outcome/receipt storage; finalize it infallibly before yielding, while keeping transport send post-fence and best-effort.
+
+3. **MATERIAL — owner ask 1’s until-taken behavior is not actually redundant.** A forgeable `hmr-refused` can arrive before any consumer verdict and make the unchanged Exact server issue a reload. That reload is therefore not necessarily “beside” consumer recovery; accepted Exact explicitly calls these receipts correctness-bearing. [0055 §9.1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:585), [Exact response](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:311), [Exact security posture](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:614)  
+   **Smallest fix:** make the advisory behavior conditional on the Exact amendment. Until it is taken, either authenticate receipts with consumer-private material or leave H0 authenticity explicitly undis­charged and retain Exact’s current server-authoritative semantics.
+
+4. **MATERIAL — owner ask 3 is unsound when not taken.** r3 says same-authority edge growth recovers through reload/re-derivation, but accepted Exact presently places all edge widening in `regenerate-policy-and-restart-runtime` and forbids answering it with reload. Keeping only the restart diagnostic string does not preserve the required recovery action. [0055 §4](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:307), [0055 refusal row](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:627), [Exact 0417 §4.8](/Users/ccheever/projects/exact/llp/0417-native-source-hmr.rfc.md:566)  
+   **Smallest fix:** state the two outcomes conditionally: until ask 3 is taken, every edge widening re-arms; after amendment, same-authority widening may use generation re-derivation.
+
+## Minor Findings
+
+- The r3 `Revised` entry says “two Exact-owner asks” while listing three. [0055 header](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:26)
+- §1 points the commit-time backstop to §5.2.6, but it now lives in step 8. [0055 §1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:107)
+
+## Verdict
+
+**NOT READY (blocking findings 1–4).**
