@@ -21,6 +21,11 @@ pub mod handles;
 #[cfg(feature = "host-http-server")]
 pub mod http_server;
 mod portable_target_admission;
+pub use portable_target_admission::{
+    admit_target_protocol_epoch, parse_protocol_epoch_population_record,
+    AdmittedTargetProtocolEpoch, ProtocolComponentDeclaration, ProtocolEpochPopulationRecord,
+    ProtocolEpochRefusal,
+};
 pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};

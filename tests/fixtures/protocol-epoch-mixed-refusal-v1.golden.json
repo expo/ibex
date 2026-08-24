@@ -1,0 +1,12 @@
+{
+  "kind": "epoch-mixed",
+  "expectedProtocolEpoch": "6bdde3948f644e66b60fac5d663295f1b17e4030b250d9c63fa3613f8e2bca69",
+  "epochs": {
+    "6bdde3948f644e66b60fac5d663295f1b17e4030b250d9c63fa3613f8e2bca69": [
+      "com.exact.powersource"
+    ],
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff": [
+      "com.exact.sensors"
+    ]
+  }
+}

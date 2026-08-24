@@ -2105,6 +2105,418 @@ pub(super) fn authenticate_local_engine(
     Ok(())
 }
 
+// -----------------------------------------------------------------------------
+// Per-target protocol-epoch admission
+// -----------------------------------------------------------------------------
+//
+// Exact LLP 0554 §6 item 1 / Exact LLP 0525 §4.3 (Exact-repo authority)
+// requires each target to refuse mixed protocol components locally and binds
+// its one protocol epoch into the admission digest. There are three refusal
+// classes: malformed population authority, malformed component membership,
+// and absent, unknown, or mixed component epochs. Every defect fails closed.
+// The epoch has one spelling and one authority: it is derived from the
+// population ID and the registry digest under the fixed derivation domain.
+
+const PROTOCOL_EPOCH_POPULATION_SCHEMA: &str = "exact.module-population-record/v1";
+const PROTOCOL_EPOCH_DERIVATION_DOMAIN: &str = "ExactProtocolEpochV1\0";
+const PROTOCOL_EPOCH_ADMISSION_DOMAIN: &str = "ExactProtocolEpochAdmissionV1\0";
+
+/// Exact's one-authority population record for fail-closed protocol-epoch admission.
+///
+/// The record is not authority merely because it deserializes: admission
+/// revalidates its schema, identifiers, lowercase-hex digests, and derivation.
+///
+/// The Exact generator emits the record with a closed set of provenance
+/// metadata fields (`llp`, `source`, `generator`, `epochDomainTag`,
+/// `members`). Those are tolerated here — validated when present, excluded
+/// from the admission digest — while any OTHER field is still refused by
+/// `deny_unknown_fields` (a record grown past its closed grammar is not
+/// authority).
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolEpochPopulationRecord {
+    /// The exact population-record schema identifier.
+    pub schema: String,
+    /// Generated-artifact provenance: the governing Exact LLP citation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llp: Option<String>,
+    /// Generated-artifact provenance: the hand-authored declaration source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Generated-artifact provenance: the generator command and version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator: Option<String>,
+    /// The derivation domain tag; when present it must equal the fixed tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch_domain_tag: Option<String>,
+    /// The non-empty module-population identity.
+    pub population_id: String,
+    /// The declared member modules; when present: sorted, unique, non-empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<String>>,
+    /// The Exact-authority registry SHA-256 as 64 lowercase hexadecimal characters.
+    pub registry_digest: String,
+    /// The uniquely derived protocol epoch as 64 lowercase hexadecimal characters.
+    pub protocol_epoch: String,
+}
+
+/// One target-local component's fail-closed protocol-epoch declaration.
+///
+/// Absence, an empty epoch, duplicate identity, or disagreement is a typed
+/// refusal; callers cannot use this declaration to request warning-only mode.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolComponentDeclaration {
+    /// The target-local component identity, which must be non-empty and unique.
+    pub component_id: String,
+    /// The component's presented epoch; absence or blank text is refused.
+    pub protocol_epoch: Option<String>,
+}
+
+/// Typed, serializable reasons that per-target protocol-epoch admission failed closed.
+///
+/// Each population, component-set, absence, unknown-epoch, or mixed-epoch
+/// defect is terminal; no variant represents admit-with-warning behavior.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProtocolEpochRefusal {
+    /// The population authority is malformed or violates the derivation law.
+    #[serde(rename = "population-record-invalid")]
+    PopulationRecordInvalid {
+        /// The precise population-record defect.
+        detail: String,
+    },
+    /// The component identities are malformed or duplicated.
+    #[serde(rename = "component-set-invalid")]
+    ComponentSetInvalid {
+        /// The precise component-set defect.
+        detail: String,
+    },
+    /// At least one target component presented no usable epoch.
+    #[serde(rename = "epoch-absent")]
+    EpochAbsent {
+        /// The one protocol epoch the population requires.
+        #[serde(rename = "expectedProtocolEpoch")]
+        expected_protocol_epoch: String,
+        /// The sorted identities of components with no epoch.
+        #[serde(rename = "componentIds")]
+        component_ids: Vec<String>,
+    },
+    /// Every component agreed on one epoch, but it is not the population epoch.
+    #[serde(rename = "epoch-unknown")]
+    EpochUnknown {
+        /// The one protocol epoch the population requires.
+        #[serde(rename = "expectedProtocolEpoch")]
+        expected_protocol_epoch: String,
+        /// The single epoch presented by the target.
+        #[serde(rename = "presentedProtocolEpoch")]
+        presented_protocol_epoch: String,
+        /// The sorted identities of all components presenting the unknown epoch.
+        #[serde(rename = "componentIds")]
+        component_ids: Vec<String>,
+    },
+    /// Components presented more than one epoch, so the target is locally mixed.
+    #[serde(rename = "epoch-mixed")]
+    EpochMixed {
+        /// The one protocol epoch the population requires.
+        #[serde(rename = "expectedProtocolEpoch")]
+        expected_protocol_epoch: String,
+        /// Each presented epoch mapped to its sorted component identities.
+        epochs: BTreeMap<String, Vec<String>>,
+    },
+}
+
+impl std::fmt::Display for ProtocolEpochRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const PREFIX: &str = "protocol-epoch admission refusal (fail-closed):";
+        match self {
+            Self::PopulationRecordInvalid { detail } => {
+                write!(formatter, "{PREFIX} population record is invalid: {detail}")
+            }
+            Self::ComponentSetInvalid { detail } => {
+                write!(formatter, "{PREFIX} component set is invalid: {detail}")
+            }
+            Self::EpochAbsent {
+                expected_protocol_epoch,
+                component_ids,
+            } => write!(
+                formatter,
+                "{PREFIX} expected protocol epoch {expected_protocol_epoch:?}, but components {component_ids:?} presented no epoch"
+            ),
+            Self::EpochUnknown {
+                expected_protocol_epoch,
+                presented_protocol_epoch,
+                component_ids,
+            } => write!(
+                formatter,
+                "{PREFIX} expected protocol epoch {expected_protocol_epoch:?}, but components {component_ids:?} presented unknown epoch {presented_protocol_epoch:?}"
+            ),
+            Self::EpochMixed {
+                expected_protocol_epoch,
+                epochs,
+            } => write!(
+                formatter,
+                "{PREFIX} expected protocol epoch {expected_protocol_epoch:?}, but the target presented mixed epochs {epochs:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ProtocolEpochRefusal {}
+
+/// A target admitted only after every component presents the one derived epoch.
+///
+/// The sorted component set and protocol epoch are bound into the admission
+/// digest, so this value cannot represent a warning-only or mixed admission.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdmittedTargetProtocolEpoch {
+    /// The admitted population identity.
+    pub population_id: String,
+    /// The admitted Exact-authority registry digest in lowercase hexadecimal.
+    pub registry_digest: String,
+    /// The one derived protocol epoch shared by all components.
+    pub protocol_epoch: String,
+    /// The admitted component identities in sorted order.
+    pub component_ids: Vec<String>,
+    /// The SHA-256 binding of population, registry, epoch, and sorted components.
+    pub admission_digest: String,
+}
+
+fn valid_lower_hex_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn lower_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn decode_lower_hex_sha256(value: &str) -> Option<[u8; 32]> {
+    if !valid_lower_hex_sha256(value) {
+        return None;
+    }
+    let mut decoded = [0_u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        let high = lower_hex_nibble(pair[0])?;
+        let low = lower_hex_nibble(pair[1])?;
+        decoded[index] = (high << 4) | low;
+    }
+    Some(decoded)
+}
+
+fn encode_lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+fn derive_protocol_epoch(population_id: &str, registry_digest: &[u8; 32]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(PROTOCOL_EPOCH_DERIVATION_DOMAIN.as_bytes());
+    hasher.update(population_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(registry_digest);
+    encode_lower_hex(&hasher.finalize())
+}
+
+fn population_record_invalid(detail: impl Into<String>) -> ProtocolEpochRefusal {
+    ProtocolEpochRefusal::PopulationRecordInvalid {
+        detail: detail.into(),
+    }
+}
+
+fn validate_population_record(
+    record: &ProtocolEpochPopulationRecord,
+) -> std::result::Result<(), ProtocolEpochRefusal> {
+    if record.schema != PROTOCOL_EPOCH_POPULATION_SCHEMA {
+        return Err(population_record_invalid(format!(
+            "schema must be {PROTOCOL_EPOCH_POPULATION_SCHEMA:?}"
+        )));
+    }
+    if record.population_id.is_empty() {
+        return Err(population_record_invalid("populationId must be non-empty"));
+    }
+    if let Some(epoch_domain_tag) = &record.epoch_domain_tag {
+        if epoch_domain_tag != PROTOCOL_EPOCH_DERIVATION_DOMAIN {
+            return Err(population_record_invalid(
+                "epochDomainTag does not name the fixed protocol-epoch derivation domain",
+            ));
+        }
+    }
+    if let Some(members) = &record.members {
+        if members.is_empty() {
+            return Err(population_record_invalid(
+                "members, when present, must be non-empty",
+            ));
+        }
+        for pair in members.windows(2) {
+            if pair[0] >= pair[1] {
+                return Err(population_record_invalid(
+                    "members, when present, must be strictly sorted and duplicate-free",
+                ));
+            }
+        }
+        if members.iter().any(|member| member.is_empty()) {
+            return Err(population_record_invalid(
+                "members entries must be non-empty",
+            ));
+        }
+    }
+    let registry_digest = decode_lower_hex_sha256(&record.registry_digest).ok_or_else(|| {
+        population_record_invalid(
+            "registryDigest must be exactly 64 lowercase hexadecimal SHA-256 characters",
+        )
+    })?;
+    if !valid_lower_hex_sha256(&record.protocol_epoch) {
+        return Err(population_record_invalid(
+            "protocolEpoch must be exactly 64 lowercase hexadecimal SHA-256 characters",
+        ));
+    }
+    let expected_protocol_epoch = derive_protocol_epoch(&record.population_id, &registry_digest);
+    if record.protocol_epoch != expected_protocol_epoch {
+        return Err(population_record_invalid(
+            "protocolEpoch does not match the one-authority derivation from populationId and registryDigest",
+        ));
+    }
+    Ok(())
+}
+
+/// Strictly parse and validate one fail-closed protocol-epoch population record.
+///
+/// Duplicate keys, unknown fields, malformed authority values, and an epoch
+/// that was not derived from its own population and registry are all refused.
+pub fn parse_protocol_epoch_population_record(
+    text: &str,
+) -> std::result::Result<ProtocolEpochPopulationRecord, ProtocolEpochRefusal> {
+    let value = capsec_semantics::strict_json::parse_strict(text).map_err(|error| {
+        population_record_invalid(format!("population record is not strict JSON: {error}"))
+    })?;
+    let record = serde_json::from_value(value).map_err(|error| {
+        population_record_invalid(format!("population record model is invalid: {error}"))
+    })?;
+    validate_population_record(&record)?;
+    Ok(record)
+}
+
+/// Refuse mixed, absent, unknown, or malformed target-local protocol components.
+///
+/// Admission always revalidates the population record, applies the fixed
+/// fail-closed refusal order, and binds the one epoch into the returned digest.
+pub fn admit_target_protocol_epoch(
+    record: &ProtocolEpochPopulationRecord,
+    components: &[ProtocolComponentDeclaration],
+) -> std::result::Result<AdmittedTargetProtocolEpoch, ProtocolEpochRefusal> {
+    validate_population_record(record)?;
+
+    if components.is_empty() {
+        return Err(ProtocolEpochRefusal::EpochAbsent {
+            expected_protocol_epoch: record.protocol_epoch.clone(),
+            component_ids: Vec::new(),
+        });
+    }
+
+    let mut component_ids = BTreeSet::new();
+    for component in components {
+        if component.component_id.is_empty() {
+            return Err(ProtocolEpochRefusal::ComponentSetInvalid {
+                detail: "componentId must be non-empty".to_owned(),
+            });
+        }
+        if !component_ids.insert(component.component_id.clone()) {
+            return Err(ProtocolEpochRefusal::ComponentSetInvalid {
+                detail: format!("duplicate componentId {:?}", component.component_id),
+            });
+        }
+    }
+
+    let mut absent_component_ids = components
+        .iter()
+        .filter(|component| {
+            component
+                .protocol_epoch
+                .as_deref()
+                .is_none_or(|epoch| epoch.trim().is_empty())
+        })
+        .map(|component| component.component_id.clone())
+        .collect::<Vec<_>>();
+    if !absent_component_ids.is_empty() {
+        absent_component_ids.sort();
+        return Err(ProtocolEpochRefusal::EpochAbsent {
+            expected_protocol_epoch: record.protocol_epoch.clone(),
+            component_ids: absent_component_ids,
+        });
+    }
+
+    let mut epochs = BTreeMap::<String, Vec<String>>::new();
+    for component in components {
+        if let Some(epoch) = &component.protocol_epoch {
+            epochs
+                .entry(epoch.clone())
+                .or_default()
+                .push(component.component_id.clone());
+        }
+    }
+    for ids in epochs.values_mut() {
+        ids.sort();
+    }
+    if epochs.len() > 1 {
+        return Err(ProtocolEpochRefusal::EpochMixed {
+            expected_protocol_epoch: record.protocol_epoch.clone(),
+            epochs,
+        });
+    }
+
+    let Some(presented_protocol_epoch) = epochs.keys().next() else {
+        return Err(ProtocolEpochRefusal::EpochAbsent {
+            expected_protocol_epoch: record.protocol_epoch.clone(),
+            component_ids: Vec::new(),
+        });
+    };
+    let component_ids = component_ids.into_iter().collect::<Vec<_>>();
+    if presented_protocol_epoch != &record.protocol_epoch {
+        return Err(ProtocolEpochRefusal::EpochUnknown {
+            expected_protocol_epoch: record.protocol_epoch.clone(),
+            presented_protocol_epoch: presented_protocol_epoch.clone(),
+            component_ids,
+        });
+    }
+
+    let registry_digest = decode_lower_hex_sha256(&record.registry_digest).ok_or_else(|| {
+        population_record_invalid("validated registryDigest could not be decoded")
+    })?;
+    let protocol_epoch = decode_lower_hex_sha256(&record.protocol_epoch)
+        .ok_or_else(|| population_record_invalid("validated protocolEpoch could not be decoded"))?;
+    let mut hasher = Sha256::new();
+    hasher.update(PROTOCOL_EPOCH_ADMISSION_DOMAIN.as_bytes());
+    hasher.update(record.population_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(registry_digest);
+    hasher.update(protocol_epoch);
+    for component_id in &component_ids {
+        hasher.update(component_id.as_bytes());
+        hasher.update([0]);
+    }
+
+    Ok(AdmittedTargetProtocolEpoch {
+        population_id: record.population_id.clone(),
+        registry_digest: record.registry_digest.clone(),
+        protocol_epoch: record.protocol_epoch.clone(),
+        component_ids,
+        admission_digest: encode_lower_hex(&hasher.finalize()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2146,6 +2558,275 @@ mod tests {
         .unwrap();
         value["verificationDigest"] = Value::String(verification);
         format!("{}\n", capsec_semantics::canonical::to_jcs(&value).unwrap())
+    }
+
+    const SYNTHETIC_PROTOCOL_EPOCH: &str =
+        "6bdde3948f644e66b60fac5d663295f1b17e4030b250d9c63fa3613f8e2bca69";
+
+    fn protocol_epoch_synthetic_record() -> ProtocolEpochPopulationRecord {
+        let registry_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let registry_bytes = decode_lower_hex_sha256(registry_digest).unwrap();
+        let protocol_epoch = derive_protocol_epoch("exact.first-party/v1", &registry_bytes);
+        assert_eq!(protocol_epoch, SYNTHETIC_PROTOCOL_EPOCH);
+        ProtocolEpochPopulationRecord {
+            schema: PROTOCOL_EPOCH_POPULATION_SCHEMA.to_owned(),
+            llp: None,
+            source: None,
+            generator: None,
+            epoch_domain_tag: None,
+            population_id: "exact.first-party/v1".to_owned(),
+            members: None,
+            registry_digest: registry_digest.to_owned(),
+            protocol_epoch,
+        }
+    }
+
+    #[test]
+    fn protocol_epoch_generated_artifact_metadata_is_tolerated_and_validated() {
+        // The Exact generator's population-record artifact shape: the closed
+        // provenance-metadata fields parse and validate; a wrong domain tag
+        // or an unsorted member list is still a typed refusal.
+        let base = protocol_epoch_synthetic_record();
+        let artifact = serde_json::json!({
+            "schema": base.schema,
+            "llp": "LLP 0554 §3.1 + §6 item 1; LLP 0525 §4.3",
+            "source": "packages/exact-modules/module-ir/population.json",
+            "generator": "bun packages/exact-modules/module-ir/generate.mjs (v1.0.0)",
+            "epochDomainTag": "ExactProtocolEpochV1\u{0}",
+            "populationId": base.population_id,
+            "members": ["com.exact.powersource", "com.exact.sensors"],
+            "registryDigest": base.registry_digest,
+            "protocolEpoch": base.protocol_epoch,
+        });
+        let record =
+            parse_protocol_epoch_population_record(&artifact.to_string()).expect("artifact parses");
+        assert_eq!(record.population_id, base.population_id);
+        assert_eq!(record.protocol_epoch, base.protocol_epoch);
+
+        let mut wrong_tag = artifact.clone();
+        wrong_tag["epochDomainTag"] = Value::String("ExactProtocolEpochV2\u{0}".to_owned());
+        let error = parse_protocol_epoch_population_record(&wrong_tag.to_string()).unwrap_err();
+        assert!(
+            error.to_string().contains("epochDomainTag"),
+            "unexpected refusal: {error}"
+        );
+
+        let mut unsorted = artifact;
+        unsorted["members"] = serde_json::json!(["com.exact.sensors", "com.exact.powersource"]);
+        let error = parse_protocol_epoch_population_record(&unsorted.to_string()).unwrap_err();
+        assert!(
+            error.to_string().contains("strictly sorted"),
+            "unexpected refusal: {error}"
+        );
+    }
+
+    #[test]
+    fn protocol_epoch_happy_path_binds_epoch_and_sorted_components() {
+        let record = protocol_epoch_synthetic_record();
+        let components = vec![
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.sensors".to_owned(),
+                protocol_epoch: Some(record.protocol_epoch.clone()),
+            },
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.powersource".to_owned(),
+                protocol_epoch: Some(record.protocol_epoch.clone()),
+            },
+        ];
+
+        let admitted = admit_target_protocol_epoch(&record, &components).unwrap();
+        assert_eq!(
+            admitted.component_ids,
+            ["com.exact.powersource", "com.exact.sensors"]
+        );
+        // Pins the admission-digest binding, including the per-target protocol epoch.
+        assert_eq!(
+            admitted.admission_digest,
+            "7069cf42b960e27550a62da391466f7ac89a1ee42daf5cee45ccb862e5a36fce"
+        );
+    }
+
+    #[test]
+    fn protocol_epoch_empty_component_set_is_epoch_absent() {
+        let record = protocol_epoch_synthetic_record();
+        assert_eq!(
+            admit_target_protocol_epoch(&record, &[]).unwrap_err(),
+            ProtocolEpochRefusal::EpochAbsent {
+                expected_protocol_epoch: record.protocol_epoch,
+                component_ids: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn protocol_epoch_missing_and_empty_epochs_are_all_reported() {
+        let record = protocol_epoch_synthetic_record();
+        let components = vec![
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.sensors".to_owned(),
+                protocol_epoch: None,
+            },
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.powersource".to_owned(),
+                protocol_epoch: Some(String::new()),
+            },
+        ];
+
+        assert_eq!(
+            admit_target_protocol_epoch(&record, &components).unwrap_err(),
+            ProtocolEpochRefusal::EpochAbsent {
+                expected_protocol_epoch: record.protocol_epoch,
+                component_ids: vec![
+                    "com.exact.powersource".to_owned(),
+                    "com.exact.sensors".to_owned(),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn protocol_epoch_single_wrong_epoch_is_unknown() {
+        let record = protocol_epoch_synthetic_record();
+        let wrong_epoch = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        let components = [ProtocolComponentDeclaration {
+            component_id: "com.exact.sensors".to_owned(),
+            protocol_epoch: Some(wrong_epoch.to_owned()),
+        }];
+
+        assert_eq!(
+            admit_target_protocol_epoch(&record, &components).unwrap_err(),
+            ProtocolEpochRefusal::EpochUnknown {
+                expected_protocol_epoch: record.protocol_epoch,
+                presented_protocol_epoch: wrong_epoch.to_owned(),
+                component_ids: vec!["com.exact.sensors".to_owned()],
+            }
+        );
+    }
+
+    #[test]
+    fn protocol_epoch_mixed_refusal_matches_golden() {
+        // Synthetic cross-repo vector: this deliberately does not use Exact's
+        // live registry digest, so registry regeneration cannot churn the golden.
+        let record = protocol_epoch_synthetic_record();
+        let components = [
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.powersource".to_owned(),
+                protocol_epoch: Some(record.protocol_epoch.clone()),
+            },
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.sensors".to_owned(),
+                protocol_epoch: Some(
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned(),
+                ),
+            },
+        ];
+
+        let refusal = admit_target_protocol_epoch(&record, &components).unwrap_err();
+        let ProtocolEpochRefusal::EpochMixed { epochs, .. } = &refusal else {
+            panic!("expected epoch-mixed refusal, got {refusal}");
+        };
+        assert_eq!(
+            epochs.get(SYNTHETIC_PROTOCOL_EPOCH).unwrap(),
+            &["com.exact.powersource"]
+        );
+        assert_eq!(
+            epochs
+                .get("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                .unwrap(),
+            &["com.exact.sensors"]
+        );
+
+        let actual = serde_json::to_string_pretty(&refusal).unwrap() + "\n";
+        let golden_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/protocol-epoch-mixed-refusal-v1.golden.json"
+        );
+        if std::env::var("IBEX_WRITE_GOLDENS").as_deref() == Ok("1") {
+            std::fs::write(golden_path, actual).unwrap();
+        } else {
+            let expected = std::fs::read(golden_path).unwrap();
+            assert_eq!(actual.as_bytes(), expected);
+        }
+    }
+
+    #[test]
+    fn protocol_epoch_population_record_defects_are_refused() {
+        let mut wrong_schema = protocol_epoch_synthetic_record();
+        wrong_schema.schema = "exact.module-population-record/v2".to_owned();
+        assert!(matches!(
+            admit_target_protocol_epoch(&wrong_schema, &[]),
+            Err(ProtocolEpochRefusal::PopulationRecordInvalid { .. })
+        ));
+
+        let mut non_hex_registry = protocol_epoch_synthetic_record();
+        non_hex_registry.registry_digest = "g".repeat(64);
+        assert!(matches!(
+            admit_target_protocol_epoch(&non_hex_registry, &[]),
+            Err(ProtocolEpochRefusal::PopulationRecordInvalid { .. })
+        ));
+
+        let mut uppercase_registry = protocol_epoch_synthetic_record();
+        uppercase_registry.registry_digest = "A".repeat(64);
+        assert!(matches!(
+            admit_target_protocol_epoch(&uppercase_registry, &[]),
+            Err(ProtocolEpochRefusal::PopulationRecordInvalid { .. })
+        ));
+
+        let mut minted_second_epoch = protocol_epoch_synthetic_record();
+        minted_second_epoch.protocol_epoch = "f".repeat(64);
+        let error = admit_target_protocol_epoch(&minted_second_epoch, &[]).unwrap_err();
+        let ProtocolEpochRefusal::PopulationRecordInvalid { detail } = error else {
+            panic!("expected invalid population record");
+        };
+        assert!(detail.contains("derivation"), "{detail}");
+    }
+
+    #[test]
+    fn protocol_epoch_unknown_population_record_field_is_refused() {
+        let mut value = serde_json::to_value(protocol_epoch_synthetic_record()).unwrap();
+        value["unknownField"] = Value::Bool(true);
+        let error = parse_protocol_epoch_population_record(&serde_json::to_string(&value).unwrap())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ProtocolEpochRefusal::PopulationRecordInvalid { .. }
+        ));
+    }
+
+    #[test]
+    fn protocol_epoch_duplicate_component_ids_are_refused() {
+        let record = protocol_epoch_synthetic_record();
+        let components = [
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.sensors".to_owned(),
+                protocol_epoch: Some(record.protocol_epoch.clone()),
+            },
+            ProtocolComponentDeclaration {
+                component_id: "com.exact.sensors".to_owned(),
+                protocol_epoch: Some(record.protocol_epoch.clone()),
+            },
+        ];
+
+        assert!(matches!(
+            admit_target_protocol_epoch(&record, &components),
+            Err(ProtocolEpochRefusal::ComponentSetInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn protocol_epoch_absent_serialization_is_stable_and_camel_case() {
+        let refusal = ProtocolEpochRefusal::EpochAbsent {
+            expected_protocol_epoch: SYNTHETIC_PROTOCOL_EPOCH.to_owned(),
+            component_ids: vec!["com.exact.sensors".to_owned()],
+        };
+        assert_eq!(
+            serde_json::to_value(refusal).unwrap(),
+            serde_json::json!({
+                "kind": "epoch-absent",
+                "expectedProtocolEpoch": SYNTHETIC_PROTOCOL_EPOCH,
+                "componentIds": ["com.exact.sensors"],
+            })
+        );
     }
 
     fn fixture_identities() -> (PortableEngineArtifactIdentity, MappedEngineInstanceIdentity) {
