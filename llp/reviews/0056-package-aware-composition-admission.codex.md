@@ -8,6 +8,7 @@
 - Round 1 (2026-08-24): reviewed r1 (`fa7b5ed0d`). Verdict: NOT READY.
 - Round 2 (2026-08-24): reviewed r3 (`54d142d78`), fresh session (id 01a0349c-e902-7632-842c-c53a0eb68400), mutually blind to the sibling grok round; capsule: 0413.001 r7 @246f959cc + the exact-b7 dark-lane TS files at Exact origin/main (pre-@a049ed9aa). Verdict: NOT READY (4 MATERIAL areas; every decisive claim verified by the orchestrator against the trees before the r4 fold — all confirmed).
 - Round 3 / delta (2026-08-24): reviewed r4 (`c1a05966f`), fresh session (id 01a034d2-fbad-7080-b28d-0ea2dfb2ca0d), mutually blind to the sibling grok round; capsule refreshed to Exact @a049ed9aa. Verdict: NOT READY (2 MATERIAL — expectations-schema maxima gap in the claimed O-1 authority; #14/#22 producer-routing contradiction; both verified and folded into r5).
+- Round 4 / final delta (2026-08-24): reviewed r5 (`494fad727`), fresh session (id 01a034f9-82f5-7de2-a9ed-eef213170de6), mutually blind to the sibling grok round; pin-relative verification via `git show 94c85abab:<path>` (the 0055 S2 lane had advanced HEAD); also checked the 0055-S2 interaction (none) and the inert 0056 leg-1 frozen layer @8db6cedf6. Verdict: READY.
 
 ## Round 1 (r1, verbatim)
 
@@ -316,3 +317,101 @@ The key open questions are only the exact #14/#22 split, the stamped candidate-t
 Produce r5 with the two MATERIAL repairs, update §9.1, rerun the unchanged row/default comparison, and perform another focused delta review. No architectural rewrite is needed.
 
 Verdict: NOT READY — the claimed O-1 expectations authority omits its safe-integer maxima, and producer-identity mismatch routing is split between #14 and #22.
+
+
+## Round 4 / final delta (r5, verbatim)
+
+## Overall Assessment
+
+r5 is READY for author acceptance. The architecture is sound, both round-3 MATERIAL findings are resolved, the lockstep bytes remain exact, and neither the r5 delta nor LLP 0055 S2 introduces a new MATERIAL concern.
+
+## Verified Claims (spot-checks performed, with file:line — note pin vs HEAD)
+
+- Reviewed `494fad727`, equal to `origin/main`, with a clean worktree.
+- Pin-relative citations were verified using `git show 94c85abab:<path>`:
+  - Single-package admission starts at `@94c85abab:src/module_loader/runner_pipeline.rs:3532`; defining-principal grouping is `:3631-3645`.
+  - Candidate-table v1 serializes and validates `generation` at `@94c85abab:src/module_loader/computed_candidates.rs:43-50,80-85`.
+  - Producer ID, binary digest, and graph digest are jointly checked at `@94c85abab:src/module_loader/artifact.rs:533-542` and `src/module_loader/carrier.rs:309-313`.
+  - Authorized prepared linking performs authorization internally at `@94c85abab:src/engine/module_runner.rs:2937-2966`.
+  - Link-time generation uniformity is enforced at `@94c85abab:src/engine/module_runner.rs:3589-3608`.
+  - Evaluation outcomes are sticky and record-attributed at `@94c85abab:src/engine/module_runner.rs:4012-4059`.
+  - The native namespace operation only serializes with `JSON.stringify` at `@94c85abab:src/engine/hermes_module_runner.cc:4205-4212`; a distinct invoke primitive is required.
+- HEAD offsets are not citation defects: the corresponding generation and sticky checks are now [module_runner.rs:3618](/Users/ccheever/projects/ibex-wt/pkg-admission/src/engine/module_runner.rs:3618) and [module_runner.rs:4024](/Users/ccheever/projects/ibex-wt/pkg-admission/src/engine/module_runner.rs:4024).
+- Exact’s pinned expectations schema has nine required properties at `composition-verifier-expectations-v1.schema.json:8-18`, but only `minimum: 0` on the three integers at `:47-65`.
+- The pinned parity script’s schema list at `check-prepared-composition-schema-parity.mjs:266-306` omits both channel schemas, confirming r5’s disclosure.
+
+## Fold Verification (round-3 findings -> r5)
+
+- **§3.3 authority claim: HELD.** [§3.3](/Users/ccheever/projects/ibex-wt/pkg-admission/llp/0056-package-aware-composition-admission.spec.md:333) now accurately limits “field-for-field” to names and requiredness, identifies all three missing maxima, identifies parity-check blindness, keeps `0..=2^53-1` normative, and names the exact-side repair. This is sufficient for spec acceptance because admission semantics are unambiguous; the frozen Rust parser already enforces the ceiling at [composition.rs:212](/Users/ccheever/projects/ibex-wt/pkg-admission/src/module_loader/composition.rs:212).
+- **#14/#22 routing: HELD.** [§4.8](/Users/ccheever/projects/ibex-wt/pkg-admission/llp/0056-package-aware-composition-admission.spec.md:662) and [§6.4](/Users/ccheever/projects/ibex-wt/pkg-admission/llp/0056-package-aware-composition-admission.spec.md:1114) consistently define:
+  - index identity versus envelope → #22;
+  - carrier/artifact identity versus authenticated index → #14.
+- **Grok round-3 items: HELD.**
+  - Step 3 is #11–#23.
+  - Step 8 consumes `AuthorizedCompositionPlanV1`.
+  - §9.1 names aligned versus pending rows.
+  - Candidate-table schema dispatch precedes v2 decode, and the wire digest is checked before in-memory generation stamping.
+  - #16 wording is origin-neutral.
+  - §3.3 counts nine properties correctly.
+  - §9.2 includes the v1-candidate-table fixture.
+  - `invoke_named_export` returns `Result<InvokeOutcomeV1>` with explicit thenable transport.
+
+## Delta Scan (new-in-r5 text)
+
+No new MATERIAL problem.
+
+The schema-dispatch rule makes v1 candidate-table refusal deterministic; digest-before-stamp preserves the one-serialized-generation-carrier invariant. `InvokeOutcomeV1` closes the report-transport gap without changing step-9 semantics. The revised #16 language correctly separates ordinal precedence from assumptions about who crafted the bytes.
+
+## Lockstep Verification
+
+Using the requested `^| <number> | \`` extraction:
+
+- r5 §6.2: 38 rows.
+- Exact r7 §4.1: 38 rows.
+- Rows are byte-identical; SHA-256:
+  `879deaec27b2ef9b916f09a5842a421fdc4016c2cf0cbb130176d3e231c47fb0`.
+- The Defaults paragraphs are byte-identical; including the terminating blank line, SHA-256:
+  `5117549d6f5a426beff35a329b63e54f030f5f5a8d215983d5fafa83c6376995`.
+
+No drift exists.
+
+## 0055-S2 Interaction Check
+
+No semantic conflict.
+
+- Git attribution shows the 0055 S2 commit range changed only `generation.rs` and its tests. The `runner_pipeline.rs` +64-line change and inert graph/module-runner seams came from the earlier 0056 frozen-leg commit `8db6cedf6`.
+- S2 retains one `ExecutionGeneration` while advancing only `HotRevision` within it ([generation.rs:1020](/Users/ccheever/projects/ibex-wt/pkg-admission/src/module_loader/generation.rs:1020)); publication and commit both reject generation disagreement ([generation.rs:1100](/Users/ccheever/projects/ibex-wt/pkg-admission/src/module_loader/generation.rs:1100), [generation.rs:1211](/Users/ccheever/projects/ibex-wt/pkg-admission/src/module_loader/generation.rs:1211)).
+- S2 does not modify the module-runner generation-uniformity or sticky-evaluation seams.
+- The current 0056 runner addition is explicitly inert and not wired to a C ABI ([runner_pipeline.rs:5910](/Users/ccheever/projects/ibex-wt/pkg-admission/src/module_loader/runner_pipeline.rs:5910)); existing admission/startup entries remain unchanged.
+- LLP 0055 presently pins candidate-table v1 for its existing lane. A future composition-plus-HMR integration must pin v2’s generation-free wire digest instead, but that combination is outside both current implementation surfaces and does not block 0056.
+
+## Factual Errors Found (MATERIAL/MINOR)
+
+- **MATERIAL:** None.
+- **MINOR:** [§9.1](/Users/ccheever/projects/ibex-wt/pkg-admission/llp/0056-package-aware-composition-admission.spec.md:1360) retains the redundant conditional “Until the parity check confirms … r7-shaped” after recording that this confirmation occurred. The surrounding aligned-versus-pending list makes the operative state clear.
+- **MINOR:** The Summary and §9.1 still use unqualified “field-for-field” shorthand. Replacing it with “field names and requiredness” would mirror §3.3 precisely.
+
+## Design Concerns (MATERIAL)
+
+None.
+
+## Design Concerns (MINOR)
+
+- Lockstep row #12 says “unsupported index/carrier/artifact schema” without naming candidate-table schema. §4.3 and the new fixture make the outcome deterministic, but a future coupled table amendment should add “candidate-table” to both repositories.
+- The exact-side maxima and parity-check repair should land before any consumer treats JSON-Schema validation alone as sufficient validation.
+
+## Answers to the Standard Review Questions
+
+The proposal is a good idea. Per-package content roots plus an authenticated composition envelope correctly preserve app-byte identity while supporting one-way package composition. The authorization capability, ordinal failure registry, generation-free candidate-table wire form, and monotonic descriptor executor form a coherent implementation boundary.
+
+The four-leg plan is appropriately staged and fail-closed. I would accept the design without architectural changes, then complete the named Exact schema repair and pending ibex-half O-1 rows before expanding admission.
+
+Nothing remaining is wrongheaded. The most useful non-standard improvement remains an executable invariant audit covering serialized generation carriers, producer-comparison routing, safe-integer bounds, authorization-capability consumption, and registry reachability.
+
+The remaining open questions are implementation choices—artifact layout, native invoke ABI shape, and thenable strictness—not acceptance blockers.
+
+## Recommended Next Step
+
+The author may accept r5. Immediately afterward, land the three JSON-Schema maxima and channel-schema parity coverage, then complete the pending O-1 ibex-half rows before implementation leg 1 relies on them.
+
+Verdict: READY

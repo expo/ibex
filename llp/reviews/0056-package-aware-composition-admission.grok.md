@@ -7,6 +7,7 @@
 - Round 1 (2026-08-24): reviewed r1 (`fa7b5ed0d`). Verdict: NOT READY.
 - Round 2 (2026-08-24): reviewed r3 (`54d142d78`), fresh headless session, mutually blind to the sibling codex round; full text inlined (0056 r3, 0413.001 r7 @246f959cc, both round-1 artifacts, dark-lane TS excerpts). Verdict: READY (0 MATERIAL; independently byte-verified the 38-row/defaults lockstep).
 - Round 3 / delta (2026-08-24): reviewed r4 (`c1a05966f`), fresh headless session, mutually blind to the sibling codex round; the inline packet truncated mid-DOC 5, and the reviewer recovered DOC 5-7 from the pinned capsule on disk (@a049ed9aa — the correct pin). Verdict: READY (0 MATERIAL, second consecutive; re-verified the lockstep and every @a049ed9aa alignment claim).
+- Round 4 / final delta (2026-08-24): reviewed r5 (`494fad727`), fresh headless session, mutually blind to the sibling codex round; packet inline with capsule fallback (used, at the correct pins). Verdict: READY (0 MATERIAL, third consecutive; lockstep re-verified character-identical; both round-3 codex MATERIAL folds confirmed held). Its one open verification request — the O-1 index.json `numberRule` key — was confirmed present by the orchestrator (read at @9018e0bbd).
 
 ## Round 1 (r1, verbatim)
 
@@ -477,5 +478,126 @@ OQ-A (inline vs digest-referenced artifacts), OQ-B (native invoke shape), OQ-D (
 ## Recommended Next Step
 
 Author may accept. Optional r4.1 polish of the MINOR wording items in the same commit is worthwhile and not required for the admission semantics to be frozen. Implementation leg 1 starts against the confirmed r7-shaped O-1 records and still waits on the named ibex-half schema rows (including `ibex/computed-candidates/2`). Do not decode composition candidate tables as v1.
+
+Verdict: READY
+
+
+## Round 4 / final delta (r5, verbatim)
+
+I'll start by reading the full offloaded prompt and the pinned review packet so this final delta round is based on the complete r5 documents, not the truncated inline copy.The capsule and review skill are in place. Next I’ll load the LLP-review process and the rest of the r5 packet so fold, lockstep, and material checks can be done against the pinned sources.I’ll pull the full LLP 0056 r5 text, the prior round-3 review artifacts, and the Exact peer docs from the capsule so the fold and lockstep checks can be done against the actual files.I’ll load the spec, the round-3 review artifacts, and the Exact lockstep sources in parallel so the fold and table checks can be done against the actual text.Round-3 artifacts and the expectations schema are loaded. Next I’ll read the remaining 0056 sections and the Exact lockstep table so I can check the r5 folds field by field.Round-3 findings are in view. Next I’ll read the rest of r5—covering map, registry, §7–§9—and Exact’s lockstep table so I can check the folds and row identity.I’ll hash the two lockstep tables and Defaults paragraphs, then read §8–§11 plus the Exact schema module to check remaining r5 claims.Lockstep rows and Defaults match. I’ll now check leftover wording, the parity script, and Exact schema.ts against the r5 authority and producer-split claims.The parity script skips both channel schemas, as r5 says. I’ll extract the Exact schema.ts slices around delivery, expectations, and alias collection next.The r5 folds and lockstep table check out. I’ll write the review against that evidence, including the remaining wording nits that do not block acceptance.
+
+## Overall Assessment
+
+r5 is a successful final delta fold. The architecture — per-package content roots, a digest-only host-held commitment, a complete verifier-held expectations struct, envelope-only generation attestation, an ordinalized 38-row registry with one default per step, defining-principal authorization on the authorized linker, and tagged report shapes — remains the right ibex half of Exact LLP 0413.001 §6.
+
+The two round-3 MATERIAL findings are repaired in this document, not deferred. §3.3 no longer claims JSON-Schema I-JSON maxima it does not have; the bound stays independently normative here, and the Exact-side keyword/parity repair is a named handoff. Producer-identity failures now have one disposition each: index-versus-envelope is `#22`, carrier/artifact-versus-authenticated-index is `#14`, matching §4.8. Grok’s round-3 wording slips are folded. The 38 lockstep rows and the Defaults paragraph are still character-identical to Exact 0413.001 r7 §4.1.
+
+No remaining issue changes admission outcomes, unique reachability, fallback eligibility, or the §2.1 identity guarantee. Residual problems are polish. They should be cleaned; they do not have to change this document before acceptance.
+
+## Fold Verification (round-3 findings -> r5)
+
+**Codex MATERIAL (a) — §3.3 authority overclaim.** **Held, and sufficient for this document.** The landed expectations schema at Exact `@a049ed9aa` has the nine properties named in the jsonc (`schema`, `expectedTarget`, `expectedRoles`, `sessionNonce`, `authorityGeneration`, `resolverGeneration`, `policyDigest`, `resolverInventoryDigest`, `nowUnixMs`), all required, `additionalProperties: false`, `expectedRoles` as the two const arrays. The three integer fields have only `minimum: 0` — no JSON-Schema `maximum`. The schema description text does state I-JSON `0..2^53-1`. The landed parity check JSON-parses `prepared-package-v1`, `prepared-composition-v1`, and `preimages.json`; it does not open either channel schema. r5 states all of that, keeps `0..=2^53-1` normative for admission, and names the Exact repair (`maximum: 9007199254740991` on the three fields; extend the parity check to both channel files). Blocking 0056 acceptance on that Exact keyword would invert ownership of O-1.
+
+**Codex MATERIAL (b) — #14/#22 producer routing.** **Held.** r4’s contradiction is gone. §4.8 still sends index-versus-record producer disagreement to `#14`. §6.4 now splits the covering map: `_PRODUCER` (3573), the publication-level producer-versus-commitment check, succeeds as index-versus-envelope → `#22`; carrier/artifact producer staleness against the expectation derived from the authenticated index → `#14`. Pin `94c85abab` confirms the split matches the landed sites: `runner_pipeline.rs` ~3573 is index digest versus commitment; `carrier.rs` ~309–313 and `artifact.rs` ~533–542 compare carrier/artifact identity against admission expectations. Shared row bytes are unchanged, as required.
+
+**Grok slips and codex MINORs.**
+
+| Finding | Result |
+| --- | --- |
+| Step-3 range `#11–#24` | **Held** — `#11–#23`; `#24` named as step 4 |
+| Step 8 “authorize and link” | **Held** — consumes `AuthorizedCompositionPlanV1`; no fresh policy decision |
+| §9.1 “in flight” | **Held** — first paragraph retired; aligned (envelope, §3.2/§3.3, 21-vector corpus, with the §3.3 maximum-keyword gap) vs still-to-land ibex-half rows are named |
+| Candidate-table schema identifier before v2 decode | **Held** — v1 identifier is `#12` before `deny_unknown_fields`, so it cannot misreport as `#14` |
+| Digest authenticates generation-free wire form before in-memory stamp | **Held** |
+| `#16` origin-neutral precedence | **Held** — `#15` wins on byte/digest tamper; `#16` is grouping with intact digests, producer or crafted |
+| §3.3 “eight fields” vs nine properties | **Held** — nine properties (`schema` plus eight live values) |
+| §9.2 v1-candidate-table fixture | **Held** — `(3, ibex:prepared-commitment-schema)`, no new imported row |
+| `invoke_named_export` → `Result<InvokeOutcomeV1>` | **Held** — `{ returned_thenable: bool }` is the §8 `agentInvokeReturnedThenable` transport; a thenable still does not fail step 9 |
+
+## Delta Scan (new-in-r5 text)
+
+No new MATERIAL problem. All r5 edits sit outside the shared row bytes.
+
+- The §3.3 precision block is accurate against the two channel schema files and the parity script. The I-JSON rule remaining normative here is the right ibex-side posture.
+- The covering-map split is the Codex-recommended partition and is consistent with §4.8, `#22`’s unique predicate (“package producer identity ≠ envelope’s”), and `#14`’s unique predicate (package-scope internal consistency). Multi-fault order is `#14` before `#22`, so a package that is internally inconsistent *and* spliced still reports `#14`.
+- Candidate-table dispatch plus the §9.2 fixture close the v1-in-composition unique-home without touching lockstep `#12`.
+- `InvokeOutcomeV1` is a contract sketch, not a second thenable policy. OQ-D remains open on purpose.
+- §5 step 8 now agrees with §7.2’s consume-only rule. Policy denial cannot honestly surface as `#38`.
+
+## Lockstep Verification
+
+Extracted the 38 `| # | … |` data rows and the four-line Defaults paragraph from DOC 1 §6.2 and DOC 4 §4.1 and compared them as printed.
+
+**The 38 rows are character-identical. The Defaults paragraph is character-identical.**
+
+- Rows SHA-256 (38 data lines, `\n`-joined): `b697cd08e84fd7b5c829cc65efed30323c5cc65e0636af95389b1223873ab7b1`
+- Defaults SHA-256: `da25b7f675726fd019d6e3e83ab7e327d809f4cb65c3169a21ab43ba0dfbee3b`
+- Defaults text: `1→#1, 2a→#2, 2b→#10, 3→#11, 4→#24, 5→#28, 6→#29, 7→#35, 8→#38` plus the totality sentence.
+
+r5’s covering-map, dispatch, and authority-claim edits sit outside those shared bytes. Row-internal `§4.4` / `§4.8` / `§10` strings are unchanged; the 0056-relative declaration remains necessary and honestly scoped.
+
+## Conformance Findings (MATERIAL/MINOR, cite section numbers)
+
+**MATERIAL:** none.
+
+**MINOR**
+
+- **§9.1 leftover “Until” sentence.** The first paragraph correctly says the parity check is green and names aligned vs pending rows. The later “Until the parity check confirms the landed O-1 package is r7-shaped” sentence is leftover r4 coordination prose. Operative intent is in the first paragraph and §11.
+- **Summary still says §3.2/§3.3 authority files are “field-for-field”** without the names/requiredness qualifier. It does say “their sections cite them”; §3.3 is precise. A reader who stops at the Summary can miss the disclosed maximum-keyword gap.
+- **§3.3 `numberRule` citation.** The expectations schema description does state the I-JSON ceiling. I did not have O-1 `index.json` in the packet, so I could not confirm a `numberRule` key. If it is absent, the citation is a one-word overclaim; the load-bearing statement (no JSON-Schema `maximum`) remains true.
+- **Named parity-check handoff is slightly underspecified.** JSON-parsing the two channel files would not, by itself, assert the three maxima. The keyword addition is the load-bearing Exact repair; the check should assert those keywords.
+- **Lockstep `#12` unique predicate still does not say “candidate-table”.** §4.3 and the new §9.2 row make the home unambiguous. Do not amend the shared table without an Exact-side sibling change.
+- **§4.8 names index-versus-record for `#14`; §6.4 also names carrier-versus-index.** Both belong in the `#14` bucket; one sentence in §4.8 covering the carrier half would match the covering map exactly.
+
+## Design Concerns (MATERIAL)
+
+None. r5 does not reopen unique reachability, fallback eligibility, or the identity guarantee.
+
+## Design Concerns (MINOR)
+
+- **Landed carrier/artifact “producer or deployment graph is stale” is one bail** (`carrier.rs` ~309–313, `artifact.rs` ~533–542). The covering map already needs the composition lane to split that joint check: producer identity versus index → `#14`, `packageGraphDigest` versus index → `#21`, in ordinal order. That requirement existed at r4 (then `#22` vs `#21`); r5 only moves the producer half. Worth one implementation sentence, not a new row.
+- **Class A for a producer-written carrier/index producer mismatch** is a consequence of parking that failure in `#14`’s attacker-shaped internal-consistency bucket. Deterministic and acceptable; the P class on `#22` still describes the honest envelope/index splice.
+- **Exact’s dark `PreparedPackageV1` still carries only `producerBinaryDigest`.** That is the exact-half dark model (`exact/prepared-package/1`), not a competitor to provisional `ibex/prepared-package/1`. When the ibex-half O-1 index lands it must carry the full `(producerId, producerBinaryDigest)` pair §4.3 already requires.
+- An executable O-1 invariant audit (no generation below the envelope; every producer-identity comparison has one code; every cross-language numeric schema field is I-JSON-bounded) remains a good later check. Not a v1 blocker.
+
+## Verification Requests (code claims to check)
+
+Not treated as defects. Pin-relative; HEAD line drift is not a defect. Claims 1–3 I *did* check at `94c85abab` and they hold. The rest I am not re-asserting from this round.
+
+1. **Checked:** `runner_pipeline.rs` ~3573 `_PRODUCER` is index `producer_binary_digest` versus commitment — the `#22` successor.
+2. **Checked:** `carrier.rs` ~309–313 and `artifact.rs` ~533–542 jointly compare producer id, producer binary digest, *and* deployment-graph digest in one bail — the `#14`/`#21` split above.
+3. **Checked:** Exact `@a049ed9aa` `PreparedPackageDeliveryV1` is `{ package, packageBytes }` with no generation; envelope `packages[]` is `(role, packageRoot, producerGeneration)`; `collectAliasImportSites` walks declared edges plus host-bridged rows only; producer emits envelope triples; the admission mirror reads `pair.producerGeneration` from the envelope.
+4. O-1 `index.json` `numberRule` (the §3.3 supporting citation).
+5. Remaining §6.1 site list / covering-map completeness of `bail!`/`anyhow!` on `admit_committed_publication_v1` + `decode_and_admit` + `verify_for_admission` (already reviewed in earlier rounds; not re-grepped here).
+6. `ComputedCandidateTableV1.generation` still serialized at `computed_candidates.rs:43-50` and compared at `runner_pipeline.rs:1143-1148` — the v2-successor premise.
+7. `runner_pipeline.rs:3765` / `3734-3738` — D3 fingerprint drop still tautological / skipped in the only v1 posture.
+8. Corpus vector count 21 is reported dynamically by the Exact check (`corpus.vectors.length`); this packet did not include the vector builder, so I did not independently recount.
+
+## Answers to the Standard Review Questions
+
+**What do you think of this proposal? Is it a good idea?**
+Yes. Whole-publication `deploymentGraphDigest` cannot keep app bytes stable when an agent package joins. Per-package roots plus an authenticated composition envelope are the honest schema. Fail-closed nine-step admission, with ibex owning decode/carrier/link/evaluate, is the right split of 0413.001 §6.
+
+**Do we have a good plan?**
+Yes. Four legs, extract `admit_package_v1` behind existing single-publication tests, generate the refusal enum from a vendored registry, do not admit for real until leg 3. A1 discharged O-2 at document level; generated-halves parity and F-i fixtures are implementation gates. r5’s remaining Exact handoff (schema maxima + parity inspection of the channel files) belongs on that Exact lane, not as a second 0056 acceptance blocker.
+
+**How would you change it?**
+Polish only: delete the leftover §9.1 “Until the parity check confirms…” sentence; qualify the Summary’s “field-for-field”; have §4.8 mention carrier-versus-index alongside record-versus-index; ask Exact to add the three `maximum` keywords and assert them in the parity check. Do not retouch shared row bytes.
+
+**Add / take away?**
+Do not add a third host-bridged reason, a serialized delivery sidecar, `generation` back into package bytes, roles, armed posture, `parseFree`, a second runtime, or ibex-emitted `unavailable-*`. Do not put `entry` back in the package. Do not fold Exact’s dark digest-only package into `ibex/prepared-package/1`.
+
+**Definitely or possibly wrongheaded?**
+Not the architecture. Wrongheaded *if done*: minting a third §2.5 reason; keeping `ComputedCandidateTableV1.generation` in composition packages; authorizing again at step 8; making the missing JSON-Schema `maximum` an ibex acceptance peer blocker after the claim is honest and the I-JSON rule is normative here. r5 rejects all four.
+
+**Novel / non-standard improvements (out of v1, not blockers):**
+An executable O-1 schema-invariant audit as above. Later, optional `callable: true` on descriptors could move non-callable bootstrap from admitted-lane boom to step 7 (v1 correctly leaves callability to runtime). Merkle of per-record semantic digests inside the package graph digest would cheapen incremental app produce; not needed for correctness.
+
+**Key open questions:**
+OQ-A (inline vs digest-referenced artifacts), OQ-B (native invoke shape; §7.3 contract including `InvokeOutcomeV1` is frozen), OQ-D (thenable bootstrap strictness). Plus Exact-side: land the three maxima and the channel-schema parity assertions; the sibling 0056-relative section-ref note; whether `exact/prepared-package/1` grows a `producerId` when the ibex-half index lands.
+
+## Recommended Next Step
+
+Author may accept. Optional same-commit polish of the MINOR wording items is worthwhile and not required for the admission semantics to freeze. Exact should take the named maxima/parity handoff on the O-1 lane. Implementation continues against the confirmed r7-shaped channel records and still waits on the named ibex-half schema rows (including `ibex/computed-candidates/2`). Do not decode composition candidate tables as v1.
 
 Verdict: READY
