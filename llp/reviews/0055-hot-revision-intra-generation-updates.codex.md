@@ -218,3 +218,39 @@ r4 at `6306c3a0eba4febb3e3deb39af7bf0cbf5175e0e` is improved but not ready. Find
 ## Verdict
 
 NOT READY (blocking findings 1–2).
+---
+
+# Round 5 (r5 delta review)
+
+**Reviewer:** codex `gpt-5.6-sol`, xhigh, read-only, same access. **Target:** r5 @5eb732839. **Verdict:** NOT READY (2 MATERIALs: check-order makes post-commit duplicates unreachable; quarantined not representable in the closed receipt union). Folded into r6 — both adopted, the second via session-poison (superseding r5's quarantine-terminal receipt).
+
+## Overall Assessment
+
+r5 correctly resolves the converse quantifier and capacity-class defects. The quarantine disposition remains incomplete: the new terminal outcome is neither reachable under the current validation order nor representable in the governing receipt algebra.
+
+This verdict binds to r5 commit `5eb732839`; no later revision was present.
+
+## Resolution Table
+
+| Round-4 item | Status | Assessment |
+| --- | --- | --- |
+| 1 — quarantine strands pending | PARTIAL | Host ownership and pending→terminal ordering are now explicit in [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:596), but findings 1–2 prevent the promised terminal replay from working end to end. |
+| 2 — converse quantifier too broad | RESOLVED | [§5.2.5](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:448), §10, and F2(d) consistently use the transaction-wide empty changed set. The changed-leaf/unchanged-invalidated-importer case matches Exact 0417 §4.8. |
+| Capacity split | RESOLVED | [§6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:624) and [§10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:748) correctly separate overflow from host-table occupancy and require producer `runId` rotation rather than reload. |
+
+## New MATERIAL Findings (numbered; severity, cite, smallest fix)
+
+1. **MATERIAL — the new post-settlement/post-recreate terminal-hit assertions are unreachable under the unchanged validation order.** §5.2 check 1 compares the envelope’s committed base-graph digest against live session state before check 2 consults the host-held replay table. After a successful changed commit, §5.3.1 installs a new graph digest; recreation may likewise boot a different graph. The original exact duplicate therefore fails check 1 rather than returning its terminal entry, contradicting the new F2(a)/F2(e) assertions. Cites: [§5.2 checks 1–2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:423), [§5.3.1](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:514), [F2](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:778).  
+   **Smallest fix:** after cryptographic signature and stable session/addressing authentication, perform the host-table `(updateId, envelopeDigest)` lookup before live generation/revision/base-graph currency comparisons. Make F9 distinguish a fresh stale-base attempt from a known exact duplicate.
+
+2. **MATERIAL — `quarantined` is not a representable terminal receipt outcome.** r5 requires an infallible field write recording `quarantined` and F2(e) requires returning that terminal receipt, while §10 says invariant quarantine is not a refusal class. The governing `ExactApplyReceiptV1` union permits only `committed`, `committed-degraded`, or `refused { class, code }`; its apply-time registry contains no quarantine outcome. Cites: [LLP 0055 §6](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:611), [LLP 0055 §10](/Users/ccheever/projects/ibex-wt/0417-h1/llp/0055-hot-revision-intra-generation-updates.spec.md:754), [Exact 0553.001 §5.1](/Users/ccheever/projects/exact/llp/0553.001-patch-envelope.spec.md:547).  
+   **Smallest fix:** either add an authority-approved typed quarantine outcome with coordinate and replay semantics, or take round 4’s alternative: rotate/revoke `runId` and retire the table on quarantine instead of promising a prior receipt.
+
+## Minor Findings
+
+- §6 calls an undefined “apply NACK” the producer-visible capacity signal, while §9 defines only advisory consumer-to-producer receipts. Name the host-local/status carrier or assign that plumbing explicitly to Exact H2.
+- §2.3’s “importers are not re-run either way” should say “outside-closure importers”; r5 correctly says invalidated importers inside the closure re-evaluate.
+
+## Verdict
+
+NOT READY (blocking findings 1–2).

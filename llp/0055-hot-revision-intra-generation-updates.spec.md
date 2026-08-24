@@ -5,6 +5,25 @@
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-24 (r6 — round-5 fold. Grok r5: READY (its round-4 blocker and both codex
+round-4 items verified resolved; three minors, folded). Codex r5: NOT READY with two MATERIALs,
+both adopted: (1) the §5.2 check order is split so **live-currency fields (execution
+generation, hot revision, committed base-graph digest) are compared only AFTER the
+duplicate/identity lookup** — session-stable signature/addressing fields at check 1, table at
+check 2, currency at check 3 — because a post-commit retransmit names the OLD base and must
+meet its terminal receipt, not a stale-currency refusal (the same defect Exact 0553.001's own
+duplicate-first order repairs; F2(b)/F9 gain the check-order witness); (2) `quarantined` is
+NOT representable in Exact 0553.001 §5.1's closed receipt union and this spec mints no fourth
+outcome — instead **quarantine poisons the session**: the consumer recreates and marks the
+session rotation-required (every further update, stranded duplicates included, answers the
+rotation-required diagnostic until the producer rotates `runId`, which retires the table
+whole) — superseding r5's quarantined-terminal-receipt mechanism, which grok had approved;
+grok reviews the change in round 6. Grok r5 minors folded: §2.3's "importers are not re-run"
+scoped to outside-closure importers; the pre-reserve/backstop sequencing pinned (the outcome
+record is constructed before any commit-time backstop runs; ordinary refusals overwrite
+pending→terminal before yielding); F9 asserts the capacity class split. Codex r5 minors
+folded: the capacity diagnostic's carrier named as the update channel's direct transport
+response (an Exact H2 carrier, never the §9 advisory receipt stream).)
 **Revised:** 2026-08-24 (r5 — round-4 dual-family fold (codex NOT READY 1–2; grok NOT READY 1;
 convergent residue of the r4 replay/converse rewrites). Adopted: the replay table is pinned
 **host-held** (survives v1 runtime-recreate; dies with the session), and **quarantine
@@ -281,8 +300,9 @@ aliases, dynamic-import namespaces — must observe the successor incarnation af
 prior incarnation before it, with no mixed state observable.** The implementation may satisfy
 this per surface by call-time slot lookup (an engine-owned slot table
 `(ExecutionGeneration, SourceId) → live record id`) **or** by atomic relink of the captured
-bindings inside the §5.3 bundle — relink is a binding rewrite, never a re-evaluation; importers
-are not re-run either way. §11 F5 pins all surfaces.
+bindings inside the §5.3 bundle — relink is a binding rewrite, never a re-evaluation;
+**outside-closure importers are not re-run either way** (invalidated importers *inside* the
+closure re-evaluate as new incarnations — §5.2.5). §11 F5 pins all surfaces.
 
 **CommonJS boundaries refuse (v1).** CJS→ESM adapter namespaces are non-extensible data-property
 snapshots (detected named exports do not update after `module.exports` mutation), and CJS export
@@ -420,19 +440,24 @@ reaches evaluation cannot be doomed by identity, currency, ceiling, or shape.
 **Named pre-begin consumer checks, in order** (only authenticated, accepted-for-processing
 attempts enter the §6 replay table — check-1 failures and other-id busy nacks never do):
 
-1. **Signature and identity-field verification** (§6) — the signature, then every bound
-   identity field (`runId`, authority stamp, normalized target descriptor, entry/profile,
-   boot/consumer identity, committed base-graph digest) against the consumer's live session
-   state, before anything else touches the payload. Base-**coordinate** currency is check 3's,
-   at `begin`. A failure here is unauthenticated and is **never** recorded in the replay
-   table.
+1. **Signature and session/addressing verification** (§6) — the signature, then the bound
+   fields that are **stable for the session's life**: `runId`, authority stamp, normalized
+   target descriptor, entry/profile, boot/consumer identity. **Live-currency fields —
+   execution generation, hot revision, and the committed base-graph digest — are deliberately
+   NOT compared here**: they move with every commit, and comparing them before the table
+   lookup would make a post-commit retransmit fail currency instead of returning its terminal
+   receipt — the exact defect Exact 0553.001's duplicate-first order exists to prevent. A
+   failure here is unauthenticated and is **never** recorded in the replay table.
 2. **Duplicate/identity lookup** (§6 replay law) — a pending same-`updateId` entry answers
    busy (the in-flight reservation, not a terminal outcome); an exact duplicate of a terminal
-   entry returns the prior receipt idempotently and proceeds no further; a
-   same-`updateId`/different-digest payload refuses `update-identity-conflict`.
-3. **Base currency:** `begin_revision(policy, origin, base, invalidated)` refuses `base ≠ live`
-   ("hot update base is stale") **reporting the consumer's committed `(g, r)`**; refuses in
-   production mode; re-validates authority; refuses an empty invalidation set (keep-last-good —
+   entry returns the prior receipt idempotently and proceeds no further — **including a
+   retransmit after the commit it names already published** (its currency fields name the old
+   base; that is why this check precedes currency); a same-`updateId`/different-digest
+   payload refuses `update-identity-conflict`.
+3. **Live currency:** the committed base-graph digest is verified against the live v2 digest,
+   and `begin_revision(policy, origin, base, invalidated)` refuses `base ≠ live` ("hot update
+   base is stale") **reporting the consumer's committed `(g, r)`**; refuses in production
+   mode; re-validates authority; refuses an empty invalidation set (keep-last-good —
    malformed update) or a graph-widening one (full-reload — producer/consumer graph desync).
 
 Then:
@@ -505,7 +530,8 @@ the prior receipt (§6), whatever happens to transport. The bundle is a sequence
 infallible, prevalidated publication operations executed as one
 owner-thread critical section with **no app/user JavaScript interleaved**; if an invariant
 violation is nevertheless detected mid-bundle, the runtime **quarantines and recreates**
-(fail-stop into the v1 generation transition) — it never returns an ordinary refusal from a
+(fail-stop into the v1 generation transition), and the session is marked rotation-required
+(§6) — it never returns an ordinary refusal from a
 half-published state. Replacement records are fully instantiated and past export TDZ before any
 of this is visible.
 
@@ -589,10 +615,13 @@ production commitment schema structurally rejects the keypair fields.
   could verify in another consumer whose session and revision coordinates coincide. HTTP payload
   selection and WS routing must check the same fields (Exact 0417 H1 entry obligation 3; those
   transport negatives are Exact H2 fixtures).
-- **Verification order:** the consumer verifies signature and every bound field against its own
-  live session state **before** any record reaches `stage_replacements` — §5.2's check 1.
-  Per-record digests alone are self-consistency, not authentication (LLP 0042's adversarial
-  contract).
+- **Verification order:** every bound field is verified before any record reaches
+  `stage_replacements`, in §5.2's split — signature and the session-stable
+  session/addressing fields at check 1, the duplicate/identity lookup at check 2, and the
+  live-currency fields (execution generation, hot revision, committed base-graph digest) at
+  check 3 — so a post-commit retransmit meets its terminal receipt before any currency
+  comparison can misclassify it. Per-record digests alone are self-consistency, not
+  authentication (LLP 0042's adversarial contract).
 - **Replay law (aligned to Exact 0553.001 §2.2; the key is the v1 single-session projection of
   its `(session, producer, updateId)`):** `updateId` is unique and content-bound — one
   `updateId` maps to exactly one **signed-envelope digest**. The consumer keeps a
@@ -608,14 +637,18 @@ production commitment schema structurally rejects the keypair fields.
     retry stays possible). Settlement — commit or any authenticated refusal of a *begun*
     transaction — **overwrites pending with the terminal receipt**. A surface-busy nack for a
     *different* in-flight `updateId` is a transport-level occupancy answer and is not
-    recorded at all. **Quarantine settles too:** an invariant-quarantine (§5.2 item 8, §5.3)
-    terminalizes the pending entry through the pre-reserved outcome record — an infallible
-    field write recording `quarantined` at the live coordinates — **before** update
-    processing resumes, so no pending entry can outlive its transaction and answer busy
-    forever across a recreate (the table is host-held; recreation does not clear it). For a
-    begun transaction that refuses before the §5.3 bundle, the pending→terminal overwrite
-    happens **before the refusal is yielded**, with the same durability as the in-fence
-    success write.
+    recorded at all. For a begun transaction that refuses before the §5.3 bundle, the
+    pending→terminal overwrite happens **before the refusal is yielded**, with the same
+    durability as the in-fence success write; for a commit, the pre-reserved outcome record
+    is finalized in-fence (§5.3.7) — the record is constructed before any commit-time
+    backstop runs. **Quarantine poisons the session instead of minting a receipt:** an
+    invariant-quarantine (§5.2 item 8, §5.3) has no representable outcome in the closed
+    receipt union (Exact 0553.001 §5.1 permits only `committed`, `committed-degraded`, and
+    `refused {class, code}` — this spec mints no fourth), so the consumer recreates AND marks
+    the session **rotation-required**: every further update — the stranded `updateId`'s
+    duplicates included — answers a distinct rotation-required diagnostic until the producing
+    session rotates `runId`, which retires the table (and its pending entry) whole. No
+    pending entry answers busy forever, and no unrepresentable receipt exists.
   - **Terminal entries are idempotent, unqualified, for the session's life:** an exact
     duplicate (same `updateId`, same envelope digest) returns the prior terminal receipt and
     applies nothing — commits and refusals alike (the §5.3 fence finalizes the outcome record
@@ -629,9 +662,10 @@ production commitment schema structurally rejects the keypair fields.
     the SAME `runId` and cannot retire a `runId`-scoped table — folding capacity into a
     reload would loop). Only the producing session's `runId` rotation (new keypair,
     commitment, generation — revoking everything prior) retires the table, and the distinct
-    diagnostic on the apply NACK is the producer-visible signal — it never depends on an
-    advisory receipt. Duplicates from a rotated-away session fail check 1 (`runId`), which
-    is refusal, not replay.
+    diagnostic rides the **update channel's direct response** (the transport reply to the
+    notify/pull exchange — an Exact H2 carrier, not the §9 advisory receipt stream) so the
+    producer sees it without trusting a receipt. Duplicates from a rotated-away session fail
+    check 1 (`runId`), which is refusal, not replay.
 - **Limits:** canonical update body ≤ 16 MiB; ≤ 512 replaced modules per revision (within LLP
   0042's manifest limit class). Oversize refuses before decode completes.
 - **Clock domains:** stage timings are stamped per domain (server stamps server stages, device
@@ -751,7 +785,7 @@ Every refusal this surface produces belongs to exactly one Exact 0417 §4.8 clas
 | authority drift (`SnapshotGenerations` / snapshot digest) | `regenerate-policy-and-restart-runtime` |
 | integrity-pinned package source change | `regenerate-policy-and-restart-runtime` |
 | defining-principal change | `regenerate-policy-and-restart-runtime` |
-| any commit-time backstop failure — base coordinate, authority snapshot, or authority stamp (§5.2 item 8) | not a class — invariant violation: quarantine into recreate |
+| any commit-time backstop failure — base coordinate, authority snapshot, or authority stamp (§5.2 item 8) | not a class — invariant violation: quarantine into recreate, and the session is marked rotation-required (§6) |
 | no-op transaction (the ENTIRE staged set row-identical to live — §5.2.5) | `keep-last-good` ("nothing to apply") |
 | stale publication token (per-slot predicate) | not a revision refusal — the stale completion itself refuses; the revision is unaffected |
 | production `begin_update` / `begin_revision` | refused structurally; no dev class applies |
@@ -781,13 +815,16 @@ Each is named so Exact 0417 H2's gate can cite green runs:
   same-id retry after settlement is F9's terminal hit — idempotent receipt or conflict —
   never a fresh begin); (b) a
   `begin` against a stale base refuses with the consumer's committed coordinates — a
-  dispose-count witness proves no effect ran; (c) the commit-time TOCTOU backstops are
+  dispose-count witness proves no effect ran — while an exact duplicate of an
+  already-committed update returns its terminal receipt instead of a stale-base refusal (the
+  check-order witness); (c) the commit-time TOCTOU backstops are
   unreachable by construction (type-level where expressible, else a runtime test proving
   refusal precedes them); (d) a no-op transaction (the entire staged set row-identical to
   live) refuses keep-last-good, never a reload class — while a changed leaf plus an unchanged
   accepting importer, both invalidated, COMMITS with both install revisions advanced; (e) a
-  forced backstop failure and a mid-bundle fail-stop each terminalize the pending replay
-  entry (a post-recreate duplicate returns the quarantined terminal receipt, never busy).
+  forced backstop failure and a mid-bundle fail-stop each poison the session: further updates
+  (the stranded id's duplicates included) answer the rotation-required diagnostic, never
+  busy; after producer `runId` rotation the old session's duplicates fail check 1.
 - **F3 — package-edit refusal into the restart class:** an integrity-pinned package replacement
   refuses with the restart diagnostic, never the reload one.
 - **F4 — ceiling breadth (each asserting the restart-family string — the until-ask-3
@@ -817,9 +854,12 @@ Each is named so Exact 0417 H2's gate can cite green runs:
   after one committed revision** all refuse before staging **and none of them creates a replay
   entry** (a later legitimate signed body with the same `updateId` begins normally); the
   exact-duplicate replay returns the prior terminal outcome — commit and refused-attempt cases
-  both; a duplicate of a PENDING update answers busy and, after settlement, returns the
-  terminal receipt; `update-identity-conflict` refuses; capacity refuses new `updateId`s until
-  session rotation, never evicting; the matching-tuple envelope verifies (§6).
+  both, and the **post-commit retransmit** case explicitly (a fresh stale-base attempt refuses
+  while a known duplicate whose currency fields name the old base returns its receipt); a
+  duplicate of a PENDING update answers busy and, after settlement, returns the terminal
+  receipt; `update-identity-conflict` refuses; capacity refuses new `updateId`s with the
+  keep-last-good occupancy class and NO generation transition, until session rotation, never
+  evicting; the matching-tuple envelope verifies (§6).
   HTTP-selection/WS-routing negatives are Exact H2 fixtures.
 - **F10 — CJS boundary set:** cross-closure CJS named-import consumption refuses
   `cjs-cross-boundary`; whole-closure CJS replacement commits with correct `default`,

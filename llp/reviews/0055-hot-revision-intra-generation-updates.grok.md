@@ -263,3 +263,37 @@ This is the r3 generation-scoped recovery left in place after the table’s life
 ## Verdict
 
 **NOT READY** (blocking: 1).
+
+---
+
+# Round 5 (r5 delta review)
+
+**Reviewer:** grok-4.6, xhigh, headless, r5 delta + full r5 text inlined. **Target:** r5 @5eb732839. **Verdict:** READY (3 minors, folded into r6). NOTE: r6 supersedes the quarantine-terminal-receipt mechanism this round approved (codex r5 found it unrepresentable in 0553.001's receipt union); grok re-reviews that change in round 6.
+
+## Overall Assessment
+
+r5 applies the prescribed fix for grok r4-1, and the body matches the disposition ledger on that split. Capacity is no longer a consumer reload: §6 and §10 treat it as a `keep-last-good` occupancy refusal with a session-rotation diagnostic, last-good standing, no generation transition, and `runId` rotation as the only retirement. Codex r4-1 and r4-2 are handled correctly: the table is host-held, quarantine and pre-bundle refusals terminalize pending before any later begin can see it, and the converse no-op is the transaction-wide empty changed set.## Overall Assessment
+
+r5 applies the prescribed fix for grok r4-1, and the body matches the disposition ledger on that split. Capacity is no longer a consumer reload: §6 and §10 treat it as a `keep-last-good` occupancy refusal with a session-rotation diagnostic, last-good standing, no generation transition, and `runId` rotation as the only retirement. Codex r4-1 and r4-2 are handled correctly: the table is host-held, quarantine and pre-bundle refusals terminalize pending before any later begin can see it, and the converse no-op is the transaction-wide empty changed set. F2(d)/F2(e) pin both. The r4→r5 delta does not introduce a new loop or stranded identity.
+
+## Resolution Table
+
+| ID | Status | Cite | Note |
+| --- | --- | --- | --- |
+| **Grok r4-1** (capacity folded into full-reload loops) | **RESOLVED** | §6 capacity, §10 split rows, F9 capacity clause | Overflow stays `full-reload-current-authority`. Capacity is a `keep-last-good` occupancy refusal for *new* `updateId`s; terminal duplicates still answer; no generation transition is implied or performed; §6 states the reload-would-loop reason verbatim. Only producer `runId` rotation retires the table. The apply NACK’s distinct diagnostic is the producer-visible signal; it does not ride an advisory receipt. Consumer-executed recovery of this class is “last-good stands,” which is the recovery that does not loop. |
+| **Codex r4-1** (quarantine-stranded pending) | **AGREE RESOLVED** | §6 host-held + quarantine-settles, §5.3 pre-reserve, F2(e); also grok r4 minors 8–9 | Host-held table survives v1 recreate and dies with the session, so the pending slot is not implicitly dropped by generation transition. Invariant-quarantine terminalizes through the pre-reserved record *before update processing resumes*; a begun transaction’s ordinary refusal overwrites pending→terminal *before the refusal is yielded*. F2(e) forces both a backstop failure and a mid-bundle fail-stop to return the quarantined terminal after recreate, never busy. A same-`updateId` remint with a new digest is then identity-conflict, not occupancy. |
+| **Codex r4-2** (converse no-op too broad) | **AGREE RESOLVED** | §5.2.5, §10 no-op row, F2(d) | Matches grok r4 minor 4. No-op only when the entire staged set is row-identical (transaction-wide changed set empty). An unchanged member inside a non-empty changed closure is legitimate; 0417 re-evaluates the accepted boundary and its invalidated importer chain, so those importers become new incarnations and F2(d) requires both install revisions to advance. The r4 per-member rule is superseded. |
+
+## New MATERIAL Findings (numbered; severity, the defect, the smallest fix)
+
+None.
+
+## Minor Findings
+
+- **§2.3 vs §5.2.5/F2(d).** §2.3 still says relink “is a binding rewrite, never a re-evaluation; importers are not re-run either way.” That is the cross-closure observation rule (F1/F5: an importer *not* in the invalidation set keeps its install revision and its TLA). The r5 converse text requires invalidated unchanged importers *inside* the set to re-evaluate and advance. Scope §2.3’s “importers are not re-run” to non-invalidated consumers / binding-update mechanism so it cannot be read as forbidding F2(d).
+- **Item-8 vs pre-reserve sequencing.** Quarantine settlement is specified as an infallible field write on the pre-reserved outcome record. Mid-bundle fail-stop is past that reserve. Item 8 still sits in `commit()` *before* “Then the §5.3 bundle,” and pre-reserve is described as pre-fence work in §5.3’s preamble. Pin that the record is constructed before the commit-time backstops run (or that item-8 constructs-and-finalizes the same way pre-bundle refusals overwrite pending). F2(e) already requires the outcome; this is only the sequenced vehicle.
+- **F9 capacity clause.** F9 still says only “refuses new `updateId`s until session rotation, never evicting.” It does not assert the r5 class split (keep-last-good, no generation transition). Add that witness so H2 cannot re-fold capacity into overflow’s reload.
+
+## Verdict
+
+READY
