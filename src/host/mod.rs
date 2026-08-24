@@ -2608,11 +2608,21 @@ impl Host {
     /// their explicitly unarmed behavior; armed hosts require an Exact
     /// binding whose protected manifest digest, context, and numeric set all
     /// match exactly.
+    ///
+    /// Authorization is schema-aware on BOTH ingress paths (LLP 0053 §I1):
+    /// the carrier-less v1 setter (`carrier_capable == false`) refuses an
+    /// armed binding at `exact/host-operation-endowments/2` — a
+    /// carrier-armed artifact never runs behind the carrier-less surface —
+    /// and the carrier-capable v2 setter (`carrier_capable == true`) refuses
+    /// a /1 binding or one that is absent. Unarmed diagnostic hosts accept
+    /// either flavor.
+    // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — fail-closed matrix
     pub fn authorizes_exact_endowment(
         &self,
         context_kind: u32,
         operation_manifest_digest: Option<&str>,
         operations: &[u32],
+        carrier_capable: bool,
     ) -> bool {
         let Some(snapshot) = self.armed_snapshot() else {
             return true;
@@ -2623,6 +2633,10 @@ impl Host {
         let Ok(Some(binding)) = snapshot.exact_embedder_binding() else {
             return false;
         };
+        let binding_carrier_capable = binding.carrier_binding().is_some();
+        if binding_carrier_capable != carrier_capable {
+            return false;
+        }
         if binding.operation_manifest_digest().as_str() != operation_manifest_digest {
             return false;
         }
@@ -2634,18 +2648,65 @@ impl Host {
         expected == operations
     }
 
+    /// Resolve the installed context against the armed /2 carrier binding's
+    /// authenticated root pins. This is the host side of LLP 0053 §I3's root
+    /// discriminator: the result is copied into runtime-owned storage at
+    /// v2-setter success (the installation-time copied immutable projection)
+    /// and the engine never re-queries at call time. Exactly one pinned root
+    /// for the context => `(ATTRIBUTED, root_id)`; multiple => AMBIGUOUS;
+    /// unarmed, no binding, /1, or zero matching pins => UNAVAILABLE.
+    // @ref LLP 0053#r2-i3--derived-root-attribution-on-ingress
+    pub fn exact_carrier_root_attribution(&self, context_kind: u32) -> (u32, Option<String>) {
+        const ATTRIBUTED: u32 = 1;
+        const UNAVAILABLE: u32 = 2;
+        const AMBIGUOUS: u32 = 3;
+        let Some(snapshot) = self.armed_snapshot() else {
+            return (UNAVAILABLE, None);
+        };
+        let Ok(Some(binding)) = snapshot.exact_embedder_binding() else {
+            return (UNAVAILABLE, None);
+        };
+        let Some(carrier) = binding.carrier_binding() else {
+            return (UNAVAILABLE, None);
+        };
+        let context = match context_kind {
+            1 => capsec_semantics::arming::ExactCarrierPinContext::App,
+            2 => capsec_semantics::arming::ExactCarrierPinContext::AgentIsolate,
+            _ => return (UNAVAILABLE, None),
+        };
+        let mut matching = carrier
+            .root_grant_sets
+            .iter()
+            .filter(|(_, pin)| pin.context == context)
+            .map(|(root_id, _)| root_id);
+        match (matching.next(), matching.next()) {
+            (Some(root_id), None) => (ATTRIBUTED, Some(root_id.clone())),
+            (Some(_), Some(_)) => (AMBIGUOUS, None),
+            (None, _) => (UNAVAILABLE, None),
+        }
+    }
+
     /// The explicit construction transaction finalizes only when its installed
     /// native capability set exactly equals the immutable armed snapshot.
+    /// Finalization is schema-aware (LLP 0053 §I1): the CARRIER flag asserts
+    /// the engine's latch tag against the armed binding schema, so a v1 latch
+    /// behind a /2 snapshot (or a v2 latch behind /1) fails here even though
+    /// both installed the same EXACT_INGRESS capability role.
     pub fn authorizes_embedder_capability_set(&self, installed_flags: u32) -> bool {
         let Some(snapshot) = self.armed_snapshot() else {
             return true;
         };
         const EXACT_INGRESS: u32 = 1 << 0;
+        const EXACT_INGRESS_CARRIER: u32 = 1 << 1;
         let mut expected = 0;
-        if snapshot.exact_embedder_binding().ok().flatten().is_some() {
+        if let Ok(Some(binding)) = snapshot.exact_embedder_binding() {
             expected |= EXACT_INGRESS;
+            if binding.carrier_binding().is_some() {
+                expected |= EXACT_INGRESS_CARRIER;
+            }
         }
-        installed_flags & !EXACT_INGRESS == 0 && installed_flags == expected
+        installed_flags & !(EXACT_INGRESS | EXACT_INGRESS_CARRIER) == 0
+            && installed_flags == expected
     }
 
     pub fn decision_context(
@@ -11222,16 +11283,127 @@ mod tests {
                 }));
         });
 
-        assert!(host.authorizes_exact_endowment(1, Some(manifest_digest), &[7, 11]));
-        assert!(host.authorizes_exact_endowment(2, Some(manifest_digest), &[19]));
-        assert!(!host.authorizes_exact_endowment(1, Some(manifest_digest), &[7]));
-        assert!(!host.authorizes_exact_endowment(2, Some(manifest_digest), &[7, 11]));
+        assert!(host.authorizes_exact_endowment(1, Some(manifest_digest), &[7, 11], false));
+        assert!(host.authorizes_exact_endowment(2, Some(manifest_digest), &[19], false));
+        assert!(!host.authorizes_exact_endowment(1, Some(manifest_digest), &[7], false));
+        assert!(!host.authorizes_exact_endowment(2, Some(manifest_digest), &[7, 11], false));
         assert!(!host.authorizes_exact_endowment(
             1,
             Some("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
-            &[7, 11]
+            &[7, 11],
+            false
         ));
-        assert!(!host.authorizes_exact_endowment(1, None, &[7, 11]));
+        assert!(!host.authorizes_exact_endowment(1, None, &[7, 11], false));
+        // LLP 0053 §I1: the /1-armed host refuses the carrier-capable path.
+        assert!(!host.authorizes_exact_endowment(1, Some(manifest_digest), &[7, 11], true));
+        assert!(!host.authorizes_exact_endowment(2, Some(manifest_digest), &[19], true));
+        // The /1 latch reports only the EXACT_INGRESS role; a carrier flag is
+        // a schema mismatch.
+        assert!(host.authorizes_embedder_capability_set(1));
+        assert!(!host.authorizes_embedder_capability_set(1 | 2));
+        // /1 hosts carry no root pins.
+        assert_eq!(host.exact_carrier_root_attribution(1), (2, None));
+    }
+
+    fn example_armed_exact_carrier_host(root_grant_sets: serde_json::Value) -> Host {
+        let manifest_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+        example_armed_host_with(move |value| {
+            value["exactEmbedder"] = serde_json::json!({
+                "schema": "exact/host-operation-endowments/2",
+                "operationManifestDigest": manifest_digest,
+                "endowments": {
+                    "app": [7, 11],
+                    "agentIsolate": [19],
+                    "uiWorklet": [],
+                },
+                "carrierBinding": {
+                    "schema": "exact/carrier-binding/1",
+                    "mappingDigest": "sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMA",
+                    "authorityCommitmentDigest":
+                        "sha256-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQA",
+                    "rootGrantSets": root_grant_sets,
+                }
+            });
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "exact-operation-manifest",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-operation-manifest"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+        })
+    }
+
+    fn carrier_pin(context: &str) -> serde_json::Value {
+        serde_json::json!({
+            "context": context,
+            "grantSetId": format!("grant-set-{context}"),
+            "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+        })
+    }
+
+    // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — fail-closed matrix
+    #[test]
+    fn armed_exact_endowment_authorization_is_schema_aware_on_both_paths() {
+        let manifest_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+        let host = example_armed_exact_carrier_host(serde_json::json!({
+            "home": carrier_pin("app"),
+            "settings": carrier_pin("agentIsolate"),
+        }));
+
+        // /2-armed host: the carrier-capable path authorizes exact bindings...
+        assert!(host.authorizes_exact_endowment(1, Some(manifest_digest), &[7, 11], true));
+        assert!(host.authorizes_exact_endowment(2, Some(manifest_digest), &[19], true));
+        // ...and the carrier-less v1 path REFUSES the same request: a
+        // carrier-armed artifact never runs behind the carrier-less surface.
+        assert!(!host.authorizes_exact_endowment(1, Some(manifest_digest), &[7, 11], false));
+        assert!(!host.authorizes_exact_endowment(2, Some(manifest_digest), &[19], false));
+        // Ordinary mismatches still refuse on the carrier-capable path.
+        assert!(!host.authorizes_exact_endowment(1, Some(manifest_digest), &[7], true));
+        assert!(!host.authorizes_exact_endowment(1, None, &[7, 11], true));
+
+        // Schema-aware finalize: /2 expects EXACT_INGRESS | CARRIER exactly.
+        assert!(host.authorizes_embedder_capability_set(1 | 2));
+        assert!(!host.authorizes_embedder_capability_set(1));
+        assert!(!host.authorizes_embedder_capability_set(2));
+        assert!(!host.authorizes_embedder_capability_set(0));
+    }
+
+    // @ref LLP 0053#r2-i3--derived-root-attribution-on-ingress
+    #[test]
+    fn exact_carrier_root_attribution_discriminates_by_installed_context() {
+        // Exactly one pin per context => ATTRIBUTED with that root id.
+        let host = example_armed_exact_carrier_host(serde_json::json!({
+            "home": carrier_pin("app"),
+            "settings": carrier_pin("agentIsolate"),
+        }));
+        assert_eq!(
+            host.exact_carrier_root_attribution(1),
+            (1, Some("home".to_owned()))
+        );
+        assert_eq!(
+            host.exact_carrier_root_attribution(2),
+            (1, Some("settings".to_owned()))
+        );
+        // Unknown context kinds are UNAVAILABLE, never defaulted.
+        assert_eq!(host.exact_carrier_root_attribution(99), (2, None));
+
+        // Multiple pins for one context => AMBIGUOUS (v1 has no widened rule).
+        let host = example_armed_exact_carrier_host(serde_json::json!({
+            "alpha": carrier_pin("app"),
+            "beta": carrier_pin("app"),
+            "settings": carrier_pin("agentIsolate"),
+        }));
+        assert_eq!(host.exact_carrier_root_attribution(1), (3, None));
+        assert_eq!(
+            host.exact_carrier_root_attribution(2),
+            (1, Some("settings".to_owned()))
+        );
     }
 
     #[test]

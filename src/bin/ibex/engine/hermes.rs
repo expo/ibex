@@ -541,6 +541,24 @@ impl NativeAsyncFailureEvent {
     }
 }
 
+/// Mirror of the engine's `ExHermesExactIngressAttribution` (LLP 0053 §I1);
+/// field order/widths must match include/exact_runtime.h exactly.
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ExHermesExactIngressAttribution {
+    abi_version: u32,
+    struct_size: u32,
+    context_kind: u32,
+    carrier_status: u32,
+    root_status: u32,
+    principal_status: u32,
+    runtime_nonce: u64,
+    principal_id: u64,
+    root_id: *const std::os::raw::c_char,
+    root_id_len: usize,
+}
+
 extern "C" {
     fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
     fn ex_hermes_create_armed(
@@ -659,6 +677,26 @@ extern "C" {
             operation_id: u32,
             payload: *const u8,
             payload_len: usize,
+            context: *mut std::ffi::c_void,
+        ),
+        context: *mut std::ffi::c_void,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_set_exact_host_call_async_v2(
+        runtime: *mut HermesRuntimeOpaque,
+        context_kind: i32,
+        allowed_operation_ids: *const u32,
+        allowed_operation_count: usize,
+        operation_manifest_digest: *const std::os::raw::c_char,
+        callback: extern "C" fn(
+            runtime: *mut HermesRuntimeOpaque,
+            call_id: u64,
+            operation_id: u32,
+            payload: *const u8,
+            payload_len: usize,
+            carrier: *const u8,
+            carrier_len: usize,
+            attribution: *const ExHermesExactIngressAttribution,
             context: *mut std::ffi::c_void,
         ),
         context: *mut std::ffi::c_void,
@@ -7050,6 +7088,55 @@ cp \"$input\" \"$out\"\n";
         (HostResetGuard, digest)
     }
 
+    /// Armed host whose snapshot binds the carrier-bearing
+    /// exact/host-operation-endowments/2 shape (LLP 0053 §I2) with the given
+    /// rootGrantSets pins.
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn build_armed_exact_carrier_test_host(
+        root_grant_sets: serde_json::Value,
+    ) -> (crate::host::Host, String) {
+        let manifest_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+        build_armed_test_host_custom(None, false, false, false, vec![], None, move |value| {
+            value["exactEmbedder"] = serde_json::json!({
+                "schema": "exact/host-operation-endowments/2",
+                "operationManifestDigest": manifest_digest,
+                "endowments": {
+                    "app": [7, 11],
+                    "agentIsolate": [19],
+                    "uiWorklet": [],
+                },
+                "carrierBinding": {
+                    "schema": "exact/carrier-binding/1",
+                    "mappingDigest": "sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMA",
+                    "authorityCommitmentDigest":
+                        "sha256-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQA",
+                    "rootGrantSets": root_grant_sets,
+                }
+            });
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "exact-operation-manifest",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-operation-manifest"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+        })
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn exact_carrier_test_pin(context: &str) -> serde_json::Value {
+        serde_json::json!({
+            "context": context,
+            "grantSetId": format!("grant-set-{context}"),
+            "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+        })
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     fn install_armed_test_host_at(
         project_root: Option<&std::path::Path>,
@@ -8455,6 +8542,99 @@ module.exports = JSON.stringify({
             // no-op and cannot replace the first result.
             let replay = [7_u8];
             ex_hermes_resolve_exact_host_call(runtime, call_id, 0, replay.as_ptr(), replay.len());
+        }
+    }
+
+    /// One captured v2 ingress invocation: the engine-attributed record plus
+    /// the delivered payload/carrier shapes (LLP 0053 §I1/§I3).
+    #[derive(Clone, Debug, Default)]
+    struct CapturedExactIngressInvocation {
+        operation: u32,
+        payload_len: usize,
+        carrier: Option<Vec<u8>>,
+        abi_version: u32,
+        struct_size: u32,
+        context_kind: u32,
+        carrier_status: u32,
+        root_status: u32,
+        principal_status: u32,
+        runtime_nonce: u64,
+        principal_id: u64,
+        root_id: Option<String>,
+    }
+
+    static EXACT_V2_PROBE_INVOCATIONS: std::sync::Mutex<Vec<CapturedExactIngressInvocation>> =
+        std::sync::Mutex::new(Vec::new());
+
+    extern "C" fn abi_probe_exact_host_call_v2(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        operation_id: u32,
+        payload: *const u8,
+        payload_len: usize,
+        carrier: *const u8,
+        carrier_len: usize,
+        attribution: *const ExHermesExactIngressAttribution,
+        _context: *mut std::ffi::c_void,
+    ) {
+        assert!(!attribution.is_null());
+        let attribution = unsafe { &*attribution };
+        if payload_len > 0 {
+            assert!(!payload.is_null());
+        }
+        let carrier_bytes = if carrier_len > 0 {
+            assert!(!carrier.is_null());
+            assert_eq!(
+                attribution.carrier_status, 1,
+                "carrier bytes require CARRIER_PRESENT"
+            );
+            Some(unsafe { std::slice::from_raw_parts(carrier, carrier_len) }.to_vec())
+        } else {
+            assert!(carrier.is_null());
+            assert_eq!(
+                attribution.carrier_status, 2,
+                "no carrier bytes require CARRIER_ABSENT"
+            );
+            None
+        };
+        let root_id = if attribution.root_id.is_null() {
+            assert_eq!(attribution.root_id_len, 0);
+            None
+        } else {
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    attribution.root_id.cast::<u8>(),
+                    attribution.root_id_len,
+                )
+            };
+            Some(String::from_utf8(bytes.to_vec()).unwrap())
+        };
+        EXACT_V2_PROBE_INVOCATIONS
+            .lock()
+            .unwrap()
+            .push(CapturedExactIngressInvocation {
+                operation: operation_id,
+                payload_len,
+                carrier: carrier_bytes,
+                abi_version: attribution.abi_version,
+                struct_size: attribution.struct_size,
+                context_kind: attribution.context_kind,
+                carrier_status: attribution.carrier_status,
+                root_status: attribution.root_status,
+                principal_status: attribution.principal_status,
+                runtime_nonce: attribution.runtime_nonce,
+                principal_id: attribution.principal_id,
+                root_id,
+            });
+        let response = [9_u8, 8_u8];
+        unsafe {
+            ex_hermes_resolve_exact_host_call(
+                runtime,
+                call_id,
+                0,
+                response.as_ptr(),
+                response.len(),
+            );
         }
     }
 
@@ -11575,6 +11755,622 @@ module.exports = JSON.stringify({
                 .unwrap()
                 .as_deref(),
             Some("undefined")
+        );
+    }
+
+    // LLP 0053 §I1 fail-closed matrix: a /2 snapshot refuses the v1 setter,
+    // admits the v2 setter, and the tagged latch is one-shot across flavors.
+    // §I3: the delivered attribution carries the projection-resolved root.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_carrier_snapshot_binds_v2_ingress_with_attribution() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_exact_carrier_test_host(serde_json::json!({
+            "home": exact_carrier_test_pin("app"),
+            "settings": exact_carrier_test_pin("agentIsolate"),
+        }));
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        EXACT_V2_PROBE_INVOCATIONS.lock().unwrap().clear();
+
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        let manifest_digest =
+            std::ffi::CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        let wrong_manifest_digest =
+            std::ffi::CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -8,
+                    "a carrier-armed artifact never runs behind the carrier-less v1 surface"
+                );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        wrong_manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    -8,
+                    "the v2 setter still authenticates the manifest digest"
+                );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 0);
+                // One-shot on the tagged latch, both order combinations that
+                // begin with an installed V2 flavor.
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    -5,
+                    "v2 after v2 must refuse the replacement"
+                );
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -5,
+                    "v1 after v2 must refuse the replacement"
+                );
+            })
+            .unwrap();
+
+        // Exactly 2 arguments => carrier ABSENT.
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "globalThis.__exactCarrierResult = 'pending'; \
+                     exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
+                       function(value) { globalThis.__exactCarrierResult = Array.from(value).join(','); },\
+                       function(error) { globalThis.__exactCarrierResult = 'rejected:' + error.message; }); \
+                     'kicked'",
+                )
+                .await,
+            "kicked"
+        );
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            evaluator
+                .eval_string(&engine, "String(globalThis.__exactCarrierResult)")
+                .await,
+            "9,8"
+        );
+        // Exactly 3 arguments with a 32-byte carrier => PRESENT.
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "globalThis.__exactCarrierResult = 'pending'; \
+                     exact.invokeHostAsync(11, new Uint8Array([4]), new Uint8Array(32).fill(7)).then(\
+                       function(value) { globalThis.__exactCarrierResult = Array.from(value).join(','); },\
+                       function(error) { globalThis.__exactCarrierResult = 'rejected:' + error.message; }); \
+                     'kicked'",
+                )
+                .await,
+            "kicked"
+        );
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            evaluator
+                .eval_string(&engine, "String(globalThis.__exactCarrierResult)")
+                .await,
+            "9,8"
+        );
+        // No other arity.
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "try { exact.invokeHostAsync(7, new Uint8Array([1]), new Uint8Array(1), 0); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await,
+            "exact.invokeHostAsync requires an operation ID and bytes"
+        );
+
+        let invocations = EXACT_V2_PROBE_INVOCATIONS.lock().unwrap().clone();
+        assert_eq!(invocations.len(), 2);
+        let absent = &invocations[0];
+        assert_eq!(absent.operation, 7);
+        assert_eq!(absent.payload_len, 3);
+        assert_eq!(absent.carrier, None);
+        assert_eq!(absent.carrier_status, 2, "2 args deliver CARRIER_ABSENT");
+        let present = &invocations[1];
+        assert_eq!(present.operation, 11);
+        assert_eq!(present.payload_len, 1);
+        assert_eq!(present.carrier.as_deref(), Some(&[7_u8; 32][..]));
+        assert_eq!(present.carrier_status, 1, "3 args deliver CARRIER_PRESENT");
+        for invocation in &invocations {
+            assert_eq!(invocation.abi_version, 1);
+            assert_eq!(
+                invocation.struct_size as usize,
+                std::mem::size_of::<ExHermesExactIngressAttribution>()
+            );
+            assert_eq!(invocation.context_kind, 1);
+            assert_ne!(invocation.runtime_nonce, 0);
+            assert_eq!(
+                invocation.principal_status, 1,
+                "frame attribution authenticates the calling principal"
+            );
+            // §I3: exactly one app pin => ATTRIBUTED with that root id.
+            assert_eq!(invocation.root_status, 1);
+            assert_eq!(invocation.root_id.as_deref(), Some("home"));
+        }
+    }
+
+    // LLP 0053 §I3: multiple pins for the installed context deliver AMBIGUOUS
+    // in v1 — never a widened rule, never a defaulted root.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_carrier_multi_pin_context_delivers_ambiguous_root() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_exact_carrier_test_host(serde_json::json!({
+            "alpha": exact_carrier_test_pin("app"),
+            "beta": exact_carrier_test_pin("app"),
+            "settings": exact_carrier_test_pin("agentIsolate"),
+        }));
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        EXACT_V2_PROBE_INVOCATIONS.lock().unwrap().clear();
+
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        let manifest_digest =
+            std::ffi::CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "globalThis.__exactAmbiguous = 'pending'; \
+                     exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
+                       function(value) { globalThis.__exactAmbiguous = Array.from(value).join(','); },\
+                       function(error) { globalThis.__exactAmbiguous = 'rejected:' + error.message; }); \
+                     'kicked'",
+                )
+                .await,
+            "kicked"
+        );
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            evaluator
+                .eval_string(&engine, "String(globalThis.__exactAmbiguous)")
+                .await,
+            "9,8"
+        );
+        let invocations = EXACT_V2_PROBE_INVOCATIONS.lock().unwrap().clone();
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(
+            invocations[0].root_status, 3,
+            "multiple app pins => AMBIGUOUS"
+        );
+        assert_eq!(invocations[0].root_id, None);
+    }
+
+    // LLP 0053 §I1 fail-closed matrix: a /1 snapshot refuses the v2 setter
+    // and keeps its shipped v1 behavior, including the exactly-2 arity.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_v1_snapshot_refuses_carrier_capable_ingress() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_exact_test_host();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        let manifest_digest =
+            std::ffi::CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    -8,
+                    "a carrier-bearing ingress may not install against a snapshot that does not pin what issuance is bound to"
+                );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    -5,
+                    "v2 after v1 must refuse the replacement"
+                );
+            })
+            .unwrap();
+        // Under v1 install the shipped exactly-2 behavior is unchanged: a
+        // third argument is an arity error, never a silently dropped carrier.
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "try { exact.invokeHostAsync(7, new Uint8Array([1]), new Uint8Array(32)); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await,
+            "exact.invokeHostAsync requires an operation ID and bytes"
+        );
+    }
+
+    // LLP 0053 §I1 fail-closed matrix: a generically armed runtime (no Exact
+    // binding at all) refuses both setter flavors.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn generic_armed_runtime_refuses_both_exact_ingress_flavors() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let manifest_digest =
+            std::ffi::CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -8
+                );
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    -8
+                );
+                assert_root_global_paths_absent(raw, &["exact.invokeHostAsync"], 1);
+            })
+            .unwrap();
+    }
+
+    // Unarmed diagnostic runtimes accept the v2 flavor; attribution is still
+    // delivered with root UNAVAILABLE, the latch stays one-shot, the carrier
+    // grammar is enforced, and the sealed property survives finalization.
+    #[tokio::test(flavor = "current_thread")]
+    async fn diagnostic_exact_v2_ingress_delivers_attribution_and_validates_carrier() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        EXACT_V2_PROBE_INVOCATIONS.lock().unwrap().clear();
+
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        std::ptr::null(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+                // v1 after v2: the one-shot tagged latch refuses (-5).
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        std::ptr::null(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -5
+                );
+            })
+            .unwrap();
+
+        // The sealed property is immutable after legacy auto-finalization.
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "(function () { \
+                       var d = Object.getOwnPropertyDescriptor(exact, 'invokeHostAsync'); \
+                       return typeof exact.invokeHostAsync + '/' + d.writable + '/' + d.configurable; \
+                     })()",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("function/false/false")
+        );
+
+        // 2 args => ABSENT; 3 args (32 bytes) => PRESENT.
+        engine
+            .eval_immediate(
+                "globalThis.__exactV2 = 'pending'; \
+                 exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
+                   function(value) { globalThis.__exactV2 = Array.from(value).join(','); });",
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__exactV2")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("9,8")
+        );
+        engine
+            .eval_immediate(
+                "globalThis.__exactV2 = 'pending'; \
+                 exact.invokeHostAsync(11, new Uint8Array([4,5]), new Uint8Array(32).fill(3)).then(\
+                   function(value) { globalThis.__exactV2 = Array.from(value).join(','); });",
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__exactV2")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("9,8")
+        );
+
+        // Carrier grammar: 0 bytes, 65 bytes, and non-buffer values refuse.
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(7, new Uint8Array([1]), new Uint8Array(0)); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync carrier must be 1..=64 bytes")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(7, new Uint8Array([1]), new Uint8Array(65)); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync carrier must be 1..=64 bytes")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(7, new Uint8Array([1]), {}); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync carrier must be an ArrayBuffer or view")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(7, new Uint8Array([1]), 42); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync carrier must be an ArrayBuffer or view")
+        );
+
+        let invocations = EXACT_V2_PROBE_INVOCATIONS.lock().unwrap().clone();
+        assert_eq!(
+            invocations.len(),
+            2,
+            "refused carriers never reach the host"
+        );
+        assert_eq!(invocations[0].carrier_status, 2);
+        assert_eq!(invocations[0].carrier, None);
+        assert_eq!(invocations[1].carrier_status, 1);
+        assert_eq!(invocations[1].carrier.as_deref(), Some(&[3_u8; 32][..]));
+        for invocation in &invocations {
+            assert_eq!(invocation.abi_version, 1);
+            assert_eq!(invocation.context_kind, 1);
+            assert_ne!(invocation.runtime_nonce, 0);
+            assert_eq!(
+                invocation.root_status, 2,
+                "unarmed diagnostic delivers root UNAVAILABLE"
+            );
+            assert_eq!(invocation.root_id, None);
+        }
+    }
+
+    // Rollback on the tagged latch: a failed v2 package finalization removes
+    // the provisional capability, resets the latch to None, and a later v1
+    // installation succeeds cleanly.
+    #[tokio::test(flavor = "current_thread")]
+    async fn exact_v2_ingress_rolls_back_tagged_latch_when_finalization_fails() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let _compartments = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
+
+        let engine = HermesEngine::new().unwrap();
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        engine
+            .eval_immediate("delete globalThis.__ibexRefreshCompartmentBaseline")
+            .await
+            .unwrap();
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async_v2(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        std::ptr::null(),
+                        abi_probe_exact_host_call_v2,
+                        std::ptr::null_mut(),
+                    ),
+                    -6
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "typeof exact.invokeHostAsync + '/' + \
+                     __ibexCompartmentBaselineFinalized",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined/false")
+        );
+
+        // The rollback reset the tagged latch: restoring the baseline hook
+        // lets the OTHER flavor install afterwards.
+        engine
+            .eval_immediate(
+                "globalThis.__ibexRefreshCompartmentBaseline = function () { \
+                   globalThis.__ibexCompartmentBaselineFinalized = true; \
+                   delete globalThis.__ibexRefreshCompartmentBaseline; \
+                 };",
+            )
+            .await
+            .unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        std::ptr::null(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0,
+                    "a rolled-back latch must be installable again"
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("typeof exact.invokeHostAsync")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("function")
         );
     }
 

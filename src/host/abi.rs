@@ -1550,6 +1550,61 @@ pub unsafe extern "C" fn ex_host_prepare_exact_armed_embedder_artifacts(
         .unwrap_or(std::ptr::null_mut())
 }
 
+/// Carrier-bearing sibling of `ex_host_prepare_exact_armed_embedder_artifacts`
+/// (LLP 0053 §I2): the additional strict `exact/carrier-binding/1` JSON input
+/// is validated through the armed-snapshot carrier machinery and embedded as
+/// the required `carrierBinding` of an `exact/host-operation-endowments/2`
+/// binding before nonce freshening and digest recomputation.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// Inputs are copied or consumed synchronously and are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_prepare_exact_armed_embedder_artifacts_v2(
+    snapshot_template: *const u8,
+    snapshot_template_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    carrier_binding_json: *const u8,
+    carrier_binding_json_len: usize,
+) -> *mut c_char {
+    let result = if snapshot_template.is_null()
+        || snapshot_template_len == 0
+        || expected_identity.is_null()
+        || expected_identity_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || carrier_binding_json.is_null()
+        || carrier_binding_json_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "snapshot template, expected identity, Exact operation manifest, and carrier binding are required"
+        ))
+    } else {
+        let snapshot =
+            unsafe { std::slice::from_raw_parts(snapshot_template, snapshot_template_len) };
+        let expected =
+            unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let carrier =
+            unsafe { std::slice::from_raw_parts(carrier_binding_json, carrier_binding_json_len) };
+        super::embedder_artifacts::prepare_exact_embedder_artifacts_v2(
+            snapshot, expected, manifest, carrier,
+        )
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
 /// Build a complete target-local Exact artifact pair from the installed
 /// project root and the checked operation manifest. The project-root bytes are
 /// UTF-8 and need not be NUL terminated. The returned string is released with
@@ -1596,6 +1651,70 @@ pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
         root.and_then(|root| {
             dev_root.and_then(|dev_root| {
                 super::embedder_artifacts::build_exact_embedder_artifacts(root, dev_root, manifest)
+            })
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Carrier-bearing sibling of `ex_host_build_exact_armed_embedder_artifacts`
+/// (LLP 0053 §I2): the additional strict `exact/carrier-binding/1` JSON input
+/// is validated and embedded as the required `carrierBinding` of a /2 binding
+/// before nonce freshening and digest recomputation.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// Inputs are copied or consumed synchronously and are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts_v2(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    dev_project_root_utf8: *const u8,
+    dev_project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    carrier_binding_json: *const u8,
+    carrier_binding_json_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || carrier_binding_json.is_null()
+        || carrier_binding_json_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root, operation manifest, and carrier binding are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let carrier =
+            unsafe { std::slice::from_raw_parts(carrier_binding_json, carrier_binding_json_len) };
+        let dev_root = unsafe {
+            optional_utf8_path(
+                dev_project_root_utf8,
+                dev_project_root_utf8_len,
+                "Exact dev project root",
+            )
+        };
+        root.and_then(|root| {
+            dev_root.and_then(|dev_root| {
+                super::embedder_artifacts::build_exact_embedder_artifacts_v2(
+                    root, dev_root, manifest, carrier,
+                )
             })
         })
     };
@@ -1674,6 +1793,91 @@ pub unsafe extern "C" fn ex_host_build_exact_runtime_extension_armed_embedder_ar
                     manifest,
                     capsule,
                     mapped_executable,
+                )
+            })
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Carrier-bearing sibling of
+/// `ex_host_build_exact_runtime_extension_armed_embedder_artifacts`
+/// (LLP 0053 §I2): the additional strict `exact/carrier-binding/1` JSON input
+/// is validated and embedded as the required `carrierBinding` of a /2 binding
+/// before nonce freshening and digest recomputation.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this
+/// call. Inputs are copied or consumed synchronously and are not retained.
+/// The optional dev-project-root pair is valid only as `(NULL, 0)` or a
+/// non-empty UTF-8 byte string.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_runtime_extension_armed_embedder_artifacts_v2(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    dev_project_root_utf8: *const u8,
+    dev_project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    authority_capsule: *const u8,
+    authority_capsule_len: usize,
+    launcher_mapped_executable: *const u8,
+    launcher_mapped_executable_len: usize,
+    carrier_binding_json: *const u8,
+    carrier_binding_json_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || authority_capsule.is_null()
+        || authority_capsule_len == 0
+        || launcher_mapped_executable.is_null()
+        || launcher_mapped_executable_len == 0
+        || carrier_binding_json.is_null()
+        || carrier_binding_json_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root, operation manifest, runtime-extension authority capsule, launcher loaded-executable file identity, and carrier binding are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let capsule =
+            unsafe { std::slice::from_raw_parts(authority_capsule, authority_capsule_len) };
+        let mapped_executable = unsafe {
+            std::slice::from_raw_parts(launcher_mapped_executable, launcher_mapped_executable_len)
+        };
+        let carrier =
+            unsafe { std::slice::from_raw_parts(carrier_binding_json, carrier_binding_json_len) };
+        let dev_root = unsafe {
+            optional_utf8_path(
+                dev_project_root_utf8,
+                dev_project_root_utf8_len,
+                "Exact dev project root",
+            )
+        };
+        root.and_then(|root| {
+            dev_root.and_then(|dev_root| {
+                super::embedder_artifacts::build_exact_runtime_extension_embedder_artifacts_v2(
+                    root,
+                    dev_root,
+                    manifest,
+                    capsule,
+                    mapped_executable,
+                    carrier,
                 )
             })
         })
@@ -4434,9 +4638,107 @@ pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
                 .map(|record| Arc::clone(&record.host))
         })
     });
+    // This v1 hook is the carrier-less path: it refuses when the armed
+    // binding is /2 (LLP 0053 §I1 fail-closed matrix, schema-aware on both
+    // paths).
     host.is_some_and(|host| {
-        host.authorizes_exact_endowment(context_kind, manifest_digest, operations)
+        host.authorizes_exact_endowment(context_kind, manifest_digest, operations, false)
     }) as i32
+}
+
+/// Carrier-capable sibling of `ex_host_authorize_exact_endowment` for the v2
+/// ingress setter. `carrier_capable` names the installing surface's schema;
+/// authorization refuses any schema mismatch against the armed binding. On
+/// success, when `carrier_capable` is nonzero, the hook also resolves the
+/// installed context against the authenticated /2 carrier-binding root pins
+/// and returns the installation-time copied immutable projection through the
+/// out parameters (the engine copies and never re-queries at call time).
+///
+/// `out_root_status` receives an `ExHermesExactRootAttributionStatus` value
+/// (1 attributed / 2 unavailable / 3 ambiguous) and `out_root_id` a
+/// heap-owned NUL-terminated UTF-8 root id only when attributed (release with
+/// `ex_host_free_string`); both are initialized on every branch.
+///
+/// # Safety
+///
+/// `operation_ids` must address `operation_count` readable `u32` values, a
+/// non-null `operation_manifest_digest` must point to a valid NUL-terminated
+/// UTF-8 string for the duration of this call, and non-null out pointers must
+/// be writable.
+// @ref LLP 0053#r2-i3--derived-root-attribution-on-ingress — the projection
+// travels under the same authorization that admits the setter
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_exact_endowment_v2(
+    context_id: u64,
+    context_kind: u32,
+    operation_manifest_digest: *const c_char,
+    operation_ids: *const u32,
+    operation_count: usize,
+    carrier_capable: u32,
+    out_root_status: *mut u32,
+    out_root_id: *mut *mut c_char,
+) -> i32 {
+    const ROOT_UNAVAILABLE: u32 = 2;
+    if !out_root_status.is_null() {
+        unsafe { *out_root_status = ROOT_UNAVAILABLE };
+    }
+    if !out_root_id.is_null() {
+        unsafe { *out_root_id = std::ptr::null_mut() };
+    }
+    if context_id == 0
+        || operation_ids.is_null()
+        || operation_count == 0
+        || operation_count > 4096
+        || out_root_status.is_null()
+        || out_root_id.is_null()
+    {
+        return 0;
+    }
+    let manifest_digest = if operation_manifest_digest.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(operation_manifest_digest) }
+            .to_str()
+            .ok()
+    };
+    if !operation_manifest_digest.is_null() && manifest_digest.is_none() {
+        return 0;
+    }
+    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    let Some(host) = host else {
+        return 0;
+    };
+    if !host.authorizes_exact_endowment(
+        context_kind,
+        manifest_digest,
+        operations,
+        carrier_capable != 0,
+    ) {
+        return 0;
+    }
+    if carrier_capable != 0 {
+        let (status, root_id) = host.exact_carrier_root_attribution(context_kind);
+        unsafe { *out_root_status = status };
+        if let Some(root_id) = root_id {
+            if let Ok(root_id) = CString::new(root_id) {
+                unsafe { *out_root_id = root_id.into_raw() };
+            } else {
+                // The frozen root-id grammar forbids embedded NUL; a value
+                // that cannot cross the C boundary fails closed to
+                // UNAVAILABLE rather than truncating.
+                unsafe { *out_root_status = ROOT_UNAVAILABLE };
+            }
+        }
+    }
+    1
 }
 
 /// Verify that an explicit construction transaction installed exactly the

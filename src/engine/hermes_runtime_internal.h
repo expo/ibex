@@ -220,6 +220,18 @@ enum class EmbedderCapabilityState : uint8_t {
   Failed,
 };
 
+// One owner-thread tagged ingress latch for the dedicated Exact embedder
+// channel: None | V1 | V2, with separately typed callback slots below. Every
+// lifecycle helper (one-shot check, begin/finalize embedder-capability
+// transaction, JS dispatch, rollback, seal, disposition activation) operates
+// on this tag; at most one setter flavor ever succeeds per runtime.
+// @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — the tagged latch
+enum class ExactHostIngressTag : uint8_t {
+  None,
+  V1,
+  V2,
+};
+
 struct ModuleFactoryEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
@@ -960,6 +972,10 @@ struct ExactHermesRuntime {
   // Dedicated Exact app/agent endowment. The operation domain is a canonical
   // sorted set of numeric IDs selected once by the native embedder. JS can
   // send only bytes for one of those IDs; it cannot name a new host operation.
+  // The owner-thread tagged latch selects which (separately typed) callback
+  // slot is live; the slot not matching the tag is always null.
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — the tagged latch
+  ExactHostIngressTag exact_host_ingress_tag = ExactHostIngressTag::None;
   uint32_t exact_host_context = 0;
   std::unordered_set<uint32_t> exact_host_operations;
   void (*exact_host_call_async_fn)(ExactHermesRuntime* runtime,
@@ -968,7 +984,32 @@ struct ExactHermesRuntime {
                                    const uint8_t* payload,
                                    size_t payload_len,
                                    void* context) = nullptr;
+  void (*exact_host_call_async_v2_fn)(
+      ExactHermesRuntime* runtime,
+      uint64_t call_id,
+      uint32_t operation_id,
+      const uint8_t* payload,
+      size_t payload_len,
+      const uint8_t* carrier,
+      size_t carrier_len,
+      const ExHermesExactIngressAttribution* attribution,
+      void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
+  // Installation-time copied immutable projection of the authenticated /2
+  // carrier binding, resolved for the installed context by the Rust host
+  // under the same authorization that admitted the v2 setter (there is no
+  // trusted live Rust->C++ channel; the engine never re-queries at call
+  // time). `exact_root_id` is runtime-owned and borrowed per invocation.
+  // Owner-thread written once at v2-setter success; meaningful only while
+  // the latch tag is V2.
+  // @ref LLP 0053#r2-i3--derived-root-attribution-on-ingress
+  uint32_t exact_root_attribution_status = 0;
+  std::string exact_root_id;
+  // Trusted Promise constructor captured at v2 installation, before any
+  // app-observable access can swap the mutable global binding. v2 dispatch
+  // uses only this captured constructor.
+  // @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi — capture ordering
+  std::shared_ptr<facebook::jsi::Function> exact_ingress_promise_ctor;
   // Generic, source-linked native runtime extensions. Descriptor data and
   // provider bindings are copied during construction; no process-global
   // registration or late install path exists. @ref LLP 0040

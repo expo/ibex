@@ -11,9 +11,9 @@
 use anyhow::{Context as _, Result};
 use base64::Engine as _;
 use capsec_semantics::arming::{
-    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderBindingV1, ExactEmbedderEndowments,
-    ExactEmbedderSchemaV1, ExpectedArmingIdentity, ExpectedProtectedArtifact,
-    ProtectedArtifactRole,
+    ArmedSnapshot, ExactCarrierBinding, ExactEmbedderBinding, ExactEmbedderBindingV1,
+    ExactEmbedderBindingV2, ExactEmbedderEndowments, ExactEmbedderSchemaV1, ExactEmbedderSchemaV2,
+    ExpectedArmingIdentity, ExpectedProtectedArtifact, ProtectedArtifactRole,
 };
 use capsec_semantics::digest::{
     compute_checked_contract_digest, compute_domain_digest, DigestKind,
@@ -298,6 +298,38 @@ fn parse_exact_operation_manifest(bytes: &[u8]) -> Result<ExactEmbedderBinding> 
             ui_worklet: manifest.endowments.ui_worklet,
         },
     }))
+}
+
+/// Parse one strict `exact/carrier-binding/1` JSON object and upgrade the
+/// manifest-derived /1 binding into the required-carrier /2 shape, running
+/// the full arming-time validation (pin grammar, per-context >=1-pin rule)
+/// before the caller embeds it. The upgraded binding is embedded before
+/// nonce freshening and digest recomputation, so the pins are authenticated
+/// inputs of the armed digest.
+// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+fn bind_exact_carrier(
+    binding: ExactEmbedderBinding,
+    carrier_binding_json: &[u8],
+) -> Result<ExactEmbedderBinding> {
+    let text =
+        std::str::from_utf8(carrier_binding_json).context("Exact carrier binding is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("Exact carrier binding is not strict JSON")?;
+    let carrier: ExactCarrierBinding =
+        serde_json::from_value(value).context("invalid Exact carrier binding")?;
+    let ExactEmbedderBinding::V1(v1) = binding else {
+        anyhow::bail!("Exact carrier binding requires a manifest-derived /1 embedder binding");
+    };
+    let upgraded = ExactEmbedderBinding::V2(ExactEmbedderBindingV2 {
+        schema: ExactEmbedderSchemaV2,
+        operation_manifest_digest: v1.operation_manifest_digest,
+        endowments: v1.endowments,
+        carrier_binding: carrier,
+    });
+    upgraded
+        .validate()
+        .context("Exact carrier binding validation refused")?;
+    Ok(upgraded)
 }
 
 fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
@@ -754,6 +786,27 @@ pub fn build_exact_embedder_artifacts(
         operation_manifest_bytes,
         None,
         None,
+        None,
+    )
+}
+
+/// Carrier-bearing sibling of [`build_exact_embedder_artifacts`]: the strict
+/// `exact/carrier-binding/1` JSON input is validated and embedded as the
+/// required `carrierBinding` of a /2 binding before nonce freshening.
+// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+pub fn build_exact_embedder_artifacts_v2(
+    project_root: &Path,
+    dev_project_root: Option<&Path>,
+    operation_manifest_bytes: &[u8],
+    carrier_binding_json: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    build_exact_embedder_artifacts_inner(
+        project_root,
+        dev_project_root,
+        operation_manifest_bytes,
+        None,
+        None,
+        Some(carrier_binding_json),
     )
 }
 
@@ -928,6 +981,28 @@ pub fn build_exact_runtime_extension_embedder_artifacts(
         operation_manifest_bytes,
         Some(authority_capsule_bytes),
         Some(launcher_mapped_executable_bytes),
+        None,
+    )
+}
+
+/// Carrier-bearing sibling of
+/// [`build_exact_runtime_extension_embedder_artifacts`].
+// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+pub fn build_exact_runtime_extension_embedder_artifacts_v2(
+    project_root: &Path,
+    dev_project_root: Option<&Path>,
+    operation_manifest_bytes: &[u8],
+    authority_capsule_bytes: &[u8],
+    launcher_mapped_executable_bytes: &[u8],
+    carrier_binding_json: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    build_exact_embedder_artifacts_inner(
+        project_root,
+        dev_project_root,
+        operation_manifest_bytes,
+        Some(authority_capsule_bytes),
+        Some(launcher_mapped_executable_bytes),
+        Some(carrier_binding_json),
     )
 }
 
@@ -947,6 +1022,7 @@ fn build_exact_embedder_artifacts_inner(
     operation_manifest_bytes: &[u8],
     runtime_extension_authority_capsule_bytes: Option<&[u8]>,
     launcher_mapped_executable_bytes: Option<&[u8]>,
+    carrier_binding_json: Option<&[u8]>,
 ) -> Result<PreparedEmbedderArtifacts> {
     let mut phase = super::HostStartupPhaseTrace::begin();
     anyhow::ensure!(
@@ -1131,7 +1207,10 @@ fn build_exact_embedder_artifacts_inner(
     policy = serde_json::to_value(&canonical_policy)?;
 
     let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
-    let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let mut binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    if let Some(carrier_binding_json) = carrier_binding_json {
+        binding = bind_exact_carrier(binding, carrier_binding_json)?;
+    }
     phase.mark("builder_manifests");
     let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
         .iter()
@@ -1395,6 +1474,38 @@ pub fn prepare_exact_embedder_artifacts(
     expected_identity_bytes: &[u8],
     operation_manifest_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
+    prepare_exact_embedder_artifacts_inner(
+        template_bytes,
+        expected_identity_bytes,
+        operation_manifest_bytes,
+        None,
+    )
+}
+
+/// Carrier-bearing sibling of [`prepare_exact_embedder_artifacts`]: the
+/// strict `exact/carrier-binding/1` JSON input is validated and embedded as
+/// the required `carrierBinding` of a /2 binding before nonce freshening.
+// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+pub fn prepare_exact_embedder_artifacts_v2(
+    template_bytes: &[u8],
+    expected_identity_bytes: &[u8],
+    operation_manifest_bytes: &[u8],
+    carrier_binding_json: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    prepare_exact_embedder_artifacts_inner(
+        template_bytes,
+        expected_identity_bytes,
+        operation_manifest_bytes,
+        Some(carrier_binding_json),
+    )
+}
+
+fn prepare_exact_embedder_artifacts_inner(
+    template_bytes: &[u8],
+    expected_identity_bytes: &[u8],
+    operation_manifest_bytes: &[u8],
+    carrier_binding_json: Option<&[u8]>,
+) -> Result<PreparedEmbedderArtifacts> {
     super::reject_closed_startup_environment()?;
     let expected_text = std::str::from_utf8(expected_identity_bytes)
         .context("expected arming identity is not UTF-8")?;
@@ -1421,7 +1532,10 @@ pub fn prepare_exact_embedder_artifacts(
         "expected identity already carries an Exact operation manifest"
     );
 
-    let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let mut binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    if let Some(carrier_binding_json) = carrier_binding_json {
+        binding = bind_exact_carrier(binding, carrier_binding_json)?;
+    }
     let manifest = materialize_protected_artifact(
         "exact-operation-manifest",
         operation_manifest_bytes,
@@ -2573,6 +2687,134 @@ mod tests {
                 .find(|row| row["role"] == "exact-operation-manifest")
                 .unwrap()["contentDigest"],
             digest
+        );
+    }
+
+    fn prepare_exact_v2_through_abi(
+        fixture: &RealEmbedderFixture,
+        carrier_binding: &serde_json::Value,
+    ) -> serde_json::Value {
+        let manifest = exact_manifest();
+        let carrier = serde_json::to_vec(carrier_binding).unwrap();
+        let output = unsafe {
+            crate::host::abi::ex_host_prepare_exact_armed_embedder_artifacts_v2(
+                fixture.snapshot.as_ptr(),
+                fixture.snapshot.len(),
+                fixture.expected_identity.as_ptr(),
+                fixture.expected_identity.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+                carrier.as_ptr(),
+                carrier.len(),
+            )
+        };
+        assert!(!output.is_null());
+        let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+            .to_bytes()
+            .to_vec();
+        crate::host::abi::ex_host_free_string(output);
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn v2_test_carrier_binding(root_grant_sets: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "schema": "exact/carrier-binding/1",
+            "mappingDigest": "sha256-MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMA",
+            "authorityCommitmentDigest": "sha256-QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQA",
+            "rootGrantSets": root_grant_sets,
+        })
+    }
+
+    // @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot — the v2
+    // producer embeds the validated carrier binding as a required /2 field
+    // before nonce freshening, and the freshened pair re-authenticates.
+    #[test]
+    fn public_exact_prepare_v2_embeds_and_authenticates_carrier_binding() {
+        let fixture = real_embedder_fixture();
+        let carrier = v2_test_carrier_binding(serde_json::json!({
+            "home": {
+                "context": "app",
+                "grantSetId": "grant-set-app",
+                "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+            },
+            "settings": {
+                "context": "agentIsolate",
+                "grantSetId": "grant-set-agent",
+                "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+            }
+        }));
+        let envelope = prepare_exact_v2_through_abi(&fixture, &carrier);
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        let artifacts = &envelope["artifacts"];
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["schema"],
+            "exact/host-operation-endowments/2"
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["carrierBinding"]["schema"],
+            "exact/carrier-binding/1"
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["carrierBinding"]["rootGrantSets"]["home"]
+                ["context"],
+            "app"
+        );
+        // The freshened /2 snapshot re-ingests through the strict arming path.
+        let reingested = ArmedSnapshot::load(
+            &serde_json::to_vec(&artifacts["snapshot"]).unwrap(),
+            &serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap(),
+        )
+        .unwrap();
+        let binding = reingested.exact_embedder_binding().unwrap().unwrap();
+        assert!(binding.carrier_binding().is_some());
+    }
+
+    // The per-context >=1-pin arming rule refuses at production time: every
+    // endowed context must hold a pin, so a carrier binding that covers only
+    // the app context cannot be embedded.
+    #[test]
+    fn public_exact_prepare_v2_refuses_carrier_binding_missing_context_pin() {
+        let fixture = real_embedder_fixture();
+        let carrier = v2_test_carrier_binding(serde_json::json!({
+            "home": {
+                "context": "app",
+                "grantSetId": "grant-set-app",
+                "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+            }
+        }));
+        let envelope = prepare_exact_v2_through_abi(&fixture, &carrier);
+        assert_eq!(envelope["ok"], false, "{envelope}");
+        assert!(
+            envelope["error"]
+                .as_str()
+                .unwrap()
+                .contains("carrier binding validation refused"),
+            "{envelope}"
+        );
+    }
+
+    // Strict ingestion refuses unknown carrier-binding fields at the producer.
+    #[test]
+    fn public_exact_prepare_v2_refuses_unknown_carrier_fields() {
+        let fixture = real_embedder_fixture();
+        let mut carrier = v2_test_carrier_binding(serde_json::json!({
+            "home": {
+                "context": "app",
+                "grantSetId": "grant-set-app",
+                "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+            },
+            "settings": {
+                "context": "agentIsolate",
+                "grantSetId": "grant-set-agent",
+                "grantSetDigest": "sha256-ccccccccccccccccccccccccccccccccccccccccccA"
+            }
+        }));
+        carrier["surprise"] = serde_json::json!(true);
+        let envelope = prepare_exact_v2_through_abi(&fixture, &carrier);
+        assert_eq!(envelope["ok"], false, "{envelope}");
+        assert!(
+            envelope["error"].as_str().unwrap().contains("carrier"),
+            "{envelope}"
         );
     }
 

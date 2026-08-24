@@ -1983,13 +1983,93 @@ int ex_hermes_set_exact_host_call_async(
                      void* context),
     void* context);
 
+/// Engine-observed carrier presentation on one `exact.invokeHostAsync`
+/// invocation. Presence is decided by the JS arity under the v2 ingress
+/// (exactly 2 arguments => ABSENT, exactly 3 => PRESENT); it is a
+/// presentation fact, unauthenticated until the host validates.
+/// @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi
+typedef enum ExHermesExactCarrierStatus {
+  EX_HERMES_EXACT_CARRIER_PRESENT = 1,
+  EX_HERMES_EXACT_CARRIER_ABSENT  = 2
+} ExHermesExactCarrierStatus;
+
+/// Engine-attributed root discrimination for one invocation, resolved from
+/// the installed context against the installation-time copied projection of
+/// the armed snapshot's authenticated carrier-binding root pins. Missing or
+/// ambiguous attribution is explicit and is never replaced with a default
+/// root (the ExHermesAsyncFailureEvent discipline).
+typedef enum ExHermesExactRootAttributionStatus {
+  EX_HERMES_EXACT_ROOT_ATTRIBUTED  = 1,
+  EX_HERMES_EXACT_ROOT_UNAVAILABLE = 2,
+  EX_HERMES_EXACT_ROOT_AMBIGUOUS   = 3
+} ExHermesExactRootAttributionStatus;
+
+#define EX_HERMES_EXACT_INGRESS_ATTRIBUTION_ABI_VERSION 1u
+
+/// Engine-attributed per-invocation context; borrowed for the callback
+/// invocation only. Engine-attributed fields cannot be
+/// overridden by request data; carrier presence/bytes are engine-OBSERVED
+/// presentation facts, unauthenticated until the host validates. Versioned-
+/// struct discipline per ExHermesAsyncFailureEvent above.
+/// @ref LLP 0053#r2-i3--derived-root-attribution-on-ingress
+typedef struct ExHermesExactIngressAttribution {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  uint32_t context_kind;      /* ExactEmbedderContext installed */
+  uint32_t carrier_status;    /* ExHermesExactCarrierStatus */
+  uint32_t root_status;       /* ExHermesExactRootAttributionStatus */
+  uint32_t principal_status;  /* ExHermesAsyncFailurePrincipalStatus */
+  uint64_t runtime_nonce;     /* ex_hermes_current_runtime_nonce() at entry */
+  uint64_t principal_id;      /* frame-attributed actor id */
+  const char* root_id;        /* borrowed; non-NULL only when ATTRIBUTED */
+  size_t root_id_len;         /* UTF-8 byte length; the id grammar forbids
+                                 embedded NUL (refused at arming) but the ABI
+                                 still carries an explicit length so two
+                                 authenticated ids can never collapse at a
+                                 C-string consumer */
+} ExHermesExactIngressAttribution;
+
+/// Sibling of ex_hermes_set_exact_host_call_async above.
+/// Identical thread, one-shot, endowment, pending-cap, and size rules;
+/// at most ONE of v1/v2 succeeds per runtime. carrier is borrowed;
+/// PRESENT => 1..=64 bytes (Exact handles are 32; bound is transport
+/// headroom — ibex never parses the bytes). ABSENT => NULL/0 and the
+/// status enum is the authoritative discriminator.
+///
+/// Under this installation, `exact.invokeHostAsync` accepts exactly 2
+/// arguments (carrier ABSENT) or exactly 3 (the third MUST be an
+/// ArrayBuffer or ArrayBufferView of 1..=64 bytes, else a JSError).
+/// Authorization is schema-aware on both setter paths: an armed snapshot
+/// bound at exact/host-operation-endowments/2 refuses the v1 setter, a /1
+/// snapshot (or one with no carrier binding) refuses this v2 setter, and a
+/// generically armed runtime refuses both (-8). Unarmed diagnostic runtimes
+/// accept either; attribution is still delivered with
+/// root_status = EX_HERMES_EXACT_ROOT_UNAVAILABLE.
+/// @ref LLP 0053#r2-i1--carrier-bearing-typed-ingress-abi
+int ex_hermes_set_exact_host_call_async_v2(
+    ExactHermesRuntime* runtime,
+    ExactEmbedderContext context_kind,
+    const uint32_t* allowed_operation_ids,
+    size_t allowed_operation_count,
+    const char* operation_manifest_digest,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     uint32_t operation_id,
+                     const uint8_t* payload,
+                     size_t payload_len,
+                     const uint8_t* carrier,
+                     size_t carrier_len,
+                     const ExHermesExactIngressAttribution* attribution,
+                     void* context),
+    void* context);
+
 /// Complete a pending `exact.invokeHostAsync` call. Safe from any thread.
 /// Status zero resolves with a Uint8Array copy of `payload`; non-zero status
 /// rejects with an Error whose message is decoded from the payload (or a
 /// generic message when the payload is empty). Completion payloads are limited
 /// to 16 MiB; a malformed or oversized completion consumes the call ID and
 /// rejects it. Unknown, stale, replayed, and already-completed call IDs are
-/// ignored.
+/// ignored. Completions ride this one entry point for both ingress ABIs.
 void ex_hermes_resolve_exact_host_call(
     ExactHermesRuntime* runtime,
     uint64_t call_id,
@@ -2099,6 +2179,23 @@ char* ex_host_prepare_exact_armed_embedder_artifacts(
     const uint8_t* operation_manifest,
     size_t operation_manifest_len);
 
+/// Carrier-bearing sibling of ex_host_prepare_exact_armed_embedder_artifacts.
+/// `carrier_binding_json` is one strict `exact/carrier-binding/1` JSON object;
+/// it is validated through the armed-snapshot carrier machinery and embedded
+/// as the required `carrierBinding` of an `exact/host-operation-endowments/2`
+/// binding before nonce freshening and digest recomputation. The v1 producer
+/// keeps emitting /1 until the Exact epoch retires it with the v1 setter.
+/// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+char* ex_host_prepare_exact_armed_embedder_artifacts_v2(
+    const uint8_t* snapshot_template,
+    size_t snapshot_template_len,
+    const uint8_t* expected_identity,
+    size_t expected_identity_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len,
+    const uint8_t* carrier_binding_json,
+    size_t carrier_binding_json_len);
+
 /// Build a complete production Exact artifact pair directly against the
 /// installed target's engine, project root, checked CapSec identities, and
 /// strict Exact operation manifest. `project_root_utf8` is not NUL terminated.
@@ -2115,6 +2212,21 @@ char* ex_host_build_exact_armed_embedder_artifacts(
     size_t dev_project_root_utf8_len,
     const uint8_t* operation_manifest,
     size_t operation_manifest_len);
+
+/// Carrier-bearing sibling of ex_host_build_exact_armed_embedder_artifacts.
+/// The additional strict `exact/carrier-binding/1` JSON input is validated and
+/// embedded as the required `carrierBinding` of a /2 binding before nonce
+/// freshening and digest recomputation; all other rules are identical.
+/// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+char* ex_host_build_exact_armed_embedder_artifacts_v2(
+    const uint8_t* project_root_utf8,
+    size_t project_root_utf8_len,
+    const uint8_t* dev_project_root_utf8,
+    size_t dev_project_root_utf8_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len,
+    const uint8_t* carrier_binding_json,
+    size_t carrier_binding_json_len);
 
 /// Build the target-local Exact artifact pair with a statically selected
 /// finalized runtime-extension authority capsule and the independently
@@ -2133,6 +2245,26 @@ char* ex_host_build_exact_runtime_extension_armed_embedder_artifacts(
     size_t authority_capsule_len,
     const uint8_t* launcher_mapped_executable,
     size_t launcher_mapped_executable_len);
+
+/// Carrier-bearing sibling of
+/// ex_host_build_exact_runtime_extension_armed_embedder_artifacts. The
+/// additional strict `exact/carrier-binding/1` JSON input is validated and
+/// embedded as the required `carrierBinding` of a /2 binding before nonce
+/// freshening and digest recomputation; all other rules are identical.
+/// @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+char* ex_host_build_exact_runtime_extension_armed_embedder_artifacts_v2(
+    const uint8_t* project_root_utf8,
+    size_t project_root_utf8_len,
+    const uint8_t* dev_project_root_utf8,
+    size_t dev_project_root_utf8_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len,
+    const uint8_t* authority_capsule,
+    size_t authority_capsule_len,
+    const uint8_t* launcher_mapped_executable,
+    size_t launcher_mapped_executable_len,
+    const uint8_t* carrier_binding_json,
+    size_t carrier_binding_json_len);
 
 /// Finalize a generated, non-armable runtime-extension authority template
 /// against a launcher observation of the loaded executable containing its

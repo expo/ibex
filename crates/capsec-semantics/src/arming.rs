@@ -408,6 +408,15 @@ impl ExactEmbedderBinding {
             Self::V2(binding) => Some(&binding.carrier_binding),
         }
     }
+
+    /// Run the full arming-time binding validation (schema-tag dispatch,
+    /// carrier-binding pin grammar, and the per-context >=1-pin rule) on a
+    /// binding constructed outside snapshot ingestion. Producers use this to
+    /// refuse a malformed carrier binding before embedding it.
+    // @ref LLP 0053#r2-i2--carrier-identity-in-the-armed-snapshot
+    pub fn validate(&self) -> Result<()> {
+        validate_exact_embedder_binding(self)
+    }
 }
 
 impl<'de> Deserialize<'de> for ExactEmbedderBinding {
