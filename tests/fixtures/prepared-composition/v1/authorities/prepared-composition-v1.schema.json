@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "exact/prepared-composition/1",
+  "title": "PreparedCompositionV1",
+  "description": "LLP 0413.001 §3.1 — the committed composition content, fields in canonical (§3.1 item) order, under one independently authenticated domain-separated commitment (domain ibex:prepared-composition-root:1 over the RFC 8785 JCS envelope bytes; the commitment travels on a host-held channel BESIDE the envelope — §3.3 dev-unarmed is the only v1 posture). Bounds are the step-1 bounded-decode table (index.json); violations are envelope-malformed and nothing else. Normative string bound is 4096 UTF-8 bytes; maxLength is the character approximation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "declaration",
+    "packages",
+    "partition",
+    "unionBindingTable",
+    "hostBridgedInventories",
+    "aliasTable",
+    "agentBoundary",
+    "bootCoreDynamicFollowList",
+    "entryPlan",
+    "freshness"
+  ],
+  "properties": {
+    "schema": {
+      "const": "exact/prepared-composition/1"
+    },
+    "declaration": {
+      "description": "§3.1 item 1 — exactly [\"app\"] or [\"app\",\"agent\"].",
+      "oneOf": [
+        {
+          "const": [
+            "app"
+          ]
+        },
+        {
+          "const": [
+            "app",
+            "agent"
+          ]
+        }
+      ]
+    },
+    "packages": {
+      "description": "§3.1 item 2 (r7 / Amendment A1) — ordered (role, packageRoot, producerGeneration) ATTESTATION TRIPLES (ibex 0056 §4.8): every attestation generation must equal the composition generation (freshness.resolverGeneration) and every package's producerBinaryDigest the envelope's producer identity, else generation-splice (§4.1 #22).",
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "packageRoot",
+          "producerGeneration"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "app",
+              "agent"
+            ]
+          },
+          "packageRoot": {
+            "$ref": "#/$defs/digest"
+          },
+          "producerGeneration": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "partition": {
+      "description": "§3.1 item 3 — partition summary: digest (domain ibex:prepared-partition:1) over the sorted UNIQUE (sourceId, role) rows plus per-role unique record counts (preimages.json).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "roles"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65536
+            },
+            "agent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65536
+            }
+          }
+        }
+      }
+    },
+    "unionBindingTable": {
+      "description": "§3.1 item 4 — cross-package binding rows (agent → app typed external references resolved against the union), digest domain ibex:prepared-union-table:1.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "rows"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fromRole",
+              "fromSourceId",
+              "specifier",
+              "toRole",
+              "toSourceId"
+            ],
+            "properties": {
+              "fromRole": {
+                "enum": [
+                  "app",
+                  "agent"
+                ]
+              },
+              "fromSourceId": {
+                "$ref": "#/$defs/boundedString"
+              },
+              "specifier": {
+                "$ref": "#/$defs/boundedString"
+              },
+              "toRole": {
+                "enum": [
+                  "app",
+                  "agent"
+                ]
+              },
+              "toSourceId": {
+                "$ref": "#/$defs/boundedString"
+              }
+            }
+          }
+        }
+      }
+    },
+    "hostBridgedInventories": {
+      "description": "§3.1 item 5 — per-package §2.5 inventories, digest domain ibex:prepared-boundary-inventory:1 over {role, rows}.",
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "digest",
+          "rows"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "app",
+              "agent"
+            ]
+          },
+          "digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "module",
+                "specifier",
+                "reason"
+              ],
+              "properties": {
+                "module": {
+                  "$ref": "#/$defs/boundedString"
+                },
+                "specifier": {
+                  "$ref": "#/$defs/boundedString"
+                },
+                "reason": {
+                  "enum": [
+                    "target is not a bundle module",
+                    "target excluded by lowering fallback"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "aliasTable": {
+      "description": "§3.1 item 6a — evidence-bearing alias rows (§2.2), digest domain ibex:prepared-alias-table:1. importSiteInventoryDigest is the O-3 algorithm (prepared-composition-schema.ts computeAliasImportSiteInventoryDigest).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "rows"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "aliasId",
+              "representativeSourceId",
+              "representativeSourceIntegrity",
+              "importSiteInventoryDigest"
+            ],
+            "properties": {
+              "aliasId": {
+                "$ref": "#/$defs/boundedString"
+              },
+              "representativeSourceId": {
+                "$ref": "#/$defs/boundedString"
+              },
+              "representativeSourceIntegrity": {
+                "$ref": "#/$defs/digest"
+              },
+              "importSiteInventoryDigest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "agentBoundary": {
+      "description": "§3.1 item 6b — the declared agent boundary: the entry/alias id set ONLY, never the agent interior (§2.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entryIds"
+      ],
+      "properties": {
+        "entryIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/boundedString"
+          }
+        }
+      }
+    },
+    "bootCoreDynamicFollowList": {
+      "description": "§3.1 item 6c — the committed boot-core-v1 dynamic follow list (§2.1). v1 content: exactly one entry, the bootstrap→server-boot edge, as canonical (post-alias-collapse) module ids.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "importer",
+          "target"
+        ],
+        "properties": {
+          "importer": {
+            "$ref": "#/$defs/boundedString"
+          },
+          "target": {
+            "$ref": "#/$defs/boundedString"
+          }
+        }
+      }
+    },
+    "entryPlan": {
+      "description": "§3.1 item 7 — the ordered entry plan: cardinality exactly the declared roles, live-state-derived order (agent before app), executable descriptors; digest domain ibex:prepared-entry-plan:1 over the ordered entries.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "entries"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "root",
+              "action"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "app",
+                  "agent"
+                ]
+              },
+              "root": {
+                "$ref": "#/$defs/boundedString"
+              },
+              "action": {
+                "enum": [
+                  "evaluate",
+                  "evaluate-then-invoke"
+                ]
+              },
+              "export": {
+                "$ref": "#/$defs/boundedString"
+              }
+            }
+          }
+        }
+      }
+    },
+    "freshness": {
+      "description": "§3.1 item 8 — freshness and authority facts, ALL mandatory (anti-replay; OQ1 closed: authority generation mandatory, credential material never). policyDigest: the landed dev dummy digest is a dark-flag-only placeholder — TODO(LLP 0413.001 O-4): real policy digest before any admitting posture.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionNonce",
+        "authorityGeneration",
+        "resolverGeneration",
+        "expiresAtMs",
+        "policyDigest",
+        "target",
+        "encoding",
+        "agentPacking",
+        "producer"
+      ],
+      "properties": {
+        "sessionNonce": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "authorityGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resolverGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expiresAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policyDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "target": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "encoding": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "agentPacking": {
+          "const": "boot-core-v1"
+        },
+        "producer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "binaryDigest"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/boundedString"
+            },
+            "binaryDigest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]+$"
+    }
+  }
+}

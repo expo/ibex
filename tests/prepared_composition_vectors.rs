@@ -8,12 +8,12 @@ use ibex_runtime::module_loader::composition::{
     check_composition_wire_bounds, composition_step_default,
     compute_alias_import_site_inventory_digest, parse_composition_package_attestations_v1,
     parse_composition_verifier_expectations_v1, parse_prepared_composition_commitment_v1,
-    AliasImportSiteV1, CompositionRefusalCode, CompositionRole, COMPOSITION_ENVIRONMENT_CODES_V1,
-    I_JSON_MAX_SAFE_INTEGER, MAX_COMPOSITION_ALIAS_ROWS_V1, MAX_COMPOSITION_ENVELOPE_BYTES_V1,
-    MAX_COMPOSITION_EXTERNAL_REFERENCES_V1, MAX_COMPOSITION_NESTING_DEPTH_V1,
-    MAX_COMPOSITION_ROLES_V1, MAX_COMPOSITION_STRING_BYTES_V1, MAX_PACKAGE_DECLARED_EDGES_V1,
-    MAX_PACKAGE_RECORDS_V1, PREPARED_ALIAS_TABLE_DOMAIN_V1, PREPARED_COMPOSITION_ROOT_DOMAIN_V1,
-    PREPARED_PACKAGE_ROOT_DOMAIN_V1,
+    AliasImportSiteV1, CompositionRefusalCode, CompositionRole, PreparedCompositionV1,
+    COMPOSITION_ENVIRONMENT_CODES_V1, I_JSON_MAX_SAFE_INTEGER, MAX_COMPOSITION_ALIAS_ROWS_V1,
+    MAX_COMPOSITION_ENVELOPE_BYTES_V1, MAX_COMPOSITION_EXTERNAL_REFERENCES_V1,
+    MAX_COMPOSITION_NESTING_DEPTH_V1, MAX_COMPOSITION_ROLES_V1, MAX_COMPOSITION_STRING_BYTES_V1,
+    MAX_PACKAGE_DECLARED_EDGES_V1, MAX_PACKAGE_RECORDS_V1, PREPARED_ALIAS_TABLE_DOMAIN_V1,
+    PREPARED_COMPOSITION_ROOT_DOMAIN_V1, PREPARED_PACKAGE_ROOT_DOMAIN_V1,
 };
 use serde_json::{json, Value};
 use sha2::{Digest as _, Sha256};
@@ -45,7 +45,7 @@ fn lowercase_sha256(bytes: &[u8]) -> String {
 
 fn assert_manifest_hashes(root: &Path) {
     let manifest = read_json(&root.join("manifest.json"));
-    for relative in ["refusals.generated.json", "vectors/canonical-bytes.json"] {
+    for relative in manifest["files"].as_object().unwrap().keys() {
         let bytes = fs::read(root.join(relative)).unwrap();
         assert_eq!(
             lowercase_sha256(&bytes),
@@ -109,6 +109,11 @@ fn assert_typed_ingest(corpus: &Value) {
     assert_eq!(expectations.now_unix_ms, 1_755_990_000_000);
 
     let composition = &vector(corpus, "minimal-app-only-composition-root")["value"];
+    let composition_bytes =
+        capsec_semantics::canonical::to_jcs_bytes(composition).expect("canonical composition");
+    let decoded = PreparedCompositionV1::decode_canonical(&composition_bytes).unwrap();
+    assert_eq!(decoded.schema, "exact/prepared-composition/1");
+    assert_eq!(decoded.declaration, ["app"]);
     let packages = parse_composition_package_attestations_v1(&composition["packages"]).unwrap();
     assert_eq!(packages.len(), 1);
     assert_eq!(packages[0].role, CompositionRole::App);

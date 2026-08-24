@@ -1,0 +1,48 @@
+{
+  "authority": "LLP 0413.001 §2.1/§3.1 (Obligation O-1: field-level package-root preimages)",
+  "note": "For every domain-separated digest in the composition model: the literal domain constant, the exact preimage value (field list in canonical order), and the encoding. All preimages are RFC 8785 JCS canonical UTF-8 bytes; digests are sha256(domain || 0x00 || preimageBytes) rendered sha256-<base64url> (the ibex digest discipline, prepared-graph-producer.ts ibexDomainDigest). The TS implementation of each preimage is packages/exact-devtools/src/prepared-composition-schema.ts; a conforming Rust half must reproduce these bytes exactly (the vector corpus pins them).",
+  "preimages": [
+    {
+      "domain": "ibex:prepared-composition-root:1",
+      "digestOf": "the composition envelope",
+      "preimage": "JCS(PreparedCompositionV1) — the complete envelope value with fields in the §3.1 item order: schema, declaration, packages (the ordered (role, packageRoot, producerGeneration) attestation triples — r7/ibex 0056 §4.8), partition, unionBindingTable, hostBridgedInventories, aliasTable, agentBoundary, bootCoreDynamicFollowList, entryPlan, freshness. The commitment (this digest) is delivered on a host-held channel BESIDE the envelope, never inside it, so no self-field zeroing applies.",
+      "implementation": "computePreparedCompositionRootV1(canonicalPreparedCompositionBytes(composition))"
+    },
+    {
+      "domain": "ibex:prepared-package-root:1",
+      "digestOf": "one package (per role)",
+      "preimage": "JCS(PreparedPackageV1) — fields: schema, role, producerBinaryDigest (the envelope producer identity, §4.1 #22), records (sorted by sourceId; each record: sourceId, moduleId, sourceIntegrity, declaredEdges), hostBridgedDynamicImportEdges (sorted by module then specifier), computedDynamicImportSites, carriers. The root lives outside the package bytes (envelope item 2), so the preimage is the whole package value. The produce GENERATION is NOT part of the preimage — its one carrier is the envelope attestation triple (r7), so package identity stays a pure function of the graph and producer identity (§2.1).",
+      "implementation": "computePreparedPackageRootV1(pkg)"
+    },
+    {
+      "domain": "ibex:prepared-partition:1",
+      "digestOf": "the partition summary",
+      "preimage": "JCS(rows) where rows = the sorted UNIQUE (sourceId, role) pairs across all served packages, sorted by sourceId then role. Uniqueness is per (sourceId, role) pair: a within-package duplicate id dedupes here by construction, keeping the §4 step-4 predicate order uniquely reachable (partition-mismatch ordinal 19 before ibex:duplicate-source-id ordinal 20 before package-overlap ordinal 21).",
+      "implementation": "computePreparedPartitionDigestV1(computePreparedPartitionRows(packages))"
+    },
+    {
+      "domain": "ibex:prepared-union-table:1",
+      "digestOf": "the union binding table",
+      "preimage": "JCS(rows) where rows = the cross-package binding rows {fromRole, fromSourceId, specifier, toRole, toSourceId}, sorted by (fromRole, fromSourceId, specifier).",
+      "implementation": "computePreparedUnionTableDigestV1(rows)"
+    },
+    {
+      "domain": "ibex:prepared-boundary-inventory:1",
+      "digestOf": "one package's host-bridged inventory",
+      "preimage": "JCS({role, rows}) where rows = that package's §2.5 host-bridged dynamic-import edges {module, specifier, reason}, sorted by (module, specifier); reason from the closed two-member enum, derivable from the owning package's own graph facts only.",
+      "implementation": "computePreparedBoundaryInventoryDigestV1(role, rows)"
+    },
+    {
+      "domain": "ibex:prepared-alias-table:1",
+      "digestOf": "the alias table",
+      "preimage": "JCS(rows) where rows = the alias evidence rows {aliasId, representativeSourceId, representativeSourceIntegrity, importSiteInventoryDigest}, sorted by aliasId. Each row's importSiteInventoryDigest is the O-3 evidence sub-digest: the UN-domained source-integrity sha256 over JCS of the sorted unique {importer, specifier} pairs whose specifier resolves to the alias id (algorithm doc: computeAliasImportSiteInventoryDigest).",
+      "implementation": "computePreparedAliasTableDigestV1(rows)"
+    },
+    {
+      "domain": "ibex:prepared-entry-plan:1",
+      "digestOf": "the ordered entry plan",
+      "preimage": "JCS(entries) where entries = the ORDERED executable descriptors exactly as committed (order-preserving — agent before app when declared; each entry {role, root, action, export?}).",
+      "implementation": "computePreparedEntryPlanDigestV1(entries)"
+    }
+  ]
+}

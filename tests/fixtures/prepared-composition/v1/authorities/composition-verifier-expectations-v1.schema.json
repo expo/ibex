@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ibex/composition-verifier-expectations/1",
+  "title": "CompositionVerifierExpectationsV1",
+  "description": "LLP 0413.001 §3.3 (r7) / ibex 0056 §3.3 — the verifier-held expectations struct: every live value admission step 2b compares against, EVERY field mandatory. Integers are I-JSON safe (0..2^53-1, RFC 8785 number rules); nowUnixMs is an input so expiry outcomes are deterministic under test; credential material never appears here or in the envelope. resolverInventoryDigest is Obligation O-3's verifier-input half (the frozen resolver/transform inventory the §2.5 inventories and §2.2 alias evidence are recomputed against; its step-3 consumption is the ibex leg's). The 0056 §3.3 block is provisional pending O-1: this file is the authority it awaits. Runtime-queried engine identity is NOT an expectation (owned by the loaded engine).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "expectedTarget",
+    "expectedRoles",
+    "sessionNonce",
+    "authorityGeneration",
+    "resolverGeneration",
+    "policyDigest",
+    "resolverInventoryDigest",
+    "nowUnixMs"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ibex/composition-verifier-expectations/1"
+    },
+    "expectedTarget": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "expectedRoles": {
+      "oneOf": [
+        {
+          "const": [
+            "app"
+          ]
+        },
+        {
+          "const": [
+            "app",
+            "agent"
+          ]
+        }
+      ],
+      "description": "effective live state (agent.enabled && bootstrapAvailable)"
+    },
+    "sessionNonce": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "authorityGeneration": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "resolverGeneration": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "policyDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]+$"
+    },
+    "resolverInventoryDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]+$"
+    },
+    "nowUnixMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}

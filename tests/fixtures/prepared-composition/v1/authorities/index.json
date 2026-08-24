@@ -1,0 +1,53 @@
+{
+  "package": "prepared-composition",
+  "packageVersion": "1.0.0",
+  "status": "dark",
+  "authority": "LLP 0413.001 (Accepted r7 / Amendment A1) §2/§3/§4.1, lockstep with ibex LLP 0056",
+  "canonicalization": "rfc8785-jcs",
+  "hashAlgorithm": "sha256",
+  "note": "Exact-side half of the LLP 0413.001 prepared-composition wire model (Obligation O-1). DARK: no composition admits until the ibex package-aware leg lands (spec §6; issues/20260824-ibex-package-aware-admission-llp.md). The TS implementation authority is packages/exact-devtools/src/prepared-composition-schema.ts; the registered prepared-composition-schema-parity check asserts the literal constants here, in the TS module, and in the spec agree, and that the refusal registry byte-matches the spec §4.1 table.",
+  "domainConstants": [
+    "ibex:prepared-composition-root:1",
+    "ibex:prepared-package-root:1",
+    "ibex:prepared-partition:1",
+    "ibex:prepared-union-table:1",
+    "ibex:prepared-boundary-inventory:1",
+    "ibex:prepared-alias-table:1",
+    "ibex:prepared-entry-plan:1"
+  ],
+  "bounds": {
+    "maxEnvelopeBytes": 67108864,
+    "maxEnvelopeBytesNote": "inherited ibex MAX_PREPARED_INDEX_BYTES_V1 (64 MiB)",
+    "maxRoles": 2,
+    "maxRecordsPerPackage": 65536,
+    "maxDeclaredEdges": 1048576,
+    "maxAliasRows": 1024,
+    "maxExternalReferences": 4096,
+    "maxStringBytes": 4096,
+    "maxNestingDepth": 16,
+    "numberRule": "RFC 8785 number rules over I-JSON: every number is an integer within the IEEE-754 exactly-representable safe range; any other number is envelope-malformed at the step-1 bounded decode"
+  },
+  "roles": [
+    "app",
+    "agent"
+  ],
+  "hostBridgedReasons": [
+    "target is not a bundle module",
+    "target excluded by lowering fallback"
+  ],
+  "files": {
+    "preparedPackageSchema": "prepared-package-v1.schema.json",
+    "preparedCompositionSchema": "prepared-composition-v1.schema.json",
+    "preimages": "preimages.json",
+    "vectorCorpus": "vectors/canonical-bytes.json",
+    "preparedCompositionCommitmentSchema": "prepared-composition-commitment-v1.schema.json",
+    "compositionVerifierExpectationsSchema": "composition-verifier-expectations-v1.schema.json"
+  },
+  "refusalRegistry": "packages/exact-devtools/src/prepared-composition-refusals.generated.json",
+  "obligations": {
+    "O-1": "this package + the vector corpus + the prepared-composition-schema-parity check (exact-side; TS half green now, Rust half joins with the ibex leg)",
+    "O-2": "DISCHARGED by Amendment A1: the §4.1 registry adopts ibex 0056 §6.2's landed-token covering map (eleven imported rows; lockstep authorities gated by the parity check)",
+    "O-6": "matrix-completeness assertion inside the parity check over the fixture manifest",
+    "O-3": "verifier-input half discharged structurally by ibex/composition-verifier-expectations/1's resolverInventoryDigest; the import-site evidence algorithm is computeAliasImportSiteInventoryDigest (TS authority)"
+  }
+}

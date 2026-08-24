@@ -6,12 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{anyhow, bail, Result};
-use capsec_semantics::model::Digest;
+use anyhow::{anyhow, bail, Context, Result};
+use capsec_semantics::model::{Digest, NonEmptyString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::artifact::source_integrity;
+use super::artifact::{source_integrity, ModuleArtifactV1};
+use super::identity::{ResolutionKind, SourceId};
 
 pub use super::composition_refusals_generated::{
     composition_step_default, CompositionRefusalClass, CompositionRefusalCode,
@@ -51,6 +52,12 @@ pub const PREPARED_COMPOSITION_COMMITMENT_SCHEMA_V1: &str =
 pub const COMPOSITION_VERIFIER_EXPECTATIONS_SCHEMA_V1: &str =
     "ibex/composition-verifier-expectations/1";
 
+/// Landed O-1 schema identifier for the composition envelope.
+pub const PREPARED_COMPOSITION_SCHEMA_V1: &str = "exact/prepared-composition/1";
+
+/// Provisional LLP 0056 schema identifier for one ibex-side prepared package.
+pub const PREPARED_PACKAGE_SCHEMA_V1: &str = "ibex/prepared-package/1";
+
 /// Channel token for malformed or non-canonical composition records.
 pub const IBEX_DEV_COMPOSITION_CORRUPT: &str = "IBEX_DEV_COMPOSITION_CORRUPT";
 
@@ -77,6 +84,21 @@ pub const MAX_COMPOSITION_ALIAS_ROWS_V1: usize = 1_024;
 
 /// Maximum number of external references in a prepared composition.
 pub const MAX_COMPOSITION_EXTERNAL_REFERENCES_V1: usize = 4_096;
+
+/// Maximum number of rows in the composition union binding table.
+pub const MAX_COMPOSITION_UNION_ROWS_V1: usize = 1_048_576;
+
+/// Maximum byte length of one prepared-package index.
+pub const MAX_PACKAGE_INDEX_BYTES_V1: u64 = 64 * 1024 * 1024;
+
+/// Maximum byte length of one prepared carrier manifest.
+pub const MAX_PACKAGE_MANIFEST_BYTES_V1: u64 = 16 * 1024 * 1024;
+
+/// Maximum byte length of one prepared carrier payload.
+pub const MAX_PACKAGE_CARRIER_BYTES_V1: u64 = 512 * 1024 * 1024;
+
+/// Maximum byte length of one computed-candidate table.
+pub const MAX_PACKAGE_CANDIDATE_TABLE_BYTES_V1: u64 = 64 * 1024 * 1024;
 
 /// Maximum UTF-8 byte length of a JSON string value or object key.
 pub const MAX_COMPOSITION_STRING_BYTES_V1: usize = 4_096;
@@ -160,6 +182,285 @@ pub struct CompositionPackageAttestationV1 {
     pub package_root: Digest,
     /// Producer generation committed into the composition envelope.
     pub producer_generation: u64,
+}
+
+/// The landed Exact O-1 prepared-composition envelope.
+///
+/// Field names and requiredness follow
+/// `authorities/prepared-composition-v1.schema.json` exactly. Semantic
+/// predicates intentionally remain for admission steps 2–7; this type owns
+/// only strict shape plus the step-1 envelope-surface bounds.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedCompositionV1 {
+    pub schema: String,
+    /// Kept as strings so the step-2 unknown/duplicate-role predicates remain
+    /// reachable rather than being collapsed into step-1 shape failure.
+    pub declaration: Vec<String>,
+    pub packages: Vec<CompositionPackageAttestationV1>,
+    pub partition: CompositionPartitionV1,
+    pub union_binding_table: CompositionUnionBindingTableV1,
+    pub host_bridged_inventories: Vec<CompositionHostBridgedInventoryV1>,
+    pub alias_table: CompositionAliasTableV1,
+    pub agent_boundary: CompositionAgentBoundaryV1,
+    pub boot_core_dynamic_follow_list: Vec<CompositionDynamicFollowV1>,
+    pub entry_plan: CompositionEntryPlanV1,
+    pub freshness: CompositionFreshnessV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionPartitionV1 {
+    pub digest: Digest,
+    pub roles: CompositionPartitionRolesV1,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionPartitionRolesV1 {
+    #[serde(default)]
+    pub app: Option<u64>,
+    #[serde(default)]
+    pub agent: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionUnionBindingTableV1 {
+    pub digest: Digest,
+    pub rows: Vec<CompositionUnionBindingRowV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionUnionBindingRowV1 {
+    pub from_role: CompositionRole,
+    pub from_source_id: String,
+    pub specifier: String,
+    pub to_role: CompositionRole,
+    pub to_source_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum HostBridgedReasonV1 {
+    #[serde(rename = "target is not a bundle module")]
+    TargetIsNotBundleModule,
+    #[serde(rename = "target excluded by lowering fallback")]
+    TargetExcludedByLoweringFallback,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostBridgedInventoryRowV1 {
+    pub module: String,
+    pub specifier: String,
+    pub reason: HostBridgedReasonV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionHostBridgedInventoryV1 {
+    pub role: CompositionRole,
+    pub digest: Digest,
+    pub rows: Vec<HostBridgedInventoryRowV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionAliasTableV1 {
+    pub digest: Digest,
+    pub rows: Vec<CompositionAliasRowV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionAliasRowV1 {
+    pub alias_id: String,
+    pub representative_source_id: String,
+    pub representative_source_integrity: Digest,
+    pub import_site_inventory_digest: Digest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionAgentBoundaryV1 {
+    pub entry_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionDynamicFollowV1 {
+    pub importer: String,
+    pub target: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionEntryPlanV1 {
+    pub digest: Digest,
+    pub entries: Vec<CompositionEntryDescriptorV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionEntryDescriptorV1 {
+    pub role: CompositionRole,
+    pub root: String,
+    /// Retained as a string so step 7 owns the unknown-action predicate.
+    pub action: String,
+    #[serde(default)]
+    pub export: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionFreshnessV1 {
+    pub session_nonce: String,
+    pub authority_generation: u64,
+    pub resolver_generation: u64,
+    pub expires_at_ms: u64,
+    pub policy_digest: Digest,
+    pub target: String,
+    pub encoding: String,
+    pub agent_packing: String,
+    pub producer: CompositionProducerV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionProducerV1 {
+    pub id: NonEmptyString,
+    pub binary_digest: Digest,
+}
+
+/// Provisional ibex-side package index from LLP 0056 §4.3.
+///
+/// O-1 has not landed the carrier-bearing package schema yet. These names,
+/// meanings, and invariants are normative from LLP 0056; its byte encoding
+/// remains provisional until that authority row lands.
+// @ref LLP 0056#43-the-package-index--ibexprepared-package1 — package bytes exclude entry and generation facts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedPackageV1 {
+    pub schema: String,
+    pub role: CompositionRole,
+    pub producer_id: NonEmptyString,
+    pub producer_binary_digest: Digest,
+    pub package_graph_digest: Digest,
+    pub records: Vec<PreparedPackageRecordV1>,
+    pub carriers: Vec<PreparedPackageCarrierIndexV1>,
+    pub candidate_tables: Vec<PreparedPackageCandidateTableIndexV1>,
+    pub host_bridged_inventory: Vec<HostBridgedInventoryRowV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedPackageRecordV1 {
+    pub source_id: SourceId,
+    pub bindings: Vec<PreparedPackageBindingV1>,
+    pub artifact: ModuleArtifactV1,
+    pub carrier_index: usize,
+    pub entry_id: NonEmptyString,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedPackageBindingV1 {
+    pub specifier: String,
+    pub resolution_kind: ResolutionKind,
+    pub target: PreparedPackageBindingTargetV1,
+}
+
+// @ref LLP 0056#45-binding-rows--a-tagged-target — external ownership is explicit and never inferred.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PreparedPackageBindingTargetV1 {
+    Local {
+        source_id: SourceId,
+    },
+    External {
+        role: CompositionRole,
+        source_id: SourceId,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedPackageCarrierIndexV1 {
+    pub manifest_file: String,
+    pub bytes_file: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedPackageCandidateTableIndexV1 {
+    pub file: String,
+    pub digest: Digest,
+}
+
+impl PreparedCompositionV1 {
+    /// Strict JSON -> byte-exact JCS -> envelope bounds -> closed serde shape.
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() as u64 > MAX_COMPOSITION_ENVELOPE_BYTES_V1 {
+            bail!("composition envelope exceeds {MAX_COMPOSITION_ENVELOPE_BYTES_V1} bytes");
+        }
+        let value = parse_canonical_served_value(bytes, "composition envelope")?;
+        enforce_envelope_surface_bounds(&value)?;
+        let envelope: Self = serde_json::from_value(value)
+            .context("prepared-composition envelope has an invalid shape")?;
+        if envelope.schema != PREPARED_COMPOSITION_SCHEMA_V1 {
+            bail!("unsupported prepared-composition envelope schema");
+        }
+        Ok(envelope)
+    }
+}
+
+impl PreparedPackageV1 {
+    /// Strict canonical package decode with the §3.1 package-surface bounds.
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() as u64 > MAX_PACKAGE_INDEX_BYTES_V1 {
+            bail!("prepared-package index exceeds {MAX_PACKAGE_INDEX_BYTES_V1} bytes");
+        }
+        let value = parse_canonical_served_value(bytes, "prepared-package index")?;
+        if let Some(violation) = check_composition_wire_bounds(&value) {
+            bail!("prepared-package index: {violation}");
+        }
+        let package: Self =
+            serde_json::from_value(value).context("prepared-package index has an invalid shape")?;
+        if package.records.len() > MAX_PACKAGE_RECORDS_V1 {
+            bail!("prepared-package records exceed {MAX_PACKAGE_RECORDS_V1}");
+        }
+        let declared_edges = package.records.iter().try_fold(0usize, |count, record| {
+            count
+                .checked_add(record.bindings.len())
+                .ok_or_else(|| anyhow!("prepared-package declared-edge count overflow"))
+        })?;
+        if declared_edges > MAX_PACKAGE_DECLARED_EDGES_V1 {
+            bail!("prepared-package declared edges exceed {MAX_PACKAGE_DECLARED_EDGES_V1}");
+        }
+        let external_references = package
+            .records
+            .iter()
+            .flat_map(|record| &record.bindings)
+            .filter(|binding| {
+                matches!(
+                    &binding.target,
+                    PreparedPackageBindingTargetV1::External { .. }
+                )
+            })
+            .count();
+        if external_references > MAX_COMPOSITION_EXTERNAL_REFERENCES_V1 {
+            bail!(
+                "prepared-package external references exceed {MAX_COMPOSITION_EXTERNAL_REFERENCES_V1}"
+            );
+        }
+        Ok(package)
+    }
 }
 
 /// One source import site contributing to committed alias evidence.
@@ -357,6 +658,95 @@ fn parse_canonical_channel_value(text: &str, record: &str) -> Result<Value> {
         bail!("{IBEX_DEV_COMPOSITION_CORRUPT} {record}: {violation}");
     }
     Ok(value)
+}
+
+fn parse_canonical_served_value(bytes: &[u8], record: &str) -> Result<Value> {
+    let text = std::str::from_utf8(bytes).with_context(|| format!("{record} is not UTF-8"))?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .map_err(|error| anyhow!("{record} is not strict JSON: {error}"))?;
+    let canonical = capsec_semantics::canonical::to_jcs_bytes(&value)
+        .with_context(|| format!("cannot canonicalize {record}"))?;
+    if canonical != bytes {
+        bail!("{record} is not byte-exact canonical JCS");
+    }
+    Ok(value)
+}
+
+fn array_len_at<'a>(value: &'a Value, path: &[&str]) -> Option<usize> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_array().map(Vec::len)
+}
+
+fn enforce_envelope_surface_bounds(value: &Value) -> Result<()> {
+    if let Some(violation) = check_composition_wire_bounds(value) {
+        bail!("composition envelope: {violation}");
+    }
+    for (path, bound, label) in [
+        (
+            &["declaration"][..],
+            MAX_COMPOSITION_ROLES_V1,
+            "declared roles",
+        ),
+        (
+            &["packages"][..],
+            MAX_COMPOSITION_ROLES_V1,
+            "package attestations",
+        ),
+        (
+            &["hostBridgedInventories"][..],
+            MAX_COMPOSITION_ROLES_V1,
+            "host-bridged inventories",
+        ),
+        (
+            &["aliasTable", "rows"][..],
+            MAX_COMPOSITION_ALIAS_ROWS_V1,
+            "alias rows",
+        ),
+        (
+            &["unionBindingTable", "rows"][..],
+            MAX_COMPOSITION_UNION_ROWS_V1,
+            "union-table rows",
+        ),
+        (
+            &["entryPlan", "entries"][..],
+            MAX_COMPOSITION_ROLES_V1,
+            "entry-plan rows",
+        ),
+    ] {
+        if array_len_at(value, path).is_some_and(|len| len > bound) {
+            bail!("composition envelope {label} exceed {bound}");
+        }
+    }
+
+    let external_references = value
+        .get("unionBindingTable")
+        .and_then(|table| table.get("rows"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|row| row.get("fromRole") != row.get("toRole"))
+        .count();
+    if external_references > MAX_COMPOSITION_EXTERNAL_REFERENCES_V1 {
+        bail!(
+            "composition envelope external references exceed {MAX_COMPOSITION_EXTERNAL_REFERENCES_V1}"
+        );
+    }
+
+    for role in ["app", "agent"] {
+        if value
+            .get("partition")
+            .and_then(|partition| partition.get("roles"))
+            .and_then(|roles| roles.get(role))
+            .and_then(Value::as_u64)
+            .is_some_and(|count| count > MAX_PACKAGE_RECORDS_V1 as u64)
+        {
+            bail!("composition envelope {role} record count exceeds {MAX_PACKAGE_RECORDS_V1}");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -621,5 +1011,32 @@ mod tests {
             compute_alias_import_site_inventory_digest(&rows).unwrap(),
             expected
         );
+    }
+
+    #[test]
+    fn package_index_is_generation_and_entry_free_and_canonical() {
+        let package = json!({
+            "schema": PREPARED_PACKAGE_SCHEMA_V1,
+            "role": "app",
+            "producerId": "fixture-producer",
+            "producerBinaryDigest": valid_digest("producer"),
+            "packageGraphDigest": valid_digest("package-graph"),
+            "records": [],
+            "carriers": [],
+            "candidateTables": [],
+            "hostBridgedInventory": [],
+        });
+        let bytes = capsec_semantics::canonical::to_jcs_bytes(&package).unwrap();
+        assert!(PreparedPackageV1::decode_canonical(&bytes).is_ok());
+
+        for forbidden in ["entry", "generation"] {
+            let mut invalid = package.clone();
+            invalid[forbidden] = json!(1);
+            let bytes = capsec_semantics::canonical::to_jcs_bytes(&invalid).unwrap();
+            assert!(PreparedPackageV1::decode_canonical(&bytes).is_err());
+        }
+
+        let pretty = serde_json::to_vec_pretty(&package).unwrap();
+        assert!(PreparedPackageV1::decode_canonical(&pretty).is_err());
     }
 }

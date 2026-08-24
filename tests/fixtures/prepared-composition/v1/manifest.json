@@ -7,9 +7,33 @@
   "schema": "ibex/prepared-composition-fixtures/1",
   "source": {
     "repository": "expo/exact",
-    "commit": "a049ed9aa76f582555699e6d5ba20f1b590e0916"
+    "commit": "c30edd547dc426746e7572c0e2fb7dd1b920f1fa"
   },
   "files": {
+    "authorities/composition-verifier-expectations-v1.schema.json": {
+      "sourcePath": "docs/schemas/prepared-composition/v1/composition-verifier-expectations-v1.schema.json",
+      "sha256": "6eb31f872db543bdd79ac40d80521a50ae44845b1d7893653fcef08ec23dd0ed"
+    },
+    "authorities/index.json": {
+      "sourcePath": "docs/schemas/prepared-composition/v1/index.json",
+      "sha256": "da5483ebf72e1810950d26a6e8d5ad39389e3db45c266f9281e325686377635e"
+    },
+    "authorities/preimages.json": {
+      "sourcePath": "docs/schemas/prepared-composition/v1/preimages.json",
+      "sha256": "816c61f3681c034becdbb960e65fbac9b64fd2cfa166554b5532d56ef91ffcc4"
+    },
+    "authorities/prepared-composition-commitment-v1.schema.json": {
+      "sourcePath": "docs/schemas/prepared-composition/v1/prepared-composition-commitment-v1.schema.json",
+      "sha256": "15f6e79684c1e87a1c3e44cd7ea2bb46e93d8c00166d2680803acbce1fd73c9f"
+    },
+    "authorities/prepared-composition-v1.schema.json": {
+      "sourcePath": "docs/schemas/prepared-composition/v1/prepared-composition-v1.schema.json",
+      "sha256": "696cdcc9e57e5cd82bcd2a1790174e807d861f79fb59ffb97860717b63deae06"
+    },
+    "authorities/prepared-package-v1.schema.json": {
+      "sourcePath": "docs/schemas/prepared-composition/v1/prepared-package-v1.schema.json",
+      "sha256": "f8e8f5ad3d14f93480cfe1ece6419b7fb8f3b097df76e8d4867defa3b1a63ae9"
+    },
     "refusals.generated.json": {
       "sourcePath": "packages/exact-devtools/src/prepared-composition-refusals.generated.json",
       "sha256": "59f31fa9d742d5f464cbad47a90d7337d31f0fc940886e43e5cb0c279a8380e7"

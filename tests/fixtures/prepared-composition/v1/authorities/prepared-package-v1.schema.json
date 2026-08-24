@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "exact/prepared-package/1",
+  "title": "PreparedPackageV1",
+  "description": "LLP 0413.001 §2 — the complete artifact set for one composition role. Package bytes are a pure function of the role's graph under the declared boundary (identity guarantee, §2.1): byte-stable across session shapes, and the produce generation travels ONLY in the envelope’s (role, packageRoot, producerGeneration) attestation triple (r7 / ibex 0056 §4.8), never inside these bytes. Canonical form: RFC 8785 JCS. Normative string bound is 4096 UTF-8 BYTES (maxLength below is the character-count approximation); the TS authority (packages/exact-devtools/src/prepared-composition-schema.ts) enforces bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "role",
+    "producerBinaryDigest",
+    "records",
+    "hostBridgedDynamicImportEdges",
+    "computedDynamicImportSites",
+    "carriers"
+  ],
+  "properties": {
+    "schema": {
+      "const": "exact/prepared-package/1"
+    },
+    "role": {
+      "enum": [
+        "app",
+        "agent"
+      ]
+    },
+    "producerBinaryDigest": {
+      "$ref": "#/$defs/digest",
+      "description": "ibex 0056 §4.6/§4.8: the producing identity — must equal the envelope's producer identity (the package-side half of the step-3 generation-splice invariant, §4.1 #22). Produce-stable, so §2.1 byte-stability holds; the produce GENERATION deliberately stays out of package bytes (the envelope attestation triple is its only carrier)."
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 65536,
+      "description": "Sorted by sourceId; one owner per SourceId (§2.2 partition).",
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    },
+    "hostBridgedDynamicImportEdges": {
+      "type": "array",
+      "description": "§2.5 inventory: sorted (module, specifier); reasons from the closed two-member enum, derivable from this package's own graph facts only.",
+      "items": {
+        "$ref": "#/$defs/hostBridgedEdge"
+      }
+    },
+    "computedDynamicImportSites": {
+      "type": "array",
+      "description": "Computed dynamic-import sites — never bound, host-bridged call-time (§1 non-goals).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module",
+          "site"
+        ],
+        "properties": {
+          "module": {
+            "$ref": "#/$defs/boundedString"
+          },
+          "site": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "carriers": {
+      "type": "array",
+      "maxItems": 0,
+      "description": "Reserved: carrier binding belongs to the ibex §6 schema (per-package roots replacing the whole-publication digest inside package bytes). Empty in the dark exact-side model."
+    }
+  },
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]+$"
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "moduleId",
+        "sourceIntegrity",
+        "declaredEdges"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^ibex-source-id-v1:"
+        },
+        "moduleId": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "sourceIntegrity": {
+          "$ref": "#/$defs/digest"
+        },
+        "declaredEdges": {
+          "type": "array",
+          "maxItems": 1048576,
+          "items": {
+            "$ref": "#/$defs/declaredEdge"
+          }
+        }
+      }
+    },
+    "declaredEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "specifier",
+        "binding"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "static",
+            "dynamic"
+          ]
+        },
+        "specifier": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "binding": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "target"
+              ],
+              "properties": {
+                "type": {
+                  "const": "internal"
+                },
+                "target": {
+                  "$ref": "#/$defs/boundedString"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "externalRole",
+                "target"
+              ],
+              "description": "Discriminated typed external reference (§2.3): structural, never inferred; legal only from the agent package toward app; exempt from local target-presence (resolved at union closure, the ibex stage).",
+              "properties": {
+                "type": {
+                  "const": "external"
+                },
+                "externalRole": {
+                  "const": "app"
+                },
+                "target": {
+                  "$ref": "#/$defs/boundedString"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "hostBridgedEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "specifier",
+        "reason"
+      ],
+      "properties": {
+        "module": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "specifier": {
+          "$ref": "#/$defs/boundedString"
+        },
+        "reason": {
+          "enum": [
+            "target is not a bundle module",
+            "target excluded by lowering fallback"
+          ]
+        }
+      }
+    }
+  }
+}

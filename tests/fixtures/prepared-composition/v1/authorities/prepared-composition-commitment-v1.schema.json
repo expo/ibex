@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ibex/prepared-composition-commitment/1",
+  "title": "PreparedCompositionCommitmentV1",
+  "description": "LLP 0413.001 §3.3 (r7) / ibex 0056 §3.2 — the digest-only host-held commitment record, delivered on the boot-configuration channel independent of artifact storage; no envelope fact duplicated (declaration, target, producer identity, freshness all live in the envelope, authenticated by this digest). workflow is 'production' per the LLP 0042 production-SHAPED-record rule; the dev posture lives in the entry type. Channel-level prechecks (strict JSON, canonical JCS, schema, workflow) refuse with IBEX_DEV_COMPOSITION_CORRUPT/_SCHEMA/_ARMED_CONTEXT — channel failures OUTSIDE the §4.1 registry (ibex 0056 §8 channel-error variant). The 0056 §3.2 block is provisional pending O-1: this file is the authority it awaits.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "workflow",
+    "compositionRootDigest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ibex/prepared-composition-commitment/1"
+    },
+    "workflow": {
+      "const": "production"
+    },
+    "compositionRootDigest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]+$",
+      "description": "domain ibex:prepared-composition-root:1 over the RFC 8785 JCS envelope bytes"
+    }
+  }
+}
