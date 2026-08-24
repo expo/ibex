@@ -17,9 +17,10 @@ use super::artifact::{source_integrity, CanonicalSourceId, ModuleArtifactV1};
 use super::identity::ImportAttributes;
 
 pub const COMPUTED_CANDIDATES_SCHEMA_V1: &str = "ibex/computed-candidates/1";
+pub const COMPUTED_CANDIDATES_SCHEMA_V2: &str = "ibex/computed-candidates/2";
 const MAX_I_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OriginalSourceSpanV1 {
     pub start: u32,
@@ -47,6 +48,25 @@ pub struct ComputedCandidateTableV1 {
     pub transform_fingerprint_digest: Digest,
     pub site: u32,
     pub generation: u64,
+    pub label: StableId,
+    pub original_source_span: OriginalSourceSpanV1,
+    pub candidates: Vec<ComputedCandidateTargetV1>,
+}
+
+/// Generation-free candidate table for package-aware compositions.
+///
+/// The O-1 byte authority has not landed this row. LLP 0056 fixes the v2
+/// shape as v1 minus `generation`; admission authenticates these wire bytes
+/// before stamping the envelope generation into `ComputedCandidateTableV1`.
+// @ref LLP 0056#43-the-package-index--ibexprepared-package1 — generation has exactly one serialized carrier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ComputedCandidateTableV2 {
+    pub schema: String,
+    pub requester: CanonicalSourceId,
+    pub requester_source_integrity: Digest,
+    pub transform_fingerprint_digest: Digest,
+    pub site: u32,
     pub label: StableId,
     pub original_source_span: OriginalSourceSpanV1,
     pub candidates: Vec<ComputedCandidateTargetV1>,
@@ -132,6 +152,112 @@ impl ComputedCandidateTableV1 {
                 .collect(),
         })
     }
+}
+
+impl ComputedCandidateTableV2 {
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>> {
+        self.validate()?;
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(self)?)
+            .map_err(anyhow::Error::from)
+    }
+
+    pub fn digest(&self) -> Result<Digest> {
+        source_integrity(&self.canonical_bytes()?)
+    }
+
+    /// Decode after inspecting the schema identifier, so a v1 table in a
+    /// composition package is an unsupported-schema refusal rather than a v2
+    /// unknown-field/corruption refusal.
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self> {
+        let text = std::str::from_utf8(bytes).context("computed-candidate table is not UTF-8")?;
+        let value = capsec_semantics::strict_json::parse_strict(text).map_err(|error| {
+            anyhow::anyhow!("computed-candidate table is not strict JSON: {error}")
+        })?;
+        if capsec_semantics::canonical::to_jcs_bytes(&value)? != bytes {
+            bail!("computed-candidate table is not canonical JCS");
+        }
+        let schema = value
+            .get("schema")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("computed-candidate table has no schema identifier"))?;
+        if schema != COMPUTED_CANDIDATES_SCHEMA_V2 {
+            bail!("unsupported computed-candidate table schema {schema:?}");
+        }
+        let table: Self = serde_json::from_value(value)
+            .context("computed-candidate table has an invalid shape")?;
+        table.validate()?;
+        Ok(table)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.schema != COMPUTED_CANDIDATES_SCHEMA_V2 {
+            bail!("unsupported computed-candidate table schema");
+        }
+        validate_candidate_body(
+            self.original_source_span,
+            &self.candidates,
+            "computed-candidate",
+        )
+    }
+
+    pub fn validate_requester(&self, artifact: &ModuleArtifactV1) -> Result<()> {
+        if self.requester != artifact.semantics.source_id
+            || self.requester_source_integrity != artifact.semantics.source_integrity
+            || self.transform_fingerprint_digest
+                != artifact.semantics.transform_fingerprint.digest()?
+            || !artifact.semantics.dynamic_edges.iter().any(|edge| {
+                matches!(edge, super::artifact::DynamicEdgeV1::Computed { site } if *site == self.site)
+            })
+        {
+            bail!("computed-candidate table is stale for its requester artifact");
+        }
+        Ok(())
+    }
+
+    /// Stamp the envelope-attested generation only after wire authentication.
+    pub fn stamp_generation(&self, generation: u64) -> Result<ComputedCandidateTableV1> {
+        if generation == 0 || generation > MAX_I_JSON_INTEGER {
+            bail!("computed-candidate generation is outside the I-JSON integer range");
+        }
+        Ok(ComputedCandidateTableV1 {
+            schema: COMPUTED_CANDIDATES_SCHEMA_V1.into(),
+            requester: self.requester.clone(),
+            requester_source_integrity: self.requester_source_integrity.clone(),
+            transform_fingerprint_digest: self.transform_fingerprint_digest.clone(),
+            site: self.site,
+            generation,
+            label: self.label.clone(),
+            original_source_span: self.original_source_span,
+            candidates: self.candidates.clone(),
+        })
+    }
+}
+
+fn validate_candidate_body(
+    original_source_span: OriginalSourceSpanV1,
+    candidates: &[ComputedCandidateTargetV1],
+    label: &str,
+) -> Result<()> {
+    if original_source_span.start >= original_source_span.end {
+        bail!("{label} original-source span is empty or reversed");
+    }
+    if candidates.is_empty() {
+        bail!("{label} table must contain at least one candidate");
+    }
+    let mut previous: Option<Vec<u8>> = None;
+    let mut spellings = BTreeSet::new();
+    for candidate in candidates {
+        ImportAttributes::new(candidate.attributes.entries().clone())?;
+        if !spellings.insert(candidate.specifier.as_str()) {
+            bail!("{label} spellings must be unique");
+        }
+        let bytes = capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(candidate)?)?;
+        if previous.as_ref().is_some_and(|previous| previous >= &bytes) {
+            bail!("{label} candidates must be strictly ordered by canonical bytes");
+        }
+        previous = Some(bytes);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -232,5 +358,35 @@ mod tests {
         table.transform_fingerprint_digest = digest(8);
         assert!(table.validate_requester(&produced.artifact).is_err());
         assert_ne!(table.digest().unwrap(), before);
+    }
+
+    #[test]
+    fn v2_authenticates_generation_free_bytes_before_stamping() {
+        let v1 = golden_table();
+        let v2 = ComputedCandidateTableV2 {
+            schema: COMPUTED_CANDIDATES_SCHEMA_V2.into(),
+            requester: v1.requester.clone(),
+            requester_source_integrity: v1.requester_source_integrity.clone(),
+            transform_fingerprint_digest: v1.transform_fingerprint_digest.clone(),
+            site: v1.site,
+            label: v1.label.clone(),
+            original_source_span: v1.original_source_span,
+            candidates: v1.candidates.clone(),
+        };
+        let bytes = v2.canonical_bytes().unwrap();
+        let digest = source_integrity(&bytes).unwrap();
+        let decoded = ComputedCandidateTableV2::decode_canonical(&bytes).unwrap();
+        assert_eq!(decoded.digest().unwrap(), digest);
+        assert!(serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()
+            .get("generation")
+            .is_none());
+
+        let stamped = decoded.stamp_generation(42).unwrap();
+        assert_eq!(stamped.generation, 42);
+        assert_eq!(stamped.schema, COMPUTED_CANDIDATES_SCHEMA_V1);
+        assert!(
+            ComputedCandidateTableV2::decode_canonical(&v1.canonical_bytes().unwrap()).is_err()
+        );
     }
 }

@@ -17,8 +17,10 @@ use super::artifact::{
     digest_bytes, semantics_digest, ModuleArtifactV1, ModulePayloadV1, ModuleSemanticsV1,
     ProducerIdentityV1, VerifiedModuleArtifactV1,
 };
+use super::composition::CompositionRefusalCode;
 
 pub const PREPARED_CARRIER_SCHEMA_V2: &str = "ibex/module-carrier/2";
+pub const PREPARED_CARRIER_SCHEMA_V3: &str = "ibex/module-carrier/3";
 pub const PREPARED_CARRIER_BYTES_DOMAIN_V1: &str = "ibex/module-carrier-bytes/1";
 const HERMES_BYTECODE_MAGIC: u64 = 0x1F1903C103BC1FC6;
 const HERMES_BYTECODE_HEADER_LEN: usize = 128;
@@ -122,6 +124,61 @@ pub struct AdmittedPreparedCarrierV2 {
     manifest: PreparedModuleCarrierV2,
     bytes: Vec<u8>,
 }
+
+/// Package-aware carrier manifest from LLP 0056 §4.4.
+///
+/// The field encoding is provisional pending its O-1 authority row; the only
+/// v2 delta is `deploymentGraphDigest` -> `packageGraphDigest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedModuleCarrierV3 {
+    pub schema: String,
+    pub encoding: PreparedCarrierEncodingV2,
+    pub carrier_digest: Digest,
+    pub defining_principal: Principal,
+    pub producer_id: NonEmptyString,
+    pub producer_binary_digest: Digest,
+    pub package_graph_digest: Digest,
+    pub entries: Vec<PreparedCarrierEntryV2>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedCarrierAdmissionV3 {
+    pub expected_principal: Principal,
+    pub expected_producer_id: NonEmptyString,
+    pub producer_binary_digest: Digest,
+    pub package_graph_digest: Digest,
+    pub authorized_semantic_digests: Arc<BTreeSet<Digest>>,
+    pub expected_engine_binding: Option<PreparedCarrierEngineBindingV2>,
+    pub expected_bytecode_version: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdmittedPreparedCarrierV3 {
+    manifest: PreparedModuleCarrierV3,
+    bytes: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+pub struct VerifiedPreparedCarrierEntryV3<'a> {
+    manifest: &'a PreparedModuleCarrierV3,
+    entry: &'a PreparedCarrierEntryV2,
+    bytes: &'a [u8],
+}
+
+#[derive(Debug)]
+pub(crate) struct CarrierV3AdmissionError {
+    pub(crate) code: CompositionRefusalCode,
+    pub(crate) detail: String,
+}
+
+impl std::fmt::Display for CarrierV3AdmissionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code.as_str(), self.detail)
+    }
+}
+
+impl std::error::Error for CarrierV3AdmissionError {}
 
 #[derive(Clone, Copy)]
 pub struct VerifiedPreparedCarrierEntryV2<'a> {
@@ -430,6 +487,273 @@ impl VerifiedPreparedCarrierEntryV2<'_> {
     }
 }
 
+fn carrier_v3_error(
+    code: CompositionRefusalCode,
+    detail: impl Into<String>,
+) -> CarrierV3AdmissionError {
+    CarrierV3AdmissionError {
+        code,
+        detail: detail.into(),
+    }
+}
+
+impl PreparedModuleCarrierV3 {
+    pub fn encode_canonical(&self) -> Result<Vec<u8>> {
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(self)?)
+            .map_err(|error| anyhow!("cannot canonicalize prepared carrier v3: {error}"))
+    }
+
+    pub fn prepared_artifact(&self, entry_id: &str) -> Result<ModuleArtifactV1> {
+        let entry = self.entry(entry_id)?;
+        ModuleArtifactV1::new_carrier(
+            entry.semantics.clone(),
+            self.carrier_digest.clone(),
+            entry.entry_id.clone(),
+            ProducerIdentityV1::PreparedPackage {
+                producer_id: self.producer_id.clone(),
+                producer_binary_digest: self.producer_binary_digest.clone(),
+                package_graph_digest: self.package_graph_digest.clone(),
+            },
+        )
+    }
+
+    fn entry(&self, entry_id: &str) -> Result<&PreparedCarrierEntryV2> {
+        self.entries
+            .binary_search_by(|entry| entry.entry_id.as_str().cmp(entry_id))
+            .ok()
+            .map(|index| &self.entries[index])
+            .ok_or_else(|| anyhow!("prepared carrier has no entry {entry_id:?}"))
+    }
+}
+
+impl AdmittedPreparedCarrierV3 {
+    /// Admit carrier v3 with the v2 checks, the package-graph expectation,
+    /// and the explicit declared-encoding/byte-shape sniff.
+    // @ref LLP 0056#44-carrier-manifest-v3--ibexmodule-carrier3 — the sniff keeps #17 and #20 independently reachable.
+    pub(crate) fn decode_and_admit(
+        manifest_bytes: &[u8],
+        carrier_bytes: &[u8],
+        admission: &PreparedCarrierAdmissionV3,
+    ) -> std::result::Result<Self, CarrierV3AdmissionError> {
+        let text = std::str::from_utf8(manifest_bytes).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared carrier manifest is not UTF-8: {error}"),
+            )
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared carrier manifest is not strict JSON: {error}"),
+            )
+        })?;
+        let canonical = capsec_semantics::canonical::to_jcs_bytes(&value).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("cannot canonicalize prepared carrier: {error}"),
+            )
+        })?;
+        if canonical != manifest_bytes {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                "prepared carrier manifest bytes are not canonical JCS",
+            ));
+        }
+        let manifest: PreparedModuleCarrierV3 = serde_json::from_value(value).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared carrier manifest shape is invalid: {error}"),
+            )
+        })?;
+        if manifest.schema != PREPARED_CARRIER_SCHEMA_V3 {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentSchema,
+                format!("unsupported prepared carrier schema {:?}", manifest.schema),
+            ));
+        }
+        if manifest.entries.is_empty() {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                "prepared carrier requires at least one entry",
+            ));
+        }
+        if manifest.carrier_digest
+            != digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, carrier_bytes).map_err(|error| {
+                carrier_v3_error(
+                    CompositionRefusalCode::CarrierIntegrity,
+                    format!("cannot digest prepared carrier bytes: {error}"),
+                )
+            })?
+        {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::CarrierIntegrity,
+                "prepared carrier bytes do not match the manifest digest",
+            ));
+        }
+
+        let mut previous: Option<&str> = None;
+        for entry in &manifest.entries {
+            if previous.is_some_and(|value| value >= entry.entry_id.as_str()) {
+                return Err(carrier_v3_error(
+                    CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                    "prepared carrier entries must be strictly ordered and unique",
+                ));
+            }
+            previous = Some(entry.entry_id.as_str());
+            if semantics_digest(&entry.semantics).map_err(|error| {
+                carrier_v3_error(
+                    CompositionRefusalCode::CarrierIntegrity,
+                    format!("cannot digest prepared carrier semantics: {error}"),
+                )
+            })? != entry.semantic_digest
+            {
+                return Err(carrier_v3_error(
+                    CompositionRefusalCode::CarrierIntegrity,
+                    "prepared carrier entry semantic digest is stale",
+                ));
+            }
+            let owner_agrees = entry.semantics.source_id.0.defining_principal()
+                == Some(&manifest.defining_principal)
+                || (matches!(
+                    &entry.semantics.source_id.0,
+                    super::identity::SourceId::Builtin { .. }
+                ) && manifest.defining_principal.is_root());
+            if !owner_agrees {
+                return Err(carrier_v3_error(
+                    CompositionRefusalCode::IbexPrincipalGrouping,
+                    "prepared carrier entry crosses its defining principal",
+                ));
+            }
+        }
+        if manifest.defining_principal != admission.expected_principal {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPrincipalGrouping,
+                "prepared carrier defining principal is not authorized",
+            ));
+        }
+        if manifest.producer_id != admission.expected_producer_id
+            || manifest.producer_binary_digest != admission.producer_binary_digest
+        {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                "prepared carrier producer identity is stale",
+            ));
+        }
+        if manifest.package_graph_digest != admission.package_graph_digest
+            || manifest.entries.iter().any(|entry| {
+                !admission
+                    .authorized_semantic_digests
+                    .contains(&entry.semantic_digest)
+            })
+        {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPackageGraphBinding,
+                "prepared carrier is outside the authenticated package graph",
+            ));
+        }
+
+        match &manifest.encoding {
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => {
+                // HBC magic is sufficient for the explicit mismatch sniff;
+                // ordinary JavaScript bytes are validated by the native
+                // factory-table consumer after admission.
+                if carrier_bytes.starts_with(&HERMES_BYTECODE_MAGIC.to_le_bytes()) {
+                    return Err(carrier_v3_error(
+                        CompositionRefusalCode::IbexEncodingIncompatible,
+                        "javascript-factory-table carrier bytes begin with Hermes bytecode magic",
+                    ));
+                }
+                if admission.expected_engine_binding.is_some()
+                    || admission.expected_bytecode_version.is_some()
+                {
+                    return Err(carrier_v3_error(
+                        CompositionRefusalCode::IbexEncodingIncompatible,
+                        "source carrier admission must not claim a bytecode engine",
+                    ));
+                }
+            }
+            PreparedCarrierEncodingV2::HermesBytecode {
+                engine_binding,
+                bytecode_version,
+            } => {
+                let Some(expected_engine_binding) = admission.expected_engine_binding.as_ref()
+                else {
+                    return Err(carrier_v3_error(
+                        CompositionRefusalCode::IbexEngineUnavailable,
+                        "Hermes carrier has no runtime-queried engine identity",
+                    ));
+                };
+                if expected_engine_binding != engine_binding
+                    || admission.expected_bytecode_version != Some(*bytecode_version)
+                {
+                    return Err(carrier_v3_error(
+                        CompositionRefusalCode::IbexEngineBindingMismatch,
+                        "prepared Hermes carrier targets a different engine",
+                    ));
+                }
+                let inspected =
+                    HermesBytecodeMetadataV1::inspect(carrier_bytes).map_err(|error| {
+                        carrier_v3_error(
+                            CompositionRefusalCode::IbexBytecodePreflight,
+                            format!("Hermes carrier header parse failed: {error}"),
+                        )
+                    })?;
+                if inspected.bytecode_version != *bytecode_version {
+                    return Err(carrier_v3_error(
+                        CompositionRefusalCode::IbexEngineBindingMismatch,
+                        "Hermes header bytecode version differs from its manifest binding",
+                    ));
+                }
+            }
+        }
+
+        Ok(Self {
+            manifest,
+            bytes: carrier_bytes.to_vec(),
+        })
+    }
+
+    pub fn manifest(&self) -> &PreparedModuleCarrierV3 {
+        &self.manifest
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn entry(&self, entry_id: &str) -> Result<VerifiedPreparedCarrierEntryV3<'_>> {
+        Ok(VerifiedPreparedCarrierEntryV3 {
+            manifest: &self.manifest,
+            entry: self.manifest.entry(entry_id)?,
+            bytes: &self.bytes,
+        })
+    }
+
+    pub(crate) fn verified_entry_semantics(
+        &self,
+        entry_id: &str,
+    ) -> Option<(&ModuleSemanticsV1, &Digest)> {
+        self.manifest
+            .entry(entry_id)
+            .ok()
+            .map(|entry| (&entry.semantics, &entry.semantic_digest))
+    }
+}
+
+impl VerifiedPreparedCarrierEntryV3<'_> {
+    pub fn manifest(&self) -> &PreparedModuleCarrierV3 {
+        self.manifest
+    }
+
+    pub fn entry(&self) -> &PreparedCarrierEntryV2 {
+        self.entry
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,6 +879,44 @@ mod tests {
         }
     }
 
+    fn package_manifest(
+        manifest: &PreparedModuleCarrierV2,
+        bytes: &[u8],
+        encoding: PreparedCarrierEncodingV2,
+    ) -> PreparedModuleCarrierV3 {
+        PreparedModuleCarrierV3 {
+            schema: PREPARED_CARRIER_SCHEMA_V3.into(),
+            encoding,
+            carrier_digest: digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, bytes).unwrap(),
+            defining_principal: manifest.defining_principal.clone(),
+            producer_id: manifest.producer_id.clone(),
+            producer_binary_digest: manifest.producer_binary_digest.clone(),
+            package_graph_digest: digest("package-graph"),
+            entries: manifest.entries.clone(),
+        }
+    }
+
+    fn package_admission(
+        owner: Principal,
+        manifest: &PreparedModuleCarrierV3,
+    ) -> PreparedCarrierAdmissionV3 {
+        PreparedCarrierAdmissionV3 {
+            expected_principal: owner,
+            expected_producer_id: manifest.producer_id.clone(),
+            producer_binary_digest: manifest.producer_binary_digest.clone(),
+            package_graph_digest: manifest.package_graph_digest.clone(),
+            authorized_semantic_digests: Arc::new(
+                manifest
+                    .entries
+                    .iter()
+                    .map(|entry| entry.semantic_digest.clone())
+                    .collect(),
+            ),
+            expected_engine_binding: None,
+            expected_bytecode_version: None,
+        }
+    }
+
     #[test]
     fn source_and_hbc_carriers_preserve_semantics_and_original_identity() {
         let owner = principal("project");
@@ -623,6 +985,88 @@ mod tests {
                 .javascript_factory_generated_line_offset(),
             None
         );
+    }
+
+    #[test]
+    fn carrier_v3_binds_package_graph_and_prepared_package_identity() {
+        let owner = principal("project");
+        let local = artifact(owner.clone(), "local.mjs");
+        let (v2, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-producer").unwrap(),
+            digest("prepared-producer"),
+            digest("deployment-graph"),
+            [(NonEmptyString::new("local").unwrap(), verified(&local))],
+        )
+        .unwrap();
+        let manifest = package_manifest(
+            &v2,
+            &bytes,
+            PreparedCarrierEncodingV2::JavascriptFactoryTable,
+        );
+        let admitted = AdmittedPreparedCarrierV3::decode_and_admit(
+            &manifest.encode_canonical().unwrap(),
+            &bytes,
+            &package_admission(owner, &manifest),
+        )
+        .unwrap();
+        assert_eq!(
+            admitted.entry("local").unwrap().entry().semantic_digest,
+            local.semantic_digest
+        );
+        assert!(matches!(
+            manifest.prepared_artifact("local").unwrap().producer,
+            ProducerIdentityV1::PreparedPackage { .. }
+        ));
+    }
+
+    #[test]
+    fn carrier_v3_encoding_sniff_routes_javascript_and_hbc_mislabels() {
+        let owner = principal("project");
+        let local = artifact(owner.clone(), "local.mjs");
+        let (v2, _) = PreparedModuleCarrierV2::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-producer").unwrap(),
+            digest("prepared-producer"),
+            digest("deployment-graph"),
+            [(NonEmptyString::new("local").unwrap(), verified(&local))],
+        )
+        .unwrap();
+
+        let hbc_bytes = hbc(96);
+        let mislabeled_js = package_manifest(
+            &v2,
+            &hbc_bytes,
+            PreparedCarrierEncodingV2::JavascriptFactoryTable,
+        );
+        let error = AdmittedPreparedCarrierV3::decode_and_admit(
+            &mislabeled_js.encode_canonical().unwrap(),
+            &hbc_bytes,
+            &package_admission(owner.clone(), &mislabeled_js),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, CompositionRefusalCode::IbexEncodingIncompatible);
+
+        let invalid_hbc = b"not hermes bytecode".to_vec();
+        let engine = loaded_engine("engine");
+        let mislabeled_hbc = package_manifest(
+            &v2,
+            &invalid_hbc,
+            PreparedCarrierEncodingV2::HermesBytecode {
+                engine_binding: engine.clone(),
+                bytecode_version: 96,
+            },
+        );
+        let mut admission = package_admission(owner, &mislabeled_hbc);
+        admission.expected_engine_binding = Some(engine);
+        admission.expected_bytecode_version = Some(96);
+        let error = AdmittedPreparedCarrierV3::decode_and_admit(
+            &mislabeled_hbc.encode_canonical().unwrap(),
+            &invalid_hbc,
+            &admission,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, CompositionRefusalCode::IbexBytecodePreflight);
     }
 
     #[test]

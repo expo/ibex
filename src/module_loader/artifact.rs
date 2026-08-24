@@ -272,6 +272,14 @@ pub enum ProducerIdentityV1 {
         producer_binary_digest: Digest,
         deployment_graph_digest: Digest,
     },
+    /// Package-aware prepared identity. The byte layout is provisional until
+    /// the O-1 §4.6 authority row lands; names and invariants are normative.
+    // @ref LLP 0056#46-artifact-producer-identity--prepared-package — package bytes bind their own semantic graph.
+    PreparedPackage {
+        producer_id: NonEmptyString,
+        producer_binary_digest: Digest,
+        package_graph_digest: Digest,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,6 +311,18 @@ pub enum ArtifactAdmissionV1 {
         expected_entry_id: NonEmptyString,
         /// Shared with every other admission expectation of the same
         /// publication — see `PreparedCarrierAdmissionV2`.
+        authorized_semantic_digests: Arc<BTreeSet<Digest>>,
+        transform_fingerprint_digest: Digest,
+    },
+    /// Package-aware sibling of `DigestBoundPrepared`.
+    DigestBoundPreparedPackage {
+        expected_source_id: SourceId,
+        expected_source_integrity: Digest,
+        expected_producer_id: NonEmptyString,
+        producer_binary_digest: Digest,
+        package_graph_digest: Digest,
+        expected_carrier_digest: Digest,
+        expected_entry_id: NonEmptyString,
         authorized_semantic_digests: Arc<BTreeSet<Digest>>,
         transform_fingerprint_digest: Digest,
     },
@@ -378,6 +398,10 @@ impl ArtifactCacheKeyV1 {
                 ..
             }
             | ProducerIdentityV1::Prepared {
+                producer_binary_digest,
+                ..
+            }
+            | ProducerIdentityV1::PreparedPackage {
                 producer_binary_digest,
                 ..
             } => producer_binary_digest.clone(),
@@ -559,6 +583,46 @@ impl ModuleArtifactV1 {
                     transform_fingerprint_digest,
                 )
             }
+            ArtifactAdmissionV1::DigestBoundPreparedPackage {
+                expected_source_id,
+                expected_source_integrity,
+                expected_producer_id,
+                producer_binary_digest,
+                package_graph_digest,
+                expected_carrier_digest,
+                expected_entry_id,
+                authorized_semantic_digests,
+                transform_fingerprint_digest,
+            } => {
+                match &self.producer {
+                    ProducerIdentityV1::PreparedPackage {
+                        producer_id,
+                        producer_binary_digest: observed_producer,
+                        package_graph_digest: observed_graph,
+                        ..
+                    } if producer_id == expected_producer_id
+                        && observed_producer == producer_binary_digest
+                        && observed_graph == package_graph_digest => {}
+                    _ => bail!("prepared-package artifact producer or package graph is stale"),
+                }
+                if !authorized_semantic_digests.contains(&self.semantic_digest) {
+                    bail!("prepared-package artifact semantic digest is absent from the package graph");
+                }
+                match &self.payload {
+                    ModulePayloadV1::Carrier {
+                        carrier_digest,
+                        entry_id,
+                        ..
+                    } if carrier_digest == expected_carrier_digest
+                        && entry_id == expected_entry_id => {}
+                    _ => bail!("prepared-package artifact carrier or entry is not package-bound"),
+                }
+                (
+                    expected_source_id,
+                    expected_source_integrity,
+                    transform_fingerprint_digest,
+                )
+            }
         };
 
         if &self.semantics.source_id.0 != expected_source_id {
@@ -619,7 +683,11 @@ impl ModuleArtifactV1 {
                 if entry_factory_digest != &self.semantics.factory_digest {
                     bail!("carrier entry does not bind the semantic factory digest");
                 }
-                if !matches!(self.producer, ProducerIdentityV1::Prepared { .. }) {
+                if !matches!(
+                    self.producer,
+                    ProducerIdentityV1::Prepared { .. }
+                        | ProducerIdentityV1::PreparedPackage { .. }
+                ) {
                     bail!("carrier artifacts require a prepared producer identity");
                 }
             }
@@ -985,6 +1053,56 @@ mod tests {
                 transform_fingerprint_digest: fingerprint().digest().unwrap(),
             })
             .unwrap();
+    }
+
+    #[test]
+    fn prepared_package_identity_admits_only_on_package_expectations() {
+        let inline = artifact();
+        let carrier_digest = digest("package-carrier");
+        let entry_id = NonEmptyString::new("entry-0").unwrap();
+        let producer_id = NonEmptyString::new("package-producer").unwrap();
+        let producer_digest = digest("package-producer");
+        let package_graph_digest = digest("package-graph");
+        let artifact = ModuleArtifactV1::new_carrier(
+            inline.semantics.clone(),
+            carrier_digest.clone(),
+            entry_id.clone(),
+            ProducerIdentityV1::PreparedPackage {
+                producer_id: producer_id.clone(),
+                producer_binary_digest: producer_digest.clone(),
+                package_graph_digest: package_graph_digest.clone(),
+            },
+        )
+        .unwrap();
+        let authorized: Arc<BTreeSet<Digest>> =
+            Arc::new([artifact.semantic_digest.clone()].into_iter().collect());
+        artifact
+            .verify_for_admission(&ArtifactAdmissionV1::DigestBoundPreparedPackage {
+                expected_source_id: source_id(),
+                expected_source_integrity: digest("source"),
+                expected_producer_id: producer_id.clone(),
+                producer_binary_digest: producer_digest.clone(),
+                package_graph_digest,
+                expected_carrier_digest: carrier_digest.clone(),
+                expected_entry_id: entry_id.clone(),
+                authorized_semantic_digests: authorized.clone(),
+                transform_fingerprint_digest: fingerprint().digest().unwrap(),
+            })
+            .unwrap();
+
+        assert!(artifact
+            .verify_for_admission(&ArtifactAdmissionV1::DigestBoundPrepared {
+                expected_source_id: source_id(),
+                expected_source_integrity: digest("source"),
+                expected_producer_id: producer_id,
+                producer_binary_digest: producer_digest,
+                deployment_graph_digest: digest("deployment-graph"),
+                expected_carrier_digest: carrier_digest,
+                expected_entry_id: entry_id,
+                authorized_semantic_digests: authorized,
+                transform_fingerprint_digest: fingerprint().digest().unwrap(),
+            })
+            .is_err());
     }
 
     #[test]

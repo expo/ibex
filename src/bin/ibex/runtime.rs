@@ -547,6 +547,10 @@ pub(crate) fn emit_native_runner_execution_receipt(
                 | ProducerIdentityV1::Prepared {
                     producer_binary_digest,
                     ..
+                }
+                | ProducerIdentityV1::PreparedPackage {
+                    producer_binary_digest,
+                    ..
                 } => producer_binary_digest,
             };
             Ok(serde_json::json!({
