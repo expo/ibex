@@ -106,3 +106,25 @@ Material concerns:
 I did not elevate transfer-ABI details, the exact rootId regex, or candidate-digest storage/canonicalization; those legitimately finalize during implementation.
 
 VERDICT 0053: NOT READY + MATERIAL concerns. Binds to sha256 75b47d7c9c183ab6c9a629d13371917b46b15ed6f5397561bf12ef322eedc44c (ibex revision 268d35607).
+---
+
+## Round 3 (2026-08-24) — codex-scoped delta on r4
+Target: r4 (sha256 fbc3f9bf… @60f7004c2). Verdict: NOT READY, one residue (line-33 contradiction + round mislabel); dispositions 1/2/4/5 byte-verified.
+
+### Verbatim body
+
+MATERIAL: disposition 3 is incomplete. [LLP 0053 line 33](/private/tmp/claude-501/-Users-ccheever-projects-exact/7137c1ea-c8c0-4d61-9f8c-2f541d0f21e7/scratchpad/0053rev/cap3-cx/llp/0053-carrier-bearing-ingress-coordination.rfc.md:33) says the generator is authoritative and `surface-inventory.md` is review output, then retains the contrary present-tense claim that both are “authorities.” It is not marked `SUPERSEDED`, and the r4-only edit is mislabeled “r3 tightening,” contradicting the closure claim at line 8. Delete or explicitly supersede the stale clause and label the correction r4.
+
+Dispositions 1, 2, 4, and 5 pass byte verification. The LLP hash matches the binding; `60f7004c2` has r3 `268d35607` as its parent; the restored LLP 0052 quotation is exact; and both review artifacts exist in the commit tree.
+
+VERDICT 0053: NOT READY + MATERIAL concerns: disposition 3 remains internally contradictory. Binds to sha256 fbc3f9bfd59c818106673d2a49f6bf1f71b4a1bbaefd1308de84034374c18599 (ibex revision 60f7004c2).
+---
+
+## Round 4 (2026-08-24) — codex-scoped delta on r5 — CONVERGENCE
+Target: r5 (sha256 d0e206f3… @5b3eaa5ab). Verdict: READY, zero material. Same hash as the grok final — dual convergence.
+
+### Verbatim body
+
+Disposition verified against the exact bytes. r5’s sole substantive change is line 33, plus revision metadata. It names one authority, marks the inventory as generated review output, explicitly supersedes the stale co-authority wording, and correctly labels the r4 edit/r5 fix. The capsule matches the commit blob and required SHA-256; no new MATERIAL contradiction was introduced.
+
+VERDICT 0053: READY + MATERIAL concerns: none. Binds to sha256 d0e206f3e1121176731eae2166d190a1b7bdfe3d281cddba76d07b3678fdef39 (ibex revision 5b3eaa5ab).

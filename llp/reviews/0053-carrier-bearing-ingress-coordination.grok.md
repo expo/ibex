@@ -170,3 +170,66 @@ Replay-at-issuance (not at ibex install) respects 0510 §6.4: pins are authentic
 **MATERIAL concerns:** none.
 
 **VERDICT 0053: READY**
+
+---
+
+## Round 4 (2026-08-24) — grok delta on r5 — CONVERGENCE
+Target: r5 (sha256 d0e206f3… @5b3eaa5ab) after two corrections-only revisions past grok's r3 READY. Verdict: READY, zero material; the LLP 0052 rows-never-collapse refutation of grok's own round-1 claim explicitly ACCEPTED on byte evidence. Same hash as the codex final — dual convergence.
+
+### Verbatim body
+
+I'll start with PUNCHLIST.txt and the review materials, then check the r3→r5 delta against the document bytes. No shell commands.PUNCHLIST is loaded. Next I’ll read 0053, the 0052 rows-never-collapse passage, and prior grok review artifacts so the delta can be checked against the bytes.The 0052 quote is in the file. I’ll check the restored citation’s surrounding rule, the surface-inventory header, and whether the r4/r5 edits left any live contradictions.Round 4 is a delta check of r3→r5 against the bytes in this checkout. I was READY at r3; this pass only re-opens what the punch list names, plus any **MATERIAL** contradiction the corrections themselves introduced.
+
+I did not run a shell (so I did not recompute the hash). The verdict binds to the digest and revision the prompt supplied, after reading `llp/0053-carrier-bearing-ingress-coordination.rfc.md` and `llp/0052-durable-authority-mint-and-verify.rfc.md` in this tree.
+
+---
+
+### Punch-list item 1 — `grantSetId` grammar and complete-pin replay
+
+**Landed.**
+
+- `grantSetId` is specified as UTF-8, `1..=256` bytes, no embedded NUL (I2, the parenthetical on the `rootGrantSets` value object).
+- Issuance replay now requires the **complete** pin: `grantSetId` **and** `grantSetDigest` per root, plus mapping digest and commitment digest — not ids alone.
+
+That matches the r4 header and the punch list.
+
+### Punch-list item 2 — three SUPERSEDED ask-site corrections
+
+**Landed.**
+
+| Site | Bytes |
+|---|---|
+| I1 surface authority (line 33, cleaned at r5) | ONE authority: the root-global disposition **generator**. `capsec/generated/surface-inventory.md` is generated review output, never an authority. The r4-mislabeled-as-r3 / plural-authorities tail is gone. |
+| Related (inventory) | Same demotion: inventory is review output per its own header, not a second authority. |
+| I3 ask | r1 “real-input/no-user carriers” is SUPERSEDED; mechanisms named as frame attribution, principal stacks, `currentPrincipalId`; root fields on the authenticated-snapshot channel. |
+| I4 ask | r1 `capsec/session-semantics/` placement is SUPERSEDED; record joins DecisionSet/DecisionContext. |
+
+The inventory file’s own header confirms the demotion: it is `@generated` “review output”; JSON registries and the observed source-surface manifest are what it treats as authoritative. That is compatible with 0053’s claim that it is not an authority for the JS `exact.*` global surface.
+
+### Punch-list item 3 — LLP 0052 rows-never-collapse refutation
+
+**I accept the refutation. I do not contest it.**
+
+My r1 claim that 0052 has no no-row-collapse rule was **false**. In this checkout, 0052 line 319 ends:
+
+> rows from distinct scope/grant identities never collapse.
+
+That is the verbatim sentence 0053 now quotes (I4, restored at r4, citing 0052 lines 314–320). The surrounding paragraph is the constructible-provenance-witness rule: each `(effectIndex, principal)` row carries its own complete four-layer witness and execution-scope binding; distinct scope/grant identities do not collapse. Applying that to I4’s full-typed-row selector encoding (canonical equality; digests do not compose across distinct scope/grant identities) is a fair use of the same rule, not a new contradiction.
+
+The r3 withdrawal on my unverified no-such-rule claim was the error. r4’s restore is correct. Lesson accepted: reviewer claims fold only after byte verification, in both directions.
+
+---
+
+### Delta-created MATERIAL contradictions
+
+None.
+
+The r3→r5 edits are corrections-only and internally consistent with the r3 design I already marked READY: complete-pin replay does not walk back the three pin classes; the SUPERSEDED ask sentences now match the r3 design; the restored 0052 citation matches 0052’s bytes.
+
+I noticed a leftover round-label at the I1 **design** surface-deltas sentence (“r3 tightens r2’s phrasing” for the same inventory demotion that r5 retagged as an r4 edit on line 33). Same substantive claim, wrong round number. Not MATERIAL; r5 scoped the label fix to the ask sentence.
+
+---
+
+VERDICT 0053: READY. MATERIAL concerns: none.
+
+Binds to sha256 `d0e206f3e1121176731eae2166d190a1b7bdfe3d281cddba76d07b3678fdef39` (ibex revision `5b3eaa5ab`).
