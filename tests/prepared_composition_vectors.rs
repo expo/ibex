@@ -92,7 +92,7 @@ fn assert_typed_ingest(corpus: &Value) {
         capsec_semantics::canonical::to_jcs(&serde_json::to_value(&commitment).unwrap()).unwrap(),
         commitment_bytes
     );
-    assert!(parse_prepared_composition_commitment_v1(&format!("{commitment_bytes}\n")).is_ok());
+    assert!(parse_prepared_composition_commitment_v1(&format!("{commitment_bytes}\n")).is_err());
     assert!(parse_prepared_composition_commitment_v1(&format!(" {commitment_bytes}")).is_err());
 
     let expectations_vector = vector(corpus, "composition-verifier-expectations");

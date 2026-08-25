@@ -725,7 +725,7 @@ impl AdmittedPreparedCarrierV3 {
                     })?;
                 if inspected.bytecode_version != *bytecode_version {
                     return Err(carrier_v3_error(
-                        CompositionRefusalCode::IbexEngineBindingMismatch,
+                        CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
                         "Hermes header bytecode version differs from its manifest binding",
                     ));
                 }

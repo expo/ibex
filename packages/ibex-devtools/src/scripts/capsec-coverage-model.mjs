@@ -14507,12 +14507,18 @@ function classifyConcreteSurface(surface) {
     ) {
       return nonCapabilitySpec("authority-release", "WP8");
     }
+    if (surface.name === "ex_hermes_module_invoke_export") {
+      return closedSpec(
+        "vm:evaluate",
+        "WP8",
+        "Execution-activating descriptor export invocation exists only in dev-committed-embedder builds, is excluded from armed Hosts, and requires the descriptor executor's private capability.",
+      );
+    }
     if (
       new Set([
         "ex_hermes_commonjs_record_create_esm_adapter",
         "ex_hermes_commonjs_record_evaluate",
         "ex_hermes_module_compile_factory",
-        "ex_hermes_module_invoke_export",
         "ex_hermes_module_load_carrier_factory",
         "ex_hermes_module_preflight_bytecode",
         "ex_hermes_module_record_instantiate",

@@ -45,8 +45,10 @@ struct NativeModuleHandle {
     opaque: [u64; 3],
 }
 
+#[cfg(feature = "dev-committed-embedder")]
 const MODULE_INVOKE_OUTCOME_ABI_VERSION_V1: u32 = 1;
 
+#[cfg(feature = "dev-committed-embedder")]
 #[repr(C)]
 struct NativeModuleInvokeOutcomeV1 {
     abi_version: u32,
@@ -56,9 +58,10 @@ struct NativeModuleInvokeOutcomeV1 {
 }
 
 /// Diagnostic result from synchronously invoking one evaluated module export.
+#[cfg(feature = "dev-committed-embedder")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct InvokeOutcomeV1 {
-    pub returned_thenable: bool,
+pub(crate) struct InvokeOutcomeV1 {
+    pub(crate) returned_thenable: bool,
 }
 
 type NativeCommonJsRequireProvider = unsafe extern "C" fn(
@@ -445,6 +448,7 @@ unsafe extern "C" {
         out_error: *mut *mut c_char,
         out_error_token: *mut u64,
     ) -> i32;
+    #[cfg(feature = "dev-committed-embedder")]
     fn ex_hermes_module_invoke_export(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -2516,6 +2520,7 @@ impl NativeModuleRecord<'_> {
         }
     }
 
+    #[cfg(feature = "dev-committed-embedder")]
     fn invoke_named_export(&mut self, export: &str) -> Result<InvokeOutcomeV1> {
         if export.is_empty() {
             bail!("module export invocation requires a non-empty export name");
@@ -2673,6 +2678,7 @@ impl<'runtime> NativeLinkedRecord<'runtime> {
         }
     }
 
+    #[cfg(feature = "dev-committed-embedder")]
     fn invoke_named_export(&mut self, export: &str) -> Result<InvokeOutcomeV1> {
         match self {
             Self::Esm(record)
@@ -3095,6 +3101,67 @@ pub struct NativeSynchronousGraph<'runtime> {
 
 #[cfg(any(test, feature = "module-runner"))]
 impl<'runtime> NativeSynchronousGraph<'runtime> {
+    #[cfg(feature = "dev-committed-embedder")]
+    pub(crate) fn validate_authorized_composition_plan(
+        plan: &SynchronousGraphPlan<'_>,
+        authorized: &AuthorizedCompositionPlanV1,
+    ) -> Result<()> {
+        let authorized_edges = authorized
+            .authorized_edges
+            .iter()
+            .map(|edge| {
+                (
+                    edge.origin.clone(),
+                    crate::module_loader::graph::GraphEdgeKey::new(
+                        edge.specifier.clone(),
+                        edge.resolution_kind,
+                    ),
+                    edge.target.clone(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        if authorized_edges.len() != authorized.authorized_edges.len()
+            || plan.binding_edges() != authorized_edges
+        {
+            bail!("composition graph bindings differ from the step-6 authorization capability");
+        }
+
+        for (origin, allowed_keys) in &authorized.allowed_dynamic_bindings {
+            let dynamic = plan
+                .dynamic_import_bindings(origin)?
+                .into_iter()
+                .map(|binding| {
+                    (
+                        DynamicImportBindingKey {
+                            site: binding.site,
+                            specifier: binding.specifier,
+                        },
+                        binding.target,
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            for key in allowed_keys {
+                let target = dynamic.get(key).ok_or_else(|| {
+                    anyhow!("composition dynamic-binding capability names an absent plan binding")
+                })?;
+                let edge = (
+                    origin.clone(),
+                    crate::module_loader::graph::GraphEdgeKey::new(
+                        key.specifier.clone(),
+                        crate::module_loader::identity::ResolutionKind::DynamicImport,
+                    ),
+                    target.clone(),
+                );
+                if !authorized_edges.contains(&edge) {
+                    bail!(
+                        "composition dynamic-binding capability is outside the authorized edge set"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Production graph entry: authenticate the complete reachable edge set
     /// before compiling the first factory.
     pub fn link_authorized<P: GraphImportPolicy>(
@@ -3183,13 +3250,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         if authority_contexts != &authorized.authority_contexts {
             bail!("composition authority contexts differ from the step-6 capability");
         }
-        if authorized.authorized_edges.iter().any(|edge| {
-            !plan.contains_record(&edge.origin)
-                || !plan.contains_record(&edge.target)
-                || edge.specifier.is_empty()
-        }) {
-            bail!("composition authorization capability names an invalid graph edge");
-        }
+        Self::validate_authorized_composition_plan(plan, authorized)?;
 
         let root_closures = root_plan
             .roots()
@@ -3208,10 +3269,8 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         };
         let segments = plan.synchronous_evaluation_order_for_roots(root_plan.roots())?;
         let evaluation_order = segments.iter().flatten().cloned().collect::<Vec<_>>();
-        let linkage_order = plan.linkage_order_for_authorized_roots(
-            root_plan.roots(),
-            &authorized.allowed_dynamic_bindings,
-        )?;
+        let linkage_order =
+            plan.linkage_order_for_roots(root_plan.roots(), &authorized.allowed_dynamic_bindings)?;
         let generation = configs
             .values()
             .next()
@@ -4450,13 +4509,21 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
     }
 
     /// Invoke a named export of an evaluated record synchronously. The value
-    /// is ignored except for thenable detection; no thenable is awaited.
+    /// is ignored except for thenable detection; no thenable is awaited. The
+    /// descriptor capability makes this activation seam unavailable to
+    /// ordinary graph owners even within the dev-only feature build.
     // @ref LLP 0056#73-the-invoke-primitive-the-one-new-engine-call — callability is an evaluated-record runtime fact and failures retain record identity.
-    pub fn invoke_named_export(
+    #[cfg(feature = "dev-committed-embedder")]
+    pub(crate) fn invoke_named_export(
         &mut self,
+        _capability: CompositionDescriptorInvokeCapabilityV1,
         source_id: &SourceId,
         export: &str,
     ) -> Result<InvokeOutcomeV1> {
+        assert!(
+            !crate::host::abi::installed_host_is_armed_for_dev_exclusion(),
+            "descriptor export invocation is excluded from an armed Host context"
+        );
         let record = self.records.get_mut(source_id).ok_or_else(|| {
             anyhow!("module export requested outside the linked graph: {source_id:?}")
         })?;
@@ -4469,6 +4536,15 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             anyhow::Error::new(sticky)
         })
     }
+}
+
+/// Zero-sized proof that the descriptor executor, rather than an arbitrary
+/// graph owner, selected the single LLP 0056 invoke transition. Its field is
+/// private and its only construction site is the executor transition below.
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CompositionDescriptorInvokeCapabilityV1 {
+    _private: (),
 }
 
 #[cfg(feature = "dev-committed-embedder")]
@@ -4524,6 +4600,10 @@ pub(crate) struct CompositionDescriptorExecutorV1<'runtime> {
 
 #[cfg(feature = "dev-committed-embedder")]
 impl<'runtime> CompositionDescriptorExecutorV1<'runtime> {
+    fn invoke_capability() -> CompositionDescriptorInvokeCapabilityV1 {
+        CompositionDescriptorInvokeCapabilityV1 { _private: () }
+    }
+
     pub(crate) fn new(
         graph: NativeSynchronousGraph<'runtime>,
         agent: Option<(SourceId, String)>,
@@ -4593,7 +4673,11 @@ impl<'runtime> CompositionDescriptorExecutorV1<'runtime> {
                 CompositionDescriptorStateV1::AgentEvaluated => {
                     if let Some((source_id, export)) = self.agent.clone() {
                         let started = std::time::Instant::now();
-                        let outcome = self.graph.invoke_named_export(&source_id, &export);
+                        let outcome = self.graph.invoke_named_export(
+                            Self::invoke_capability(),
+                            &source_id,
+                            &export,
+                        );
                         self.metrics.agent_invoke = started.elapsed();
                         match outcome {
                             Ok(outcome) => {
@@ -6953,6 +7037,7 @@ export const result = JSON.stringify({
         }
     }
 
+    #[cfg(feature = "dev-committed-embedder")]
     #[test]
     fn named_export_invoke_reports_thenables_and_retains_sticky_errors() {
         let _host_guard = crate::host::abi::host_test_lock();
@@ -6965,8 +7050,8 @@ export const result = JSON.stringify({
             let source_id = SourceId::synthetic("module-runner-test", "invoke-export").unwrap();
             let artifact = test_artifact_with_factory(
                 source_id.clone(),
-                "function ($export) { return { declare: function () {}, execute: function () { $export('thenable', function () { return { then: function () {} }; }); $export('notCallable', 7); } }; }",
-                &["thenable", "notCallable"],
+                "function ($export) { return { declare: function () {}, execute: function () { $export('thenable', function () { return { then: function () {} }; }); $export('throwingThenGetter', function () { var value = {}; Object.defineProperty(value, 'then', { get: function () { throw new Error('then getter trap'); } }); return value; }); $export('notCallable', 7); } }; }",
+                &["thenable", "throwingThenGetter", "notCallable"],
             );
             let plan =
                 SynchronousGraphPlan::new([(verify_test_artifact(&artifact), BTreeMap::new())])
@@ -6988,25 +7073,79 @@ export const result = JSON.stringify({
             .unwrap();
 
             let premature = graph
-                .invoke_named_export(&source_id, "thenable")
+                .records
+                .get_mut(&source_id)
+                .unwrap()
+                .invoke_named_export("thenable")
                 .unwrap_err()
                 .to_string();
             assert!(premature.contains("requires an evaluated record"));
             graph.evaluate().unwrap();
+
+            let record = match graph.records.get_mut(&source_id).unwrap() {
+                NativeLinkedRecord::Esm(record) => record,
+                NativeLinkedRecord::CommonJs { .. } => {
+                    panic!("invoke fixture must link as ESM")
+                }
+            };
+            let mut oversized = NativeModuleInvokeOutcomeV1 {
+                abi_version: MODULE_INVOKE_OUTCOME_ABI_VERSION_V1,
+                struct_size: u32::try_from(std::mem::size_of::<NativeModuleInvokeOutcomeV1>() + 1)
+                    .unwrap(),
+                returned_thenable: 0,
+                reserved: 0,
+            };
+            let mut shape_error = std::ptr::null_mut();
+            let mut shape_error_token = 0;
+            let shape_status = ex_hermes_module_invoke_export(
+                record.runtime.raw.as_ptr(),
+                record.runtime.nonce,
+                record.live_handle().unwrap(),
+                b"thenable".as_ptr(),
+                b"thenable".len(),
+                &mut oversized,
+                &mut shape_error,
+                &mut shape_error_token,
+            );
+            assert_ne!(shape_status, 0);
+            assert_eq!(shape_error_token, 0);
+            assert!(take_error(shape_error).contains("outcome shape is unsupported"));
+
             assert_eq!(
-                graph.invoke_named_export(&source_id, "thenable").unwrap(),
+                graph
+                    .records
+                    .get_mut(&source_id)
+                    .unwrap()
+                    .invoke_named_export("thenable")
+                    .unwrap(),
                 InvokeOutcomeV1 {
                     returned_thenable: true
                 }
             );
+            assert_eq!(
+                graph
+                    .records
+                    .get_mut(&source_id)
+                    .unwrap()
+                    .invoke_named_export("throwingThenGetter")
+                    .unwrap(),
+                InvokeOutcomeV1 {
+                    returned_thenable: false
+                }
+            );
 
             let first = graph
-                .invoke_named_export(&source_id, "notCallable")
+                .records
+                .get_mut(&source_id)
+                .unwrap()
+                .invoke_named_export("notCallable")
                 .unwrap_err();
             assert!(first.to_string().contains("notCallable"));
-            assert!(first.to_string().contains(&format!("{source_id:?}")));
             let second = graph
-                .invoke_named_export(&source_id, "notCallable")
+                .records
+                .get_mut(&source_id)
+                .unwrap()
+                .invoke_named_export("notCallable")
                 .unwrap_err();
             assert_eq!(first.to_string(), second.to_string());
             assert_eq!(

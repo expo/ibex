@@ -3964,7 +3964,7 @@ fn admit_composition_package_core_v1(
     if package.records.is_empty() || package.carriers.is_empty() {
         return Err(package_failure(
             role,
-            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
             "prepared package is empty",
         ));
     }
@@ -6195,6 +6195,34 @@ pub(crate) mod tests {
 
     #[cfg(feature = "dev-committed-embedder")]
     #[test]
+    fn composition_empty_records_route_to_registry_row_14() {
+        let mut fixture = CompositionPackageFixtureV1::new();
+        fixture.package.records.clear();
+        let root = fixture.persist();
+
+        let error = fixture.admit(&root).unwrap_err();
+        assert_eq!(
+            error.code,
+            CompositionRefusalCode::IbexPreparedCommitmentCorrupt
+        );
+    }
+
+    #[cfg(feature = "dev-committed-embedder")]
+    #[test]
+    fn composition_empty_carriers_route_to_registry_row_14() {
+        let mut fixture = CompositionPackageFixtureV1::new();
+        fixture.package.carriers.clear();
+        let root = fixture.persist();
+
+        let error = fixture.admit(&root).unwrap_err();
+        assert_eq!(
+            error.code,
+            CompositionRefusalCode::IbexPreparedCommitmentCorrupt
+        );
+    }
+
+    #[cfg(feature = "dev-committed-embedder")]
+    #[test]
     fn composition_multifault_row_14_precedes_carrier_integrity_row_15() {
         let mut fixture = CompositionPackageFixtureV1::new();
         fixture.package.package_graph_digest = source_integrity(b"forged-graph").unwrap();
@@ -7431,6 +7459,45 @@ pub(crate) mod tests {
             .to_string()
             .contains("artifact/resolver graph disagreement"));
     }
+
+    #[cfg(all(unix, feature = "dev-committed-embedder"))]
+    #[test]
+    fn armed_composition_context_wins_before_null_runtime_and_invalid_input_pointers() {
+        use std::ffi::CStr;
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let project = tempfile::tempdir().unwrap();
+        crate::host::abi::install_host(armed_file_host(project.path()));
+
+        let invalid = std::ptr::without_provenance::<std::ffi::c_char>(1);
+        let mut report = std::ptr::null_mut();
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            super::dev_committed_embedder::ibex_dev_unarmed_composition_prepared_startup_v1(
+                std::ptr::null_mut(),
+                0,
+                invalid,
+                invalid,
+                invalid,
+                invalid,
+                &mut report,
+                &mut error,
+            )
+        };
+
+        assert_eq!(status, 1);
+        assert!(!report.is_null());
+        let report_value: serde_json::Value =
+            unsafe { serde_json::from_str(CStr::from_ptr(report).to_str().unwrap()).unwrap() };
+        assert_eq!(report_value["admissionStatus"], "channel-error");
+        assert_eq!(
+            report_value["channelToken"],
+            super::super::composition::IBEX_DEV_COMPOSITION_ARMED_CONTEXT
+        );
+        crate::host::abi::ex_host_free_string(report);
+        crate::host::abi::ex_host_free_string(error);
+        crate::host::abi::install_host(crate::host::Host::strict());
+    }
 }
 
 /// Parse half of LLP 0056 §5 step 0 for the two independent channel records.
@@ -7505,8 +7572,10 @@ pub(crate) fn parse_dev_composition_channel_records_unchecked_v1(
 /// @ref LLP 0042#visible-non-production — receipts name the authority class
 #[cfg(feature = "dev-committed-embedder")]
 pub mod dev_committed_embedder {
+    use std::collections::HashMap;
     use std::ffi::{c_char, c_void, CStr, CString};
     use std::ptr::NonNull;
+    use std::sync::{OnceLock, RwLock};
 
     use super::*;
     use crate::engine::module_runner::{
@@ -7522,19 +7591,63 @@ pub mod dev_committed_embedder {
     const DEV_FINGERPRINT_POSTURE: &str = "dev-vouched-index-external-producer (LLP 0043 pending)";
     const DEV_PREPARED_GRAPH_COMMITMENT_SCHEMA_V1: &str = "ibex/prepared-graph-commitment/1";
 
-    #[cfg(test)]
-    thread_local! {
-        static LAST_COMPOSITION_SESSION_V1: std::cell::Cell<*const CompositionSessionV1> =
-            const { std::cell::Cell::new(std::ptr::null()) };
+    type CompositionRuntimeIdentityV1 = (usize, u64);
+
+    fn retained_composition_sessions_v1(
+    ) -> &'static RwLock<HashMap<CompositionRuntimeIdentityV1, usize>> {
+        static SESSIONS: OnceLock<RwLock<HashMap<CompositionRuntimeIdentityV1, usize>>> =
+            OnceLock::new();
+        SESSIONS.get_or_init(|| RwLock::new(HashMap::new()))
     }
 
-    #[cfg(test)]
-    pub(crate) fn retained_composition_session_for_test_v1() -> Option<&'static CompositionSessionV1>
-    {
-        LAST_COMPOSITION_SESSION_V1.with(|session| {
-            let session = session.get();
-            (!session.is_null()).then(|| unsafe { &*session })
-        })
+    fn retain_composition_session_v1(
+        runtime: NonNull<c_void>,
+        runtime_nonce: u64,
+        session: CompositionSessionV1,
+    ) -> Result<&'static CompositionSessionV1> {
+        let identity = (runtime.as_ptr() as usize, runtime_nonce);
+        let mut sessions = retained_composition_sessions_v1()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if sessions.contains_key(&identity) {
+            bail!("composition runtime identity already retains a session");
+        }
+        let session = Box::leak(Box::new(session));
+        sessions.insert(identity, session as *const CompositionSessionV1 as usize);
+        Ok(session)
+    }
+
+    fn retained_composition_session_v1(
+        runtime: NonNull<c_void>,
+        runtime_nonce: u64,
+    ) -> Option<&'static CompositionSessionV1> {
+        if runtime_nonce == 0 {
+            return None;
+        }
+        let identity = (runtime.as_ptr() as usize, runtime_nonce);
+        let session = retained_composition_sessions_v1()
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&identity)
+            .copied()? as *const CompositionSessionV1;
+        // SAFETY: registration stores only process-lifetime leaked sessions;
+        // the complete pointer+nonce runtime identity prevents address reuse
+        // from selecting an older runtime's session.
+        Some(unsafe { &*session })
+    }
+
+    /// Resolve one host-bridged composition id through the retained session
+    /// selected by the exact runtime identity. This is the embedder-facing
+    /// bridge shape for computed/cross-package dynamic-import requests; it
+    /// never enrolls the record in deferred dynamic activation.
+    pub fn resolve_retained_composition_id_v1(
+        runtime: NonNull<c_void>,
+        runtime_nonce: u64,
+        id: &str,
+    ) -> Option<SourceId> {
+        retained_composition_session_v1(runtime, runtime_nonce)?
+            .resolve_id(id)
+            .cloned()
     }
 
     /// Admission + evaluation receipt for one dev-unarmed committed startup.
@@ -8056,13 +8169,21 @@ pub mod dev_committed_embedder {
             admitted_records,
             report.clone(),
         ) {
-            Ok(session) => {
-                let session = Box::leak(Box::new(session)) as *const CompositionSessionV1;
-                #[cfg(test)]
-                LAST_COMPOSITION_SESSION_V1.with(|retained| retained.set(session));
-                let _ = session;
-                (0, report, None)
-            }
+            Ok(session) => match retain_composition_session_v1(runtime, runtime_nonce, session) {
+                Ok(_) => (0, report, None),
+                Err(error) => {
+                    unsafe { drop(Box::from_raw(runtime_owner)) };
+                    let detail = format!("{error:#}");
+                    (
+                        2,
+                        report.into_startup_error(
+                            super::super::composition::CompositionStartupPhaseV1::AppEvaluate,
+                            detail.clone(),
+                        ),
+                        Some(detail),
+                    )
+                }
+            },
             Err(error) => {
                 unsafe { drop(Box::from_raw(runtime_owner)) };
                 let detail = format!("{error:#}");
@@ -8260,80 +8381,17 @@ pub mod dev_committed_embedder {
         })
     }
 
-    /// LLP 0056 package-aware dev-unarmed composition startup. Returns 0 only
-    /// after all descriptor transitions complete, 1 for step-0–8 refusal, and
-    /// 2 for every step-9-or-later startup failure. The tagged report is total.
-    ///
-    /// # Safety
-    ///
-    /// `runtime` must identify the live Hermes runtime named by `runtime_nonce`.
-    /// Each input string must point to a readable NUL-terminated string, and
-    /// each non-null output slot must be writable. Returned strings are owned
-    /// by the caller and must be released with `ibex_dev_string_dispose_v1`.
-    // @ref LLP 0056#34-the-c-abi-entry-dev-unarmed-the-only-v1-posture — this entry preserves the landed phase return codes while adding a total report.
-    #[no_mangle]
-    pub unsafe extern "C" fn ibex_dev_unarmed_composition_prepared_startup_v1(
-        runtime: *mut c_void,
-        runtime_nonce: u64,
-        composition_dir: *const c_char,
-        commitment_json: *const c_char,
-        expectations_json: *const c_char,
-        project_root: *const c_char,
+    fn deliver_composition_startup_outcome_v1(
+        status: i32,
+        report: DevUnarmedCompositionStartupReportV1,
+        mut diagnostic: Option<String>,
         out_report_json: *mut *mut c_char,
         out_error: *mut *mut c_char,
     ) -> i32 {
-        if !out_report_json.is_null() {
-            unsafe { *out_report_json = std::ptr::null_mut() };
-        }
-        if !out_error.is_null() {
-            unsafe { *out_error = std::ptr::null_mut() };
-        }
-
-        let parsed = (|| -> Result<(NonNull<c_void>, &str, &str, &str, &str)> {
-            let runtime = NonNull::new(runtime).ok_or_else(|| {
-                anyhow!("IBEX_DEV_COMPOSITION_CORRUPT composition startup received a null runtime")
-            })?;
-            let composition_dir =
-                unsafe { required_composition_utf8(composition_dir, "composition directory") }?;
-            let commitment_json =
-                unsafe { required_composition_utf8(commitment_json, "commitment") }?;
-            let expectations_json =
-                unsafe { required_composition_utf8(expectations_json, "expectations") }?;
-            let project_root = unsafe { required_composition_utf8(project_root, "project root") }?;
-            Ok((
-                runtime,
-                composition_dir,
-                commitment_json,
-                expectations_json,
-                project_root,
-            ))
-        })();
-        let (status, report, mut diagnostic) = match parsed {
-            Ok((runtime, composition_dir, commitment, expectations, project_root)) => {
-                run_prepared_composition_dev_unarmed_v1(
-                    runtime,
-                    runtime_nonce,
-                    Path::new(composition_dir),
-                    commitment,
-                    expectations,
-                    Path::new(project_root),
-                )
-            }
-            Err(error) => {
-                let detail = format!("{error:#}");
-                (
-                    1,
-                    composition_embedder_channel_error_report_v1(detail.clone()),
-                    Some(detail),
-                )
-            }
-        };
-        let outcome_name = match status {
-            0 => "admitted",
-            1 => "refused",
-            2 => "admitted-startup-error",
-            _ => "invalid-outcome",
-        };
+        // The tagged report is the outcome authority. In particular, both a
+        // channel error and a registry refusal return status 1 but must remain
+        // distinct in serialization/delivery diagnostics.
+        let outcome_name = report.admission_status();
         match serde_json::to_string(&report) {
             Ok(json) if !out_report_json.is_null() => write_out_string(out_report_json, &json),
             Ok(_) => {
@@ -8362,5 +8420,99 @@ pub mod dev_committed_embedder {
             write_out_string(out_error, &diagnostic);
         }
         status
+    }
+
+    /// LLP 0056 package-aware dev-unarmed composition startup. Returns 0 only
+    /// after all descriptor transitions complete, 1 for step-0–8 refusal, and
+    /// 2 for every step-9-or-later startup failure. The tagged report is total.
+    ///
+    /// # Safety
+    ///
+    /// `runtime` must identify the live Hermes runtime named by `runtime_nonce`.
+    /// Each input string must point to a readable NUL-terminated string, and
+    /// each non-null output slot must be writable. Returned strings are owned
+    /// by the caller and must be released with `ex_host_free_string`.
+    // @ref LLP 0056#34-the-c-abi-entry-dev-unarmed-the-only-v1-posture — this entry preserves the landed phase return codes while adding a total report.
+    #[no_mangle]
+    pub unsafe extern "C" fn ibex_dev_unarmed_composition_prepared_startup_v1(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        composition_dir: *const c_char,
+        commitment_json: *const c_char,
+        expectations_json: *const c_char,
+        project_root: *const c_char,
+        out_report_json: *mut *mut c_char,
+        out_error: *mut *mut c_char,
+    ) -> i32 {
+        if !out_report_json.is_null() {
+            unsafe { *out_report_json = std::ptr::null_mut() };
+        }
+        if !out_error.is_null() {
+            unsafe { *out_error = std::ptr::null_mut() };
+        }
+
+        // Armed exclusion wins before the runtime or any caller-supplied
+        // string pointer is inspected. This is the composition entry's first
+        // semantic operation after initializing its output slots.
+        if crate::host::abi::installed_host_is_armed_for_dev_exclusion() {
+            let detail = format!(
+                "{} dev-unarmed composition startup refused: an armed Host is installed in this process",
+                super::super::composition::IBEX_DEV_COMPOSITION_ARMED_CONTEXT
+            );
+            return deliver_composition_startup_outcome_v1(
+                1,
+                composition_embedder_channel_error_report_v1(detail.clone()),
+                Some(detail),
+                out_report_json,
+                out_error,
+            );
+        }
+
+        let parsed = (|| -> Result<(NonNull<c_void>, &str, &str, &str, &str)> {
+            let runtime = NonNull::new(runtime).ok_or_else(|| {
+                anyhow!("IBEX_DEV_COMPOSITION_CORRUPT composition startup received a null runtime")
+            })?;
+            let composition_dir =
+                unsafe { required_composition_utf8(composition_dir, "composition directory") }?;
+            let commitment_json =
+                unsafe { required_composition_utf8(commitment_json, "commitment") }?;
+            let expectations_json =
+                unsafe { required_composition_utf8(expectations_json, "expectations") }?;
+            let project_root = unsafe { required_composition_utf8(project_root, "project root") }?;
+            Ok((
+                runtime,
+                composition_dir,
+                commitment_json,
+                expectations_json,
+                project_root,
+            ))
+        })();
+        let (status, report, diagnostic) = match parsed {
+            Ok((runtime, composition_dir, commitment, expectations, project_root)) => {
+                run_prepared_composition_dev_unarmed_v1(
+                    runtime,
+                    runtime_nonce,
+                    Path::new(composition_dir),
+                    commitment,
+                    expectations,
+                    Path::new(project_root),
+                )
+            }
+            Err(error) => {
+                let detail = format!("{error:#}");
+                (
+                    1,
+                    composition_embedder_channel_error_report_v1(detail.clone()),
+                    Some(detail),
+                )
+            }
+        };
+        deliver_composition_startup_outcome_v1(
+            status,
+            report,
+            diagnostic,
+            out_report_json,
+            out_error,
+        )
     }
 }

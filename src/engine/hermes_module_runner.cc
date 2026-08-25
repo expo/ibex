@@ -4756,6 +4756,7 @@ extern "C" int32_t ex_hermes_module_record_poll_evaluation(
   }
 }
 
+#if defined(IBEX_DEV_COMPOSITION_ABI)
 // @abi-output ex_hermes_module_invoke_export out_outcome role=inout kind=aggregate schema=ExHermesModuleInvokeOutcomeV1 members=* ownership=caller-storage
 // @abi-output ex_hermes_module_invoke_export out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_module_invoke_export out_error_token role=output kind=scalar ownership=caller-storage
@@ -4774,7 +4775,7 @@ extern "C" int32_t ex_hermes_module_invoke_export(
   if (out_outcome == nullptr ||
       out_outcome->abi_version !=
           EX_HERMES_MODULE_INVOKE_OUTCOME_ABI_VERSION_V1 ||
-      out_outcome->struct_size < sizeof(ExHermesModuleInvokeOutcomeV1)) {
+      out_outcome->struct_size != sizeof(ExHermesModuleInvokeOutcomeV1)) {
     writeError(out_error, "module export invoke outcome shape is unsupported");
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
@@ -4818,9 +4819,16 @@ extern "C" int32_t ex_hermes_module_invoke_export(
     auto result = value.asObject(rt).asFunction(rt).call(rt);
     if (result.isObject()) {
       auto object = result.asObject(rt);
-      auto thenValue = object.getProperty(rt, "then");
-      out_outcome->returned_thenable =
-          thenValue.isObject() && thenValue.asObject(rt).isFunction(rt) ? 1 : 0;
+      // Thenable detection performs one user-code-visible property access.
+      // A getter or Proxy trap may throw, but that observation must never
+      // convert the already-successful bootstrap invocation into a failure.
+      try {
+        auto thenValue = object.getProperty(rt, "then");
+        out_outcome->returned_thenable =
+            thenValue.isObject() && thenValue.asObject(rt).isFunction(rt) ? 1 : 0;
+      } catch (...) {
+        out_outcome->returned_thenable = 0;
+      }
     }
   } catch (const facebook::jsi::JSError& error) {
     rememberRecordError(
@@ -4841,6 +4849,7 @@ extern "C" int32_t ex_hermes_module_invoke_export(
   }
   return EXACT_RUNTIME_DRIVE_OK;
 }
+#endif  // IBEX_DEV_COMPOSITION_ABI
 
 // @abi-output ex_hermes_module_record_namespace_json out_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_module_record_namespace_json out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string

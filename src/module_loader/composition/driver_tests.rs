@@ -1,6 +1,7 @@
 use super::*;
+use crate::module_loader::identity::ImportAttributes;
 
-use capsec_semantics::model::{PackageLocator, PathComponent};
+use capsec_semantics::model::{PackageLocator, PathComponent, StableId};
 
 use crate::module_loader::artifact::{
     semantics_digest, CanonicalSourceId, ModuleArtifactV1, ModulePayloadV1, ProducerIdentityV1,
@@ -8,6 +9,10 @@ use crate::module_loader::artifact::{
 use crate::module_loader::carrier::{
     PreparedCarrierEncodingV2, PreparedCarrierEngineBindingV2, PreparedCarrierEntryV2,
     PreparedModuleCarrierV3, PREPARED_CARRIER_BYTES_DOMAIN_V1, PREPARED_CARRIER_SCHEMA_V3,
+};
+use crate::module_loader::computed_candidates::{
+    ComputedCandidateTableV2, ComputedCandidateTargetV1, OriginalSourceSpanV1,
+    COMPUTED_CANDIDATES_SCHEMA_V2,
 };
 use crate::module_loader::producer_spike::produce_module_artifact_v1;
 
@@ -948,7 +953,22 @@ fn fixture_rows_a4_a5b_a6_a7_a8_enforce_package_topology() {
         rows: vec![row],
     };
     alias.resign_envelope();
-    assert_refusal(alias.run(), 3, CompositionRefusalCode::AliasConflict);
+    let CompositionAdmissionOutcomeV1::Refused(DevUnarmedCompositionStartupReportV1::Refused {
+        common,
+        failure_stage,
+        reason_code,
+        package_role,
+        ..
+    }) = alias.run()
+    else {
+        panic!("expected alias-table refusal")
+    };
+    assert_eq!(failure_stage, 3);
+    assert_eq!(reason_code, CompositionRefusalCode::AliasConflict);
+    assert_eq!(package_role, None);
+    assert!(common.packages.iter().all(|package| {
+        package.verification_status == CompositionPackageVerificationStatusV1::Verified
+    }));
 }
 
 #[test]
@@ -979,12 +999,22 @@ fn fixture_a9_computed_bootstrap_alias_resolves_through_retained_session() {
     let runtime = CompositionTestRuntimeV1::new();
     let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
     assert_eq!(outcome.status, 0, "alias composition: {:?}", outcome.error);
-    let session = crate::module_loader::runner_pipeline::dev_committed_embedder::retained_composition_session_for_test_v1()
-        .expect("successful C startup retains the composition session");
-    assert_eq!(session.resolve_id(&row.alias_id), Some(&representative));
+    let (raw, nonce) = runtime.raw_parts();
     assert_eq!(
-        session.resolve_id(&representative.encode().unwrap()),
-        Some(&representative)
+        crate::module_loader::runner_pipeline::dev_committed_embedder::resolve_retained_composition_id_v1(
+            raw,
+            nonce,
+            &row.alias_id,
+        ),
+        Some(representative.clone())
+    );
+    assert_eq!(
+        crate::module_loader::runner_pipeline::dev_committed_embedder::resolve_retained_composition_id_v1(
+            raw,
+            nonce,
+            &representative.encode().unwrap(),
+        ),
+        Some(representative)
     );
 }
 
@@ -1019,7 +1049,7 @@ fn fixture_a10_dynamic_edges_preserve_literal_locality_and_host_bridges() {
         .execution_plan(&literal_admitted.envelope.alias_table.rows)
         .unwrap();
     let literal_linkage = literal_plan
-        .linkage_order_for_authorized_roots(
+        .linkage_order_for_roots(
             &literal_admitted.authorized.roots,
             &literal_admitted.authorized.allowed_dynamic_bindings,
         )
@@ -1090,6 +1120,75 @@ fn fixture_a10_dynamic_edges_preserve_literal_locality_and_host_bridges() {
         .allowed_dynamic_bindings
         .get(&undeclared.app_root)
         .is_none());
+
+    let mut out_of_union = CompositionFixtureV1::new(false);
+    let requester = out_of_union.app_root.clone();
+    out_of_union.replace_record_source(
+        CompositionRole::App,
+        &requester,
+        "export function computed(specifier) { return import(specifier); }",
+    );
+    let absent_target = fixture_source_id(
+        &fixture_root_principal(),
+        "candidate-target-outside-union.mjs",
+    );
+    let app = out_of_union
+        .packages
+        .get_mut(&CompositionRole::App)
+        .unwrap();
+    app.package.records[0].bindings.clear();
+    let requester_record = app
+        .package
+        .records
+        .iter()
+        .find(|record| record.source_id == requester)
+        .unwrap();
+    let site = requester_record
+        .artifact
+        .semantics
+        .dynamic_edges
+        .iter()
+        .find_map(|edge| match edge {
+            DynamicEdgeV1::Computed { site } => Some(*site),
+            DynamicEdgeV1::Literal { .. } => None,
+        })
+        .expect("computed fixture has a labeled site");
+    let table = ComputedCandidateTableV2 {
+        schema: COMPUTED_CANDIDATES_SCHEMA_V2.into(),
+        requester: requester_record.artifact.semantics.source_id.clone(),
+        requester_source_integrity: requester_record.artifact.semantics.source_integrity.clone(),
+        transform_fingerprint_digest: requester_record
+            .artifact
+            .semantics
+            .transform_fingerprint
+            .digest()
+            .unwrap(),
+        site,
+        label: StableId::new("out-of-union-host-bridge").unwrap(),
+        original_source_span: OriginalSourceSpanV1 { start: 1, end: 2 },
+        candidates: vec![ComputedCandidateTargetV1 {
+            specifier: NonEmptyString::new("computed-bootstrap-alias").unwrap(),
+            attributes: ImportAttributes::default(),
+            target: CanonicalSourceId(absent_target),
+            target_source_integrity: source_integrity(b"out-of-union-target").unwrap(),
+        }],
+    };
+    let bytes = table.canonical_bytes().unwrap();
+    let digest = table.digest().unwrap();
+    app.package
+        .candidate_tables
+        .push(PreparedPackageCandidateTableIndexV1 {
+            file: "out-of-union-v2.json".into(),
+            digest,
+        });
+    app.candidate_files
+        .insert("out-of-union-v2.json".into(), bytes);
+    out_of_union.resync_package_and_resign(CompositionRole::App);
+    let outcome = out_of_union.run();
+    assert!(
+        matches!(outcome, CompositionAdmissionOutcomeV1::Admitted(_)),
+        "out-of-union v2 candidate remains host-bridged: {outcome:?}"
+    );
 }
 
 #[test]
@@ -1269,6 +1368,37 @@ fn fixture_d37_atomic_link_failure_refuses_before_any_record_evaluates() {
         )
         .unwrap();
     assert_eq!(probe.trim(), "null");
+}
+
+#[test]
+fn composition_linker_refuses_a_plan_binding_not_present_in_step6_authority() {
+    let fixture = CompositionFixtureV1::new(true);
+    let CompositionAdmissionOutcomeV1::Admitted(admitted) = fixture.run() else {
+        panic!("authority-binding fixture must admit")
+    };
+    let mut plan = admitted
+        .authorized
+        .execution_plan(&admitted.envelope.alias_table.rows)
+        .unwrap();
+    crate::engine::module_runner::NativeSynchronousGraph::validate_authorized_composition_plan(
+        &plan,
+        &admitted.authorized,
+    )
+    .unwrap();
+    plan.insert_binding_for_test(
+        &fixture.app_root,
+        GraphEdgeKey::new("unauthorized-extra-binding", ResolutionKind::DynamicImport),
+        fixture.app_lib.clone(),
+    );
+    let error =
+        crate::engine::module_runner::NativeSynchronousGraph::validate_authorized_composition_plan(
+            &plan,
+            &admitted.authorized,
+        )
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("bindings differ from the step-6 authorization capability"));
 }
 
 fn assert_startup_error_shape_v1(
@@ -1504,73 +1634,542 @@ fn report_package_statuses_follow_the_step_transition_rule() {
     }));
 }
 
+fn observed_registry_refusal_report_v1(
+    code: CompositionRefusalCode,
+    runtime: &CompositionTestRuntimeV1,
+) -> Value {
+    let outcome = match code {
+        CompositionRefusalCode::EnvelopeMalformed => {
+            let fixture = CompositionFixtureV1::new(true);
+            let path = fixture.directory.path().join("composition.json");
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes.push(b'\n');
+            std::fs::write(path, bytes).unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionCommitmentMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.alias_table.digest =
+                source_integrity(b"live-e39-uncommitted-alias-table").unwrap();
+            fixture.write_envelope_without_resigning();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionReplayed => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.expectations.session_nonce = "live-e39-replay".into();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionPolicyStale => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.expectations.policy_digest = source_integrity(b"live-e39-policy").unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexTargetProfileMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.expectations.expected_target = "live-e39-target".into();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionUnknownRole => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.declaration = vec!["app".into(), "unknown".into()];
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionDuplicateRole => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.declaration = vec!["app".into(), "app".into()];
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionPackageExtra => {
+            let fixture = CompositionFixtureV1::new(true);
+            std::fs::create_dir_all(fixture.directory.path().join("packages/extra")).unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionPackageMissing => {
+            let fixture = CompositionFixtureV1::new(true);
+            std::fs::remove_dir_all(fixture.package_dir(CompositionRole::Agent)).unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.expectations.expected_roles = vec![CompositionRole::App];
+            fixture.run()
+        }
+        CompositionRefusalCode::PackageRootMismatch => {
+            let fixture = CompositionFixtureV1::new(true);
+            let path = fixture.package_dir(CompositionRole::App).join("index.json");
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes.push(b'\n');
+            std::fs::write(path, bytes).unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexPreparedCommitmentSchema => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let path = fixture.package_dir(CompositionRole::App).join("index.json");
+            let mut value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            value["schema"] = serde_json::json!("ibex/prepared-package/2");
+            let bytes = capsec_semantics::canonical::to_jcs_bytes(&value).unwrap();
+            rewrite_index_and_recommit(&mut fixture, CompositionRole::App, &bytes);
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexPackageInventory => {
+            let fixture = CompositionFixtureV1::new(true);
+            std::fs::write(
+                fixture.package_dir(CompositionRole::App).join("unexpected"),
+                b"unexpected",
+            )
+            .unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexPreparedCommitmentCorrupt => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let path = fixture.package_dir(CompositionRole::App).join("index.json");
+            let value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            let bytes = serde_json::to_vec_pretty(&value).unwrap();
+            rewrite_index_and_recommit(&mut fixture, CompositionRole::App, &bytes);
+            fixture.run()
+        }
+        CompositionRefusalCode::CarrierIntegrity => {
+            let fixture = CompositionFixtureV1::new(true);
+            let bytes_file = &fixture.packages[&CompositionRole::App].carriers[0].bytes_file;
+            let path = fixture.package_dir(CompositionRole::App).join(bytes_file);
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes.push(b'!');
+            std::fs::write(path, bytes).unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexPrincipalGrouping => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let package_principal = fixture_package_principal();
+            let removed_files;
+            {
+                let app = fixture.packages.get_mut(&CompositionRole::App).unwrap();
+                let replacement = fixture_source_id(&package_principal, "app-lib.mjs");
+                let old = app.package.records[1].source_id.clone();
+                app.package.records[1].source_id = replacement.clone();
+                app.package.records[1].artifact.semantics.source_id =
+                    CanonicalSourceId(replacement.clone());
+                for source_id in &mut app.package.records[1]
+                    .artifact
+                    .semantics
+                    .source_map
+                    .source_ids
+                {
+                    if source_id.0 == old {
+                        *source_id = CanonicalSourceId(replacement.clone());
+                    }
+                }
+                let PreparedPackageBindingTargetV1::Local { source_id } =
+                    &mut app.package.records[0].bindings[0].target
+                else {
+                    panic!("fixture app edge must be local")
+                };
+                *source_id = replacement;
+                app.package.records[1].carrier_index = 0;
+                let removed = app.carriers.remove(1);
+                removed_files = (removed.manifest_file, removed.bytes_file);
+            }
+            std::fs::remove_file(
+                fixture
+                    .package_dir(CompositionRole::App)
+                    .join(&removed_files.0),
+            )
+            .unwrap();
+            std::fs::remove_file(
+                fixture
+                    .package_dir(CompositionRole::App)
+                    .join(&removed_files.1),
+            )
+            .unwrap();
+            fixture.resync_package_and_resign(CompositionRole::App);
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexEncodingIncompatible => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture
+                .packages
+                .get_mut(&CompositionRole::App)
+                .unwrap()
+                .carriers[0]
+                .bytes = 0x1F1903C103BC1FC6_u64.to_le_bytes().to_vec();
+            fixture.resync_package_and_resign(CompositionRole::App);
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexEngineUnavailable => {
+            let engine = fake_engine("live-e39-engine", 96);
+            let mut fixture = CompositionFixtureV1::new(true);
+            configure_hbc_carrier(
+                &mut fixture,
+                CompositionRole::App,
+                0,
+                &engine,
+                96,
+                0x1F1903C103BC1FC6_u64.to_le_bytes().to_vec(),
+            );
+            fixture.run_with_engine(None)
+        }
+        CompositionRefusalCode::IbexEngineBindingMismatch => {
+            let engine = fake_engine("live-e39-manifest-engine", 96);
+            let mut fixture = CompositionFixtureV1::new(true);
+            configure_hbc_carrier(
+                &mut fixture,
+                CompositionRole::App,
+                0,
+                &engine,
+                96,
+                0x1F1903C103BC1FC6_u64.to_le_bytes().to_vec(),
+            );
+            fixture.run_with_engine(Some(fake_engine("live-e39-loaded-engine", 96)))
+        }
+        CompositionRefusalCode::IbexBytecodePreflight => {
+            let engine = fake_engine("live-e39-engine", 96);
+            let mut fixture = CompositionFixtureV1::new(true);
+            configure_hbc_carrier(
+                &mut fixture,
+                CompositionRole::App,
+                0,
+                &engine,
+                96,
+                0x1F1903C103BC1FC6_u64.to_le_bytes().to_vec(),
+            );
+            fixture.run_with_engine(Some(engine))
+        }
+        CompositionRefusalCode::IbexPackageGraphBinding => {
+            let fixture = CompositionFixtureV1::new(true);
+            let manifest_path = fixture
+                .package_dir(CompositionRole::App)
+                .join(&fixture.packages[&CompositionRole::App].carriers[0].manifest_file);
+            let mut manifest = fixture.packages[&CompositionRole::App].carriers[0]
+                .manifest
+                .clone();
+            manifest.package_graph_digest = source_integrity(b"live-e39-graph").unwrap();
+            std::fs::write(manifest_path, manifest.encode_canonical().unwrap()).unwrap();
+            fixture.run()
+        }
+        CompositionRefusalCode::GenerationSplice => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.packages[1].producer_generation += 1;
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::AliasConflict => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let representative = fixture.agent_root.clone().unwrap();
+            let row = CompositionAliasRowV1 {
+                alias_id: fixture_source_id(&fixture_root_principal(), "live-e39-alias")
+                    .encode()
+                    .unwrap(),
+                representative_source_id: representative.encode().unwrap(),
+                representative_source_integrity: source_integrity(b"wrong-live-e39-evidence")
+                    .unwrap(),
+                import_site_inventory_digest: compute_alias_import_site_inventory_digest(&[])
+                    .unwrap(),
+            };
+            fixture.envelope.alias_table = CompositionAliasTableV1 {
+                digest: digest_canonical_value_v1(
+                    PREPARED_ALIAS_TABLE_DOMAIN_V1,
+                    &vec![row.clone()],
+                )
+                .unwrap(),
+                rows: vec![row],
+            };
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::PartitionMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.partition.digest = source_integrity(b"live-e39-partition").unwrap();
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::IbexDuplicateSourceId => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            {
+                let app = fixture.packages.get_mut(&CompositionRole::App).unwrap();
+                let mut record = app.package.records[1].clone();
+                let mut carrier = app.carriers[1].clone();
+                record.entry_id = NonEmptyString::new("live-e39-duplicate").unwrap();
+                record.carrier_index = app.carriers.len();
+                carrier.manifest_file = "live-e39-duplicate.json".into();
+                carrier.bytes_file = "live-e39-duplicate.bin".into();
+                app.package.records.push(record);
+                app.carriers.push(carrier);
+            }
+            fixture.resync_package_and_resign(CompositionRole::App);
+            fixture.run()
+        }
+        CompositionRefusalCode::PackageOverlap => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            {
+                let app = fixture.packages.get(&CompositionRole::App).unwrap();
+                let mut record = app.package.records[1].clone();
+                let mut carrier = app.carriers[1].clone();
+                let agent = fixture.packages.get_mut(&CompositionRole::Agent).unwrap();
+                record.entry_id = NonEmptyString::new("live-e39-overlap").unwrap();
+                record.carrier_index = agent.carriers.len();
+                carrier.manifest_file = "live-e39-overlap.json".into();
+                carrier.bytes_file = "live-e39-overlap.bin".into();
+                agent.package.records.push(record);
+                agent.carriers.push(carrier);
+            }
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::AppReferencesAgent => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            inject_app_to_agent_fault(&mut fixture);
+            fixture.run()
+        }
+        CompositionRefusalCode::LocalAgreementDisagreement => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture
+                .packages
+                .get_mut(&CompositionRole::Agent)
+                .unwrap()
+                .package
+                .records[0]
+                .bindings[0]
+                .target = PreparedPackageBindingTargetV1::Local {
+                source_id: fixture.app_lib.clone(),
+            };
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::UnionTableMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.union_binding_table.digest =
+                source_integrity(b"live-e39-union").unwrap();
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::BoundaryInventoryMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let rows = vec![HostBridgedInventoryRowV1 {
+                module: fixture.app_root.encode().unwrap(),
+                specifier: "./live-e39-invented.mjs".into(),
+                reason: HostBridgedReasonV1::TargetIsNotBundleModule,
+            }];
+            let preimage = serde_json::json!({ "role": CompositionRole::App, "rows": rows });
+            fixture.envelope.host_bridged_inventories[0] = CompositionHostBridgedInventoryV1 {
+                role: CompositionRole::App,
+                digest: digest_canonical_value_v1(PREPARED_BOUNDARY_INVENTORY_DOMAIN_V1, &preimage)
+                    .unwrap(),
+                rows,
+            };
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::ExternalTargetAbsent => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let missing = fixture_source_id(&fixture_root_principal(), "live-e39-absent.mjs");
+            fixture
+                .packages
+                .get_mut(&CompositionRole::Agent)
+                .unwrap()
+                .package
+                .records[0]
+                .bindings[0]
+                .target = PreparedPackageBindingTargetV1::External {
+                role: CompositionRole::App,
+                source_id: missing,
+            };
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::ExternalOwnerMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let agent_root = fixture.agent_root.clone().unwrap();
+            fixture
+                .packages
+                .get_mut(&CompositionRole::Agent)
+                .unwrap()
+                .package
+                .records[0]
+                .bindings[0]
+                .target = PreparedPackageBindingTargetV1::External {
+                role: CompositionRole::App,
+                source_id: agent_root,
+            };
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::ExportDisagreement => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let app_lib = fixture.app_lib.clone();
+            fixture.replace_record_source(
+                CompositionRole::App,
+                &app_lib,
+                "export const liveE39DifferentName = 1;",
+            );
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::CrossPrincipalDenied => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let package_principal = fixture_package_principal();
+            let new_agent_root = fixture_source_id(&package_principal, "live-e39-package-root.mjs");
+            {
+                let agent = fixture.packages.get_mut(&CompositionRole::Agent).unwrap();
+                let mut record = agent.package.records[0].clone();
+                let old = record.source_id.clone();
+                record.source_id = new_agent_root.clone();
+                record.artifact.semantics.source_id = CanonicalSourceId(new_agent_root.clone());
+                for source_id in &mut record.artifact.semantics.source_map.source_ids {
+                    if source_id.0 == old {
+                        *source_id = CanonicalSourceId(new_agent_root.clone());
+                    }
+                }
+                record.entry_id = NonEmptyString::new("live-e39-package-root").unwrap();
+                record.carrier_index = agent.carriers.len();
+                let mut carrier = agent.carriers[0].clone();
+                carrier.manifest_file = "live-e39-package-carrier.json".into();
+                carrier.bytes_file = "live-e39-package-carrier.bin".into();
+                agent.package.records.push(record);
+                agent.carriers.push(carrier);
+            }
+            fixture.agent_root = Some(new_agent_root);
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::EntryPlanMismatch => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.entry_plan.entries.swap(0, 1);
+            fixture.envelope.entry_plan.digest =
+                entry_plan_digest_v1(&fixture.envelope.entry_plan.entries).unwrap();
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::EntryDescriptorInvalid => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture.envelope.entry_plan.entries[0].action = "live-e39-unknown-action".into();
+            fixture.envelope.entry_plan.digest =
+                entry_plan_digest_v1(&fixture.envelope.entry_plan.entries).unwrap();
+            fixture.resign_envelope();
+            fixture.run()
+        }
+        CompositionRefusalCode::CompositionRootUnlinked => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            let agent_root = fixture.agent_root.clone().unwrap();
+            fixture.replace_record_source(
+                CompositionRole::Agent,
+                &agent_root,
+                "import { appValue } from 'app-lib'; await Promise.resolve(appValue); export function installExactNativeAgentBootstrap() { return appValue; }",
+            );
+            fixture.normalize();
+            fixture.run()
+        }
+        CompositionRefusalCode::LinkFailure => {
+            let mut fixture = CompositionFixtureV1::new(true);
+            fixture
+                .packages
+                .get_mut(&CompositionRole::App)
+                .unwrap()
+                .carriers[0]
+                .bytes = b"live-e39-invalid-link-factory(".to_vec();
+            fixture.resync_package_and_resign(CompositionRole::App);
+            let outcome = run_composition_startup_fixture_v1(&fixture, runtime);
+            assert_eq!(
+                outcome.status, 1,
+                "live E-39 link refusal: {:?}",
+                outcome.error
+            );
+            return outcome.report;
+        }
+    };
+    let CompositionAdmissionOutcomeV1::Refused(report) = outcome else {
+        panic!(
+            "live E-39 fixture for {} did not refuse: {outcome:?}",
+            code.as_str()
+        )
+    };
+    serde_json::to_value(report).unwrap()
+}
+
+fn expected_registry_refusal_disposition_v1(
+    code: CompositionRefusalCode,
+) -> (
+    Option<CompositionRole>,
+    Vec<(CompositionRole, CompositionPackageVerificationStatusV1)>,
+) {
+    use CompositionPackageVerificationStatusV1::{NotChecked, Refused, Verified};
+
+    let both = |app, agent| vec![(CompositionRole::App, app), (CompositionRole::Agent, agent)];
+    match code {
+        CompositionRefusalCode::EnvelopeMalformed => (None, Vec::new()),
+        code if code.step() == 2 => (None, both(NotChecked, NotChecked)),
+        CompositionRefusalCode::PackageRootMismatch
+        | CompositionRefusalCode::IbexPreparedCommitmentSchema
+        | CompositionRefusalCode::IbexPackageInventory
+        | CompositionRefusalCode::IbexPreparedCommitmentCorrupt
+        | CompositionRefusalCode::CarrierIntegrity
+        | CompositionRefusalCode::IbexPrincipalGrouping
+        | CompositionRefusalCode::IbexEncodingIncompatible
+        | CompositionRefusalCode::IbexEngineUnavailable
+        | CompositionRefusalCode::IbexEngineBindingMismatch
+        | CompositionRefusalCode::IbexBytecodePreflight
+        | CompositionRefusalCode::IbexPackageGraphBinding => {
+            (Some(CompositionRole::App), both(Refused, Verified))
+        }
+        CompositionRefusalCode::GenerationSplice => {
+            (Some(CompositionRole::Agent), both(Verified, Refused))
+        }
+        CompositionRefusalCode::AliasConflict => (None, both(Verified, Verified)),
+        CompositionRefusalCode::IbexDuplicateSourceId
+        | CompositionRefusalCode::AppReferencesAgent => {
+            (Some(CompositionRole::App), both(Refused, Verified))
+        }
+        CompositionRefusalCode::LocalAgreementDisagreement => {
+            (Some(CompositionRole::Agent), both(Verified, Refused))
+        }
+        _ => (None, both(Verified, Verified)),
+    }
+}
+
 #[test]
 fn fixture_e39_serializes_every_registry_pair_transition_and_four_tagged_shapes() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let runtime = CompositionTestRuntimeV1::new();
     let admitted = CompositionFixtureV1::new(true).run();
     let CompositionAdmissionOutcomeV1::Admitted(admitted) = admitted else {
         panic!("expected the report-shape fixture to admit")
     };
     let admitted_report = admitted.report;
-    let DevUnarmedCompositionStartupReportV1::Admitted {
-        common: admitted_common,
-        ..
-    } = admitted_report.clone()
-    else {
+    let DevUnarmedCompositionStartupReportV1::Admitted { .. } = admitted_report.clone() else {
         panic!("admitted capability carries the admitted report")
     };
 
     for code in CompositionRefusalCode::ALL {
-        let mut common = if code == CompositionRefusalCode::EnvelopeMalformed {
-            report_common_v1(None, None, &BTreeMap::new(), &BTreeMap::new(), None, 0, 0)
-        } else {
-            admitted_common.clone()
-        };
-        let package_role = match code {
-            CompositionRefusalCode::PackageRootMismatch
-            | CompositionRefusalCode::IbexPreparedCommitmentSchema
-            | CompositionRefusalCode::IbexPackageInventory
-            | CompositionRefusalCode::IbexPreparedCommitmentCorrupt
-            | CompositionRefusalCode::CarrierIntegrity
-            | CompositionRefusalCode::IbexPrincipalGrouping
-            | CompositionRefusalCode::IbexEncodingIncompatible
-            | CompositionRefusalCode::IbexEngineUnavailable
-            | CompositionRefusalCode::IbexEngineBindingMismatch
-            | CompositionRefusalCode::IbexBytecodePreflight
-            | CompositionRefusalCode::IbexPackageGraphBinding
-            | CompositionRefusalCode::IbexDuplicateSourceId
-            | CompositionRefusalCode::AppReferencesAgent
-            | CompositionRefusalCode::LocalAgreementDisagreement => Some(CompositionRole::App),
-            _ => None,
-        };
-        for package in &mut common.packages {
-            package.verification_status = if code.step() == 2 {
-                package.record_count = 0;
-                package.carrier_count = 0;
-                package.hbc_carrier_count = 0;
-                package.javascript_carrier_count = 0;
-                CompositionPackageVerificationStatusV1::NotChecked
-            } else if matches!(
-                code,
-                CompositionRefusalCode::GenerationSplice | CompositionRefusalCode::AliasConflict
-            ) {
-                CompositionPackageVerificationStatusV1::NotChecked
-            } else if package_role == Some(package.role) {
-                CompositionPackageVerificationStatusV1::Refused
-            } else {
-                CompositionPackageVerificationStatusV1::Verified
-            };
-        }
-        let report = DevUnarmedCompositionStartupReportV1::Refused {
-            common,
-            failure_stage: u32::from(code.step()),
-            reason_code: code,
-            package_role,
-            detail: format!("fixture receipt for {}", code.as_str()),
-        };
-        let value = serde_json::to_value(report).unwrap();
+        let value = observed_registry_refusal_report_v1(code, &runtime);
         assert_eq!(value["admissionStatus"], "refused");
         assert_eq!(value["failureStage"], u32::from(code.step()));
         assert_eq!(value["reasonCode"], code.as_str());
+        let expected = expected_registry_refusal_disposition_v1(code);
+        let observed_role = match value.get("packageRole").and_then(Value::as_str) {
+            Some("app") => Some(CompositionRole::App),
+            Some("agent") => Some(CompositionRole::Agent),
+            None => None,
+            Some(other) => panic!("unexpected live E-39 package role {other}"),
+        };
+        let observed_statuses = value["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|package| {
+                let role: CompositionRole =
+                    serde_json::from_value(package["role"].clone()).unwrap();
+                let status: CompositionPackageVerificationStatusV1 =
+                    serde_json::from_value(package["verificationStatus"].clone()).unwrap();
+                (role, status)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            (observed_role, observed_statuses),
+            expected,
+            "live E-39 disposition differs for {}",
+            code.as_str()
+        );
         assert!(value.get("startupPhase").is_none());
         assert_i_json_report_counters(&value);
         if code == CompositionRefusalCode::EnvelopeMalformed {
@@ -1785,10 +2384,24 @@ fn fixture_rows_c25_c27_c28_c29_envelope_tamper_and_resigning() {
         panic!("expected generation-splice refusal")
     };
     assert_eq!(reason_code, CompositionRefusalCode::GenerationSplice);
-    assert_eq!(package_role, None);
-    assert!(common.packages.iter().all(|package| {
-        package.verification_status == CompositionPackageVerificationStatusV1::NotChecked
-    }));
+    assert_eq!(package_role, Some(CompositionRole::Agent));
+    assert_eq!(
+        common
+            .packages
+            .iter()
+            .map(|package| (package.role, package.verification_status))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                CompositionRole::App,
+                CompositionPackageVerificationStatusV1::Verified,
+            ),
+            (
+                CompositionRole::Agent,
+                CompositionPackageVerificationStatusV1::Refused,
+            ),
+        ]
+    );
 
     let mut inventory = CompositionFixtureV1::new(false);
     let rows = vec![HostBridgedInventoryRowV1 {
@@ -2068,18 +2681,22 @@ fn imported_rows_f_i7_f_i8_f_i9_engine_failures_reach_driver() {
     );
 
     let mut version = CompositionFixtureV1::new(false);
+    let mut header_version_96 = vec![0_u8; 128];
+    header_version_96[0..8].copy_from_slice(&0x1F1903C103BC1FC6_u64.to_le_bytes());
+    header_version_96[8..12].copy_from_slice(&96_u32.to_le_bytes());
+    header_version_96[32..36].copy_from_slice(&128_u32.to_le_bytes());
     configure_hbc_carrier(
         &mut version,
         CompositionRole::App,
         0,
         &manifest_engine,
         95,
-        0x1F1903C103BC1FC6_u64.to_le_bytes().to_vec(),
+        header_version_96,
     );
     assert_refusal(
-        version.run_with_engine(Some(manifest_engine.clone())),
+        version.run_with_engine(Some(fake_engine("manifest-engine", 95))),
         3,
-        CompositionRefusalCode::IbexEngineBindingMismatch,
+        CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
     );
 
     let mut preflight = CompositionFixtureV1::new(false);
@@ -2268,15 +2885,34 @@ fn random_fault_conjunctions_choose_the_lowest_tuple_across_steps_1_through_7() 
 
 #[test]
 fn random_fault_conjunctions_choose_the_lowest_tuple_through_step_8_c_entry() {
-    const FAULTS: [(u32, CompositionRefusalCode); 8] = [
-        (1, CompositionRefusalCode::EnvelopeMalformed),
-        (2, CompositionRefusalCode::CompositionPolicyStale),
-        (3, CompositionRefusalCode::PackageRootMismatch),
-        (4, CompositionRefusalCode::PartitionMismatch),
-        (5, CompositionRefusalCode::AppReferencesAgent),
-        (6, CompositionRefusalCode::UnionTableMismatch),
-        (7, CompositionRefusalCode::EntryPlanMismatch),
-        (8, CompositionRefusalCode::LinkFailure),
+    const FAULTS: [(u32, CompositionRefusalCode, Option<CompositionRole>); 11] = [
+        (1, CompositionRefusalCode::EnvelopeMalformed, None),
+        (2, CompositionRefusalCode::CompositionReplayed, None),
+        (2, CompositionRefusalCode::CompositionPolicyStale, None),
+        (
+            3,
+            CompositionRefusalCode::PackageRootMismatch,
+            Some(CompositionRole::App),
+        ),
+        (
+            3,
+            CompositionRefusalCode::PackageRootMismatch,
+            Some(CompositionRole::Agent),
+        ),
+        (
+            3,
+            CompositionRefusalCode::IbexPreparedCommitmentSchema,
+            Some(CompositionRole::App),
+        ),
+        (4, CompositionRefusalCode::PartitionMismatch, None),
+        (
+            5,
+            CompositionRefusalCode::AppReferencesAgent,
+            Some(CompositionRole::App),
+        ),
+        (6, CompositionRefusalCode::UnionTableMismatch, None),
+        (7, CompositionRefusalCode::EntryPlanMismatch, None),
+        (8, CompositionRefusalCode::LinkFailure, None),
     ];
     let _host_guard = crate::host::abi::host_test_lock();
     crate::host::abi::install_host(crate::host::Host::strict());
@@ -2284,17 +2920,23 @@ fn random_fault_conjunctions_choose_the_lowest_tuple_through_step_8_c_entry() {
     let mut masks = (0..FAULTS.len())
         .map(|index| 1_u16 << index)
         .collect::<Vec<_>>();
+    masks.extend([
+        (1 << 1) | (1 << 2),
+        (1 << 3) | (1 << 4),
+        (1 << 3) | (1 << 5),
+        (1 << 4) | (1 << 5),
+    ]);
     let mut state = 0x0056_0008_5eed_u64;
-    for _ in 0..32 {
+    for _ in 0..48 {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        masks.push((((state >> 32) as u16) & 0xff).max(1));
+        masks.push((((state >> 32) as u16) & 0x07ff).max(1));
     }
 
     for mask in masks {
         let mut fixture = CompositionFixtureV1::new(true);
-        if mask & (1 << 7) != 0 {
+        if mask & (1 << 10) != 0 {
             fixture
                 .packages
                 .get_mut(&CompositionRole::App)
@@ -2303,30 +2945,42 @@ fn random_fault_conjunctions_choose_the_lowest_tuple_through_step_8_c_entry() {
                 .bytes = format!("invalid-link-factory-{mask}(").into_bytes();
             fixture.resync_package_and_resign(CompositionRole::App);
         }
-        if mask & (1 << 4) != 0 {
+        if mask & (1 << 7) != 0 {
             inject_app_to_agent_fault(&mut fixture);
         }
-        if mask & (1 << 3) != 0 {
+        if mask & (1 << 6) != 0 {
             fixture.envelope.partition.digest =
                 source_integrity(format!("partition-fault-step8-{mask}").as_bytes()).unwrap();
         }
-        if mask & (1 << 5) != 0 {
+        if mask & (1 << 8) != 0 {
             fixture.envelope.union_binding_table.digest =
                 source_integrity(format!("union-fault-step8-{mask}").as_bytes()).unwrap();
         }
-        if mask & (1 << 6) != 0 {
+        if mask & (1 << 9) != 0 {
             fixture.envelope.entry_plan.digest =
                 source_integrity(format!("entry-fault-step8-{mask}").as_bytes()).unwrap();
         }
         fixture.resign_envelope();
+
+        if mask & (1 << 5) != 0 {
+            let path = fixture.package_dir(CompositionRole::App).join("index.json");
+            let mut value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            value["schema"] = serde_json::json!("ibex/prepared-package/2");
+            let bytes = capsec_semantics::canonical::to_jcs_bytes(&value).unwrap();
+            rewrite_index_and_recommit(&mut fixture, CompositionRole::App, &bytes);
+        }
         if mask & (1 << 1) != 0 {
+            fixture.expectations.session_nonce = format!("replayed-step8-{mask}");
+        }
+        if mask & (1 << 2) != 0 {
             fixture.expectations.policy_digest =
                 source_integrity(format!("policy-fault-step8-{mask}").as_bytes()).unwrap();
         }
-        if mask & (1 << 2) != 0 {
-            let path = fixture
-                .package_dir(CompositionRole::Agent)
-                .join("index.json");
+        for (index, role) in [(3, CompositionRole::App), (4, CompositionRole::Agent)] {
+            if mask & (1 << index) == 0 {
+                continue;
+            }
+            let path = fixture.package_dir(role).join("index.json");
             let mut bytes = std::fs::read(&path).unwrap();
             bytes.push(b'\n');
             std::fs::write(path, bytes).unwrap();
@@ -2341,17 +2995,37 @@ fn random_fault_conjunctions_choose_the_lowest_tuple_through_step_8_c_entry() {
         let expected = FAULTS
             .iter()
             .enumerate()
-            .find(|(index, _)| mask & (1 << index) != 0)
-            .map(|(_, expected)| *expected)
+            .filter(|(index, _)| mask & (1 << index) != 0)
+            .map(|(_, expected)| expected)
+            .min_by_key(|(step, code, role)| {
+                let role_order = match role {
+                    Some(CompositionRole::App) => 0,
+                    Some(CompositionRole::Agent) => 1,
+                    None => 2,
+                };
+                (*step, code.ordinal(), role_order)
+            })
+            .copied()
             .unwrap();
         let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
         assert_eq!(outcome.status, 1, "mask {mask:#010b}: {:?}", outcome.error);
+        let observed_role = match outcome.report.get("packageRole").and_then(Value::as_str) {
+            Some("app") => Some(CompositionRole::App),
+            Some("agent") => Some(CompositionRole::Agent),
+            None => None,
+            Some(other) => panic!("unexpected package role {other}"),
+        };
         assert_eq!(
             (
                 outcome.report["failureStage"].as_u64().unwrap() as u32,
-                outcome.report["reasonCode"].as_str().unwrap(),
+                CompositionRefusalCode::ALL
+                    .iter()
+                    .find(|code| code.as_str() == outcome.report["reasonCode"].as_str().unwrap())
+                    .unwrap()
+                    .ordinal(),
+                observed_role,
             ),
-            (expected.0, expected.1.as_str()),
+            (expected.0, expected.1.ordinal(), expected.2),
             "fault conjunction mask {mask:#010b} selected the wrong C-entry precedence tuple"
         );
     }

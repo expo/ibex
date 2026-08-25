@@ -1088,6 +1088,9 @@ int32_t ex_hermes_module_record_poll_evaluation(
 /// Invoke one length-bearing named export of an evaluated ModuleRecord as a
 /// zero-argument function on the runtime owner thread. Missing/non-callable
 /// exports and JavaScript throws become the record's structured sticky error.
+/// Thenable detection performs one user-code-visible `then` property read
+/// after a successful invoke; a throwing getter or Proxy trap is caught and
+/// reported as `returned_thenable = 0`, without converting the invocation.
 /// `out_outcome` must advertise ABI version 1 and its complete struct size.
 /// @abi-output ex_hermes_module_invoke_export out_outcome role=inout kind=aggregate schema=ExHermesModuleInvokeOutcomeV1 members=* ownership=caller-storage
 /// @abi-output ex_hermes_module_invoke_export out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string

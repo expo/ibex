@@ -579,6 +579,36 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         self.records.contains_key(source_id)
     }
 
+    /// Complete authenticated resolver-binding edge set carried by this plan.
+    /// Composition linking compares this set byte-for-byte in typed form with
+    /// the step-6 authorization capability before touching the runtime.
+    #[cfg(feature = "dev-committed-embedder")]
+    pub(crate) fn binding_edges(&self) -> BTreeSet<(SourceId, GraphEdgeKey, SourceId)> {
+        self.records
+            .iter()
+            .flat_map(|(origin, record)| {
+                record
+                    .edges
+                    .iter()
+                    .map(|(key, target)| (origin.clone(), key.clone(), target.clone()))
+            })
+            .collect()
+    }
+
+    #[cfg(all(test, feature = "dev-committed-embedder"))]
+    pub(crate) fn insert_binding_for_test(
+        &mut self,
+        origin: &SourceId,
+        key: GraphEdgeKey,
+        target: SourceId,
+    ) {
+        self.records
+            .get_mut(origin)
+            .expect("test binding origin is planned")
+            .edges
+            .insert(key, target);
+    }
+
     /// Refuse production-native plans that would need an authored call-time
     /// edge before the runtime has a private in-drive loader capability.
     ///
@@ -663,26 +693,11 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
     }
 
     /// Deterministic dependency-first materialization order for an ordered
-    /// root list. A record belongs to the first root closure that reaches it.
+    /// root list under the supplied dynamic-binding capability. A record
+    /// belongs to the first root closure that reaches it; merely naming a
+    /// candidate in the plan never authorizes that candidate into a closure.
     // @ref LLP 0056#71-synchronousgraphplan-graphrs — entry-plan order and cross-root dedup place shared records in the agent segment.
-    pub fn linkage_order_for_roots(&self, roots: &[SourceId]) -> Result<Vec<SourceId>, GraphError> {
-        let allowed: BTreeMap<_, _> = self
-            .records
-            .keys()
-            .map(|source_id| {
-                Ok((
-                    source_id.clone(),
-                    self.dynamic_import_bindings(source_id)?
-                        .into_iter()
-                        .map(|binding| binding.key())
-                        .collect(),
-                ))
-            })
-            .collect::<Result<_, GraphError>>()?;
-        self.linkage_order_for_authorized_roots(roots, &allowed)
-    }
-
-    pub(crate) fn linkage_order_for_authorized_roots(
+    pub fn linkage_order_for_roots(
         &self,
         roots: &[SourceId],
         allowed_dynamic_bindings: &BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
@@ -1844,7 +1859,8 @@ mod tests {
         let roots = [agent_id.clone(), app_id.clone()];
 
         assert_eq!(
-            plan.linkage_order_for_roots(&roots).unwrap(),
+            plan.linkage_order_for_roots(&roots, &BTreeMap::new())
+                .unwrap(),
             [shared_id.clone(), agent_id.clone(), app_id.clone()]
         );
         assert_eq!(

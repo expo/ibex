@@ -64,6 +64,21 @@ function surface(kind, name, metadata = undefined, sourceRefs = undefined) {
   };
 }
 
+test("descriptor export invocation is classified as a closed activation seam", () => {
+  const classified = classifyObservedSurface(
+    surface("host-abi", "ex_hermes_module_invoke_export"),
+    context,
+  );
+  expect(classified.edge).toMatchObject({
+    classification: "closed",
+    cap: "vm:evaluate",
+  });
+  expect(classified.specification.implementationOwner).toBe("WP8");
+  expect(classified.edge.rationale).toContain("dev-committed-embedder");
+  expect(classified.edge.rationale).toContain("excluded from armed Hosts");
+  expect(classified.edge.rationale).toContain("private capability");
+});
+
 test("Lane C A2 exact façades do not assert duplicate effect cells", () => {
   const expected = new Map([
     ["__exactModuleResolve", "trusted-loader-source-acquisition"],
@@ -5418,6 +5433,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "module-reachability-only",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_invoke_export"),
+    ).toMatchObject({
+      classification: "closed",
+      cap: "vm:evaluate",
+      implementationOwner: "WP8",
     });
     expect(
       edgeByObservedKey.get("host-abi:ex_hermes_module_release_handle"),

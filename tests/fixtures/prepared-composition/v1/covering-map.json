@@ -42,7 +42,7 @@
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::PackageRootMismatch", "registryCode": "package-root-mismatch" },
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexPreparedCommitmentSchema", "registryCode": "ibex:prepared-commitment-schema" },
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexPackageInventory", "registryCode": "ibex:package-inventory" },
-    { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexPreparedCommitmentCorrupt", "registryCode": "ibex:prepared-commitment-corrupt" },
+    { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexPreparedCommitmentCorrupt", "registryCode": "ibex:prepared-commitment-corrupt", "note": "Includes canonical package indexes whose records or carriers graph is empty." },
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::CarrierIntegrity", "registryCode": "carrier-integrity" },
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexPrincipalGrouping", "registryCode": "ibex:principal-grouping" },
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexEncodingIncompatible", "registryCode": "ibex:encoding-incompatible" },

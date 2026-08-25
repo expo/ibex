@@ -535,6 +535,15 @@ pub enum CompositionStartupPhaseV1 {
 
 #[cfg(feature = "dev-committed-embedder")]
 impl DevUnarmedCompositionStartupReportV1 {
+    pub(crate) fn admission_status(&self) -> &'static str {
+        match self {
+            Self::ChannelError { .. } => "channel-error",
+            Self::Refused { .. } => "refused",
+            Self::Admitted { .. } => "admitted",
+            Self::AdmittedStartupError { .. } => "admitted-startup-error",
+        }
+    }
+
     fn common_mut(&mut self) -> &mut CompositionReportCommonV1 {
         match self {
             Self::ChannelError { common, .. }
@@ -872,9 +881,10 @@ pub(crate) fn composition_embedder_channel_error_report_v1(
     detail: impl Into<String>,
 ) -> DevUnarmedCompositionStartupReportV1 {
     let detail = detail.into();
+    let channel_token = channel_token_from_error_v1(&detail);
     DevUnarmedCompositionStartupReportV1::ChannelError {
         common: report_common_v1(None, None, &BTreeMap::new(), &BTreeMap::new(), None, 0, 0),
-        channel_token: IBEX_DEV_COMPOSITION_CORRUPT.to_owned(),
+        channel_token,
         detail,
     }
 }
@@ -972,6 +982,12 @@ fn source_id_wire_v1(source_id: &SourceId) -> Result<String> {
 
 #[cfg(feature = "dev-committed-embedder")]
 fn normalize_vite_dev_specifier_v1(specifier: &str) -> String {
+    // Exact authority: `collectAliasImportSites` in
+    // `packages/exact-devtools/src/prepared-composition-schema.ts` calls
+    // `normalizeViteDevSpecifier` from `prepared-graph-producer.ts`. Keep
+    // these operations in lockstep: split at the first `?`, strip exactly
+    // `/@fs`, discard `v=*`, `t=*`, and bare `import`, preserve every other
+    // query in original order, then omit `?` only when no parameters remain.
     let (mut path, query) = specifier
         .split_once('?')
         .map_or((specifier, ""), |(path, query)| (path, query));
@@ -1244,12 +1260,23 @@ fn computed_candidate_site_map_v1(
     packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
 ) -> Result<ComputedCandidateSiteMap> {
     let mut rows = ComputedCandidateSiteMap::new();
+    let admitted = packages
+        .values()
+        .flat_map(|package| package.records.keys().cloned())
+        .collect::<BTreeSet<_>>();
     for record in packages
         .values()
         .flat_map(|package| package.records.values())
     {
         for table in &record.candidate_tables {
             for candidate in &table.candidates {
+                // A candidate table authenticates a finite host-resolution
+                // universe; it does not force every named target into this
+                // admitted union. Out-of-union targets remain host-bridged
+                // and therefore have no native plan row or step-7 closure.
+                if !admitted.contains(&candidate.target.0) {
+                    continue;
+                }
                 let key = (table.site, candidate.specifier.as_str().to_owned());
                 let binding = ComputedCandidateBinding {
                     target: candidate.target.0.clone(),
@@ -1843,26 +1870,34 @@ fn admit_prepared_composition_with_probes_v1(
             result.expect("failure-free package sweep admitted every package"),
         );
     }
-    if envelope.packages.iter().any(|attestation| {
-        attestation.producer_generation != envelope.freshness.resolver_generation
-    }) || declaration.iter().any(|role| {
+    // Both packages completed the per-package sweep before composition-wide
+    // #22/#23. Start from verified and downgrade only an attributable role.
+    for role in &declaration {
+        statuses.insert(*role, CompositionPackageVerificationStatusV1::Verified);
+    }
+    let splice_role = declaration.iter().copied().find(|role| {
+        let attestation = envelope
+            .packages
+            .iter()
+            .find(|attestation| attestation.role == *role)
+            .expect("step 2 established one attestation per declared role");
         let package = admitted_packages
             .get(role)
             .expect("declared package was admitted");
-        package.producer_id != envelope.freshness.producer.id
+        attestation.producer_generation != envelope.freshness.resolver_generation
+            || package.producer_id != envelope.freshness.producer.id
             || package.producer_binary_digest != envelope.freshness.producer.binary_digest
-    }) {
+    });
+    if let Some(role) = splice_role {
+        statuses.insert(role, CompositionPackageVerificationStatusV1::Refused);
         refuse!(
             CompositionRefusalCode::GenerationSplice,
-            None,
+            Some(role),
             "package generation or producer identity differs from the composition envelope"
         );
     }
     if let Err(detail) = validate_alias_table_v1(&envelope, &admitted_packages) {
         refuse!(CompositionRefusalCode::AliasConflict, None, detail);
-    }
-    for role in &declaration {
-        statuses.insert(*role, CompositionPackageVerificationStatusV1::Verified);
     }
 
     // Step 4: recomputation deliberately deduplicates `(SourceId, role)` so
@@ -2087,9 +2122,9 @@ fn admit_prepared_composition_with_probes_v1(
             Ok(plan) => plan,
             Err(error) => {
                 refuse!(
-                    CompositionRefusalCode::ExportDisagreement,
+                    CompositionRefusalCode::UnionTableMismatch,
                     None,
-                    format!("cannot construct resolved union graph: {error:#}")
+                    format!("cannot construct union graph plan: {error:#}")
                 );
             }
         };
@@ -2128,7 +2163,7 @@ fn admit_prepared_composition_with_probes_v1(
             Ok(authorized) => authorized,
             Err(error) => {
                 refuse!(
-                    CompositionRefusalCode::CrossPrincipalDenied,
+                    CompositionRefusalCode::UnionTableMismatch,
                     None,
                     format!("cannot retain authorized union plan: {error:#}")
                 );
@@ -2274,7 +2309,7 @@ fn admit_prepared_composition_with_probes_v1(
             }
         }
     }
-    if let Err(error) = union_plan.linkage_order_for_roots(&roots) {
+    if let Err(error) = union_plan.linkage_order_for_roots(&roots, &allowed_dynamic_bindings) {
         refuse!(
             CompositionRefusalCode::CompositionRootUnlinked,
             None,
@@ -2634,7 +2669,7 @@ fn parse_canonical_channel_value(text: &str, record: &str) -> Result<Value> {
     let canonical = capsec_semantics::canonical::to_jcs_bytes(&value).map_err(|error| {
         anyhow!("{IBEX_DEV_COMPOSITION_CORRUPT} {record} canonicalization: {error}")
     })?;
-    if canonical != text.trim_end_matches('\n').as_bytes() {
+    if canonical != text.as_bytes() {
         bail!("{IBEX_DEV_COMPOSITION_CORRUPT} {record} is not canonical JCS");
     }
     if let Some(violation) = check_composition_wire_bounds(&value) {
@@ -2774,7 +2809,9 @@ mod tests {
     #[test]
     fn strict_commitment_ingest_rejects_noncanonical_and_invalid_records() {
         let valid = commitment_value();
-        assert!(parse_prepared_composition_commitment_v1(&canonical(&valid)).is_ok());
+        let valid_text = canonical(&valid);
+        assert!(parse_prepared_composition_commitment_v1(&valid_text).is_ok());
+        assert!(parse_prepared_composition_commitment_v1(&format!("{valid_text}\n")).is_err());
 
         let mut unknown = valid.clone();
         unknown["unknown"] = json!(true);
@@ -2810,7 +2847,9 @@ mod tests {
     #[test]
     fn strict_expectations_ingest_rejects_shape_number_and_role_violations() {
         let valid = expectations_value();
-        assert!(parse_composition_verifier_expectations_v1(&canonical(&valid)).is_ok());
+        let valid_text = canonical(&valid);
+        assert!(parse_composition_verifier_expectations_v1(&valid_text).is_ok());
+        assert!(parse_composition_verifier_expectations_v1(&format!("{valid_text}\n")).is_err());
 
         let mut unknown = valid.clone();
         unknown["unknown"] = json!(true);
@@ -2862,6 +2901,25 @@ mod tests {
             let error = parse_composition_verifier_expectations_v1(&canonical(&value)).unwrap_err();
             assert!(error.to_string().starts_with(IBEX_DEV_COMPOSITION_SCHEMA));
         }
+    }
+
+    #[cfg(feature = "dev-committed-embedder")]
+    #[test]
+    fn vite_alias_normalization_matches_the_exact_authority() {
+        assert_eq!(
+            normalize_vite_dev_specifier_v1(
+                "/@fs/repo/src/bootstrap.ts?v=abc&t=123&import&raw&worker"
+            ),
+            "/repo/src/bootstrap.ts?raw&worker"
+        );
+        assert_eq!(
+            normalize_vite_dev_specifier_v1("/@fs/repo/src/bootstrap.ts?import&t=1&v=2"),
+            "/repo/src/bootstrap.ts"
+        );
+        assert!(alias_matches_specifier_v1(
+            "/repo/src/bootstrap.ts?raw&worker",
+            "/@fs/repo/src/bootstrap.ts?v=abc&t=123&import&raw&worker"
+        ));
     }
 
     #[test]

@@ -1380,6 +1380,8 @@ fn main() {
     let sfe_static_network_enabled = std::env::var_os("CARGO_FEATURE_SFE_STATIC_NETWORK").is_some();
     let plan_seam_benchmark_abi_enabled =
         std::env::var_os("CARGO_FEATURE_PLAN_SEAM_BENCHMARK_ABI").is_some();
+    let dev_composition_abi_enabled =
+        std::env::var_os("CARGO_FEATURE_DEV_COMMITTED_EMBEDDER").is_some();
     // @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited —
     // the Linux SFE is a flagship Snapback CLI target, so its existing
     // libcurl Fetch/WebSocket backend must be linked into the final image.
@@ -2046,6 +2048,9 @@ fn main() {
     }
     if plan_seam_benchmark_abi_enabled {
         build.define("IBEX_PLAN_SEAM_BENCHMARK_ABI", None);
+    }
+    if dev_composition_abi_enabled {
+        build.define("IBEX_DEV_COMPOSITION_ABI", None);
     }
     if target_os == "ios" {
         // iOS has no public libproc mapped-vnode query. The helper parses the
