@@ -11,6 +11,11 @@ S3 implementation is mid-flight per
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-25 (post-acceptance owner-ruling annotation — the three §12
+Exact-owner asks ruled by Charlie Cheever, 2026-08-25, via orchestration session exact-9e:
+ask 2 taken (Exact 0417 r6 race row → `keep-last-good`), asks 1 and 3 declined for v1.
+Recorded as a labeled §12 annotation plus a §13 item-5 closure note; the accepted r10
+normative text is unchanged — the spec is sound under these outcomes by construction.)
 **Revised:** 2026-08-25 (Status flip Review → Accepted — Charlie Cheever's explicit
 acceptance decision, relayed via orchestration session exact-9e; mechanical status edit by
 the decisions lane after the decision, per the agents-never-accept-for-Charlie rule. No
@@ -1037,6 +1042,26 @@ idempotence, pending reservation, refusal-until-session-rotation at capacity). E
    two recovery grades): same-authority shape growth is served by the reload class's
    generation re-derivation.
 
+> **Post-acceptance owner-ruling annotation (2026-08-25).** Labeled annotation per LLP
+> conventions — the accepted r10 text above is not rewritten. Charlie Cheever ruled all
+> three asks on 2026-08-25 (decisions relayed via orchestration session exact-9e; the
+> conservative option on each), recorded in Exact
+> `issues/closed/20260824-llp0417-owner-asks-from-h1.md`:
+> **ask 1 DECLINED for v1** — Exact 0417 §4.3 stands; the server's full-reload-class
+> `reload` answer remains a redundant coherent reload beside this spec's
+> consumer-executed recovery (never the sole path), so §9.1's posture is unchanged and
+> the H0-carried MATERIAL's named residual (the forged-receipt-induced redundant server
+> reload) now stands until receipts become enrollment-keyed (§13 OQ4) — the "when owner
+> ask 1 is taken" discharge branch is closed for v1;
+> **ask 2 TAKEN** — Exact 0417 r6 moved the revision-race row to `keep-last-good`,
+> matching §10's race-class note; no change needed here;
+> **ask 3 DECLINED** — Exact 0417 keeps the broader restart-row classification; this
+> spec's standing posture (restart-family refusal strings at the ceiling layer, server
+> pre-classification of same-authority shape edits into the reload class, §13 OQ2's
+> host-restart-join recovery for candidate-set change) is the permanent v1 posture, not
+> an interim one. This spec was written to be sound under either outcome of each ask
+> (§13 item 5), so no normative text changes.
+
 ## 13. Open questions
 
 1. **Payload record form** (Exact 0417 OQ3): v1 ships dev-served-shaped full records only; a
@@ -1055,4 +1080,6 @@ idempotence, pending reservation, refusal-until-session-rotation at capacity). E
    v1. The LAN/device enrollment follow-up should revisit whether receipts sign under the
    enrolled device key, at which point correctness-bearing server decisions could return.
 5. **The three recorded 0417-owner asks (§12):** their taking or refusal is Exact's; this spec
-   is written to be sound under either outcome of each.
+   is written to be sound under either outcome of each. *[Ruled 2026-08-25 — ask 2 taken,
+   asks 1 and 3 declined; see the §12 post-acceptance owner-ruling annotation. Closed as an
+   open question.]*
