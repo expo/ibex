@@ -1,13 +1,20 @@
 # LLP 0055: Hot Revisions — Intra-Generation Module Updates (Exact 0417 H1 Surface)
 
 **Type:** Spec
-**Status:** Review (r8 dual-family READY, 2026-08-24 — codex gpt-5.6-sol xhigh READY with no
-findings; grok-4.6 xhigh READY with three presentation-only minors recorded in
-`llp/reviews/`, text left byte-stable at the dual-approved revision; author acceptance
-pending — the review loop does not accept on the author's behalf)
+**Status:** Accepted (r10 — accepted 2026-08-25 by Charlie Cheever, decision relayed via
+orchestration session exact-9e on the orchestrator's recommendation ("recs are fine").
+Acceptance basis: the r8 dual-family READY (codex gpt-5.6-sol xhigh — no findings;
+grok-4.6 xhigh — three presentation-only minors, recorded in `llp/reviews/`) plus the
+labeled r9/r10 correction-class addenda and the code-round convergence on their fixes.
+S3 implementation is mid-flight per
+`issues/20260824-llp0055-hot-revision-h1-surface.md`.)
 **Systems:** Module Loader, Engine, Runtime, CapSec, Security, Conformance
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-08-24
+**Revised:** 2026-08-25 (Status flip Review → Accepted — Charlie Cheever's explicit
+acceptance decision, relayed via orchestration session exact-9e; mechanical status edit by
+the decisions lane after the decision, per the agents-never-accept-for-Charlie rule. No
+other text changed in this revision.)
 **Revised:** 2026-08-24 (r10 — second correction-class addendum, from the code RE-review
 round (codex 3 residues, grok 1 — convergent on the agreement seam). §4's typed-metadata
 paragraph now names the **authentication source per row** — artifact declarations for
