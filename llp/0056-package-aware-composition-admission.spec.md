@@ -1,11 +1,20 @@
 # LLP 0056: Package-Aware Composition Admission (the ibex leg of Exact LLP 0413.001 §6)
 
 **Type:** Spec
-**Status:** Accepted
+**Status:** Implemented
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-24 (Amendment A2 — approved by Charlie Cheever
+**Revised:** 2026-08-25 (IMPLEMENTED — the three ibex legs of §11 are
+landed on main: leg 1 frozen layer @8db6cedf6; leg 2 admission driver
+steps 0–7 + fixtures B/C/F-i + covering map; leg 3 multi-root
+link/evaluate, invoke ABI, descriptor executor, retained session, the
+§3.4 C-ABI entry, fixtures A/D/E-39 — dual-family reviewed (grok delta
+READY; codex security deltas resolved through the native armed
+exclusion), full gates green. 0413.001 §6's "no composition admits
+until the ibex leg lands" flips here; the §11 leg-4 Exact fold (parity
+extension + the Exact host moving to the new entry) is exact-side
+follow-up.) 2026-08-24 (Amendment A2 — approved by Charlie Cheever
 ("sure amend it"), relayed via session exact-b7, on the recommendation
 of the legs-2/3 implementation lane + exact-9e + exact-b7's independent
 read, resolving the implementation-exposed defect in
