@@ -63,6 +63,10 @@ impl HotRevisionSurfaceV1 {
         self.generations.graph_digest()
     }
 
+    pub fn is_in_flight(&self) -> bool {
+        self.in_flight.get()
+    }
+
     pub fn install_revision(&self, source_id: &SourceId) -> Result<HotRevision> {
         self.generations.install_revision(source_id)
     }
@@ -79,14 +83,12 @@ impl HotRevisionSurfaceV1 {
         self.generations.publish(token, kind)
     }
 
-    /// S4 seam: envelope verification + replay table mount here, before begin.
-    ///
-    /// This slice accepts inputs whose envelope/session checks already
-    /// succeeded; S4 will mount those checks ahead of the algebra call below.
+    /// The S4 envelope-verification and replay-table mount lives in
+    /// `hot_update.rs`, ahead of this algebra call.
     // @ref LLP 0055#1-the-hotrevision-counter-and-successor-law — the live
     // manager coordinate is authoritative and commit has exactly one successor.
     pub fn begin<P: GraphImportPolicy>(
-        &self,
+        &mut self,
         policy: &P,
         origin: HmrOrigin,
         base: (ExecutionGeneration, HotRevision),
@@ -209,18 +211,23 @@ impl HotRevisionPreflightedV1 {
 
     pub fn evaluated(self) -> Result<HotRevisionEvaluatedV1> {
         let transaction = &self.state.transaction;
-        let settled = transaction.invalidated().iter().all(|source_id| {
-            transaction.shadow_publications().iter().any(|receipt| {
+        for source_id in transaction.invalidated() {
+            let evaluation_settled = transaction.shadow_publications().iter().any(|receipt| {
                 &receipt.incarnation.source_id == source_id
                     && matches!(
                         receipt.kind,
                         GenerationPublicationKind::Evaluation
                             | GenerationPublicationKind::CommonJsCache
                     )
-            })
-        });
-        if !settled {
-            bail!("staged evaluation has not settled");
+            });
+            let top_level_await_settled = !transaction.staged_has_top_level_await(source_id)?
+                || transaction.shadow_publications().iter().any(|receipt| {
+                    &receipt.incarnation.source_id == source_id
+                        && receipt.kind == GenerationPublicationKind::TopLevelAwait
+                });
+            if !evaluation_settled || !top_level_await_settled {
+                bail!("staged evaluation has not settled");
+            }
         }
         Ok(HotRevisionEvaluatedV1 { state: self.state })
     }
@@ -293,7 +300,7 @@ impl ActivationTokenV1 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_support {
     use std::collections::{BTreeMap, BTreeSet};
 
     use capsec_semantics::arming::SnapshotGenerations;
@@ -309,7 +316,7 @@ mod tests {
     use crate::module_loader::generation::{AuthenticatedGenerationGraphV2, GenerationRecordV2};
 
     #[derive(Clone)]
-    struct Policy {
+    pub(crate) struct Policy {
         digest: Digest,
         generations: SnapshotGenerations,
     }
@@ -336,11 +343,11 @@ mod tests {
         }
     }
 
-    fn digest(label: &str) -> Digest {
+    pub(crate) fn digest(label: &str) -> Digest {
         digest_bytes("hot-revision-surface-test", label.as_bytes()).unwrap()
     }
 
-    fn policy() -> Policy {
+    pub(crate) fn policy() -> Policy {
         Policy {
             digest: digest("authority"),
             generations: SnapshotGenerations {
@@ -352,7 +359,7 @@ mod tests {
         }
     }
 
-    fn source(name: &str) -> SourceId {
+    pub(crate) fn source(name: &str) -> SourceId {
         SourceId::file(
             Principal::Root {
                 identity: NonEmptyString::new("project").unwrap(),
@@ -362,7 +369,15 @@ mod tests {
         .unwrap()
     }
 
-    fn artifact(source_id: SourceId, value: u32) -> ModuleArtifactV1 {
+    pub(crate) fn artifact(source_id: SourceId, value: u32) -> ModuleArtifactV1 {
+        artifact_with_top_level_await(source_id, value, false)
+    }
+
+    pub(crate) fn artifact_with_top_level_await(
+        source_id: SourceId,
+        value: u32,
+        has_top_level_await: bool,
+    ) -> ModuleArtifactV1 {
         let factory = format!(
             "function($export){{return{{declare:function(){{}},execute:function(){{$export('value',{value});}}}};}}"
         );
@@ -391,7 +406,7 @@ mod tests {
                     local: NonEmptyString::new("value").unwrap(),
                 }],
                 commonjs_exports: None,
-                has_top_level_await: false,
+                has_top_level_await,
                 factory_digest: digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory.as_bytes())
                     .unwrap(),
                 source_map: SourceMapV1 {
@@ -426,7 +441,7 @@ mod tests {
             .unwrap()
     }
 
-    fn record(artifact: &ModuleArtifactV1) -> GenerationRecordV2 {
+    pub(crate) fn record(artifact: &ModuleArtifactV1) -> GenerationRecordV2 {
         GenerationRecordV2::from_verified(
             verified(artifact),
             BTreeMap::new(),
@@ -438,7 +453,7 @@ mod tests {
         .unwrap()
     }
 
-    fn graph(artifacts: &[ModuleArtifactV1]) -> AuthenticatedGenerationGraphV2 {
+    pub(crate) fn graph(artifacts: &[ModuleArtifactV1]) -> AuthenticatedGenerationGraphV2 {
         AuthenticatedGenerationGraphV2::from_verified(artifacts.iter().map(|artifact| {
             (
                 verified(artifact),
@@ -452,7 +467,10 @@ mod tests {
         .unwrap()
     }
 
-    fn surface(artifacts: &[ModuleArtifactV1], current_policy: &Policy) -> HotRevisionSurfaceV1 {
+    pub(crate) fn surface(
+        artifacts: &[ModuleArtifactV1],
+        current_policy: &Policy,
+    ) -> HotRevisionSurfaceV1 {
         HotRevisionSurfaceV1::new(
             ModuleExecutionGenerationsV2::new(
                 GenerationMode::Development,
@@ -464,17 +482,18 @@ mod tests {
         )
     }
 
-    fn preflighted(
-        surface: &HotRevisionSurfaceV1,
+    pub(crate) fn preflighted(
+        surface: &mut HotRevisionSurfaceV1,
         current_policy: &impl GraphImportPolicy,
         source_id: &SourceId,
         replacement: &ModuleArtifactV1,
     ) -> HotRevisionPreflightedV1 {
+        let coordinates = surface.current_coordinates();
         surface
             .begin(
                 current_policy,
                 HmrOrigin::Exact,
-                surface.current_coordinates(),
+                coordinates,
                 [source_id.clone()],
             )
             .unwrap()
@@ -484,8 +503,8 @@ mod tests {
             .unwrap()
     }
 
-    fn ready_revision(
-        surface: &HotRevisionSurfaceV1,
+    pub(crate) fn ready_revision(
+        surface: &mut HotRevisionSurfaceV1,
         current_policy: &impl GraphImportPolicy,
         source_id: &SourceId,
         replacement: &ModuleArtifactV1,
@@ -502,26 +521,34 @@ mod tests {
             .prepare_activation(activation_token)
             .ready()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::{artifact, policy, preflighted, ready_revision, source, surface};
+    use super::*;
 
     #[test]
     fn single_flight_drop_releases_the_surface() {
         let source_id = source("entry.mjs");
         let current_policy = policy();
-        let surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
+        let mut surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
 
+        let coordinates = surface.current_coordinates();
         let first = surface
             .begin(
                 &current_policy,
                 HmrOrigin::Exact,
-                surface.current_coordinates(),
+                coordinates,
                 [source_id.clone()],
             )
             .unwrap();
+        let coordinates = surface.current_coordinates();
         let error = surface
             .begin(
                 &current_policy,
                 HmrOrigin::Vite,
-                surface.current_coordinates(),
+                coordinates,
                 [source_id.clone()],
             )
             .err()
@@ -529,13 +556,9 @@ mod tests {
         assert_eq!(error.to_string(), "hot revision surface is busy");
 
         drop(first);
+        let coordinates = surface.current_coordinates();
         let next = surface
-            .begin(
-                &current_policy,
-                HmrOrigin::Vite,
-                surface.current_coordinates(),
-                [source_id],
-            )
+            .begin(&current_policy, HmrOrigin::Vite, coordinates, [source_id])
             .unwrap();
         drop(next);
     }
@@ -553,7 +576,7 @@ mod tests {
         let observed = Rc::clone(&flip_count);
 
         let ready = ready_revision(
-            &surface,
+            &mut surface,
             &current_policy,
             &a,
             &a_revision,
@@ -578,7 +601,7 @@ mod tests {
         let replacement = artifact(source_id.clone(), 2);
         let mut surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
         let ready = ready_revision(
-            &surface,
+            &mut surface,
             &current_policy,
             &source_id,
             &replacement,
@@ -589,13 +612,9 @@ mod tests {
             let _ = surface.commit(&current_policy, ready);
         }));
         assert!(panic.is_err());
+        let coordinates = surface.current_coordinates();
         let error = surface
-            .begin(
-                &current_policy,
-                HmrOrigin::Exact,
-                surface.current_coordinates(),
-                [source_id],
-            )
+            .begin(&current_policy, HmrOrigin::Exact, coordinates, [source_id])
             .err()
             .expect("a panicked commit must poison the surface");
         assert_eq!(
@@ -613,7 +632,7 @@ mod tests {
         let mut surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
 
         let first = ready_revision(
-            &surface,
+            &mut surface,
             &current_policy,
             &source_id,
             &first_replacement,
@@ -621,7 +640,7 @@ mod tests {
         );
         surface.commit(&current_policy, first).unwrap();
         let second = ready_revision(
-            &surface,
+            &mut surface,
             &current_policy,
             &source_id,
             &second_replacement,
@@ -643,11 +662,12 @@ mod tests {
             surface.install_revision(&source_id).unwrap(),
         );
 
+        let coordinates = surface.current_coordinates();
         let staged = surface
             .begin(
                 &current_policy,
                 HmrOrigin::Exact,
-                surface.current_coordinates(),
+                coordinates,
                 [source_id.clone()],
             )
             .unwrap()
@@ -671,7 +691,7 @@ mod tests {
         );
 
         let ready = ready_revision(
-            &surface,
+            &mut surface,
             &current_policy,
             &source_id,
             &replacement,
@@ -686,16 +706,18 @@ mod tests {
         let source_id = source("entry.mjs");
         let replacement = artifact(source_id.clone(), 2);
         let current_policy = policy();
-        let surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
+        let mut surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
 
-        let without_publication = preflighted(&surface, &current_policy, &source_id, &replacement);
+        let without_publication =
+            preflighted(&mut surface, &current_policy, &source_id, &replacement);
         let error = without_publication
             .evaluated()
             .err()
             .expect("evaluation cannot settle without a shadow publication");
         assert_eq!(error.to_string(), "staged evaluation has not settled");
 
-        let mut with_publication = preflighted(&surface, &current_policy, &source_id, &replacement);
+        let mut with_publication =
+            preflighted(&mut surface, &current_policy, &source_id, &replacement);
         let token = with_publication
             .shadow_publication_token(&source_id)
             .unwrap();
@@ -712,11 +734,11 @@ mod tests {
         let boot = artifact(source_id.clone(), 1);
         let replacement = artifact(source_id.clone(), 2);
         let current_policy = policy();
-        let first = surface(std::slice::from_ref(&boot), &current_policy);
+        let mut first = surface(std::slice::from_ref(&boot), &current_policy);
         let mut second = surface(&[boot], &current_policy);
 
         let ready = ready_revision(
-            &first,
+            &mut first,
             &current_policy,
             &source_id,
             &replacement,
@@ -731,13 +753,9 @@ mod tests {
         );
         assert_eq!(second.current_revision(), HotRevision::BOOT);
 
+        let coordinates = first.current_coordinates();
         let begun_again = first
-            .begin(
-                &current_policy,
-                HmrOrigin::Exact,
-                first.current_coordinates(),
-                [source_id],
-            )
+            .begin(&current_policy, HmrOrigin::Exact, coordinates, [source_id])
             .unwrap();
         drop(begun_again);
     }
@@ -774,7 +792,7 @@ mod tests {
         assert_eq!(revised.graph_digest(), &original_boot_digest);
         let replacement = artifact(entry.clone(), 2);
         let ready = ready_revision(
-            &revised,
+            &mut revised,
             graph_one.snapshot(),
             &entry,
             &replacement,

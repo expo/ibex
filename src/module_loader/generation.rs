@@ -1436,6 +1436,14 @@ impl HotRevisionTransactionV1 {
         &self.shadow_publications
     }
 
+    pub(crate) fn staged_has_top_level_await(&self, source_id: &SourceId) -> Result<bool> {
+        self.replacements
+            .as_ref()
+            .and_then(|records| records.get(source_id))
+            .map(|record| record.artifact.semantics.has_top_level_await)
+            .ok_or_else(|| anyhow!("invalidated source has no staged replacement"))
+    }
+
     pub fn stage_replacements(
         &mut self,
         records: impl IntoIterator<Item = GenerationRecordV2>,

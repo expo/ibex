@@ -121,6 +121,7 @@ libc = "0.2"
 # LLP 0005; webpki-roots bundles the Mozilla CA store the way Node bundles its
 # roots. @ref LLP 0004#the-tls-builtin — native bridge dependency choice
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+ring = "0.17"
 webpki-roots = "0.26"
 rustls-pki-types = { version = "1", features = ["std"] }
 

@@ -21,6 +21,8 @@ pub mod generation;
 pub mod graph;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod hot_revision;
+#[cfg(any(test, feature = "module-runner"))]
+pub mod hot_update;
 pub mod identity;
 pub mod producer_spike;
 #[cfg(any(test, feature = "module-runner"))]
