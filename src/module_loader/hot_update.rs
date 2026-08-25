@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use super::artifact::digest_bytes;
 use super::generation::{HmrOrigin, HotRevisionCommitV1};
-use super::hot_revision::{HotRevisionBegunV1, HotRevisionSurfaceV1};
+use super::hot_revision::{HotRevisionBegunV1, HotRevisionReadyToPublishV1, HotRevisionSurfaceV1};
 use super::identity::SourceId;
 use super::security::GraphImportPolicy;
 
@@ -217,7 +217,7 @@ pub struct HotUpdateSessionExpectationsV1 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ReplayEntry {
     Pending {
-        envelope_digest: Digest,
+        envelope_digest: Option<Digest>,
     },
     Terminal {
         envelope_digest: Digest,
@@ -232,6 +232,7 @@ pub struct HotUpdateConsumerSessionV1 {
     verifier: signature::UnparsedPublicKey<Vec<u8>>,
     expectations: HotUpdateSessionExpectationsV1,
     replay: BTreeMap<String, ReplayEntry>,
+    pending_update: Option<String>,
     terminal_count: usize,
     capacity: usize,
     rotation_required: Rc<Cell<bool>>,
@@ -263,6 +264,7 @@ impl HotUpdateConsumerSessionV1 {
             verifier: signature::UnparsedPublicKey::new(&signature::ED25519, verifier.public_key),
             expectations,
             replay: BTreeMap::new(),
+            pending_update: None,
             terminal_count: 0,
             capacity,
             rotation_required: Rc::new(Cell::new(false)),
@@ -291,6 +293,7 @@ impl HotUpdateConsumerSessionV1 {
         // no receipt and its stranded reservation must never degrade to busy.
         if self.rotation_required.get() {
             return HotUpdateAdmissionV1::RotationRequired {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
                 diagnostic: ROTATION_REQUIRED_DIAGNOSTIC.to_owned(),
             };
         }
@@ -305,8 +308,17 @@ impl HotUpdateConsumerSessionV1 {
         };
         if let Some(entry) = self.replay.get(&body.update_id) {
             return match entry {
-                ReplayEntry::Pending { .. } => HotUpdateAdmissionV1::Busy {
+                ReplayEntry::Pending {
+                    envelope_digest: Some(bound_digest),
+                } if bound_digest == &envelope_digest => HotUpdateAdmissionV1::Busy {
                     diagnostic: format!("hot update {} is in flight", body.update_id),
+                },
+                ReplayEntry::Pending { .. } => HotUpdateAdmissionV1::IdentityConflict {
+                    class: HotUpdateRefusalClassV1::KeepLastGood,
+                    diagnostic: format!(
+                        "hot update identity conflict: updateId {} was already bound to different bytes",
+                        body.update_id
+                    ),
                 },
                 ReplayEntry::Terminal {
                     envelope_digest: bound_digest,
@@ -315,6 +327,7 @@ impl HotUpdateConsumerSessionV1 {
                     receipt: receipt.clone(),
                 },
                 ReplayEntry::Terminal { .. } => HotUpdateAdmissionV1::IdentityConflict {
+                    class: HotUpdateRefusalClassV1::KeepLastGood,
                     diagnostic: format!(
                         "hot update identity conflict: updateId {} was already bound to different bytes",
                         body.update_id
@@ -325,7 +338,7 @@ impl HotUpdateConsumerSessionV1 {
 
         // Busy is an occupancy answer, not an update outcome. Sealing it would
         // prevent the producer from retrying after the owner-thread flight ends.
-        if surface.is_in_flight() {
+        if self.pending_update.is_some() || surface.is_in_flight() {
             return HotUpdateAdmissionV1::Busy {
                 diagnostic:
                     "hot revision surface is busy; retry after the in-flight update settles"
@@ -338,23 +351,27 @@ impl HotUpdateConsumerSessionV1 {
         // producer rotation and performs no generation transition.
         if self.terminal_count >= self.capacity {
             return HotUpdateAdmissionV1::CapacityRotationRequired {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
                 diagnostic:
                     "hot update replay table is at capacity; only producer runId rotation retires it"
                         .to_owned(),
             };
         }
 
+        let payload = payload.to_vec();
         let previous = self.replay.insert(
             body.update_id.clone(),
             ReplayEntry::Pending {
-                envelope_digest: envelope_digest.clone(),
+                envelope_digest: Some(envelope_digest.clone()),
             },
         );
         debug_assert!(previous.is_none(), "check-2 miss must reserve a fresh row");
+        self.pending_update = Some(body.update_id.clone());
         HotUpdateAdmissionV1::Admitted(Box::new(HotUpdateAdmittedV1 {
             update_id: body.update_id.clone(),
             envelope_digest,
             body,
+            payload,
             rotation_required: Rc::clone(&self.rotation_required),
             consumed: false,
         }))
@@ -457,7 +474,11 @@ impl HotUpdateConsumerSessionV1 {
     }
 
     /// Performs check 3 under the pending reservation and delegates all graph
-    /// and authority checks to the landed revision algebra.
+    /// and authority checks to the landed revision algebra. Under LLP 0055
+    /// §6 and §13.1, `invalidated` and every record later staged must be
+    /// derived by the H2 decode seam from [`HotUpdateAdmittedV1::payload`]: the
+    /// library binds the authenticated bytes, while that decoder owns their
+    /// typed derivation.
     pub fn begin_admitted<P: GraphImportPolicy>(
         &mut self,
         mut admitted: HotUpdateAdmittedV1,
@@ -466,9 +487,16 @@ impl HotUpdateConsumerSessionV1 {
         origin: HmrOrigin,
         invalidated: Vec<SourceId>,
     ) -> std::result::Result<(HotRevisionBegunV1, HotUpdateSettlementV1), HotUpdateRefusalV1> {
+        if !Rc::ptr_eq(&admitted.rotation_required, &self.rotation_required) {
+            return Err(HotUpdateRefusalV1 {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
+                message: "hot update admitted handle belongs to another consumer session"
+                    .to_owned(),
+            });
+        }
         debug_assert!(
             Rc::ptr_eq(&admitted.rotation_required, &self.rotation_required),
-            "admitted update belongs to another consumer session"
+            "admitted update belongs to this consumer session"
         );
 
         if admitted.body.base_hot_revision.checked_add(1) != Some(admitted.body.target_hot_revision)
@@ -517,7 +545,7 @@ impl HotUpdateConsumerSessionV1 {
                     // Quarantine has no member in the closed receipt union. Its
                     // pending row therefore stays stranded while the shared
                     // session poison forces every later answer to rotation.
-                    self.rotation_required.set(true);
+                    admitted.rotation_required.set(true);
                     admitted.consumed = true;
                     return Err(HotUpdateRefusalV1 {
                         class: HotUpdateRefusalClassV1::KeepLastGood,
@@ -528,8 +556,10 @@ impl HotUpdateConsumerSessionV1 {
                     // An owner-side busy race is not a terminal update outcome;
                     // unreserve it so a later retry can pass check 2.
                     let removed = self.remove_pending(&admitted);
-                    admitted.consumed = true;
                     debug_assert!(removed, "busy unreserve must remove the pending row");
+                    if removed {
+                        admitted.consumed = true;
+                    }
                     return Err(HotUpdateRefusalV1 {
                         class: HotUpdateRefusalClassV1::KeepLastGood,
                         message,
@@ -539,6 +569,11 @@ impl HotUpdateConsumerSessionV1 {
                     || message.contains("hot update base is stale")
                 {
                     HotUpdateRefusalClassV1::KeepLastGood
+                } else if message.contains("regenerate policy and restart")
+                    || message.contains("restart required")
+                    || message.contains("changed a module defining principal")
+                {
+                    HotUpdateRefusalClassV1::RegeneratePolicyAndRestartRuntime
                 } else if message.contains("widened the authenticated source graph") {
                     HotUpdateRefusalClassV1::FullReloadCurrentAuthority
                 } else {
@@ -568,20 +603,49 @@ impl HotUpdateConsumerSessionV1 {
         Ok((begun, settlement))
     }
 
-    /// Finalizes the replay receipt immediately after a successful surface
-    /// commit, before the host performs any other work or yields.
-    pub fn settle_committed(
+    /// Commits and finalizes the replay receipt in one owner-thread call frame.
+    /// Under the LLP 0002/0003 drive contract, this call frame is LLP 0055
+    /// §5.3's post-fence finalization point: no interleaved admission can
+    /// observe `Pending` after the surface commit succeeds.
+    // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail — success
+    // finalizes the pre-reserved outcome before the owner thread can yield.
+    pub fn commit_admitted<P: GraphImportPolicy>(
         &mut self,
         mut settlement: HotUpdateSettlementV1,
-        commit: &HotRevisionCommitV1,
-    ) {
-        settlement.settled = true;
+        surface: &mut HotRevisionSurfaceV1,
+        policy: &P,
+        ready: HotRevisionReadyToPublishV1,
+    ) -> Result<HotRevisionCommitV1> {
+        if !Rc::ptr_eq(&settlement.rotation_required, &self.rotation_required) {
+            return Err(anyhow!(
+                "hot update settlement handle belongs to another consumer session"
+            ));
+        }
+        debug_assert!(
+            Rc::ptr_eq(&settlement.rotation_required, &self.rotation_required),
+            "commit settlement belongs to this consumer session"
+        );
+
+        let commit = match surface.commit(policy, ready) {
+            Ok(commit) => commit,
+            Err(error) => {
+                // Commit-time backstops have no receipt in the closed union.
+                // Poison the handle's origin session and strand its reservation.
+                settlement.rotation_required.set(true);
+                settlement.settled = true;
+                return Err(error);
+            }
+        };
         let receipt = HotUpdateOutcomeReceiptV1::Committed {
             generation: commit.generation.get(),
             revision: commit.revision.get(),
         };
         let settled = self.terminalize_pending(&settlement.update_id, receipt);
         debug_assert!(settled, "commit settlement must replace a pending row");
+        if settled {
+            settlement.settled = true;
+        }
+        Ok(commit)
     }
 
     /// Finalizes every ordinary post-begin refusal before it is yielded.
@@ -591,20 +655,36 @@ impl HotUpdateConsumerSessionV1 {
         class: HotUpdateRefusalClassV1,
         message: &str,
     ) {
-        settlement.settled = true;
+        if !Rc::ptr_eq(&settlement.rotation_required, &self.rotation_required) {
+            return;
+        }
+        debug_assert!(
+            Rc::ptr_eq(&settlement.rotation_required, &self.rotation_required),
+            "refusal settlement belongs to this consumer session"
+        );
         let receipt = HotUpdateOutcomeReceiptV1::Refused {
             class,
             message: message.to_owned(),
         };
         let settled = self.terminalize_pending(&settlement.update_id, receipt);
         debug_assert!(settled, "refusal settlement must replace a pending row");
+        if settled {
+            settlement.settled = true;
+        }
     }
 
     /// Poisons the session without minting an outcome that the closed receipt
     /// union cannot represent. The pending row is deliberately stranded.
     pub fn settle_quarantined(&mut self, mut settlement: HotUpdateSettlementV1) {
+        if !Rc::ptr_eq(&settlement.rotation_required, &self.rotation_required) {
+            return;
+        }
+        debug_assert!(
+            Rc::ptr_eq(&settlement.rotation_required, &self.rotation_required),
+            "quarantine settlement belongs to this consumer session"
+        );
+        settlement.rotation_required.set(true);
         settlement.settled = true;
-        self.rotation_required.set(true);
     }
 
     fn refuse_admitted(
@@ -625,18 +705,22 @@ impl HotUpdateConsumerSessionV1 {
                 message: message.to_owned(),
             },
         );
-        admitted.consumed = true;
         debug_assert!(settled, "check-3 refusal must replace its pending row");
+        if settled {
+            admitted.consumed = true;
+        }
         refusal
     }
 
     fn remove_pending(&mut self, admitted: &HotUpdateAdmittedV1) -> bool {
         if matches!(
             self.replay.get(&admitted.update_id),
-            Some(ReplayEntry::Pending { envelope_digest })
-                if envelope_digest == &admitted.envelope_digest
+            Some(ReplayEntry::Pending {
+                envelope_digest: Some(envelope_digest),
+            }) if envelope_digest == &admitted.envelope_digest
         ) {
             self.replay.remove(&admitted.update_id);
+            self.pending_update = None;
             true
         } else {
             false
@@ -644,11 +728,23 @@ impl HotUpdateConsumerSessionV1 {
     }
 
     fn terminalize_pending(&mut self, update_id: &str, receipt: HotUpdateOutcomeReceiptV1) -> bool {
-        let envelope_digest = match self.replay.get(update_id) {
-            Some(ReplayEntry::Pending { envelope_digest }) => envelope_digest.clone(),
+        let Some(entry) = self.replay.get_mut(update_id) else {
+            return false;
+        };
+        let envelope_digest = match entry {
+            ReplayEntry::Pending { envelope_digest } => match envelope_digest.take() {
+                Some(envelope_digest) => envelope_digest,
+                None => return false,
+            },
             _ => return false,
         };
-        self.terminalize_matching_pending(update_id, &envelope_digest, receipt)
+        *entry = ReplayEntry::Terminal {
+            envelope_digest,
+            receipt,
+        };
+        self.pending_update = None;
+        self.terminal_count += 1;
+        true
     }
 
     fn terminalize_matching_pending(
@@ -661,8 +757,13 @@ impl HotUpdateConsumerSessionV1 {
             return false;
         };
         let envelope_digest = match entry {
-            ReplayEntry::Pending { envelope_digest } if &*envelope_digest == expected_digest => {
-                envelope_digest.clone()
+            ReplayEntry::Pending { envelope_digest }
+                if envelope_digest.as_ref() == Some(expected_digest) =>
+            {
+                match envelope_digest.take() {
+                    Some(envelope_digest) => envelope_digest,
+                    None => return false,
+                }
             }
             _ => return false,
         };
@@ -670,6 +771,7 @@ impl HotUpdateConsumerSessionV1 {
             envelope_digest,
             receipt,
         };
+        self.pending_update = None;
         self.terminal_count += 1;
         true
     }
@@ -677,12 +779,27 @@ impl HotUpdateConsumerSessionV1 {
 
 #[derive(Debug)]
 pub enum HotUpdateAdmissionV1 {
-    Unauthenticated { reason: String },
-    RotationRequired { diagnostic: String },
-    Busy { diagnostic: String },
-    Duplicate { receipt: HotUpdateOutcomeReceiptV1 },
-    IdentityConflict { diagnostic: String },
-    CapacityRotationRequired { diagnostic: String },
+    Unauthenticated {
+        reason: String,
+    },
+    RotationRequired {
+        class: HotUpdateRefusalClassV1,
+        diagnostic: String,
+    },
+    Busy {
+        diagnostic: String,
+    },
+    Duplicate {
+        receipt: HotUpdateOutcomeReceiptV1,
+    },
+    IdentityConflict {
+        class: HotUpdateRefusalClassV1,
+        diagnostic: String,
+    },
+    CapacityRotationRequired {
+        class: HotUpdateRefusalClassV1,
+        diagnostic: String,
+    },
     Admitted(Box<HotUpdateAdmittedV1>),
 }
 
@@ -696,6 +813,7 @@ pub struct HotUpdateAdmittedV1 {
     update_id: String,
     envelope_digest: Digest,
     body: HotUpdateSignedBodyV1,
+    payload: Vec<u8>,
     rotation_required: Rc<Cell<bool>>,
     consumed: bool,
 }
@@ -709,6 +827,16 @@ impl fmt::Debug for HotUpdateAdmittedV1 {
             .field("body", &self.body)
             .field("consumed", &self.consumed)
             .finish()
+    }
+}
+
+impl HotUpdateAdmittedV1 {
+    /// Returns the exact digest-verified update bytes bound to this token.
+    /// The invalidated set passed to `begin_admitted` and every record later
+    /// staged must be derived from these bytes by the H2 decode seam: LLP 0055
+    /// §6 binds the bytes, and §13.1 leaves their record-form decoding to H2.
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
     }
 }
 
@@ -764,12 +892,12 @@ mod tests {
     use super::*;
     use crate::module_loader::generation::GenerationPublicationKind;
     use crate::module_loader::hot_revision::test_support::{
-        artifact, artifact_with_top_level_await, digest, policy, preflighted, record, source,
-        surface, Policy,
+        artifact, artifact_with_top_level_await, digest, policy, policy_with_digest, preflighted,
+        record, source, surface, Policy,
     };
     use crate::module_loader::hot_revision::ActivationTokenV1;
 
-    const PAYLOAD: &[u8] = br#"{"replacements":[]}"#;
+    const PAYLOAD: &[u8] = br#"{"invalidated":["entry.mjs"],"replacements":["entry.mjs@2"]}"#;
 
     struct Rig {
         signing: HotUpdateSigningSessionV1,
@@ -972,7 +1100,8 @@ mod tests {
         different_body.issued_at_ms += 1;
         let different = raw_envelope(&rig.signing, &different_body);
         match rig.consumer.admit(&rig.surface, &different, &rig.payload) {
-            HotUpdateAdmissionV1::IdentityConflict { diagnostic } => {
+            HotUpdateAdmissionV1::IdentityConflict { class, diagnostic } => {
+                assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
                 assert!(diagnostic.contains(&different_body.update_id));
             }
             other => panic!("expected identity conflict, got {other:?}"),
@@ -991,6 +1120,7 @@ mod tests {
         let body = rig.body(update_id);
         let envelope = rig.signing.sign(&body).unwrap();
         let admitted = take_admitted(rig.consumer.admit(&rig.surface, &envelope, &rig.payload));
+        assert_eq!(admitted.payload(), rig.payload.as_slice());
         let (begun, settlement) = rig
             .consumer
             .begin_admitted(
@@ -1018,8 +1148,9 @@ mod tests {
             .unwrap()
             .prepare_activation(ActivationTokenV1::trivial())
             .ready();
-        let commit = rig.surface.commit(&rig.policy, ready).unwrap();
-        rig.consumer.settle_committed(settlement, &commit);
+        rig.consumer
+            .commit_admitted(settlement, &mut rig.surface, &rig.policy, ready)
+            .unwrap();
         (body, envelope)
     }
 
@@ -1289,6 +1420,41 @@ mod tests {
     }
 
     #[test]
+    fn f9_check3_authority_drift_terminalizes_restart_family_refusal() {
+        let mut rig = Rig::new("run-authority-drift");
+        let body = rig.body("authority-drift");
+        let envelope = rig.signing.sign(&body).unwrap();
+        let admitted = take_admitted(rig.consumer.admit(&rig.surface, &envelope, &rig.payload));
+        let different_policy = policy_with_digest("different-authority");
+        let refusal = rig
+            .consumer
+            .begin_admitted(
+                admitted,
+                &mut rig.surface,
+                &different_policy,
+                HmrOrigin::Exact,
+                vec![rig.source_id.clone()],
+            )
+            .err()
+            .expect("authority drift must refuse");
+        assert_eq!(
+            refusal.class,
+            HotUpdateRefusalClassV1::RegeneratePolicyAndRestartRuntime
+        );
+        assert_eq!(
+            refusal.message,
+            "HMR authority changed; regenerate policy and restart the runtime"
+        );
+        assert_refused_receipt(
+            rig.consumer.admit(&rig.surface, &envelope, &rig.payload),
+            &HotUpdateOutcomeReceiptV1::Refused {
+                class: HotUpdateRefusalClassV1::RegeneratePolicyAndRestartRuntime,
+                message: refusal.message,
+            },
+        );
+    }
+
+    #[test]
     fn f9_stale_revision_and_graph_digest_after_commit_have_distinct_replay_outcomes() {
         let mut rig = Rig::new("run-post-commit-stale");
         let (_committed_body, committed_envelope) = commit_update(&mut rig, "committed", 2);
@@ -1363,6 +1529,139 @@ mod tests {
                 message: "staged evaluation threw".to_owned(),
             },
         );
+    }
+
+    #[test]
+    fn f9_pending_reservation_occupies_admission_before_surface_begin() {
+        let mut rig = Rig::new("run-pending-occupancy");
+        let first_body = rig.body("pending-a");
+        let first_envelope = rig.signing.sign(&first_body).unwrap();
+        let first = take_admitted(
+            rig.consumer
+                .admit(&rig.surface, &first_envelope, &rig.payload),
+        );
+        assert_eq!(rig.consumer.pending_update.as_deref(), Some("pending-a"));
+
+        let second_body = rig.body("pending-b");
+        let second_envelope = rig.signing.sign(&second_body).unwrap();
+        match rig
+            .consumer
+            .admit(&rig.surface, &second_envelope, &rig.payload)
+        {
+            HotUpdateAdmissionV1::Busy { diagnostic } => assert_eq!(
+                diagnostic,
+                "hot revision surface is busy; retry after the in-flight update settles"
+            ),
+            other => panic!("expected pending reservation to answer busy, got {other:?}"),
+        }
+        assert!(!rig.consumer.replay.contains_key("pending-b"));
+
+        let (begun, settlement) = rig
+            .consumer
+            .begin_admitted(
+                first,
+                &mut rig.surface,
+                &rig.policy,
+                HmrOrigin::Exact,
+                vec![rig.source_id.clone()],
+            )
+            .unwrap();
+        drop(begun);
+        rig.consumer.settle_refused(
+            settlement,
+            HotUpdateRefusalClassV1::KeepLastGood,
+            "test refusal",
+        );
+        assert!(rig.consumer.pending_update.is_none());
+
+        let second = take_admitted(rig.consumer.admit(
+            &rig.surface,
+            &second_envelope,
+            &rig.payload,
+        ));
+        let (begun, settlement) = rig
+            .consumer
+            .begin_admitted(
+                second,
+                &mut rig.surface,
+                &rig.policy,
+                HmrOrigin::Exact,
+                vec![rig.source_id.clone()],
+            )
+            .unwrap();
+        drop(begun);
+        rig.consumer.settle_refused(
+            settlement,
+            HotUpdateRefusalClassV1::KeepLastGood,
+            "test cleanup",
+        );
+    }
+
+    #[test]
+    fn f9_pending_update_id_is_content_bound_before_settlement() {
+        let mut rig = Rig::new("run-pending-content-binding");
+        let body = rig.body("pending-identity");
+        let envelope = rig.signing.sign(&body).unwrap();
+        let original_digest = envelope.envelope_digest().unwrap();
+        let admitted = take_admitted(rig.consumer.admit(&rig.surface, &envelope, &rig.payload));
+
+        let mut different_body = body;
+        different_body.issued_at_ms += 1;
+        let different_envelope = rig.signing.sign(&different_body).unwrap();
+        match rig
+            .consumer
+            .admit(&rig.surface, &different_envelope, &rig.payload)
+        {
+            HotUpdateAdmissionV1::IdentityConflict { class, diagnostic } => {
+                assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
+                assert!(diagnostic.contains("pending-identity"));
+            }
+            other => panic!("expected pending identity conflict, got {other:?}"),
+        }
+        assert!(matches!(
+            rig.consumer.replay.get("pending-identity"),
+            Some(ReplayEntry::Pending {
+                envelope_digest: Some(bound_digest),
+            }) if bound_digest == &original_digest
+        ));
+        assert!(matches!(
+            rig.consumer.admit(&rig.surface, &envelope, &rig.payload),
+            HotUpdateAdmissionV1::Busy { .. }
+        ));
+
+        let (begun, settlement) = rig
+            .consumer
+            .begin_admitted(
+                admitted,
+                &mut rig.surface,
+                &rig.policy,
+                HmrOrigin::Exact,
+                vec![rig.source_id.clone()],
+            )
+            .unwrap();
+        drop(begun);
+        rig.consumer.settle_refused(
+            settlement,
+            HotUpdateRefusalClassV1::KeepLastGood,
+            "staged evaluation threw",
+        );
+        let receipt = HotUpdateOutcomeReceiptV1::Refused {
+            class: HotUpdateRefusalClassV1::KeepLastGood,
+            message: "staged evaluation threw".to_owned(),
+        };
+        assert_refused_receipt(
+            rig.consumer.admit(&rig.surface, &envelope, &rig.payload),
+            &receipt,
+        );
+        match rig
+            .consumer
+            .admit(&rig.surface, &different_envelope, &rig.payload)
+        {
+            HotUpdateAdmissionV1::IdentityConflict { class, .. } => {
+                assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
+            }
+            other => panic!("expected terminal identity conflict, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1456,7 +1755,10 @@ mod tests {
         assert!(matches!(
             rig.consumer
                 .admit(&rig.surface, &different_envelope, &rig.payload),
-            HotUpdateAdmissionV1::IdentityConflict { .. }
+            HotUpdateAdmissionV1::IdentityConflict {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
+                ..
+            }
         ));
         assert_refused_receipt(
             rig.consumer.admit(&rig.surface, &envelope, &rig.payload),
@@ -1500,10 +1802,13 @@ mod tests {
             .consumer
             .admit(&rig.surface, &new_envelope, &rig.payload)
         {
-            HotUpdateAdmissionV1::CapacityRotationRequired { diagnostic } => assert_eq!(
-                diagnostic,
-                "hot update replay table is at capacity; only producer runId rotation retires it"
-            ),
+            HotUpdateAdmissionV1::CapacityRotationRequired { class, diagnostic } => {
+                assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
+                assert_eq!(
+                    diagnostic,
+                    "hot update replay table is at capacity; only producer runId rotation retires it"
+                );
+            }
             other => panic!("expected capacity answer, got {other:?}"),
         }
         assert!(!rig.consumer.replay.contains_key("capacity-3"));
@@ -1537,7 +1842,8 @@ mod tests {
         let later = rig.signing.sign(&rig.body("later")).unwrap();
         for candidate in [&envelope, &later] {
             match rig.consumer.admit(&rig.surface, candidate, &rig.payload) {
-                HotUpdateAdmissionV1::RotationRequired { diagnostic } => {
+                HotUpdateAdmissionV1::RotationRequired { class, diagnostic } => {
+                    assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
                     assert_eq!(diagnostic, ROTATION_REQUIRED_DIAGNOSTIC);
                 }
                 other => panic!("expected rotation gate, got {other:?}"),
@@ -1572,7 +1878,10 @@ mod tests {
         assert!(rig.consumer.rotation_required());
         assert!(matches!(
             rig.consumer.admit(&rig.surface, &envelope, &rig.payload),
-            HotUpdateAdmissionV1::RotationRequired { .. }
+            HotUpdateAdmissionV1::RotationRequired {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
+                ..
+            }
         ));
 
         let mut rig = Rig::new("run-drop-settlement");
@@ -1592,6 +1901,75 @@ mod tests {
         drop(settlement);
         drop(begun);
         assert!(rig.consumer.rotation_required());
+    }
+
+    #[test]
+    fn f9_foreign_session_handles_mutate_only_their_origin_via_drop() {
+        let mut rig = Rig::new("run-foreign-admitted");
+        let mut foreign_consumer = HotUpdateConsumerSessionV1::new(
+            rig.signing.verifier(),
+            expectations(rig.signing.run_id(), &rig.policy),
+        );
+        let body = rig.body("foreign-admitted");
+        let envelope = rig.signing.sign(&body).unwrap();
+        let admitted = take_admitted(rig.consumer.admit(&rig.surface, &envelope, &rig.payload));
+        let refusal = foreign_consumer
+            .begin_admitted(
+                admitted,
+                &mut rig.surface,
+                &rig.policy,
+                HmrOrigin::Exact,
+                vec![rig.source_id.clone()],
+            )
+            .err()
+            .expect("a foreign admitted handle must refuse");
+        assert_eq!(refusal.class, HotUpdateRefusalClassV1::KeepLastGood);
+        assert_eq!(
+            refusal.message,
+            "hot update admitted handle belongs to another consumer session"
+        );
+        assert!(foreign_consumer.replay.is_empty());
+        assert!(foreign_consumer.pending_update.is_none());
+        assert!(!foreign_consumer.rotation_required());
+        assert!(matches!(
+            rig.consumer.replay.get("foreign-admitted"),
+            Some(ReplayEntry::Pending { .. })
+        ));
+        assert!(rig.consumer.rotation_required());
+        assert!(!rig.surface.is_in_flight());
+
+        let mut rig = Rig::new("run-foreign-settlement");
+        let mut foreign_consumer = HotUpdateConsumerSessionV1::new(
+            rig.signing.verifier(),
+            expectations(rig.signing.run_id(), &rig.policy),
+        );
+        let body = rig.body("foreign-settlement");
+        let envelope = rig.signing.sign(&body).unwrap();
+        let admitted = take_admitted(rig.consumer.admit(&rig.surface, &envelope, &rig.payload));
+        let (begun, settlement) = rig
+            .consumer
+            .begin_admitted(
+                admitted,
+                &mut rig.surface,
+                &rig.policy,
+                HmrOrigin::Exact,
+                vec![rig.source_id.clone()],
+            )
+            .unwrap();
+        foreign_consumer.settle_refused(
+            settlement,
+            HotUpdateRefusalClassV1::KeepLastGood,
+            "foreign refusal",
+        );
+        assert!(foreign_consumer.replay.is_empty());
+        assert!(foreign_consumer.pending_update.is_none());
+        assert!(!foreign_consumer.rotation_required());
+        assert!(matches!(
+            rig.consumer.replay.get("foreign-settlement"),
+            Some(ReplayEntry::Pending { .. })
+        ));
+        assert!(rig.consumer.rotation_required());
+        drop(begun);
     }
 
     #[test]
@@ -1630,13 +2008,18 @@ mod tests {
             }))
             .ready();
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = rig.surface.commit(&rig.policy, ready);
+            let _ = rig
+                .consumer
+                .commit_admitted(settlement, &mut rig.surface, &rig.policy, ready);
         }));
         assert!(panic.is_err());
-        rig.consumer.settle_quarantined(settlement);
+        assert!(rig.consumer.rotation_required());
         assert!(matches!(
             rig.consumer.admit(&rig.surface, &envelope, &rig.payload),
-            HotUpdateAdmissionV1::RotationRequired { .. }
+            HotUpdateAdmissionV1::RotationRequired {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
+                ..
+            }
         ));
         assert!(matches!(
             rig.consumer.replay.get("quarantined-commit"),

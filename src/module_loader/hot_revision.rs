@@ -359,6 +359,13 @@ pub(crate) mod test_support {
         }
     }
 
+    pub(crate) fn policy_with_digest(label: &str) -> Policy {
+        Policy {
+            digest: digest(label),
+            generations: policy().generations,
+        }
+    }
+
     pub(crate) fn source(name: &str) -> SourceId {
         SourceId::file(
             Principal::Root {

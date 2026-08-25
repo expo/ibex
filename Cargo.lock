@@ -1090,6 +1090,7 @@ dependencies = [
  "oxc_sourcemap",
  "oxc_span",
  "oxc_transformer",
+ "ring",
  "rusqlite",
  "rustls",
  "rustls-pki-types",
