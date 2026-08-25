@@ -14,6 +14,17 @@ use crate::module_loader::producer_spike::produce_module_artifact_v1;
 const GENERATION: u64 = 7;
 const TARGET: &str = "exact-dev:test";
 
+fn javascript_factory_table_bytes(entry_id: &str, artifact: &ModuleArtifactV1) -> Vec<u8> {
+    let ModulePayloadV1::Inline { factory_source, .. } = &artifact.payload else {
+        panic!("fixture source producer must return an inline factory")
+    };
+    format!(
+        "(function(){{\"use strict\";var table=Object.create(null);Object.defineProperty(table,{},{{value:({factory_source}),enumerable:true}});return Object.freeze(table);}})()",
+        serde_json::to_string(entry_id).unwrap(),
+    )
+    .into_bytes()
+}
+
 #[derive(Clone)]
 struct FixtureCarrierV1 {
     manifest_file: String,
@@ -53,8 +64,7 @@ impl FixturePackageV1 {
                 producer_binary_digest.clone(),
             )
             .unwrap();
-            let bytes =
-                format!("(function(){{return Object.freeze({{{index}:true}});}})()").into_bytes();
+            let bytes = javascript_factory_table_bytes(entry_id, &source_artifact);
             let carrier_digest = digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, &bytes).unwrap();
             let entry_id = NonEmptyString::new(entry_id).unwrap();
             let artifact = ModuleArtifactV1::new_carrier(
@@ -228,7 +238,7 @@ impl CompositionFixtureV1 {
                 (
                     app_root.clone(),
                     "app-root",
-                    "import { appValue } from './app-lib.mjs'; export const appResult = appValue;",
+                    "import { appValue } from './app-lib.mjs'; globalThis.__compositionOrder.push('app'); globalThis.__compositionAppMain = import.meta.main; export const appResult = appValue;",
                     vec![PreparedPackageBindingV1 {
                         specifier: "./app-lib.mjs".into(),
                         resolution_kind: ResolutionKind::EsmStatic,
@@ -240,7 +250,7 @@ impl CompositionFixtureV1 {
                 (
                     app_lib.clone(),
                     "app-lib",
-                    "export const appValue = 1;",
+                    "globalThis.__compositionOrder = globalThis.__compositionOrder || []; globalThis.__compositionOrder.push('lib'); export const appValue = 1;",
                     Vec::new(),
                 ),
             ],
@@ -255,7 +265,7 @@ impl CompositionFixtureV1 {
                     vec![(
                         agent_root.clone(),
                         "agent-root",
-                        "import { appValue } from 'app-lib'; export function installExactNativeAgentBootstrap() { return appValue; }",
+                        "import { appValue } from 'app-lib'; globalThis.__compositionOrder.push('agent'); globalThis.__compositionAgentMain = import.meta.main; export function installExactNativeAgentBootstrap() { globalThis.__compositionOrder.push('invoke'); return appValue; }",
                         vec![PreparedPackageBindingV1 {
                             specifier: "app-lib".into(),
                             resolution_kind: ResolutionKind::EsmStatic,
@@ -488,6 +498,39 @@ impl CompositionFixtureV1 {
         self.resign_envelope();
     }
 
+    fn replace_record_source(&mut self, role: CompositionRole, source_id: &SourceId, source: &str) {
+        let package = self.packages.get(&role).unwrap();
+        let record = package
+            .package
+            .records
+            .iter()
+            .find(|record| &record.source_id == source_id)
+            .unwrap();
+        let entry_id = record.entry_id.clone();
+        let producer_binary_digest = package.package.producer_binary_digest.clone();
+        let produced = produce_module_artifact_v1(
+            source_id.clone(),
+            entry_id.as_str(),
+            Path::new(entry_id.as_str()),
+            source,
+            producer_binary_digest,
+        )
+        .unwrap();
+        let bytes = javascript_factory_table_bytes(entry_id.as_str(), &produced);
+        let package = self.packages.get_mut(&role).unwrap();
+        let record = package
+            .package
+            .records
+            .iter_mut()
+            .find(|record| &record.source_id == source_id)
+            .unwrap();
+        let carrier_index = record.carrier_index;
+        record.artifact.semantics = produced.semantics;
+        record.artifact.semantic_digest = produced.semantic_digest;
+        package.carriers[carrier_index].bytes = bytes;
+        self.resync_package_and_resign(role);
+    }
+
     fn commitment_text(&self) -> String {
         capsec_semantics::canonical::to_jcs(&serde_json::to_value(&self.commitment).unwrap())
             .unwrap()
@@ -614,6 +657,124 @@ fn assert_i_json_report_counters(value: &Value) {
     }
 }
 
+struct CompositionStartupFixtureOutcomeV1 {
+    status: i32,
+    report: Value,
+    error: Option<String>,
+}
+
+#[allow(clashing_extern_declarations)]
+unsafe extern "C" {
+    fn ex_hermes_create_diagnostic() -> *mut std::ffi::c_void;
+    fn ex_hermes_runtime_nonce(runtime: *mut std::ffi::c_void) -> u64;
+    fn ex_hermes_destroy(runtime: *mut std::ffi::c_void);
+    fn ex_hermes_eval(
+        runtime: *mut std::ffi::c_void,
+        data: *const u8,
+        len: usize,
+        source_url: *const std::ffi::c_char,
+        is_bytecode: i32,
+        out_value: *mut *mut std::ffi::c_char,
+    ) -> i32;
+    fn ex_hermes_free_string(value: *mut std::ffi::c_char);
+}
+
+struct CompositionTestRuntimeV1 {
+    raw: std::ptr::NonNull<std::ffi::c_void>,
+}
+
+impl CompositionTestRuntimeV1 {
+    fn new() -> Self {
+        let raw = std::ptr::NonNull::new(unsafe { ex_hermes_create_diagnostic() }).unwrap();
+        Self { raw }
+    }
+
+    fn raw_parts(&self) -> (std::ptr::NonNull<std::ffi::c_void>, u64) {
+        (self.raw, unsafe {
+            ex_hermes_runtime_nonce(self.raw.as_ptr())
+        })
+    }
+
+    fn eval_text(&self, source: &str, source_label: &str) -> Result<String> {
+        let source_label = std::ffi::CString::new(source_label)?;
+        let mut output = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_eval(
+                self.raw.as_ptr(),
+                source.as_ptr(),
+                source.len(),
+                source_label.as_ptr(),
+                0,
+                &mut output,
+            )
+        };
+        let detail = if output.is_null() {
+            String::new()
+        } else {
+            let detail = unsafe { std::ffi::CStr::from_ptr(output) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(output) };
+            detail
+        };
+        if status != 0 {
+            bail!("composition fixture probe evaluation refused ({status}): {detail}");
+        }
+        Ok(detail)
+    }
+}
+
+impl Drop for CompositionTestRuntimeV1 {
+    fn drop(&mut self) {
+        unsafe { ex_hermes_destroy(self.raw.as_ptr()) };
+    }
+}
+
+fn run_composition_startup_fixture_v1(
+    fixture: &CompositionFixtureV1,
+    runtime: &CompositionTestRuntimeV1,
+) -> CompositionStartupFixtureOutcomeV1 {
+    use std::ffi::{CStr, CString};
+
+    let (raw, nonce) = runtime.raw_parts();
+    let composition_dir = CString::new(fixture.directory.path().to_str().unwrap()).unwrap();
+    let commitment = CString::new(fixture.commitment_text()).unwrap();
+    let expectations = CString::new(fixture.expectations_text()).unwrap();
+    let project_root = CString::new(fixture.directory.path().to_str().unwrap()).unwrap();
+    let mut out_report = std::ptr::null_mut();
+    let mut out_error = std::ptr::null_mut();
+    let status = unsafe {
+        crate::module_loader::runner_pipeline::dev_committed_embedder::ibex_dev_unarmed_composition_prepared_startup_v1(
+            raw.as_ptr(),
+            nonce,
+            composition_dir.as_ptr(),
+            commitment.as_ptr(),
+            expectations.as_ptr(),
+            project_root.as_ptr(),
+            &mut out_report,
+            &mut out_error,
+        )
+    };
+    let take = |pointer: *mut std::ffi::c_char| -> Option<String> {
+        if pointer.is_null() {
+            return None;
+        }
+        let text = unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned();
+        crate::host::abi::ex_host_free_string(pointer);
+        Some(text)
+    };
+    let report = take(out_report)
+        .map(|json| serde_json::from_str(&json).unwrap())
+        .expect("composition C entry writes a report on every outcome");
+    CompositionStartupFixtureOutcomeV1 {
+        status,
+        report,
+        error: take(out_error),
+    }
+}
+
 fn rewrite_index_and_recommit(
     fixture: &mut CompositionFixtureV1,
     role: CompositionRole,
@@ -667,6 +828,560 @@ fn fixture_rows_b12_b13_admit_both_declarations_and_ignore_reserved_input() {
     composed.expectations.resolver_inventory_digest =
         source_integrity(b"arbitrary-reserved-b").unwrap();
     assert_admitted(composed.run());
+}
+
+#[test]
+fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let fixture = CompositionFixtureV1::new(true);
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
+    assert_eq!(
+        outcome.status, 0,
+        "composition startup: {:?}",
+        outcome.error
+    );
+    assert_eq!(outcome.report["admissionStatus"], "admitted");
+    assert_eq!(outcome.report["agentEvaluatedRecordCount"], 2);
+    assert_eq!(outcome.report["appEvaluatedRecordCount"], 1);
+    assert_eq!(outcome.report["sharedEvaluatedRecordCount"], 1);
+    assert_eq!(outcome.report["agentInvokeReturnedThenable"], false);
+    assert!(outcome.report["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|package| package["verificationStatus"] == "verified"));
+    assert_i_json_report_counters(&outcome.report);
+
+    let probe = runtime
+        .eval_text(
+            "JSON.stringify({order:globalThis.__compositionOrder,agentMain:globalThis.__compositionAgentMain,appMain:globalThis.__compositionAppMain})",
+            "llp0056-composition-order-probe",
+        )
+        .unwrap();
+    let probe: Value = serde_json::from_str(probe.trim()).unwrap();
+    assert_eq!(
+        probe["order"],
+        serde_json::json!(["lib", "agent", "invoke", "app"])
+    );
+    assert_eq!(probe["agentMain"], false);
+    assert_eq!(probe["appMain"], true);
+}
+
+#[test]
+fn fixture_rows_a4_a5b_a6_a7_a8_enforce_package_topology() {
+    let mut p1 = CompositionFixtureV1::new(true);
+    p1.packages
+        .get_mut(&CompositionRole::Agent)
+        .unwrap()
+        .package
+        .records[0]
+        .bindings[0]
+        .target = PreparedPackageBindingTargetV1::Local {
+        source_id: p1.app_lib.clone(),
+    };
+    p1.normalize();
+    assert_refusal(
+        p1.run(),
+        5,
+        CompositionRefusalCode::LocalAgreementDisagreement,
+    );
+
+    let mut app_to_agent = CompositionFixtureV1::new(true);
+    inject_app_to_agent_fault(&mut app_to_agent);
+    assert_refusal(
+        app_to_agent.run(),
+        5,
+        CompositionRefusalCode::AppReferencesAgent,
+    );
+
+    let mut duplicate = CompositionFixtureV1::new(false);
+    {
+        let app = duplicate.packages.get_mut(&CompositionRole::App).unwrap();
+        let mut record = app.package.records[1].clone();
+        let mut carrier = app.carriers[1].clone();
+        record.entry_id = NonEmptyString::new("app-lib-duplicate-a6").unwrap();
+        record.carrier_index = app.carriers.len();
+        carrier.manifest_file = "carrier-duplicate-a6.json".into();
+        carrier.bytes_file = "carrier-duplicate-a6.bin".into();
+        app.package.records.push(record);
+        app.carriers.push(carrier);
+    }
+    duplicate.resync_package_and_resign(CompositionRole::App);
+    assert_refusal(
+        duplicate.run(),
+        4,
+        CompositionRefusalCode::IbexDuplicateSourceId,
+    );
+
+    let mut overlap = CompositionFixtureV1::new(true);
+    {
+        let app = overlap.packages.get(&CompositionRole::App).unwrap();
+        let mut record = app.package.records[1].clone();
+        let mut carrier = app.carriers[1].clone();
+        let agent = overlap.packages.get_mut(&CompositionRole::Agent).unwrap();
+        record.entry_id = NonEmptyString::new("app-lib-overlap-a7").unwrap();
+        record.carrier_index = agent.carriers.len();
+        carrier.manifest_file = "carrier-overlap-a7.json".into();
+        carrier.bytes_file = "carrier-overlap-a7.bin".into();
+        agent.package.records.push(record);
+        agent.carriers.push(carrier);
+    }
+    overlap.normalize();
+    assert_refusal(overlap.run(), 4, CompositionRefusalCode::PackageOverlap);
+
+    let mut alias = CompositionFixtureV1::new(true);
+    let representative = alias.agent_root.clone().unwrap();
+    let alias_id = fixture_source_id(&fixture_root_principal(), "computed-bootstrap-alias-a8")
+        .encode()
+        .unwrap();
+    let row = CompositionAliasRowV1 {
+        alias_id,
+        representative_source_id: representative.encode().unwrap(),
+        representative_source_integrity: source_integrity(b"wrong-alias-evidence").unwrap(),
+        import_site_inventory_digest: compute_alias_import_site_inventory_digest(&[]).unwrap(),
+    };
+    alias.envelope.alias_table = CompositionAliasTableV1 {
+        digest: digest_canonical_value_v1(PREPARED_ALIAS_TABLE_DOMAIN_V1, &vec![row.clone()])
+            .unwrap(),
+        rows: vec![row],
+    };
+    alias.resign_envelope();
+    assert_refusal(alias.run(), 3, CompositionRefusalCode::AliasConflict);
+}
+
+#[test]
+fn fixture_a9_computed_bootstrap_alias_resolves_through_retained_session() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let mut fixture = CompositionFixtureV1::new(true);
+    let representative = fixture.agent_root.clone().unwrap();
+    let representative_integrity = fixture.packages[&CompositionRole::Agent].package.records[0]
+        .artifact
+        .semantics
+        .source_integrity
+        .clone();
+    let alias_source = fixture_source_id(&fixture_root_principal(), "computed-bootstrap-alias-a9");
+    let row = CompositionAliasRowV1 {
+        alias_id: alias_source.encode().unwrap(),
+        representative_source_id: representative.encode().unwrap(),
+        representative_source_integrity: representative_integrity,
+        import_site_inventory_digest: compute_alias_import_site_inventory_digest(&[]).unwrap(),
+    };
+    fixture.envelope.alias_table = CompositionAliasTableV1 {
+        digest: digest_canonical_value_v1(PREPARED_ALIAS_TABLE_DOMAIN_V1, &vec![row.clone()])
+            .unwrap(),
+        rows: vec![row.clone()],
+    };
+    fixture.resign_envelope();
+
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
+    assert_eq!(outcome.status, 0, "alias composition: {:?}", outcome.error);
+    let session = crate::module_loader::runner_pipeline::dev_committed_embedder::retained_composition_session_for_test_v1()
+        .expect("successful C startup retains the composition session");
+    assert_eq!(session.resolve_id(&row.alias_id), Some(&representative));
+    assert_eq!(
+        session.resolve_id(&representative.encode().unwrap()),
+        Some(&representative)
+    );
+}
+
+#[test]
+fn fixture_a10_dynamic_edges_preserve_literal_locality_and_host_bridges() {
+    let mut literal = CompositionFixtureV1::new(false);
+    let literal_root = literal.app_root.clone();
+    literal.replace_record_source(
+        CompositionRole::App,
+        &literal_root,
+        "export function loadAppLib() { return import('./app-lib.mjs'); }",
+    );
+    literal
+        .packages
+        .get_mut(&CompositionRole::App)
+        .unwrap()
+        .package
+        .records[0]
+        .bindings = vec![PreparedPackageBindingV1 {
+        specifier: "./app-lib.mjs".into(),
+        resolution_kind: ResolutionKind::DynamicImport,
+        target: PreparedPackageBindingTargetV1::Local {
+            source_id: literal.app_lib.clone(),
+        },
+    }];
+    literal.normalize();
+    let CompositionAdmissionOutcomeV1::Admitted(literal_admitted) = literal.run() else {
+        panic!("within-package literal dynamic import must admit")
+    };
+    let literal_plan = literal_admitted
+        .authorized
+        .execution_plan(&literal_admitted.envelope.alias_table.rows)
+        .unwrap();
+    let literal_linkage = literal_plan
+        .linkage_order_for_authorized_roots(
+            &literal_admitted.authorized.roots,
+            &literal_admitted.authorized.allowed_dynamic_bindings,
+        )
+        .unwrap();
+    assert!(literal_linkage.contains(&literal.app_lib));
+    assert!(literal_admitted
+        .authorized
+        .allowed_dynamic_bindings
+        .get(&literal.app_root)
+        .is_some_and(|bindings| bindings
+            .iter()
+            .any(|binding| { binding.site.is_none() && binding.specifier == "./app-lib.mjs" })));
+
+    let mut computed = CompositionFixtureV1::new(false);
+    let computed_root = computed.app_root.clone();
+    computed.replace_record_source(
+        CompositionRole::App,
+        &computed_root,
+        "export function computedBootstrap(specifier) { return import(specifier); }",
+    );
+    computed
+        .packages
+        .get_mut(&CompositionRole::App)
+        .unwrap()
+        .package
+        .records[0]
+        .bindings
+        .clear();
+    computed.normalize();
+    let CompositionAdmissionOutcomeV1::Admitted(computed_admitted) = computed.run() else {
+        panic!("computed bootstrap host bridge must admit")
+    };
+    assert!(computed_admitted
+        .authorized
+        .allowed_dynamic_bindings
+        .is_empty());
+    let computed_plan = computed_admitted
+        .authorized
+        .execution_plan(&computed_admitted.envelope.alias_table.rows)
+        .unwrap();
+    assert!(computed_plan
+        .dynamic_import_bindings(&computed.app_root)
+        .unwrap()
+        .is_empty());
+
+    let mut undeclared = CompositionFixtureV1::new(false);
+    let undeclared_root = undeclared.app_root.clone();
+    undeclared.replace_record_source(
+        CompositionRole::App,
+        &undeclared_root,
+        "export function hostOnly() { return import('./host-only.mjs'); }",
+    );
+    let module = undeclared.app_root.encode().unwrap();
+    let app = undeclared.packages.get_mut(&CompositionRole::App).unwrap();
+    app.package.records[0].bindings.clear();
+    app.package.host_bridged_inventory = vec![HostBridgedInventoryRowV1 {
+        module,
+        specifier: "./host-only.mjs".into(),
+        reason: HostBridgedReasonV1::TargetIsNotBundleModule,
+    }];
+    undeclared.normalize();
+    let undeclared_outcome = undeclared.run();
+    let CompositionAdmissionOutcomeV1::Admitted(undeclared_admitted) = undeclared_outcome else {
+        panic!("undeclared literal host bridge must admit: {undeclared_outcome:?}")
+    };
+    assert!(undeclared_admitted
+        .authorized
+        .allowed_dynamic_bindings
+        .get(&undeclared.app_root)
+        .is_none());
+}
+
+#[test]
+fn fixture_rows_d30_d31_d32_and_d34_union_refusals() {
+    let mut absent = CompositionFixtureV1::new(true);
+    let missing = fixture_source_id(&fixture_root_principal(), "absent-external-d30.mjs");
+    let agent = absent.packages.get_mut(&CompositionRole::Agent).unwrap();
+    agent.package.records[0].bindings[0].target = PreparedPackageBindingTargetV1::External {
+        role: CompositionRole::App,
+        source_id: missing,
+    };
+    absent.normalize();
+    assert_refusal(
+        absent.run(),
+        6,
+        CompositionRefusalCode::ExternalTargetAbsent,
+    );
+
+    let mut wrong_owner = CompositionFixtureV1::new(true);
+    let agent_root = wrong_owner.agent_root.clone().unwrap();
+    let agent = wrong_owner
+        .packages
+        .get_mut(&CompositionRole::Agent)
+        .unwrap();
+    agent.package.records[0].bindings[0].target = PreparedPackageBindingTargetV1::External {
+        role: CompositionRole::App,
+        source_id: agent_root,
+    };
+    wrong_owner.normalize();
+    assert_refusal(
+        wrong_owner.run(),
+        6,
+        CompositionRefusalCode::ExternalOwnerMismatch,
+    );
+
+    let mut exports = CompositionFixtureV1::new(true);
+    let app_lib = exports.app_lib.clone();
+    exports.replace_record_source(
+        CompositionRole::App,
+        &app_lib,
+        "export const differentName = 1;",
+    );
+    exports.normalize();
+    assert_refusal(exports.run(), 6, CompositionRefusalCode::ExportDisagreement);
+
+    let mut union = CompositionFixtureV1::new(true);
+    union.envelope.union_binding_table.digest = source_integrity(b"union-d34").unwrap();
+    union.resign_envelope();
+    assert_refusal(union.run(), 6, CompositionRefusalCode::UnionTableMismatch);
+}
+
+#[test]
+fn fixture_rows_d35a_d35b_and_order_guarantee_split_entry_failures() {
+    let mut order = CompositionFixtureV1::new(true);
+    order.envelope.entry_plan.entries.swap(0, 1);
+    order.envelope.entry_plan.digest =
+        entry_plan_digest_v1(&order.envelope.entry_plan.entries).unwrap();
+    order.resign_envelope();
+    assert_refusal(order.run(), 7, CompositionRefusalCode::EntryPlanMismatch);
+
+    let mut missing_export = CompositionFixtureV1::new(true);
+    let agent_root = missing_export.agent_root.clone().unwrap();
+    missing_export.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "export function aDifferentAgentEntry() {}",
+    );
+    missing_export
+        .packages
+        .get_mut(&CompositionRole::Agent)
+        .unwrap()
+        .package
+        .records[0]
+        .bindings
+        .clear();
+    missing_export.normalize();
+    assert_refusal(
+        missing_export.run(),
+        7,
+        CompositionRefusalCode::EntryDescriptorInvalid,
+    );
+
+    let mut unknown_action = CompositionFixtureV1::new(true);
+    unknown_action.envelope.entry_plan.entries[0].action = "unknown-action".into();
+    unknown_action.envelope.entry_plan.digest =
+        entry_plan_digest_v1(&unknown_action.envelope.entry_plan.entries).unwrap();
+    unknown_action.resign_envelope();
+    assert_refusal(
+        unknown_action.run(),
+        7,
+        CompositionRefusalCode::EntryDescriptorInvalid,
+    );
+
+    let mut malformed = CompositionFixtureV1::new(true);
+    malformed.envelope.entry_plan.entries[0].root = "not-a-source-id".into();
+    malformed.envelope.entry_plan.digest =
+        entry_plan_digest_v1(&malformed.envelope.entry_plan.entries).unwrap();
+    malformed.resign_envelope();
+    assert_refusal(
+        malformed.run(),
+        7,
+        CompositionRefusalCode::EntryDescriptorInvalid,
+    );
+
+    let mut reaches_app_root = CompositionFixtureV1::new(true);
+    let agent_root = reaches_app_root.agent_root.clone().unwrap();
+    reaches_app_root.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appResult } from 'app-root'; export function installExactNativeAgentBootstrap() { return appResult; }",
+    );
+    let app_root = reaches_app_root.app_root.clone();
+    let agent = reaches_app_root
+        .packages
+        .get_mut(&CompositionRole::Agent)
+        .unwrap();
+    agent.package.records[0].bindings = vec![PreparedPackageBindingV1 {
+        specifier: "app-root".into(),
+        resolution_kind: ResolutionKind::EsmStatic,
+        target: PreparedPackageBindingTargetV1::External {
+            role: CompositionRole::App,
+            source_id: app_root,
+        },
+    }];
+    reaches_app_root.normalize();
+    assert_refusal(
+        reaches_app_root.run(),
+        7,
+        CompositionRefusalCode::EntryPlanMismatch,
+    );
+}
+
+#[test]
+fn fixture_d36_async_agent_root_has_no_synchronous_composition_order() {
+    let mut fixture = CompositionFixtureV1::new(true);
+    let agent_root = fixture.agent_root.clone().unwrap();
+    fixture.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appValue } from 'app-lib'; await Promise.resolve(appValue); export function installExactNativeAgentBootstrap() { return appValue; }",
+    );
+    fixture.normalize();
+    assert_refusal(
+        fixture.run(),
+        7,
+        CompositionRefusalCode::CompositionRootUnlinked,
+    );
+}
+
+#[test]
+fn fixture_d37_atomic_link_failure_refuses_before_any_record_evaluates() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let mut fixture = CompositionFixtureV1::new(true);
+    fixture
+        .packages
+        .get_mut(&CompositionRole::App)
+        .unwrap()
+        .carriers[0]
+        .bytes = b"this is not a JavaScript factory table (".to_vec();
+    fixture.resync_package_and_resign(CompositionRole::App);
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
+    assert_eq!(outcome.status, 1);
+    assert_eq!(outcome.report["admissionStatus"], "refused");
+    assert_eq!(outcome.report["failureStage"], 8);
+    assert_eq!(outcome.report["reasonCode"], "link-failure");
+    assert!(outcome.report["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|package| package["verificationStatus"] == "verified"));
+    let probe = runtime
+        .eval_text(
+            "JSON.stringify(globalThis.__compositionOrder || null)",
+            "llp0056-link-atomicity-probe",
+        )
+        .unwrap();
+    assert_eq!(probe.trim(), "null");
+}
+
+fn assert_startup_error_shape_v1(
+    outcome: &CompositionStartupFixtureOutcomeV1,
+    phase: &str,
+    agent_count: u64,
+    app_count: u64,
+    shared_count: u64,
+) {
+    assert_eq!(outcome.status, 2, "startup error: {:?}", outcome.error);
+    assert_eq!(outcome.report["admissionStatus"], "admitted-startup-error");
+    assert_eq!(outcome.report["startupPhase"], phase);
+    assert!(outcome.report.get("reasonCode").is_none());
+    assert_eq!(outcome.report["agentEvaluatedRecordCount"], agent_count);
+    assert_eq!(outcome.report["appEvaluatedRecordCount"], app_count);
+    assert_eq!(outcome.report["sharedEvaluatedRecordCount"], shared_count);
+    assert!(outcome.report["errorDetail"].is_string());
+    assert!(outcome.report["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|package| package["verificationStatus"] == "verified"));
+    assert_i_json_report_counters(&outcome.report);
+}
+
+#[test]
+fn descriptor_startup_errors_are_phase_typed_and_never_reopen_admission() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+
+    let mut agent_evaluate = CompositionFixtureV1::new(true);
+    let agent_root = agent_evaluate.agent_root.clone().unwrap();
+    agent_evaluate.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appValue } from 'app-lib'; globalThis.__compositionOrder.push('agent-evaluate-failure'); throw new Error('agent evaluate failed'); export function installExactNativeAgentBootstrap() { return appValue; }",
+    );
+    agent_evaluate.normalize();
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&agent_evaluate, &runtime);
+    assert_startup_error_shape_v1(&outcome, "agent-evaluate", 1, 0, 1);
+
+    let mut agent_invoke = CompositionFixtureV1::new(true);
+    let agent_root = agent_invoke.agent_root.clone().unwrap();
+    agent_invoke.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appValue } from 'app-lib'; globalThis.__compositionOrder.push('agent'); export function installExactNativeAgentBootstrap() { globalThis.__compositionOrder.push('invoke'); throw new Error('agent invoke failed'); }",
+    );
+    agent_invoke.normalize();
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&agent_invoke, &runtime);
+    assert_startup_error_shape_v1(&outcome, "agent-invoke", 2, 0, 1);
+
+    let mut non_callable = CompositionFixtureV1::new(true);
+    let agent_root = non_callable.agent_root.clone().unwrap();
+    non_callable.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appValue } from 'app-lib'; globalThis.__compositionOrder.push('agent'); export const installExactNativeAgentBootstrap = appValue;",
+    );
+    non_callable.normalize();
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&non_callable, &runtime);
+    assert_startup_error_shape_v1(&outcome, "agent-invoke", 2, 0, 1);
+    assert!(outcome.report["errorDetail"]
+        .as_str()
+        .unwrap()
+        .contains("not callable"));
+
+    let mut app_evaluate = CompositionFixtureV1::new(true);
+    let app_root = app_evaluate.app_root.clone();
+    app_evaluate.replace_record_source(
+        CompositionRole::App,
+        &app_root,
+        "import { appValue } from './app-lib.mjs'; globalThis.__compositionOrder.push('app'); throw new Error('app evaluate failed'); export const appResult = appValue;",
+    );
+    app_evaluate.normalize();
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&app_evaluate, &runtime);
+    assert_startup_error_shape_v1(&outcome, "app-evaluate", 2, 0, 1);
+    let probe = runtime
+        .eval_text(
+            "JSON.stringify(globalThis.__compositionOrder)",
+            "llp0056-app-failure-order-probe",
+        )
+        .unwrap();
+    assert_eq!(probe.trim(), r#"["lib","agent","invoke","app"]"#);
+}
+
+#[test]
+fn descriptor_thenable_is_reported_without_awaiting_or_blocking_app_evaluation() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let mut fixture = CompositionFixtureV1::new(true);
+    let agent_root = fixture.agent_root.clone().unwrap();
+    fixture.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appValue } from 'app-lib'; globalThis.__compositionOrder.push('agent'); export function installExactNativeAgentBootstrap() { globalThis.__compositionOrder.push('invoke'); return { then: function () {} }; }",
+    );
+    fixture.normalize();
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
+    assert_eq!(outcome.status, 0, "thenable startup: {:?}", outcome.error);
+    assert_eq!(outcome.report["agentInvokeReturnedThenable"], true);
+    let probe = runtime
+        .eval_text(
+            "JSON.stringify(globalThis.__compositionOrder)",
+            "llp0056-thenable-order-probe",
+        )
+        .unwrap();
+    assert_eq!(probe.trim(), r#"["lib","agent","invoke","app"]"#);
 }
 
 #[test]
@@ -787,6 +1502,109 @@ fn report_package_statuses_follow_the_step_transition_rule() {
     assert!(common.packages.iter().all(|package| {
         package.verification_status == CompositionPackageVerificationStatusV1::Verified
     }));
+}
+
+#[test]
+fn fixture_e39_serializes_every_registry_pair_transition_and_four_tagged_shapes() {
+    let admitted = CompositionFixtureV1::new(true).run();
+    let CompositionAdmissionOutcomeV1::Admitted(admitted) = admitted else {
+        panic!("expected the report-shape fixture to admit")
+    };
+    let admitted_report = admitted.report;
+    let DevUnarmedCompositionStartupReportV1::Admitted {
+        common: admitted_common,
+        ..
+    } = admitted_report.clone()
+    else {
+        panic!("admitted capability carries the admitted report")
+    };
+
+    for code in CompositionRefusalCode::ALL {
+        let mut common = if code == CompositionRefusalCode::EnvelopeMalformed {
+            report_common_v1(None, None, &BTreeMap::new(), &BTreeMap::new(), None, 0, 0)
+        } else {
+            admitted_common.clone()
+        };
+        let package_role = match code {
+            CompositionRefusalCode::PackageRootMismatch
+            | CompositionRefusalCode::IbexPreparedCommitmentSchema
+            | CompositionRefusalCode::IbexPackageInventory
+            | CompositionRefusalCode::IbexPreparedCommitmentCorrupt
+            | CompositionRefusalCode::CarrierIntegrity
+            | CompositionRefusalCode::IbexPrincipalGrouping
+            | CompositionRefusalCode::IbexEncodingIncompatible
+            | CompositionRefusalCode::IbexEngineUnavailable
+            | CompositionRefusalCode::IbexEngineBindingMismatch
+            | CompositionRefusalCode::IbexBytecodePreflight
+            | CompositionRefusalCode::IbexPackageGraphBinding
+            | CompositionRefusalCode::IbexDuplicateSourceId
+            | CompositionRefusalCode::AppReferencesAgent
+            | CompositionRefusalCode::LocalAgreementDisagreement => Some(CompositionRole::App),
+            _ => None,
+        };
+        for package in &mut common.packages {
+            package.verification_status = if code.step() == 2 {
+                package.record_count = 0;
+                package.carrier_count = 0;
+                package.hbc_carrier_count = 0;
+                package.javascript_carrier_count = 0;
+                CompositionPackageVerificationStatusV1::NotChecked
+            } else if matches!(
+                code,
+                CompositionRefusalCode::GenerationSplice | CompositionRefusalCode::AliasConflict
+            ) {
+                CompositionPackageVerificationStatusV1::NotChecked
+            } else if package_role == Some(package.role) {
+                CompositionPackageVerificationStatusV1::Refused
+            } else {
+                CompositionPackageVerificationStatusV1::Verified
+            };
+        }
+        let report = DevUnarmedCompositionStartupReportV1::Refused {
+            common,
+            failure_stage: u32::from(code.step()),
+            reason_code: code,
+            package_role,
+            detail: format!("fixture receipt for {}", code.as_str()),
+        };
+        let value = serde_json::to_value(report).unwrap();
+        assert_eq!(value["admissionStatus"], "refused");
+        assert_eq!(value["failureStage"], u32::from(code.step()));
+        assert_eq!(value["reasonCode"], code.as_str());
+        assert!(value.get("startupPhase").is_none());
+        assert_i_json_report_counters(&value);
+        if code == CompositionRefusalCode::EnvelopeMalformed {
+            assert_eq!(value["packages"], serde_json::json!([]));
+            assert!(value["declaredRoles"].is_null());
+        }
+    }
+
+    let channel = serde_json::to_value(composition_embedder_channel_error_report_v1(
+        "fixture channel failure",
+    ))
+    .unwrap();
+    assert_eq!(channel["admissionStatus"], "channel-error");
+    assert!(channel.get("reasonCode").is_none());
+
+    let admitted = serde_json::to_value(admitted_report.clone()).unwrap();
+    assert_eq!(admitted["admissionStatus"], "admitted");
+    assert!(admitted.get("failureStage").is_none());
+    assert!(admitted.get("reasonCode").is_none());
+    assert!(admitted["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|package| package["verificationStatus"] == "verified"));
+
+    let startup = serde_json::to_value(admitted_report.into_startup_error(
+        CompositionStartupPhaseV1::AgentInvoke,
+        "fixture invoke failure".into(),
+    ))
+    .unwrap();
+    assert_eq!(startup["admissionStatus"], "admitted-startup-error");
+    assert_eq!(startup["startupPhase"], "agent-invoke");
+    assert!(startup.get("failureStage").is_none());
+    assert!(startup.get("reasonCode").is_none());
 }
 
 #[test]
@@ -1281,7 +2099,7 @@ fn imported_rows_f_i7_f_i8_f_i9_engine_failures_reach_driver() {
 }
 
 #[test]
-fn a2_crossing_external_defining_principals_refuses_row_34() {
+fn fixture_d33_a2_crossing_external_defining_principals_refuses_row_34() {
     let mut fixture = CompositionFixtureV1::new(true);
     let package_principal = fixture_package_principal();
     let new_agent_root = fixture_source_id(&package_principal, "agent-package-root.mjs");
@@ -1444,6 +2262,97 @@ fn random_fault_conjunctions_choose_the_lowest_tuple_across_steps_1_through_7() 
             refusal(fixture.run()),
             expected,
             "fault conjunction mask {mask:#09b} selected the wrong precedence tuple"
+        );
+    }
+}
+
+#[test]
+fn random_fault_conjunctions_choose_the_lowest_tuple_through_step_8_c_entry() {
+    const FAULTS: [(u32, CompositionRefusalCode); 8] = [
+        (1, CompositionRefusalCode::EnvelopeMalformed),
+        (2, CompositionRefusalCode::CompositionPolicyStale),
+        (3, CompositionRefusalCode::PackageRootMismatch),
+        (4, CompositionRefusalCode::PartitionMismatch),
+        (5, CompositionRefusalCode::AppReferencesAgent),
+        (6, CompositionRefusalCode::UnionTableMismatch),
+        (7, CompositionRefusalCode::EntryPlanMismatch),
+        (8, CompositionRefusalCode::LinkFailure),
+    ];
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let runtime = CompositionTestRuntimeV1::new();
+    let mut masks = (0..FAULTS.len())
+        .map(|index| 1_u16 << index)
+        .collect::<Vec<_>>();
+    let mut state = 0x0056_0008_5eed_u64;
+    for _ in 0..32 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        masks.push((((state >> 32) as u16) & 0xff).max(1));
+    }
+
+    for mask in masks {
+        let mut fixture = CompositionFixtureV1::new(true);
+        if mask & (1 << 7) != 0 {
+            fixture
+                .packages
+                .get_mut(&CompositionRole::App)
+                .unwrap()
+                .carriers[0]
+                .bytes = format!("invalid-link-factory-{mask}(").into_bytes();
+            fixture.resync_package_and_resign(CompositionRole::App);
+        }
+        if mask & (1 << 4) != 0 {
+            inject_app_to_agent_fault(&mut fixture);
+        }
+        if mask & (1 << 3) != 0 {
+            fixture.envelope.partition.digest =
+                source_integrity(format!("partition-fault-step8-{mask}").as_bytes()).unwrap();
+        }
+        if mask & (1 << 5) != 0 {
+            fixture.envelope.union_binding_table.digest =
+                source_integrity(format!("union-fault-step8-{mask}").as_bytes()).unwrap();
+        }
+        if mask & (1 << 6) != 0 {
+            fixture.envelope.entry_plan.digest =
+                source_integrity(format!("entry-fault-step8-{mask}").as_bytes()).unwrap();
+        }
+        fixture.resign_envelope();
+        if mask & (1 << 1) != 0 {
+            fixture.expectations.policy_digest =
+                source_integrity(format!("policy-fault-step8-{mask}").as_bytes()).unwrap();
+        }
+        if mask & (1 << 2) != 0 {
+            let path = fixture
+                .package_dir(CompositionRole::Agent)
+                .join("index.json");
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes.push(b'\n');
+            std::fs::write(path, bytes).unwrap();
+        }
+        if mask & 1 != 0 {
+            let path = fixture.directory.path().join("composition.json");
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes.push(b'\n');
+            std::fs::write(path, bytes).unwrap();
+        }
+
+        let expected = FAULTS
+            .iter()
+            .enumerate()
+            .find(|(index, _)| mask & (1 << index) != 0)
+            .map(|(_, expected)| *expected)
+            .unwrap();
+        let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
+        assert_eq!(outcome.status, 1, "mask {mask:#010b}: {:?}", outcome.error);
+        assert_eq!(
+            (
+                outcome.report["failureStage"].as_u64().unwrap() as u32,
+                outcome.report["reasonCode"].as_str().unwrap(),
+            ),
+            (expected.0, expected.1.as_str()),
+            "fault conjunction mask {mask:#010b} selected the wrong C-entry precedence tuple"
         );
     }
 }

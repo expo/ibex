@@ -1,0 +1,16 @@
+(function(){"use strict";var table=Object.create(null);Object.defineProperty(table,"app-root",{value:(function (__ibex_export$0, __ibex_context$0) {
+"use strict";
+let appResult;
+return {
+declare: function () {
+
+},
+execute: function () {
+globalThis.__compositionOrder.push("app");
+globalThis.__compositionAppMain = __ibex_context$0.meta.main;
+appResult = __ibex_context$0.importValue("./app-lib.mjs", "appValue");
+__ibex_export$0("appResult", appResult);
+}
+};
+}
+),enumerable:true});return Object.freeze(table);})()

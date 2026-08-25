@@ -1,0 +1,18 @@
+(function(){"use strict";var table=Object.create(null);Object.defineProperty(table,"agent-root",{value:(function (__ibex_export$0, __ibex_context$0) {
+"use strict";
+function installExactNativeAgentBootstrap() {
+	globalThis.__compositionOrder.push("invoke");
+	return __ibex_context$0.importValue("app-lib", "appValue");
+}
+return {
+declare: function () {
+__ibex_export$0("installExactNativeAgentBootstrap", installExactNativeAgentBootstrap);
+
+},
+execute: function () {
+globalThis.__compositionOrder.push("agent");
+globalThis.__compositionAgentMain = __ibex_context$0.meta.main;
+}
+};
+}
+),enumerable:true});return Object.freeze(table);})()
