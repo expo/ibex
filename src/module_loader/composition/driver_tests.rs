@@ -562,6 +562,58 @@ fn assert_admitted(outcome: CompositionAdmissionOutcomeV1) {
     );
 }
 
+fn refusal_statuses(
+    outcome: CompositionAdmissionOutcomeV1,
+    expected_code: CompositionRefusalCode,
+) -> Vec<(CompositionRole, CompositionPackageVerificationStatusV1)> {
+    let CompositionAdmissionOutcomeV1::Refused(DevUnarmedCompositionStartupReportV1::Refused {
+        common,
+        reason_code,
+        ..
+    }) = outcome
+    else {
+        panic!("expected a registry refusal, got {outcome:?}")
+    };
+    assert_eq!(reason_code, expected_code);
+    common
+        .packages
+        .into_iter()
+        .map(|package| (package.role, package.verification_status))
+        .collect()
+}
+
+fn assert_i_json_report_counters(value: &Value) {
+    for field in [
+        "commitmentParseUs",
+        "admissionUs",
+        "graphLinkUs",
+        "agentEvaluateUs",
+        "agentInvokeUs",
+        "appEvaluateUs",
+        "agentEvaluatedRecordCount",
+        "appEvaluatedRecordCount",
+        "sharedEvaluatedRecordCount",
+    ] {
+        assert!(
+            value[field].as_u64().unwrap() <= I_JSON_MAX_SAFE_INTEGER,
+            "report counter {field} is not I-JSON safe"
+        );
+    }
+    for package in value["packages"].as_array().unwrap() {
+        for field in [
+            "recordCount",
+            "carrierCount",
+            "hbcCarrierCount",
+            "javascriptCarrierCount",
+        ] {
+            assert!(
+                package[field].as_u64().unwrap() <= I_JSON_MAX_SAFE_INTEGER,
+                "package counter {field} is not I-JSON safe"
+            );
+        }
+    }
+}
+
 fn rewrite_index_and_recommit(
     fixture: &mut CompositionFixtureV1,
     role: CompositionRole,
@@ -636,6 +688,7 @@ fn driver_channel_error_and_step1_sentinel_reports_are_total() {
     assert_eq!(value["channelToken"], IBEX_DEV_COMPOSITION_CORRUPT);
     assert_eq!(value["packages"], serde_json::json!([]));
     assert!(value["declaredRoles"].is_null());
+    assert_i_json_report_counters(&value);
 
     std::fs::write(
         fixture.directory.path().join("composition.json"),
@@ -651,9 +704,89 @@ fn driver_channel_error_and_step1_sentinel_reports_are_total() {
     assert_eq!(value["reasonCode"], "envelope-malformed");
     assert_eq!(value["packages"], serde_json::json!([]));
     assert!(value["compositionRootPrefix"].is_null());
-    for field in ["commitmentParseUs", "admissionUs"] {
-        assert!(value[field].as_u64().unwrap() <= I_JSON_MAX_SAFE_INTEGER);
-    }
+    assert_i_json_report_counters(&value);
+}
+
+#[test]
+fn report_package_statuses_follow_the_step_transition_rule() {
+    let mut step2 = CompositionFixtureV1::new(true);
+    step2.expectations.policy_digest = source_integrity(b"step-2-policy-fault").unwrap();
+    assert_eq!(
+        refusal_statuses(step2.run(), CompositionRefusalCode::CompositionPolicyStale),
+        vec![
+            (
+                CompositionRole::App,
+                CompositionPackageVerificationStatusV1::NotChecked,
+            ),
+            (
+                CompositionRole::Agent,
+                CompositionPackageVerificationStatusV1::NotChecked,
+            ),
+        ]
+    );
+
+    let step3 = CompositionFixtureV1::new(true);
+    let path = step3.package_dir(CompositionRole::Agent).join("index.json");
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(path, bytes).unwrap();
+    assert_eq!(
+        refusal_statuses(step3.run(), CompositionRefusalCode::PackageRootMismatch),
+        vec![
+            (
+                CompositionRole::App,
+                CompositionPackageVerificationStatusV1::Verified,
+            ),
+            (
+                CompositionRole::Agent,
+                CompositionPackageVerificationStatusV1::Refused,
+            ),
+        ]
+    );
+
+    let mut step5 = CompositionFixtureV1::new(true);
+    inject_app_to_agent_fault(&mut step5);
+    assert_eq!(
+        refusal_statuses(step5.run(), CompositionRefusalCode::AppReferencesAgent),
+        vec![
+            (
+                CompositionRole::App,
+                CompositionPackageVerificationStatusV1::Refused,
+            ),
+            (
+                CompositionRole::Agent,
+                CompositionPackageVerificationStatusV1::Verified,
+            ),
+        ]
+    );
+
+    let mut step6 = CompositionFixtureV1::new(true);
+    step6.envelope.union_binding_table.digest = source_integrity(b"step-6-union-fault").unwrap();
+    step6.resign_envelope();
+    assert_eq!(
+        refusal_statuses(step6.run(), CompositionRefusalCode::UnionTableMismatch),
+        vec![
+            (
+                CompositionRole::App,
+                CompositionPackageVerificationStatusV1::Verified,
+            ),
+            (
+                CompositionRole::Agent,
+                CompositionPackageVerificationStatusV1::Verified,
+            ),
+        ]
+    );
+
+    let admitted = CompositionFixtureV1::new(true).run();
+    let CompositionAdmissionOutcomeV1::Admitted(admitted) = admitted else {
+        panic!("expected admission, got {admitted:?}")
+    };
+    let DevUnarmedCompositionStartupReportV1::Admitted { common, .. } = admitted.report else {
+        panic!("admitted capability did not retain an admitted report")
+    };
+    assert!(common.packages.iter().all(|package| {
+        package.verification_status == CompositionPackageVerificationStatusV1::Verified
+    }));
 }
 
 #[test]
