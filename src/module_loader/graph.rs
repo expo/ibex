@@ -144,10 +144,6 @@ pub struct SynchronousGraphPlan<'artifact> {
 }
 
 /// Data-only ordered composition roots with an explicitly named main root.
-///
-/// This frozen leg intentionally provides no linkage or evaluation-order
-/// operations; the multi-root traversal and segment semantics are LLP 0056
-/// §7.1 leg-3 work.
 // @ref LLP 0056#72-the-authorized-composition-linker-module_runnerrs — import.meta.main belongs to the named app root, never a positional guess.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompositionRootPlan {
@@ -606,6 +602,46 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         self.linkage_order_for_authorized(entry, &allowed)
     }
 
+    /// Deterministic dependency-first materialization order for an ordered
+    /// root list. A record belongs to the first root closure that reaches it.
+    // @ref LLP 0056#71-synchronousgraphplan-graphrs — entry-plan order and cross-root dedup place shared records in the agent segment.
+    pub fn linkage_order_for_roots(&self, roots: &[SourceId]) -> Result<Vec<SourceId>, GraphError> {
+        let allowed: BTreeMap<_, _> = self
+            .records
+            .keys()
+            .map(|source_id| {
+                Ok((
+                    source_id.clone(),
+                    self.dynamic_import_bindings(source_id)?
+                        .into_iter()
+                        .map(|binding| binding.key())
+                        .collect(),
+                ))
+            })
+            .collect::<Result<_, GraphError>>()?;
+        self.linkage_order_for_authorized_roots(roots, &allowed)
+    }
+
+    pub(crate) fn linkage_order_for_authorized_roots(
+        &self,
+        roots: &[SourceId],
+        allowed_dynamic_bindings: &BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
+    ) -> Result<Vec<SourceId>, GraphError> {
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut order = Vec::new();
+        for root in roots {
+            self.visit_for_linkage(
+                root,
+                allowed_dynamic_bindings,
+                &mut visiting,
+                &mut visited,
+                &mut order,
+            )?;
+        }
+        Ok(order)
+    }
+
     pub fn linkage_order_for_authorized(
         &self,
         entry: &SourceId,
@@ -645,6 +681,36 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             return Err(GraphError::asynchronous(source_id));
         }
         Ok(order)
+    }
+
+    /// Dependency-first synchronous evaluation segments for ordered roots.
+    /// Cross-root dedup is retained between segments, so each record appears
+    /// exactly once under the first root that reaches it.
+    // @ref LLP 0056#71-synchronousgraphplan-graphrs — the segment boundary is the descriptor executor's invoke point.
+    pub fn synchronous_evaluation_order_for_roots(
+        &self,
+        roots: &[SourceId],
+    ) -> Result<Vec<Vec<SourceId>>, GraphError> {
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut segments = Vec::with_capacity(roots.len());
+        for root in roots {
+            let mut segment = Vec::new();
+            self.visit_for_evaluation(root, &mut visiting, &mut visited, &mut segment)?;
+            if let Some(source_id) = segment.iter().find(|source_id| {
+                self.records
+                    .get(*source_id)
+                    .expect("evaluation order contains only planned records")
+                    .artifact
+                    .artifact()
+                    .semantics
+                    .has_top_level_await
+            }) {
+                return Err(GraphError::asynchronous(source_id));
+            }
+            segments.push(segment);
+        }
+        Ok(segments)
     }
 
     pub fn has_top_level_await(&self, source_id: &SourceId) -> Result<bool, GraphError> {
@@ -1667,6 +1733,60 @@ mod tests {
         let plan = CompositionRootPlan::new(vec![agent.clone(), app.clone()], &app).unwrap();
         assert_eq!(plan.roots(), &[agent, app.clone()]);
         assert_eq!(plan.main_root(), &app);
+    }
+
+    #[test]
+    fn composition_orders_assign_shared_records_to_first_root_segment() {
+        let shared_id = source("composition-shared");
+        let agent_id = source("composition-agent-entry");
+        let app_id = source("composition-app-entry");
+        let shared = artifact(shared_id.clone(), vec![], vec![], false);
+        let agent = artifact(agent_id.clone(), vec![], vec![edge("./shared")], false);
+        let app = artifact(app_id.clone(), vec![], vec![edge("./shared")], false);
+        let plan = SynchronousGraphPlan::new([
+            (verify(&shared), BTreeMap::new()),
+            (
+                verify(&agent),
+                BTreeMap::from([("./shared".into(), shared_id.clone())]),
+            ),
+            (
+                verify(&app),
+                BTreeMap::from([("./shared".into(), shared_id.clone())]),
+            ),
+        ])
+        .unwrap();
+        let roots = [agent_id.clone(), app_id.clone()];
+
+        assert_eq!(
+            plan.linkage_order_for_roots(&roots).unwrap(),
+            [shared_id.clone(), agent_id.clone(), app_id.clone()]
+        );
+        assert_eq!(
+            plan.synchronous_evaluation_order_for_roots(&roots).unwrap(),
+            [vec![shared_id, agent_id], vec![app_id]]
+        );
+    }
+
+    #[test]
+    fn composition_synchronous_segments_retain_tla_refusal() {
+        let async_id = source("composition-async-dependency");
+        let agent_id = source("composition-agent-with-async");
+        let async_record = artifact(async_id.clone(), vec![], vec![], true);
+        let agent = artifact(agent_id.clone(), vec![], vec![edge("./async")], false);
+        let plan = SynchronousGraphPlan::new([
+            (verify(&async_record), BTreeMap::new()),
+            (
+                verify(&agent),
+                BTreeMap::from([("./async".into(), async_id.clone())]),
+            ),
+        ])
+        .unwrap();
+
+        let error = plan
+            .synchronous_evaluation_order_for_roots(&[agent_id])
+            .unwrap_err();
+        assert_eq!(error.code, GraphErrorCode::RequireAsyncModule);
+        assert!(error.detail.contains(&format!("{async_id:?}")));
     }
 
     fn edge(specifier: &str) -> StaticEdgeV1 {
