@@ -10,8 +10,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 #[cfg(feature = "dev-committed-embedder")]
-use capsec_semantics::model::Principal;
+use capsec_semantics::arming::SnapshotGenerations;
 use capsec_semantics::model::{Digest, NonEmptyString};
+#[cfg(feature = "dev-committed-embedder")]
+use capsec_semantics::model::{Generation, Principal, Stage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -22,7 +24,8 @@ use super::artifact::{digest_bytes, source_integrity, ModuleArtifactV1};
 use super::carrier::PreparedCarrierEngineBindingV2;
 #[cfg(feature = "dev-committed-embedder")]
 use super::graph::{
-    ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
+    ComputedCandidateBinding, ComputedCandidateSiteMap, DynamicImportBindingKey, GraphEdgeKey,
+    SynchronousGraphPlan,
 };
 use super::identity::{ResolutionKind, SourceId};
 #[cfg(all(feature = "dev-committed-embedder", test))]
@@ -31,6 +34,10 @@ use super::runner_pipeline::parse_dev_composition_channel_records_unchecked_v1;
 use super::runner_pipeline::{
     admit_composition_package_v1, parse_dev_composition_channel_records_v1,
     read_bounded_prepared_file, AdmittedCompositionPackageV1, CommittedHbcEngineExpectationV1,
+};
+#[cfg(feature = "dev-committed-embedder")]
+use super::security::{
+    AuthorizedGraphOperation, GraphAuthorityContext, GraphImportPolicy, ModuleGraphAuthorizer,
 };
 
 pub use super::composition_refusals_generated::{
@@ -526,6 +533,91 @@ pub enum CompositionStartupPhaseV1 {
     AppEvaluate,
 }
 
+#[cfg(feature = "dev-committed-embedder")]
+impl DevUnarmedCompositionStartupReportV1 {
+    fn common_mut(&mut self) -> &mut CompositionReportCommonV1 {
+        match self {
+            Self::ChannelError { common, .. }
+            | Self::Refused { common, .. }
+            | Self::Admitted { common, .. }
+            | Self::AdmittedStartupError { common, .. } => common,
+        }
+    }
+
+    pub(crate) fn set_graph_link_duration(&mut self, duration: Duration) {
+        self.common_mut().graph_link_us = i_json_duration_us(duration);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn set_execution_observations(
+        &mut self,
+        agent_evaluate: Duration,
+        agent_invoke: Duration,
+        app_evaluate: Duration,
+        agent_evaluated_record_count: usize,
+        app_evaluated_record_count: usize,
+        shared_evaluated_record_count: usize,
+        agent_invoke_returned_thenable: bool,
+    ) {
+        let common = self.common_mut();
+        common.agent_evaluate_us = i_json_duration_us(agent_evaluate);
+        common.agent_invoke_us = i_json_duration_us(agent_invoke);
+        common.app_evaluate_us = i_json_duration_us(app_evaluate);
+        common.agent_evaluated_record_count = u64::try_from(agent_evaluated_record_count)
+            .unwrap_or(I_JSON_MAX_SAFE_INTEGER)
+            .min(I_JSON_MAX_SAFE_INTEGER);
+        common.app_evaluated_record_count = u64::try_from(app_evaluated_record_count)
+            .unwrap_or(I_JSON_MAX_SAFE_INTEGER)
+            .min(I_JSON_MAX_SAFE_INTEGER);
+        common.shared_evaluated_record_count = u64::try_from(shared_evaluated_record_count)
+            .unwrap_or(I_JSON_MAX_SAFE_INTEGER)
+            .min(I_JSON_MAX_SAFE_INTEGER);
+        match self {
+            Self::Admitted {
+                agent_invoke_returned_thenable: returned,
+                ..
+            }
+            | Self::AdmittedStartupError {
+                agent_invoke_returned_thenable: returned,
+                ..
+            } => *returned = agent_invoke_returned_thenable,
+            Self::ChannelError { .. } | Self::Refused { .. } => {}
+        }
+    }
+
+    pub(crate) fn into_link_refusal(self, detail: String) -> Self {
+        match self {
+            Self::Admitted { common, .. } => Self::Refused {
+                common,
+                failure_stage: 8,
+                reason_code: CompositionRefusalCode::LinkFailure,
+                package_role: None,
+                detail,
+            },
+            report => report,
+        }
+    }
+
+    pub(crate) fn into_startup_error(
+        self,
+        startup_phase: CompositionStartupPhaseV1,
+        error_detail: String,
+    ) -> Self {
+        match self {
+            Self::Admitted {
+                common,
+                agent_invoke_returned_thenable,
+            } => Self::AdmittedStartupError {
+                common,
+                startup_phase,
+                error_detail,
+                agent_invoke_returned_thenable,
+            },
+            report => report,
+        }
+    }
+}
+
 fn serialize_composition_refusal_code<S>(
     code: &CompositionRefusalCode,
     serializer: S,
@@ -537,14 +629,12 @@ where
 }
 
 #[cfg(feature = "dev-committed-embedder")]
-#[derive(Clone, Debug)]
-// slice-3: the authorized linker consumes these retained exact-edge proofs.
-#[allow(dead_code)]
-struct CompositionAuthorizedEdgeV1 {
-    origin: SourceId,
-    target: SourceId,
-    specifier: String,
-    resolution_kind: ResolutionKind,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CompositionAuthorizedEdgeV1 {
+    pub(crate) origin: SourceId,
+    pub(crate) target: SourceId,
+    pub(crate) specifier: String,
+    pub(crate) resolution_kind: ResolutionKind,
 }
 
 /// Step-6 capability proving the union plan passed structural closure and the
@@ -552,13 +642,61 @@ struct CompositionAuthorizedEdgeV1 {
 /// decision.
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
-// slice-3: the authorized multi-root linker consumes these retained fields.
-#[allow(dead_code)]
 pub struct AuthorizedCompositionPlanV1 {
-    packages: BTreeMap<CompositionRole, super::runner_pipeline::AdmittedCompositionPackageV1>,
-    authorized_edges: Vec<CompositionAuthorizedEdgeV1>,
-    roots: Vec<SourceId>,
-    main_root: SourceId,
+    pub(crate) packages:
+        BTreeMap<CompositionRole, super::runner_pipeline::AdmittedCompositionPackageV1>,
+    pub(crate) authorized_edges: Vec<CompositionAuthorizedEdgeV1>,
+    pub(crate) authorization_receipts: Vec<AuthorizedGraphOperation>,
+    pub(crate) allowed_dynamic_bindings: BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
+    pub(crate) authority_contexts: BTreeMap<SourceId, GraphAuthorityContext>,
+    pub(crate) roots: Vec<SourceId>,
+    pub(crate) main_root: SourceId,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl AuthorizedCompositionPlanV1 {
+    pub(crate) fn execution_plan(
+        &self,
+        aliases: &[CompositionAliasRowV1],
+    ) -> Result<SynchronousGraphPlan<'_>> {
+        let ownership = self
+            .packages
+            .iter()
+            .flat_map(|(role, package)| {
+                package
+                    .records
+                    .keys()
+                    .cloned()
+                    .map(|source_id| (source_id, *role))
+            })
+            .collect::<BTreeMap<_, _>>();
+        build_union_plan_v1(&self.packages, &ownership, aliases)
+    }
+
+    pub(crate) fn root_plan(&self) -> Result<super::graph::CompositionRootPlan> {
+        super::graph::CompositionRootPlan::new(self.roots.clone(), &self.main_root)
+    }
+
+    pub(crate) fn admitted_records(&self) -> BTreeSet<SourceId> {
+        self.packages
+            .values()
+            .flat_map(|package| package.records.keys().cloned())
+            .collect()
+    }
+
+    pub(crate) fn graph_generation(&self) -> Result<u64> {
+        let mut generations = self
+            .packages
+            .values()
+            .map(|package| package.producer_generation);
+        let generation = generations
+            .next()
+            .ok_or_else(|| anyhow!("authorized composition contains no package"))?;
+        if generation == 0 || generations.any(|candidate| candidate != generation) {
+            bail!("authorized composition does not retain one nonzero generation");
+        }
+        Ok(generation)
+    }
 }
 
 /// Successful steps-0–7 handoff to the link/evaluate slice.
@@ -726,6 +864,18 @@ fn report_common_v1(
         agent_evaluated_record_count: 0,
         app_evaluated_record_count: 0,
         shared_evaluated_record_count: 0,
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+pub(crate) fn composition_embedder_channel_error_report_v1(
+    detail: impl Into<String>,
+) -> DevUnarmedCompositionStartupReportV1 {
+    let detail = detail.into();
+    DevUnarmedCompositionStartupReportV1::ChannelError {
+        common: report_common_v1(None, None, &BTreeMap::new(), &BTreeMap::new(), None, 0, 0),
+        channel_token: IBEX_DEV_COMPOSITION_CORRUPT.to_owned(),
+        detail,
     }
 }
 
@@ -1127,7 +1277,16 @@ fn build_union_plan_v1<'a>(
     aliases: &[CompositionAliasRowV1],
 ) -> Result<SynchronousGraphPlan<'a>> {
     let mut records = Vec::new();
+    let mut host_bridged_dynamic_edges = BTreeMap::<SourceId, BTreeSet<String>>::new();
     for package in packages.values() {
+        for row in &package.host_bridged_inventory {
+            let source_id = SourceId::decode(&row.module)
+                .context("host-bridged inventory module is not a SourceId")?;
+            host_bridged_dynamic_edges
+                .entry(source_id)
+                .or_default()
+                .insert(row.specifier.clone());
+        }
         for record in package.records.values() {
             let mut bindings = BTreeMap::new();
             for binding in &record.bindings {
@@ -1146,8 +1305,12 @@ fn build_union_plan_v1<'a>(
         }
     }
     let candidates = computed_candidate_site_map_v1(packages)?;
-    SynchronousGraphPlan::new_typed_with_computed_candidates(records, candidates)
-        .map_err(anyhow::Error::from)
+    SynchronousGraphPlan::new_typed_with_host_bridged_dynamic_edges(
+        records,
+        candidates,
+        host_bridged_dynamic_edges,
+    )
+    .map_err(anyhow::Error::from)
 }
 
 #[cfg(feature = "dev-committed-embedder")]
@@ -1214,6 +1377,132 @@ fn authorize_composition_edges_v1(
         }
     }
     Ok(authorized)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+struct DevUnarmedCompositionGraphPolicyV1 {
+    digest: Digest,
+    generations: SnapshotGenerations,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl GraphImportPolicy for DevUnarmedCompositionGraphPolicyV1 {
+    fn snapshot_digest(&self) -> &Digest {
+        &self.digest
+    }
+
+    fn snapshot_generations(&self) -> SnapshotGenerations {
+        self.generations
+    }
+
+    fn authenticates_module_edge(
+        &self,
+        _importer: &Principal,
+        _request_specifier: &str,
+        _imported: &Principal,
+        _resolution_kind: &str,
+        _conditions: &[String],
+        _attributes: &BTreeMap<String, String>,
+    ) -> bool {
+        // Cross-package, cross-principal edges have already been denied by
+        // `authorize_composition_edges_v1`. The remaining crossing calls are
+        // internal package edges, whose v1 policy is the landed dev-lane
+        // allow behavior from LLP 0056 §10.
+        true
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn composition_authority_contexts_v1(
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    graph_generation: u64,
+) -> Result<BTreeMap<SourceId, GraphAuthorityContext>> {
+    let mut contexts = BTreeMap::new();
+    for package in packages.values() {
+        for source_id in package.records.keys() {
+            let principal = effective_record_principal_v1(package, source_id)?;
+            contexts.insert(
+                source_id.clone(),
+                GraphAuthorityContext::new(
+                    source_id.clone(),
+                    principal.clone(),
+                    principal.clone(),
+                    principal.clone(),
+                    vec![principal],
+                    Stage::Requested,
+                    graph_generation,
+                )?,
+            );
+        }
+    }
+    Ok(contexts)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn authorize_native_composition_plan_v1(
+    plan: &SynchronousGraphPlan<'_>,
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    policy_digest: &Digest,
+    authority_generation: u64,
+    graph_generation: u64,
+) -> Result<(
+    Vec<AuthorizedGraphOperation>,
+    BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
+    BTreeMap<SourceId, GraphAuthorityContext>,
+)> {
+    let generation = Generation::new(authority_generation).map_err(anyhow::Error::msg)?;
+    let policy = DevUnarmedCompositionGraphPolicyV1 {
+        digest: policy_digest.clone(),
+        generations: SnapshotGenerations {
+            policy: generation,
+            negative: generation,
+            dynamic: generation,
+            handle: generation,
+        },
+    };
+    let authorizer = ModuleGraphAuthorizer::new(&policy);
+    let contexts = composition_authority_contexts_v1(packages, graph_generation)?;
+    let ownership = ownership_map_v1(packages);
+    let mut receipts = BTreeMap::new();
+    let mut allowed_dynamic_bindings =
+        BTreeMap::<SourceId, BTreeSet<DynamicImportBindingKey>>::new();
+
+    // Step 6 authorizes the complete admitted union. Step 8 later selects the
+    // entry-plan closure without asking policy again.
+    for root in contexts.keys() {
+        for receipt in plan.authorize_reachable_operations(root, &authorizer, &contexts)? {
+            receipts
+                .entry(receipt.decision().operation_id.as_str().to_owned())
+                .or_insert(receipt);
+        }
+        let dynamic = plan.authorize_filtered_dynamic_candidates(
+            root,
+            &authorizer,
+            &contexts,
+            |requester, binding| {
+                // @ref LLP 0056#75-the-retained-composition-session-aliases-and-dynamic-imports — only declared literal within-package targets enter the native table; computed and cross-package requests remain host-bridged.
+                binding.site.is_none()
+                    && ownership.get(requester).is_some()
+                    && ownership.get(requester) == ownership.get(&binding.target)
+            },
+        )?;
+        for receipt in dynamic.receipts {
+            receipts
+                .entry(receipt.decision().operation_id.as_str().to_owned())
+                .or_insert(receipt);
+        }
+        for (source_id, bindings) in dynamic.allowed_bindings {
+            allowed_dynamic_bindings
+                .entry(source_id)
+                .or_default()
+                .extend(bindings);
+        }
+    }
+    Ok((
+        receipts.into_values().collect(),
+        allowed_dynamic_bindings,
+        contexts,
+    ))
 }
 
 #[cfg(feature = "dev-committed-embedder")]
@@ -1817,6 +2106,28 @@ fn admit_prepared_composition_with_probes_v1(
             refuse!(CompositionRefusalCode::CrossPrincipalDenied, None, detail);
         }
     };
+    let graph_generation = admitted_packages
+        .values()
+        .next()
+        .expect("every legal composition contains the app package")
+        .producer_generation;
+    let (authorization_receipts, allowed_dynamic_bindings, authority_contexts) =
+        match authorize_native_composition_plan_v1(
+            &union_plan,
+            &admitted_packages,
+            &envelope.freshness.policy_digest,
+            envelope.freshness.authority_generation,
+            graph_generation,
+        ) {
+            Ok(authorized) => authorized,
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::CrossPrincipalDenied,
+                    None,
+                    format!("cannot retain authorized union plan: {error:#}")
+                );
+            }
+        };
 
     // Step 7 #35–#37. Digest/order/action recomputation precedes descriptor
     // structure, followed by resolved namespace presence and linkage order.
@@ -1957,14 +2268,19 @@ fn admit_prepared_composition_with_probes_v1(
             }
         }
     }
-    for root in &roots {
-        if let Err(error) = union_plan.linkage_order(root) {
-            refuse!(
-                CompositionRefusalCode::CompositionRootUnlinked,
-                None,
-                format!("composition root has no linkage order: {error}")
-            );
-        }
+    if let Err(error) = union_plan.linkage_order_for_roots(&roots) {
+        refuse!(
+            CompositionRefusalCode::CompositionRootUnlinked,
+            None,
+            format!("composition roots have no linkage order: {error}")
+        );
+    }
+    if let Err(error) = union_plan.synchronous_evaluation_order_for_roots(&roots) {
+        refuse!(
+            CompositionRefusalCode::CompositionRootUnlinked,
+            None,
+            format!("composition roots have no synchronous evaluation order: {error}")
+        );
     }
     let main_root = roots_by_role
         .get(&CompositionRole::App)
@@ -1987,6 +2303,9 @@ fn admit_prepared_composition_with_probes_v1(
     let authorized = AuthorizedCompositionPlanV1 {
         packages: admitted_packages,
         authorized_edges,
+        authorization_receipts,
+        allowed_dynamic_bindings,
+        authority_contexts,
         roots,
         main_root,
     };

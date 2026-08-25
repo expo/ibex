@@ -17,7 +17,10 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Context, Result};
 
 use crate::module_loader::artifact::{ModulePayloadV1, SourceGoalV1, VerifiedModuleArtifactV1};
-use crate::module_loader::carrier::{PreparedCarrierEncodingV2, VerifiedPreparedCarrierEntryV2};
+use crate::module_loader::carrier::{
+    NativePreparedCarrierEntryView, PreparedCarrierEncodingV2, VerifiedPreparedCarrierEntryV2,
+    VerifiedPreparedCarrierEntryV3,
+};
 #[cfg(any(test, feature = "module-runner"))]
 use crate::module_loader::graph::{
     AsyncEvaluationPlan, DynamicImportBindingKey, GraphErrorCode, SynchronousGraphPlan,
@@ -27,23 +30,35 @@ use crate::module_loader::identity::SourceId;
 use crate::module_loader::security::{
     AuthorizedGraphOperation, GraphAuthorityContext, GraphImportPolicy, ModuleGraphAuthorizer,
 };
-
-/// Return the frozen-layer failure that guards the future composition linker.
-///
-/// LLP 0056 §7.2's authorized composition-link surface replaces this marker in
-/// legs 2–3. Nothing on a live path calls this function in the frozen layer.
-// @ref LLP 0056#72-the-authorized-composition-linker-module_runnerrs — compositions must use the authorized multi-root path once implemented.
-#[allow(dead_code)]
-pub(crate) fn link_authorized_prepared_composition_unavailable_v1() -> anyhow::Error {
-    anyhow!(
-        "IBEX composition multi-root link is not implemented (LLP 0056 §11 legs 2-3); no composition admits"
-    )
-}
+#[cfg(feature = "dev-committed-embedder")]
+use crate::module_loader::{
+    composition::{
+        AuthorizedCompositionPlanV1, CompositionAliasTableV1, CompositionStartupPhaseV1,
+        DevUnarmedCompositionStartupReportV1,
+    },
+    graph::CompositionRootPlan,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct NativeModuleHandle {
     opaque: [u64; 3],
+}
+
+const MODULE_INVOKE_OUTCOME_ABI_VERSION_V1: u32 = 1;
+
+#[repr(C)]
+struct NativeModuleInvokeOutcomeV1 {
+    abi_version: u32,
+    struct_size: u32,
+    returned_thenable: u32,
+    reserved: u32,
+}
+
+/// Diagnostic result from synchronously invoking one evaluated module export.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InvokeOutcomeV1 {
+    pub returned_thenable: bool,
 }
 
 type NativeCommonJsRequireProvider = unsafe extern "C" fn(
@@ -427,6 +442,16 @@ unsafe extern "C" {
         runtime_nonce: u64,
         record: NativeModuleHandle,
         out_state: *mut i32,
+        out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    fn ex_hermes_module_invoke_export(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+        out_outcome: *mut NativeModuleInvokeOutcomeV1,
         out_error: *mut *mut c_char,
         out_error_token: *mut u64,
     ) -> i32;
@@ -1447,6 +1472,44 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         graph_generation: u64,
         source_label: &str,
     ) -> Result<CompiledModuleFactory<'runtime>> {
+        self.load_verified_prepared_factory_inner(
+            verified,
+            carrier_entry,
+            principal_id,
+            compartment_identity,
+            graph_generation,
+            source_label,
+        )
+    }
+
+    pub(crate) fn load_verified_composition_factory(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        carrier_entry: VerifiedPreparedCarrierEntryV3<'_>,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
+        self.load_verified_prepared_factory_inner(
+            verified,
+            carrier_entry,
+            principal_id,
+            compartment_identity,
+            graph_generation,
+            source_label,
+        )
+    }
+
+    fn load_verified_prepared_factory_inner<E: NativePreparedCarrierEntryView>(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        carrier_entry: E,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
         if graph_generation == 0 {
             bail!("module graph generation must be nonzero");
         }
@@ -1461,9 +1524,8 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
                 bail!("prepared factory loading requires a carrier artifact")
             }
         };
-        let manifest = carrier_entry.manifest();
         let entry = carrier_entry.entry();
-        if carrier_digest != &manifest.carrier_digest
+        if carrier_digest != carrier_entry.carrier_digest()
             || entry_id != &entry.entry_id
             || entry_factory_digest != &entry.semantics.factory_digest
             || artifact.semantic_digest != entry.semantic_digest
@@ -1477,7 +1539,7 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             SourceGoalV1::Json => 2,
             SourceGoalV1::Builtin => 3,
         };
-        let native_encoding = match &manifest.encoding {
+        let native_encoding = match carrier_entry.encoding() {
             PreparedCarrierEncodingV2::JavascriptFactoryTable => 0,
             PreparedCarrierEncodingV2::HermesBytecode { .. } => 1,
         };
@@ -1500,8 +1562,8 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
                 digest.len(),
                 source_id.as_ptr(),
                 source_id.len(),
-                manifest.carrier_digest.as_str().as_ptr(),
-                manifest.carrier_digest.as_str().len(),
+                carrier_entry.carrier_digest().as_str().as_ptr(),
+                carrier_entry.carrier_digest().as_str().len(),
                 carrier_entry.bytes().as_ptr(),
                 carrier_entry.bytes().len(),
                 native_encoding,
@@ -2454,6 +2516,40 @@ impl NativeModuleRecord<'_> {
         }
     }
 
+    fn invoke_named_export(&mut self, export: &str) -> Result<InvokeOutcomeV1> {
+        if export.is_empty() {
+            bail!("module export invocation requires a non-empty export name");
+        }
+        let mut outcome = NativeModuleInvokeOutcomeV1 {
+            abi_version: MODULE_INVOKE_OUTCOME_ABI_VERSION_V1,
+            struct_size: u32::try_from(std::mem::size_of::<NativeModuleInvokeOutcomeV1>())
+                .expect("module invoke outcome ABI fits u32"),
+            returned_thenable: 0,
+            reserved: 0,
+        };
+        let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
+        let status = unsafe {
+            ex_hermes_module_invoke_export(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                export.as_ptr(),
+                export.len(),
+                &mut outcome,
+                &mut error,
+                &mut error_token,
+            )
+        };
+        native_result(status, error, error_token, "module export invocation")?;
+        let returned_thenable = match outcome.returned_thenable {
+            0 => false,
+            1 => true,
+            _ => bail!("native module export invocation returned an invalid thenable flag"),
+        };
+        Ok(InvokeOutcomeV1 { returned_thenable })
+    }
+
     /// Poll the one internal evaluation promise owned by this record. This is
     /// deliberately state-only: callers drive Hermes separately and never
     /// wait on the runtime thread.
@@ -2574,6 +2670,15 @@ impl<'runtime> NativeLinkedRecord<'runtime> {
             | Self::CommonJs {
                 adapter: record, ..
             } => record.namespace_json(),
+        }
+    }
+
+    fn invoke_named_export(&mut self, export: &str) -> Result<InvokeOutcomeV1> {
+        match self {
+            Self::Esm(record)
+            | Self::CommonJs {
+                adapter: record, ..
+            } => record.invoke_named_export(export),
         }
     }
 }
@@ -2747,6 +2852,8 @@ impl NativePublishedGraphIndex {
             entry: self.entry.clone(),
             graph_generation: self.graph_generation,
             evaluation_order: Vec::new(),
+            composition_segments: None,
+            composition_shared_records: BTreeSet::new(),
             records,
             evaluation_outcome: None,
             _authorization_receipts: std::mem::take(&mut self.authorization_receipts),
@@ -2818,6 +2925,8 @@ impl NativePublishedGraphIndex {
             entry: self.entry.clone(),
             graph_generation: self.graph_generation,
             evaluation_order: Vec::new(),
+            composition_segments: None,
+            composition_shared_records: BTreeSet::new(),
             records,
             evaluation_outcome: None,
             _authorization_receipts: std::mem::take(&mut self.authorization_receipts),
@@ -2977,6 +3086,8 @@ pub struct NativeSynchronousGraph<'runtime> {
     entry: SourceId,
     graph_generation: u64,
     evaluation_order: Vec<SourceId>,
+    composition_segments: Option<Vec<Vec<SourceId>>>,
+    composition_shared_records: BTreeSet<SourceId>,
     records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
     evaluation_outcome: Option<std::result::Result<(), NativeModuleExecutionError>>,
     _authorization_receipts: Vec<AuthorizedGraphOperation>,
@@ -3046,6 +3157,94 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             configs,
             receipts,
             Some(dynamic.allowed_bindings),
+            None,
+            Some(prepared_entries),
+            None,
+        )
+    }
+
+    /// Atomically link the already-authorized composition union without
+    /// consulting policy again. The ordered roots define evaluation segments;
+    /// the explicitly named app root alone receives `import.meta.main`.
+    // @ref LLP 0056#72-the-authorized-composition-linker-module_runnerrs — step 8 consumes the step-6 capability and names the app main root.
+    #[cfg(feature = "dev-committed-embedder")]
+    pub fn link_authorized_prepared_composition(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        root_plan: &CompositionRootPlan,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorized: &AuthorizedCompositionPlanV1,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV3<'_>>,
+    ) -> Result<Self> {
+        if root_plan.roots() != authorized.roots || root_plan.main_root() != &authorized.main_root {
+            bail!("composition root plan differs from its step-6 authorization capability");
+        }
+        if authority_contexts != &authorized.authority_contexts {
+            bail!("composition authority contexts differ from the step-6 capability");
+        }
+        if authorized.authorized_edges.iter().any(|edge| {
+            !plan.contains_record(&edge.origin)
+                || !plan.contains_record(&edge.target)
+                || edge.specifier.is_empty()
+        }) {
+            bail!("composition authorization capability names an invalid graph edge");
+        }
+
+        let root_closures = root_plan
+            .roots()
+            .iter()
+            .map(|root| plan.synchronous_evaluation_order(root))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let shared_records = if root_closures.len() == 2 {
+            let first = root_closures[0].iter().collect::<BTreeSet<_>>();
+            root_closures[1]
+                .iter()
+                .filter(|source_id| first.contains(source_id))
+                .cloned()
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
+        let segments = plan.synchronous_evaluation_order_for_roots(root_plan.roots())?;
+        let evaluation_order = segments.iter().flatten().cloned().collect::<Vec<_>>();
+        let linkage_order = plan.linkage_order_for_authorized_roots(
+            root_plan.roots(),
+            &authorized.allowed_dynamic_bindings,
+        )?;
+        let generation = configs
+            .values()
+            .next()
+            .ok_or_else(|| anyhow!("composition has no native record configuration"))?
+            .evaluation_context
+            .graph_generation;
+        if configs
+            .values()
+            .any(|config| config.evaluation_context.graph_generation != generation)
+        {
+            bail!("composition native configuration set mixes execution generations");
+        }
+        if authority_contexts
+            .values()
+            .any(|context| context.graph_generation != generation)
+        {
+            bail!("composition authority and execution generations disagree");
+        }
+
+        Self::link_inner_with_orders(
+            runtime,
+            plan,
+            root_plan.main_root(),
+            root_plan.main_root(),
+            evaluation_order,
+            Some(segments),
+            shared_records,
+            linkage_order,
+            generation,
+            configs,
+            authorized.authorization_receipts.clone(),
+            Some(authorized.allowed_dynamic_bindings.clone()),
+            None,
             None,
             Some(prepared_entries),
             None,
@@ -3653,7 +3852,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         plan: &SynchronousGraphPlan<'_>,
         entry: &SourceId,
         evaluation_order: Vec<SourceId>,
-        mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorization_receipts: Vec<AuthorizedGraphOperation>,
         allowed_dynamic_bindings: Option<BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>>,
         computed_candidates: Option<&ComputedDynamicImportLinks>,
@@ -3677,6 +3876,58 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             .ok_or_else(|| anyhow!("entry ModuleRecord has no native configuration"))?
             .evaluation_context
             .graph_generation;
+        Self::link_inner_with_orders(
+            runtime,
+            plan,
+            entry,
+            entry,
+            evaluation_order,
+            None,
+            BTreeSet::new(),
+            linkage_order,
+            generation,
+            configs,
+            authorization_receipts,
+            allowed_dynamic_bindings,
+            computed_candidates,
+            prepared_entries,
+            None,
+            deferred_dynamic,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn link_inner_with_orders(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        main_root: &SourceId,
+        evaluation_order: Vec<SourceId>,
+        composition_segments: Option<Vec<Vec<SourceId>>>,
+        composition_shared_records: BTreeSet<SourceId>,
+        linkage_order: Vec<SourceId>,
+        generation: u64,
+        mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorization_receipts: Vec<AuthorizedGraphOperation>,
+        allowed_dynamic_bindings: Option<BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>>,
+        computed_candidates: Option<&ComputedDynamicImportLinks>,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+        composition_prepared_entries: Option<
+            &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV3<'_>>,
+        >,
+        deferred_dynamic: Option<&DeferredDynamicImportLinks>,
+    ) -> Result<Self> {
+        if prepared_entries.is_some() && composition_prepared_entries.is_some() {
+            bail!("native graph cannot mix prepared carrier schema generations");
+        }
+        if let Some(outside) = configs
+            .keys()
+            .find(|source_id| !plan.contains_record(source_id))
+        {
+            bail!(
+                "native configuration contains record outside the authenticated plan: {outside:?}"
+            );
+        }
         let mut records = BTreeMap::new();
         let mut module_metadata = BTreeMap::new();
 
@@ -3694,8 +3945,8 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             }
             let context = runtime.create_graph_context(config.evaluation_context)?;
             let verified = plan.artifact(source_id)?;
-            let factory = match prepared_entries {
-                Some(entries) => runtime.load_verified_prepared_factory(
+            let factory = match (prepared_entries, composition_prepared_entries) {
+                (Some(entries), None) => runtime.load_verified_prepared_factory(
                     verified,
                     *entries.get(source_id).ok_or_else(|| {
                         anyhow!("prepared graph has no admitted carrier entry for {source_id:?}")
@@ -3705,7 +3956,19 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     generation,
                     &config.source_label,
                 )?,
-                None => match plan.source_goal(source_id)? {
+                (None, Some(entries)) => runtime.load_verified_composition_factory(
+                    verified,
+                    *entries.get(source_id).ok_or_else(|| {
+                        anyhow!(
+                            "prepared composition has no admitted carrier entry for {source_id:?}"
+                        )
+                    })?,
+                    config.principal_id,
+                    config.compartment_identity.as_deref(),
+                    generation,
+                    &config.source_label,
+                )?,
+                (None, None) => match plan.source_goal(source_id)? {
                     SourceGoalV1::Module => runtime.compile_verified_factory(
                         verified,
                         config.principal_id,
@@ -3735,6 +3998,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                         &config.source_label,
                     )?,
                 },
+                (Some(_), Some(_)) => unreachable!("mixed carriers were refused above"),
             };
             let record = match plan.source_goal(source_id)? {
                 SourceGoalV1::Module | SourceGoalV1::Json => {
@@ -4070,7 +4334,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             record.instantiate_with_virtual_path(
                 meta_url,
                 virtual_path.as_deref(),
-                source_id == entry,
+                source_id == main_root,
             )?;
         }
         for source_id in &linkage_order {
@@ -4089,6 +4353,8 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             entry: entry.clone(),
             graph_generation: generation,
             evaluation_order,
+            composition_segments,
+            composition_shared_records,
             records,
             evaluation_outcome: None,
             _authorization_receipts: authorization_receipts,
@@ -4096,41 +4362,15 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
     }
 
     pub fn evaluate(&mut self) -> Result<()> {
+        if self.composition_segments.is_some() {
+            bail!("composition graph evaluation requires the descriptor executor");
+        }
         if let Some(outcome) = &self.evaluation_outcome {
             return outcome.clone().map_err(anyhow::Error::new);
         }
-        let outcome = (|| {
-            for source_id in &self.evaluation_order {
-                // Name the failing record in the STICKY error's detail: the
-                // typed NativeModuleExecutionError survives sticky
-                // re-publication, so an anyhow context layer would be
-                // dropped on every later read (LLP 0413 Phase 2 diagnostics
-                // finding — a graph-eval failure without the record identity
-                // is undebuggable from an embedder banner).
-                let annotate = |error: anyhow::Error| -> anyhow::Error {
-                    let mut sticky = sticky_module_error(&error);
-                    sticky.detail = format!("{} (evaluating {source_id:?})", sticky.detail);
-                    anyhow::Error::new(sticky)
-                };
-                let kind = match self
-                    .records
-                    .get_mut(source_id)
-                    .expect("linked graph retains every reachable record")
-                {
-                    NativeLinkedRecord::Esm(record) => record.run_execute().map_err(annotate)?,
-                    NativeLinkedRecord::CommonJs { record, .. } => {
-                        record.evaluate().map_err(annotate)?;
-                        ModuleExecutionKind::Synchronous
-                    }
-                };
-                if kind == ModuleExecutionKind::Asynchronous {
-                    bail!(
-                        "ERR_REQUIRE_ASYNC_MODULE: synchronous artifact returned a promise in {source_id:?}"
-                    );
-                }
-            }
-            Ok(())
-        })();
+        let order = self.evaluation_order.clone();
+        let mut evaluated = Vec::new();
+        let outcome = Self::evaluate_linked_order(&mut self.records, &order, &mut evaluated);
         match outcome {
             Ok(()) => {
                 self.evaluation_outcome = Some(Ok(()));
@@ -4144,6 +4384,60 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         }
     }
 
+    fn evaluate_linked_order(
+        records: &mut BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
+        order: &[SourceId],
+        evaluated: &mut Vec<SourceId>,
+    ) -> Result<()> {
+        for source_id in order {
+            // Name the failing record in the STICKY error's detail: the typed
+            // NativeModuleExecutionError survives sticky re-publication.
+            let annotate = |error: anyhow::Error| -> anyhow::Error {
+                let mut sticky = sticky_module_error(&error);
+                sticky.detail = format!("{} (evaluating {source_id:?})", sticky.detail);
+                anyhow::Error::new(sticky)
+            };
+            let kind = match records
+                .get_mut(source_id)
+                .expect("linked graph retains every reachable record")
+            {
+                NativeLinkedRecord::Esm(record) => record.run_execute().map_err(annotate)?,
+                NativeLinkedRecord::CommonJs { record, .. } => {
+                    record.evaluate().map_err(annotate)?;
+                    ModuleExecutionKind::Synchronous
+                }
+            };
+            if kind == ModuleExecutionKind::Asynchronous {
+                bail!(
+                    "ERR_REQUIRE_ASYNC_MODULE: synchronous artifact returned a promise in {source_id:?}"
+                );
+            }
+            evaluated.push(source_id.clone());
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "dev-committed-embedder")]
+    fn evaluate_composition_segment(&mut self, segment: usize) -> (Result<()>, Vec<SourceId>) {
+        let order = match self
+            .composition_segments
+            .as_ref()
+            .and_then(|segments| segments.get(segment))
+            .cloned()
+        {
+            Some(order) => order,
+            None => {
+                return (
+                    Err(anyhow!("composition evaluation segment is absent")),
+                    Vec::new(),
+                )
+            }
+        };
+        let mut evaluated = Vec::new();
+        let outcome = Self::evaluate_linked_order(&mut self.records, &order, &mut evaluated);
+        (outcome, evaluated)
+    }
+
     pub fn entry(&self) -> &SourceId {
         &self.entry
     }
@@ -4153,6 +4447,259 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             .get(source_id)
             .ok_or_else(|| anyhow!("namespace requested outside the linked entry closure"))?
             .namespace_json()
+    }
+
+    /// Invoke a named export of an evaluated record synchronously. The value
+    /// is ignored except for thenable detection; no thenable is awaited.
+    // @ref LLP 0056#73-the-invoke-primitive-the-one-new-engine-call — callability is an evaluated-record runtime fact and failures retain record identity.
+    pub fn invoke_named_export(
+        &mut self,
+        source_id: &SourceId,
+        export: &str,
+    ) -> Result<InvokeOutcomeV1> {
+        let record = self.records.get_mut(source_id).ok_or_else(|| {
+            anyhow!("module export requested outside the linked graph: {source_id:?}")
+        })?;
+        record.invoke_named_export(export).map_err(|error| {
+            let mut sticky = sticky_module_error(&error);
+            sticky.detail = format!(
+                "{} (invoking export {export:?} of {source_id:?})",
+                sticky.detail
+            );
+            anyhow::Error::new(sticky)
+        })
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CompositionExecutionMetricsV1 {
+    pub(crate) agent_evaluate: std::time::Duration,
+    pub(crate) agent_invoke: std::time::Duration,
+    pub(crate) app_evaluate: std::time::Duration,
+    pub(crate) agent_evaluated_record_count: usize,
+    pub(crate) app_evaluated_record_count: usize,
+    pub(crate) shared_evaluated_record_count: usize,
+    pub(crate) agent_invoke_returned_thenable: bool,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Clone, Debug)]
+pub(crate) struct CompositionStartupExecutionErrorV1 {
+    pub(crate) phase: CompositionStartupPhaseV1,
+    pub(crate) error: NativeModuleExecutionError,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl std::fmt::Display for CompositionStartupExecutionErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.error)
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl std::error::Error for CompositionStartupExecutionErrorV1 {}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Clone, Debug)]
+enum CompositionDescriptorStateV1 {
+    Pending,
+    AgentEvaluated,
+    AgentInvoked,
+    AppEvaluated,
+    Failed(CompositionStartupExecutionErrorV1),
+}
+
+/// Monotonic owner of descriptor-segment evaluation and the one descriptor
+/// export invocation. Successful and failed transitions are never replayed.
+// @ref LLP 0056#74-the-descriptor-executor-monotonic-sticky — the invoke point is a state transition between disjoint evaluation segments.
+#[cfg(feature = "dev-committed-embedder")]
+pub(crate) struct CompositionDescriptorExecutorV1<'runtime> {
+    graph: NativeSynchronousGraph<'runtime>,
+    agent: Option<(SourceId, String)>,
+    app_segment: usize,
+    state: CompositionDescriptorStateV1,
+    metrics: CompositionExecutionMetricsV1,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl<'runtime> CompositionDescriptorExecutorV1<'runtime> {
+    pub(crate) fn new(
+        graph: NativeSynchronousGraph<'runtime>,
+        agent: Option<(SourceId, String)>,
+    ) -> Result<Self> {
+        let segments = graph
+            .composition_segments
+            .as_ref()
+            .ok_or_else(|| anyhow!("descriptor executor requires a composition graph"))?;
+        let app_segment = match (segments.len(), agent.as_ref()) {
+            (1, None) => 0,
+            (2, Some((agent_root, export)))
+                if !export.is_empty()
+                    && segments[0].contains(agent_root)
+                    && segments[1].contains(&graph.entry) =>
+            {
+                1
+            }
+            _ => bail!("composition descriptor plan disagrees with its evaluation segments"),
+        };
+        let metrics = CompositionExecutionMetricsV1::default();
+        Ok(Self {
+            graph,
+            agent,
+            app_segment,
+            state: CompositionDescriptorStateV1::Pending,
+            metrics,
+        })
+    }
+
+    fn fail(
+        &mut self,
+        phase: CompositionStartupPhaseV1,
+        error: anyhow::Error,
+    ) -> CompositionStartupExecutionErrorV1 {
+        let failure = CompositionStartupExecutionErrorV1 {
+            phase,
+            error: sticky_module_error(&error),
+        };
+        self.state = CompositionDescriptorStateV1::Failed(failure.clone());
+        failure
+    }
+
+    pub(crate) fn run(
+        &mut self,
+    ) -> std::result::Result<CompositionExecutionMetricsV1, CompositionStartupExecutionErrorV1>
+    {
+        loop {
+            match &self.state {
+                CompositionDescriptorStateV1::Pending => {
+                    if self.agent.is_some() {
+                        let started = std::time::Instant::now();
+                        let (outcome, evaluated) = self.graph.evaluate_composition_segment(0);
+                        self.metrics.agent_evaluate = started.elapsed();
+                        self.metrics.agent_evaluated_record_count = evaluated.len();
+                        self.metrics.shared_evaluated_record_count = evaluated
+                            .iter()
+                            .filter(|source_id| {
+                                self.graph.composition_shared_records.contains(*source_id)
+                            })
+                            .count();
+                        if let Err(error) = outcome {
+                            return Err(self.fail(CompositionStartupPhaseV1::AgentEvaluate, error));
+                        }
+                    }
+                    self.state = CompositionDescriptorStateV1::AgentEvaluated;
+                }
+                CompositionDescriptorStateV1::AgentEvaluated => {
+                    if let Some((source_id, export)) = self.agent.clone() {
+                        let started = std::time::Instant::now();
+                        let outcome = self.graph.invoke_named_export(&source_id, &export);
+                        self.metrics.agent_invoke = started.elapsed();
+                        match outcome {
+                            Ok(outcome) => {
+                                self.metrics.agent_invoke_returned_thenable =
+                                    outcome.returned_thenable;
+                            }
+                            Err(error) => {
+                                return Err(
+                                    self.fail(CompositionStartupPhaseV1::AgentInvoke, error)
+                                );
+                            }
+                        }
+                    }
+                    self.state = CompositionDescriptorStateV1::AgentInvoked;
+                }
+                CompositionDescriptorStateV1::AgentInvoked => {
+                    let started = std::time::Instant::now();
+                    let (outcome, evaluated) =
+                        self.graph.evaluate_composition_segment(self.app_segment);
+                    self.metrics.app_evaluate = started.elapsed();
+                    self.metrics.app_evaluated_record_count = evaluated.len();
+                    if let Err(error) = outcome {
+                        return Err(self.fail(CompositionStartupPhaseV1::AppEvaluate, error));
+                    }
+                    self.state = CompositionDescriptorStateV1::AppEvaluated;
+                }
+                CompositionDescriptorStateV1::AppEvaluated => return Ok(self.metrics.clone()),
+                CompositionDescriptorStateV1::Failed(failure) => return Err(failure.clone()),
+            }
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        matches!(self.state, CompositionDescriptorStateV1::AppEvaluated)
+    }
+
+    pub(crate) fn metrics(&self) -> &CompositionExecutionMetricsV1 {
+        &self.metrics
+    }
+}
+
+/// Process-lifetime composition owner retained by the dev embedder after a
+/// successful descriptor run.
+// @ref LLP 0056#75-the-retained-composition-session-aliases-and-dynamic-imports — aliases resolve only onto admitted records and composition records never enroll in deferred activation.
+#[cfg(feature = "dev-committed-embedder")]
+pub struct CompositionSessionV1 {
+    executor: CompositionDescriptorExecutorV1<'static>,
+    alias_table: CompositionAliasTableV1,
+    aliases: BTreeMap<String, SourceId>,
+    admitted_records: BTreeSet<SourceId>,
+    report: DevUnarmedCompositionStartupReportV1,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl CompositionSessionV1 {
+    pub(crate) fn new(
+        executor: CompositionDescriptorExecutorV1<'static>,
+        alias_table: CompositionAliasTableV1,
+        admitted_records: BTreeSet<SourceId>,
+        report: DevUnarmedCompositionStartupReportV1,
+    ) -> Result<Self> {
+        if !executor.is_complete() {
+            bail!("composition session cannot retain an incomplete descriptor executor");
+        }
+        let aliases = alias_table
+            .rows
+            .iter()
+            .map(|row| {
+                let representative = SourceId::decode(&row.representative_source_id)?;
+                if !admitted_records.contains(&representative) {
+                    bail!("composition alias representative is not an admitted record");
+                }
+                Ok((row.alias_id.clone(), representative))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        Ok(Self {
+            executor,
+            alias_table,
+            aliases,
+            admitted_records,
+            report,
+        })
+    }
+
+    pub fn resolve_id(&self, id: &str) -> Option<&SourceId> {
+        if let Some(representative) = self.aliases.get(id) {
+            return Some(representative);
+        }
+        let source_id = SourceId::decode(id).ok()?;
+        self.admitted_records.get(&source_id)
+    }
+
+    pub fn report(&self) -> &DevUnarmedCompositionStartupReportV1 {
+        &self.report
+    }
+
+    pub fn alias_table(&self) -> &CompositionAliasTableV1 {
+        &self.alias_table
+    }
+
+    pub fn admitted_records(&self) -> &BTreeSet<SourceId> {
+        &self.admitted_records
+    }
+
+    pub fn linked_main_root(&self) -> &SourceId {
+        self.executor.graph.entry()
     }
 }
 
@@ -4440,6 +4987,8 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             entry: self.entry.clone(),
             graph_generation: self.graph_generation,
             evaluation_order: Vec::new(),
+            composition_segments: None,
+            composition_shared_records: BTreeSet::new(),
             records: std::mem::take(&mut self.records),
             evaluation_outcome: None,
             _authorization_receipts: std::mem::take(&mut self._authorization_receipts),
@@ -4671,14 +5220,6 @@ mod tests {
         produce_commonjs_artifact_with_sites_v1, produce_module_artifact_v1,
     };
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
-
-    #[test]
-    fn frozen_composition_linker_seam_fails_closed() {
-        assert_eq!(
-            link_authorized_prepared_composition_unavailable_v1().to_string(),
-            "IBEX composition multi-root link is not implemented (LLP 0056 §11 legs 2-3); no composition admits"
-        );
-    }
 
     #[allow(clashing_extern_declarations)]
     unsafe extern "C" {
@@ -6406,6 +6947,73 @@ export const result = JSON.stringify({
                 .namespace_json(&source_id)
                 .unwrap()
                 .contains("/Users/"));
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn named_export_invoke_reports_thenables_and_retains_sticky_errors() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("module-runner-test", "invoke-export").unwrap();
+            let artifact = test_artifact_with_factory(
+                source_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { $export('thenable', function () { return { then: function () {} }; }); $export('notCallable', 7); } }; }",
+                &["thenable", "notCallable"],
+            );
+            let plan =
+                SynchronousGraphPlan::new([(verify_test_artifact(&artifact), BTreeMap::new())])
+                    .unwrap();
+            let config = NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
+                "invoke-export.mjs",
+                "file:///project/invoke-export.mjs",
+            )
+            .unwrap();
+            let mut graph = NativeSynchronousGraph::link(
+                &runtime,
+                &plan,
+                &source_id,
+                BTreeMap::from([(source_id.clone(), config)]),
+            )
+            .unwrap();
+
+            let premature = graph
+                .invoke_named_export(&source_id, "thenable")
+                .unwrap_err()
+                .to_string();
+            assert!(premature.contains("requires an evaluated record"));
+            graph.evaluate().unwrap();
+            assert_eq!(
+                graph.invoke_named_export(&source_id, "thenable").unwrap(),
+                InvokeOutcomeV1 {
+                    returned_thenable: true
+                }
+            );
+
+            let first = graph
+                .invoke_named_export(&source_id, "notCallable")
+                .unwrap_err();
+            assert!(first.to_string().contains("notCallable"));
+            assert!(first.to_string().contains(&format!("{source_id:?}")));
+            let second = graph
+                .invoke_named_export(&source_id, "notCallable")
+                .unwrap_err();
+            assert_eq!(first.to_string(), second.to_string());
+            assert_eq!(
+                execution_error_token(&first),
+                execution_error_token(&second)
+            );
+
             drop(graph);
             drop(runtime);
             ex_hermes_destroy(raw);

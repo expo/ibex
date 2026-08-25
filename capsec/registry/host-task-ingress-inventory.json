@@ -18,9 +18,9 @@
     "trusted-bootstrap-no-app-code": "The named owner transition evaluates fixed native-owned seal bytes before any user-execution ingress; no app-controlled source or callback can run, and any failure quarantines the generation."
   },
   "counts": {
-    "user-execution-gate": 22,
+    "user-execution-gate": 23,
     "engine-eval-or-prepare": 28,
-    "jsi-function-call": 114
+    "jsi-function-call": 115
   },
   "ingressRows": [
     {
@@ -50,6 +50,13 @@
       "function": "ex_hermes_module_complete_dynamic_activation",
       "disposition": "outer-host-task",
       "discoveredSiteCount": 6
+    },
+    {
+      "id": "src/engine/hermes_module_runner.cc#ex_hermes_module_invoke_export",
+      "path": "src/engine/hermes_module_runner.cc",
+      "function": "ex_hermes_module_invoke_export",
+      "disposition": "outer-host-task",
+      "discoveredSiteCount": 2
     },
     {
       "id": "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory",
@@ -424,6 +431,28 @@
       ]
     },
     {
+      "id": "src/engine/hermes_module_runner.cc#ex_hermes_module_invoke_export",
+      "path": "src/engine/hermes_module_runner.cc",
+      "function": "ex_hermes_module_invoke_export",
+      "disposition": "outer-host-task",
+      "sites": [
+        {
+          "kind": "user-execution-gate",
+          "operation": "exactRuntimeEnterUserExecution",
+          "line": 4193,
+          "column": 8,
+          "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
+        },
+        {
+          "kind": "jsi-function-call",
+          "operation": "call",
+          "line": 4222,
+          "column": 52,
+          "source": "auto result = value.asObject(rt).asFunction(rt).call(rt);"
+        }
+      ]
+    },
+    {
       "id": "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory",
       "path": "src/engine/hermes_module_runner.cc",
       "function": "ex_hermes_module_load_carrier_factory",
@@ -504,7 +533,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4208,
+          "line": 4294,
           "column": 27,
           "source": "auto value = stringify.call(rt, *entry->namespace_object);"
         }

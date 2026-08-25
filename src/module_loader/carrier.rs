@@ -187,6 +187,16 @@ pub struct VerifiedPreparedCarrierEntryV2<'a> {
     bytes: &'a [u8],
 }
 
+/// Crate-internal native-loader view shared by the frozen v2 publication
+/// carrier and the package-aware v3 carrier. Admission remains owned by each
+/// versioned carrier type; this view only removes a duplicate engine call.
+pub(crate) trait NativePreparedCarrierEntryView {
+    fn carrier_digest(&self) -> &Digest;
+    fn encoding(&self) -> &PreparedCarrierEncodingV2;
+    fn entry(&self) -> &PreparedCarrierEntryV2;
+    fn bytes(&self) -> &[u8];
+}
+
 impl PreparedModuleCarrierV2 {
     /// Build a deterministic per-principal source carrier from admitted inline
     /// artifacts. The table only creates factory functions; module bodies stay
@@ -778,6 +788,42 @@ impl VerifiedPreparedCarrierEntryV3<'_> {
     }
 
     pub fn bytes(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
+impl NativePreparedCarrierEntryView for VerifiedPreparedCarrierEntryV2<'_> {
+    fn carrier_digest(&self) -> &Digest {
+        &self.manifest.carrier_digest
+    }
+
+    fn encoding(&self) -> &PreparedCarrierEncodingV2 {
+        &self.manifest.encoding
+    }
+
+    fn entry(&self) -> &PreparedCarrierEntryV2 {
+        self.entry
+    }
+
+    fn bytes(&self) -> &[u8] {
+        self.bytes
+    }
+}
+
+impl NativePreparedCarrierEntryView for VerifiedPreparedCarrierEntryV3<'_> {
+    fn carrier_digest(&self) -> &Digest {
+        &self.manifest.carrier_digest
+    }
+
+    fn encoding(&self) -> &PreparedCarrierEncodingV2 {
+        &self.manifest.encoding
+    }
+
+    fn entry(&self) -> &PreparedCarrierEntryV2 {
+        self.entry
+    }
+
+    fn bytes(&self) -> &[u8] {
         self.bytes
     }
 }

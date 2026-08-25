@@ -183,6 +183,18 @@ typedef struct ExactModuleRunnerHandle {
     uint64_t opaque[3];
 } ExactModuleRunnerHandle;
 
+#define EX_HERMES_MODULE_INVOKE_OUTCOME_ABI_VERSION_V1 1u
+
+/// Versioned result of synchronously invoking one evaluated module export.
+/// The returned JavaScript value is discarded except for callable-`then`
+/// detection; no promise or thenable is awaited.
+typedef struct ExHermesModuleInvokeOutcomeV1 {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    uint32_t returned_thenable;
+    uint32_t reserved;
+} ExHermesModuleInvokeOutcomeV1;
+
 /// One reached, previously authenticated dynamic-import site waiting for the
 /// Rust graph owner to authorize and materialize its exact target. Byte
 /// strings are length-bearing and caller-owned after `take`; dispose them with
@@ -544,6 +556,26 @@ int32_t ibex_dev_unarmed_committed_prepared_startup_v1(
     const char* publication_dir,
     const char* commitment_json,
     const char* expected_target,
+    const char* project_root,
+    char** out_report_json,
+    char** out_error);
+
+/// DEV-UNARMED package-aware composition startup (LLP 0056). Present only
+/// with `dev-committed-embedder`. The independently held commitment and
+/// verifier expectations admit `composition_dir`, then the authorized
+/// multi-root graph evaluates agent, invokes its named bootstrap export, and
+/// only then evaluates the app segment. Armed Host contexts are excluded at
+/// construction time exactly like the committed single-publication entry.
+///
+/// Returns 0 on success, 1 for step-0–8 refusal (fallback remains permitted),
+/// and 2 for step-9-or-later startup failure (no fallback). The tagged report
+/// is written on every outcome and strings are freed with ex_host_free_string.
+int32_t ibex_dev_unarmed_composition_prepared_startup_v1(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    const char* composition_dir,
+    const char* commitment_json,
+    const char* expectations_json,
     const char* project_root,
     char** out_report_json,
     char** out_error);
@@ -1050,6 +1082,23 @@ int32_t ex_hermes_module_record_poll_evaluation(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_state,
+    char** out_error,
+    uint64_t* out_error_token);
+
+/// Invoke one length-bearing named export of an evaluated ModuleRecord as a
+/// zero-argument function on the runtime owner thread. Missing/non-callable
+/// exports and JavaScript throws become the record's structured sticky error.
+/// `out_outcome` must advertise ABI version 1 and its complete struct size.
+/// @abi-output ex_hermes_module_invoke_export out_outcome role=inout kind=aggregate schema=ExHermesModuleInvokeOutcomeV1 members=* ownership=caller-storage
+/// @abi-output ex_hermes_module_invoke_export out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+/// @abi-output ex_hermes_module_invoke_export out_error_token role=output kind=scalar ownership=caller-storage
+int32_t ex_hermes_module_invoke_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len,
+    ExHermesModuleInvokeOutcomeV1* out_outcome,
     char** out_error,
     uint64_t* out_error_token);
 

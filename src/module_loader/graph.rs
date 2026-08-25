@@ -139,6 +139,7 @@ pub struct SynchronousGraphPlan<'artifact> {
     records: BTreeMap<SourceId, PlannedRecord<'artifact>>,
     computed_candidate_sites: ComputedCandidateSiteMap,
     deferred_dynamic_sources: BTreeSet<SourceId>,
+    host_bridged_dynamic_edges: BTreeMap<SourceId, BTreeSet<String>>,
     deferred_commonjs_require_sources: BTreeSet<SourceId>,
     bootstrap_internal_commonjs_requires: BTreeMap<SourceId, BTreeSet<String>>,
 }
@@ -372,6 +373,54 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         deferred_commonjs_require_sources: BTreeSet<SourceId>,
         bootstrap_internal_commonjs_requires: BTreeMap<SourceId, BTreeSet<String>>,
     ) -> Result<Self, GraphError> {
+        Self::new_typed_with_edge_exclusions(
+            records,
+            computed_candidate_sites,
+            deferred_dynamic_sources,
+            BTreeMap::new(),
+            deferred_commonjs_require_sources,
+            bootstrap_internal_commonjs_requires,
+        )
+    }
+
+    /// Construct a composition plan whose authenticated boundary inventory
+    /// names exact literal dynamic edges that remain host-bridged. Unlike the
+    /// call-time deferred machinery, these exclusions do not enroll records in
+    /// native activation and can coexist with eagerly linked local literals.
+    pub(crate) fn new_typed_with_host_bridged_dynamic_edges(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+        computed_candidate_sites: ComputedCandidateSiteMap,
+        host_bridged_dynamic_edges: BTreeMap<SourceId, BTreeSet<String>>,
+    ) -> Result<Self, GraphError> {
+        Self::new_typed_with_edge_exclusions(
+            records,
+            computed_candidate_sites,
+            BTreeSet::new(),
+            host_bridged_dynamic_edges,
+            BTreeSet::new(),
+            BTreeMap::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_typed_with_edge_exclusions(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+        computed_candidate_sites: ComputedCandidateSiteMap,
+        deferred_dynamic_sources: BTreeSet<SourceId>,
+        host_bridged_dynamic_edges: BTreeMap<SourceId, BTreeSet<String>>,
+        deferred_commonjs_require_sources: BTreeSet<SourceId>,
+        bootstrap_internal_commonjs_requires: BTreeMap<SourceId, BTreeSet<String>>,
+    ) -> Result<Self, GraphError> {
         let mut planned = BTreeMap::new();
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
@@ -379,6 +428,16 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             let mut expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
             if deferred_dynamic_sources.contains(&source_id) {
                 expected.retain(|key| key.resolution_kind != ResolutionKind::DynamicImport);
+            }
+            if let Some(specifiers) = host_bridged_dynamic_edges.get(&source_id) {
+                for specifier in specifiers {
+                    let key = GraphEdgeKey::new(specifier, ResolutionKind::DynamicImport);
+                    if !expected.remove(&key) {
+                        return Err(GraphError::link(format!(
+                            "host-bridged dynamic import {specifier:?} is not declared by {source_id:?}"
+                        )));
+                    }
+                }
             }
             if deferred_commonjs_require_sources.contains(&source_id) {
                 if semantics.source_goal == SourceGoalV1::Builtin {
@@ -474,6 +533,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             records: planned,
             computed_candidate_sites,
             deferred_dynamic_sources,
+            host_bridged_dynamic_edges,
             deferred_commonjs_require_sources,
             bootstrap_internal_commonjs_requires,
         })
@@ -766,6 +826,11 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut declared = BTreeMap::new();
         for edge in &record.artifact.artifact().semantics.dynamic_edges {
             match edge {
+                super::artifact::DynamicEdgeV1::Literal { specifier, .. }
+                    if self
+                        .host_bridged_dynamic_edges
+                        .get(source_id)
+                        .is_some_and(|specifiers| specifiers.contains(specifier.as_str())) => {}
                 super::artifact::DynamicEdgeV1::Literal {
                     specifier,
                     attributes,
@@ -1171,6 +1236,24 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> anyhow::Result<DynamicAuthorizationPlan> {
+        self.authorize_filtered_dynamic_candidates(entry, authorizer, contexts, |_, _| true)
+    }
+
+    /// Authorize only dynamic candidates selected by a caller-owned structural
+    /// predicate. This keeps policy out of decisions such as a composition's
+    /// host-bridged boundary: excluded candidates never acquire receipts and
+    /// can therefore never enter the native exact-spelling table.
+    pub(crate) fn authorize_filtered_dynamic_candidates<P, F>(
+        &self,
+        entry: &SourceId,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        include: F,
+    ) -> anyhow::Result<DynamicAuthorizationPlan>
+    where
+        P: GraphImportPolicy,
+        F: Fn(&SourceId, &DynamicImportBindingPlan) -> bool,
+    {
         let mut receipts = Vec::new();
         let mut allowed_bindings: BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>> =
             BTreeMap::new();
@@ -1189,6 +1272,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 anyhow::anyhow!("dynamic candidate owner {source_id:?} has no CapSec context")
             })?;
             for binding in bindings {
+                if !include(&source_id, &binding) {
+                    continue;
+                }
                 let binding_key = binding.key();
                 let kind = if binding.attributes.asserts_json() {
                     GraphOperationKind::JsonLoad

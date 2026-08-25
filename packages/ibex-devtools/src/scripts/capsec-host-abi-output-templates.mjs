@@ -359,6 +359,7 @@ const HERMES_MODULE_RUNNER_FUNCTIONS = new Set([
   "ex_hermes_graph_context_retain",
   "ex_hermes_module_compile_factory",
   "ex_hermes_module_create_record",
+  "ex_hermes_module_invoke_export",
   "ex_hermes_module_load_carrier_factory",
   "ex_hermes_module_pin_generation",
   "ex_hermes_module_record_declare_export",

@@ -500,6 +500,15 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
                                            char**,
                                            uint64_t*) =
       ex_hermes_module_record_poll_evaluation;
+  int32_t (*module_invoke_export)(ExactHermesRuntime*,
+                                  uint64_t,
+                                  ExactModuleRunnerHandle,
+                                  const uint8_t*,
+                                  size_t,
+                                  ExHermesModuleInvokeOutcomeV1*,
+                                  char**,
+                                  uint64_t*) =
+      ex_hermes_module_invoke_export;
   int32_t (*module_record_namespace_json)(ExactHermesRuntime*,
                                           uint64_t,
                                           ExactModuleRunnerHandle,
@@ -688,6 +697,7 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)module_record_run_declare;
   (void)module_record_run_execute;
   (void)module_record_poll_evaluation;
+  (void)module_invoke_export;
   (void)module_record_namespace_json;
   (void)module_record_defer_dynamic_import;
   (void)module_record_defer_computed_dynamic_import;

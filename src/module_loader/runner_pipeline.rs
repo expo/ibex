@@ -7510,13 +7510,32 @@ pub mod dev_committed_embedder {
 
     use super::*;
     use crate::engine::module_runner::{
-        GraphEvaluationContext, NativeModuleRecordConfig, NativeModuleRuntime,
-        NativeSynchronousGraph,
+        CompositionDescriptorExecutorV1, CompositionSessionV1, GraphEvaluationContext,
+        NativeModuleRecordConfig, NativeModuleRuntime, NativeSynchronousGraph,
+    };
+    use crate::module_loader::composition::{
+        admit_prepared_composition_v1, composition_embedder_channel_error_report_v1,
+        CompositionAdmissionOutcomeV1, DevUnarmedCompositionStartupReportV1,
     };
 
     const DEV_UNARMED_AUTHORITY: &str = "dev-unarmed-dev-served (non-production)";
     const DEV_FINGERPRINT_POSTURE: &str = "dev-vouched-index-external-producer (LLP 0043 pending)";
     const DEV_PREPARED_GRAPH_COMMITMENT_SCHEMA_V1: &str = "ibex/prepared-graph-commitment/1";
+
+    #[cfg(test)]
+    thread_local! {
+        static LAST_COMPOSITION_SESSION_V1: std::cell::Cell<*const CompositionSessionV1> =
+            const { std::cell::Cell::new(std::ptr::null()) };
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_composition_session_for_test_v1() -> Option<&'static CompositionSessionV1>
+    {
+        LAST_COMPOSITION_SESSION_V1.with(|session| {
+            let session = session.get();
+            (!session.is_null()).then(|| unsafe { &*session })
+        })
+    }
 
     /// Admission + evaluation receipt for one dev-unarmed committed startup.
     /// Serialized to JSON for the embedding host's startup report/banner
@@ -7693,6 +7712,7 @@ pub mod dev_committed_embedder {
         }
 
         let execution_generation = ExecutionGeneration::INITIAL;
+
         let plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
             records
                 .iter()
@@ -7849,6 +7869,213 @@ pub mod dev_committed_embedder {
             entry_execute_us,
         );
         Ok(report)
+    }
+
+    fn apply_composition_execution_metrics(
+        report: &mut DevUnarmedCompositionStartupReportV1,
+        metrics: &crate::engine::module_runner::CompositionExecutionMetricsV1,
+    ) {
+        report.set_execution_observations(
+            metrics.agent_evaluate,
+            metrics.agent_invoke,
+            metrics.app_evaluate,
+            metrics.agent_evaluated_record_count,
+            metrics.app_evaluated_record_count,
+            metrics.shared_evaluated_record_count,
+            metrics.agent_invoke_returned_thenable,
+        );
+    }
+
+    /// Admit, atomically link, and execute one package-aware composition.
+    /// Success leaks exactly one retained session for process lifetime.
+    // @ref LLP 0056#5-the-nine-steps--the-ibex-half — the return-code boundary closes after step 8; every descriptor failure is DuringEvaluation.
+    fn run_prepared_composition_dev_unarmed_v1(
+        runtime: NonNull<c_void>,
+        runtime_nonce: u64,
+        composition_dir: &Path,
+        commitment_text: &str,
+        expectations_text: &str,
+        project_root: &Path,
+    ) -> (i32, DevUnarmedCompositionStartupReportV1, Option<String>) {
+        let admitted = match admit_prepared_composition_v1(
+            composition_dir,
+            commitment_text,
+            expectations_text,
+            project_root,
+        ) {
+            CompositionAdmissionOutcomeV1::ChannelError(report)
+            | CompositionAdmissionOutcomeV1::Refused(report) => {
+                let error = serde_json::to_string(&report).err().map(|serialization| {
+                    format!("composition refusal report unavailable: {serialization}")
+                });
+                return (1, report, error);
+            }
+            CompositionAdmissionOutcomeV1::Admitted(admitted) => admitted,
+        };
+
+        let super::super::composition::AdmittedCompositionV1 {
+            authorized,
+            envelope,
+            mut report,
+            ..
+        } = *admitted;
+        let link_started = std::time::Instant::now();
+        let linked = (|| -> Result<(
+            NativeSynchronousGraph<'static>,
+            *mut NativeModuleRuntime<'static>,
+        )> {
+            let root_plan = authorized.root_plan()?;
+            let plan = authorized.execution_plan(&envelope.alias_table.rows)?;
+            let graph_generation = authorized.graph_generation()?;
+            let mut configs = BTreeMap::new();
+            let mut prepared_entries = BTreeMap::new();
+            for package in authorized.packages.values() {
+                for (source_id, record) in &package.records {
+                    let principal_id = 0;
+                    let (source_label, virtual_path) = dev_execution_display(source_id)?;
+                    let mut config = NativeModuleRecordConfig::new(
+                        principal_id,
+                        None,
+                        GraphEvaluationContext::new(
+                            source_id.clone(),
+                            principal_id,
+                            principal_id,
+                            [principal_id],
+                            graph_generation,
+                        )?,
+                        source_label.clone(),
+                        source_label,
+                    )?;
+                    if let Some(virtual_path) = virtual_path {
+                        config = config.with_authenticated_virtual_path(virtual_path)?;
+                    }
+                    configs.insert(source_id.clone(), config);
+                    prepared_entries.insert(
+                        source_id.clone(),
+                        record.carrier.entry(record.entry_id.as_str())?,
+                    );
+                }
+            }
+            // SAFETY: the C entry requires a live pointer/nonce pair on the
+            // runtime owner thread. The wrapper becomes the graph's stable
+            // self-reference anchor and leaks only with a successful session.
+            let native_runtime = Box::new(unsafe {
+                NativeModuleRuntime::from_raw(runtime, runtime_nonce)
+            }?);
+            let runtime_owner = Box::into_raw(native_runtime);
+            let linked = NativeSynchronousGraph::link_authorized_prepared_composition(
+                unsafe { &*runtime_owner },
+                &plan,
+                &root_plan,
+                configs,
+                &authorized,
+                &authorized.authority_contexts,
+                &prepared_entries,
+            );
+            match linked {
+                Ok(linked) => Ok((linked, runtime_owner)),
+                Err(error) => {
+                    // No graph escaped, so the self-reference anchor can be
+                    // reclaimed. Only a successful retained session leaks it.
+                    unsafe { drop(Box::from_raw(runtime_owner)) };
+                    Err(error)
+                }
+            }
+        })();
+        report.set_graph_link_duration(link_started.elapsed());
+        let (linked, runtime_owner) = match linked {
+            Ok(linked) => linked,
+            Err(error) => {
+                let detail = format!("{error:#}");
+                return (1, report.into_link_refusal(detail.clone()), Some(detail));
+            }
+        };
+
+        let agent: Result<Option<(SourceId, String)>> = envelope
+            .entry_plan
+            .entries
+            .iter()
+            .find(|entry| entry.role == CompositionRole::Agent)
+            .map(|entry| {
+                Ok((
+                    SourceId::decode(&entry.root)?,
+                    entry
+                        .export
+                        .clone()
+                        .ok_or_else(|| anyhow!("admitted agent descriptor has no export"))?,
+                ))
+            })
+            .transpose();
+        let agent = match agent {
+            Ok(agent) => agent,
+            Err(error) => {
+                drop(linked);
+                unsafe { drop(Box::from_raw(runtime_owner)) };
+                let detail = format!("{error:#}");
+                return (
+                    2,
+                    report.into_startup_error(
+                        super::super::composition::CompositionStartupPhaseV1::AgentEvaluate,
+                        detail.clone(),
+                    ),
+                    Some(detail),
+                );
+            }
+        };
+        let mut executor = match CompositionDescriptorExecutorV1::new(linked, agent) {
+            Ok(executor) => executor,
+            Err(error) => {
+                unsafe { drop(Box::from_raw(runtime_owner)) };
+                let detail = format!("{error:#}");
+                return (
+                    2,
+                    report.into_startup_error(
+                        super::super::composition::CompositionStartupPhaseV1::AgentEvaluate,
+                        detail.clone(),
+                    ),
+                    Some(detail),
+                );
+            }
+        };
+        if let Err(failure) = executor.run() {
+            apply_composition_execution_metrics(&mut report, executor.metrics());
+            let detail = failure.to_string();
+            drop(executor);
+            unsafe { drop(Box::from_raw(runtime_owner)) };
+            return (
+                2,
+                report.into_startup_error(failure.phase, detail.clone()),
+                Some(detail),
+            );
+        }
+        apply_composition_execution_metrics(&mut report, executor.metrics());
+        let admitted_records = authorized.admitted_records();
+        match CompositionSessionV1::new(
+            executor,
+            envelope.alias_table,
+            admitted_records,
+            report.clone(),
+        ) {
+            Ok(session) => {
+                let session = Box::leak(Box::new(session)) as *const CompositionSessionV1;
+                #[cfg(test)]
+                LAST_COMPOSITION_SESSION_V1.with(|retained| retained.set(session));
+                let _ = session;
+                (0, report, None)
+            }
+            Err(error) => {
+                unsafe { drop(Box::from_raw(runtime_owner)) };
+                let detail = format!("{error:#}");
+                (
+                    2,
+                    report.into_startup_error(
+                        super::super::composition::CompositionStartupPhaseV1::AppEvaluate,
+                        detail.clone(),
+                    ),
+                    Some(detail),
+                )
+            }
+        }
     }
 
     /// Authenticated execution display labels for a dev-committed record,
@@ -8022,5 +8249,111 @@ pub mod dev_committed_embedder {
                 }
             }
         }
+    }
+
+    unsafe fn required_composition_utf8<'a>(pointer: *const c_char, role: &str) -> Result<&'a str> {
+        if pointer.is_null() {
+            bail!("IBEX_DEV_COMPOSITION_CORRUPT composition startup received a null {role}");
+        }
+        unsafe { CStr::from_ptr(pointer) }.to_str().map_err(|_| {
+            anyhow!("IBEX_DEV_COMPOSITION_CORRUPT composition startup received a non-UTF-8 {role}")
+        })
+    }
+
+    /// LLP 0056 package-aware dev-unarmed composition startup. Returns 0 only
+    /// after all descriptor transitions complete, 1 for step-0–8 refusal, and
+    /// 2 for every step-9-or-later startup failure. The tagged report is total.
+    // @ref LLP 0056#34-the-c-abi-entry-dev-unarmed-the-only-v1-posture — this entry preserves the landed phase return codes while adding a total report.
+    #[no_mangle]
+    pub unsafe extern "C" fn ibex_dev_unarmed_composition_prepared_startup_v1(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        composition_dir: *const c_char,
+        commitment_json: *const c_char,
+        expectations_json: *const c_char,
+        project_root: *const c_char,
+        out_report_json: *mut *mut c_char,
+        out_error: *mut *mut c_char,
+    ) -> i32 {
+        if !out_report_json.is_null() {
+            unsafe { *out_report_json = std::ptr::null_mut() };
+        }
+        if !out_error.is_null() {
+            unsafe { *out_error = std::ptr::null_mut() };
+        }
+
+        let parsed = (|| -> Result<(NonNull<c_void>, &str, &str, &str, &str)> {
+            let runtime = NonNull::new(runtime).ok_or_else(|| {
+                anyhow!("IBEX_DEV_COMPOSITION_CORRUPT composition startup received a null runtime")
+            })?;
+            let composition_dir =
+                unsafe { required_composition_utf8(composition_dir, "composition directory") }?;
+            let commitment_json =
+                unsafe { required_composition_utf8(commitment_json, "commitment") }?;
+            let expectations_json =
+                unsafe { required_composition_utf8(expectations_json, "expectations") }?;
+            let project_root = unsafe { required_composition_utf8(project_root, "project root") }?;
+            Ok((
+                runtime,
+                composition_dir,
+                commitment_json,
+                expectations_json,
+                project_root,
+            ))
+        })();
+        let (status, report, mut diagnostic) = match parsed {
+            Ok((runtime, composition_dir, commitment, expectations, project_root)) => {
+                run_prepared_composition_dev_unarmed_v1(
+                    runtime,
+                    runtime_nonce,
+                    Path::new(composition_dir),
+                    commitment,
+                    expectations,
+                    Path::new(project_root),
+                )
+            }
+            Err(error) => {
+                let detail = format!("{error:#}");
+                (
+                    1,
+                    composition_embedder_channel_error_report_v1(detail.clone()),
+                    Some(detail),
+                )
+            }
+        };
+        let outcome_name = match status {
+            0 => "admitted",
+            1 => "refused",
+            2 => "admitted-startup-error",
+            _ => "invalid-outcome",
+        };
+        match serde_json::to_string(&report) {
+            Ok(json) if !out_report_json.is_null() => write_out_string(out_report_json, &json),
+            Ok(_) => {
+                let delivery = format!(
+                    "composition {outcome_name} report delivery failed: out_report_json is null"
+                );
+                diagnostic = Some(match diagnostic {
+                    Some(existing) => format!("{existing}; {delivery}"),
+                    None => delivery,
+                });
+            }
+            Err(error) => {
+                let serialization = format!(
+                    "composition {outcome_name} outcome retained but report serialization failed: {error}"
+                );
+                diagnostic = Some(match diagnostic {
+                    Some(existing) => format!("{existing}; {serialization}"),
+                    None => serialization,
+                });
+            }
+        }
+        if diagnostic.is_none() && status != 0 {
+            diagnostic = Some(format!("composition startup ended as {outcome_name}"));
+        }
+        if let Some(diagnostic) = diagnostic {
+            write_out_string(out_error, &diagnostic);
+        }
+        status
     }
 }

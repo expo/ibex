@@ -4756,6 +4756,92 @@ extern "C" int32_t ex_hermes_module_record_poll_evaluation(
   }
 }
 
+// @abi-output ex_hermes_module_invoke_export out_outcome role=inout kind=aggregate schema=ExHermesModuleInvokeOutcomeV1 members=* ownership=caller-storage
+// @abi-output ex_hermes_module_invoke_export out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_invoke_export out_error_token role=output kind=scalar ownership=caller-storage
+extern "C" int32_t ex_hermes_module_invoke_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len,
+    ExHermesModuleInvokeOutcomeV1* out_outcome,
+    char** out_error,
+    uint64_t* out_error_token) {
+  observeModuleRunnerAbi(__func__);
+  if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
+  if (out_outcome == nullptr ||
+      out_outcome->abi_version !=
+          EX_HERMES_MODULE_INVOKE_OUTCOME_ABI_VERSION_V1 ||
+      out_outcome->struct_size < sizeof(ExHermesModuleInvokeOutcomeV1)) {
+    writeError(out_error, "module export invoke outcome shape is unsupported");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  out_outcome->returned_thenable = 0;
+  out_outcome->reserved = 0;
+  if (export_name == nullptr || export_name_len == 0) {
+    writeError(out_error, "module export invoke requires a non-empty name");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "module export invoke refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state == NativeModuleRecordState::Errored) {
+    return reportRecordError(*entry, out_error, out_error_token);
+  }
+  if (entry->state != NativeModuleRecordState::Evaluated) {
+    writeError(out_error, "module export invoke requires an evaluated record");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "module export invoke host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  const std::string exportName(
+      reinterpret_cast<const char*>(export_name), export_name_len);
+  try {
+    auto& rt = *runtime->runtime;
+    auto value = readBinding(rt, runtime, record.opaque[2], *entry, exportName);
+    if (!value.isObject() || !value.asObject(rt).isFunction(rt)) {
+      throw facebook::jsi::JSError(
+          rt, "module export '" + exportName + "' is not callable");
+    }
+    auto result = value.asObject(rt).asFunction(rt).call(rt);
+    if (result.isObject()) {
+      auto object = result.asObject(rt);
+      auto thenValue = object.getProperty(rt, "then");
+      out_outcome->returned_thenable =
+          thenValue.isObject() && thenValue.asObject(rt).isFunction(rt) ? 1 : 0;
+    }
+  } catch (const facebook::jsi::JSError& error) {
+    rememberRecordError(
+        *entry,
+        "module export invoke threw: " + error.getMessage(),
+        exactRetainStructuredModuleGraphError(runtime, error));
+  } catch (const std::exception& error) {
+    rememberRecordError(*entry, error.what());
+  } catch (...) {
+    rememberRecordError(*entry, "unknown module export invoke failure");
+  }
+  if (!hostTask.finish()) {
+    writeError(out_error, "module export invoke host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (entry->state == NativeModuleRecordState::Errored) {
+    return reportRecordError(*entry, out_error, out_error_token);
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 // @abi-output ex_hermes_module_record_namespace_json out_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_module_record_namespace_json out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_module_record_namespace_json out_error_token role=output kind=scalar ownership=caller-storage
