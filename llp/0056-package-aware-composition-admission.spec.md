@@ -5,7 +5,20 @@
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-24 (ACCEPTED by Charlie Cheever — decision relayed
+**Revised:** 2026-08-24 (Amendment A2 — approved by Charlie Cheever
+("sure amend it"), relayed via session exact-b7, on the recommendation
+of the legs-2/3 implementation lane + exact-9e + exact-b7's independent
+read, resolving the implementation-exposed defect in
+`issues/closed/20260824-llp0056-s10-grant-authority-defect.md`. Two changes,
+both entirely outside the §6.2 lockstep row bytes (row #34's predicate
+text is unchanged and remains valid): §10's external-reference rule is
+now the explicit v1 DENY-ALL-CROSSING policy — every external edge
+crossing defining principals refuses #34; equal principals never
+consult the policy; relaxation is a future O-4/armed amendment — and
+§4.7's phantom `resolverInventoryDigest` alias-input claim is DELETED
+with the field marked RESERVED on the wire (rationale recorded in
+§4.7; the pinned O-3 preimage and vector corpus are untouched).)
+2026-08-24 (ACCEPTED by Charlie Cheever — decision relayed
 via session exact-b7; basis = r5 dual-READY (round-4 final delta:
 codex gpt-5.6-sol xhigh READY + grok-4.6 READY x3, 0 MATERIAL in both
 families on r5 @494fad727) plus the byte-verified A1 lockstep;
@@ -367,9 +380,13 @@ O-3 inventory with no input channel — codex/grok convergent):
   "authorityGeneration": <int>,
   "resolverGeneration": <int>,
   "policyDigest": "<digest>",
-  "resolverInventoryDigest": "<digest>",  // O-3: the frozen resolver/transform
-                                          // inventory as explicit verifier input
-                                          // (§2.5 inventories + §4.7 alias evidence)
+  "resolverInventoryDigest": "<digest>",  // the frozen resolver/transform
+                                          // inventory digest. A2: RESERVED —
+                                          // mandatory on the wire (landed O-1
+                                          // schema), consumed by NO v1
+                                          // admission predicate (§4.7's r5
+                                          // alias-input claim was a phantom;
+                                          // consumption arrives with O-4)
   "nowUnixMs": <int>
 }
 ```
@@ -655,8 +672,20 @@ committed host-bridged inventory rows** (r4: the landed collection
 basis, `collectAliasImportSites` at Exact `@a049ed9aa`, draws from
 exactly these two committed surfaces, so producer and verifier compute
 over the same universe by construction) —
-under the O-3 algorithm the O-1 package fixes, with
-`resolverInventoryDigest` (§3.3) as the explicit verifier input.
+under the O-3 algorithm the O-1 package fixes. **(Amendment A2 —
+phantom-input correction):** the r5 text additionally named
+`resolverInventoryDigest` (§3.3) as "the explicit verifier input" to
+this verification, but the pinned O-3 preimage (O-1 `preimages.json`)
+computes the import-site inventory digest solely over the committed
+`{importer, specifier}` rows and defines no operation consuming that
+field; the claim is DELETED rather than wired in. Rationale: the
+preimage bytes are pinned cross-repo (the 21-vector corpus, its TS
+half, and the `prepared-composition-schema-parity` corpus legs), the
+field is mandatory in the landed §3.3 authority schema so it stays on
+the wire, and inventing a comparison target would be new normative
+surface. `resolverInventoryDigest` is therefore RESERVED: v1 admission
+performs no comparison with it; its consumption arrives with the
+O-4/armed real-policy work.
 Divergence is `alias-conflict`. At resolution time (steps 6–8 and
 runtime dynamic-import lookups through the composition session, §7.5), a
 target id owned by no package that appears as an `aliasId` resolves
@@ -1418,12 +1447,24 @@ declaration, and the composition's committed facts. Its v1 rules:
   single-publication lane accepts.
 - **External references** (`agent → app`): structurally legal per §4.5
   and §5 steps 5–6 (those checks own role direction and ownership);
-  **additionally** each external edge crossing defining principals
-  (origin record's `definingPrincipal` ≠ target's) must be authorized
-  by the policy — the defining-principal predicate that makes #34
-  `cross-principal-denied` reachable and meaningful (fixture F: an
-  external reference whose origin defining principal lacks the grant
-  for the target's principal — not a role-direction duplicate).
+  **additionally** the policy decides each external edge crossing
+  defining principals (origin record's `definingPrincipal` ≠ target's),
+  and **the v1 dev-unarmed rule is DENY-ALL-CROSSING (Amendment A2)**:
+  every such crossing refuses as #34 `cross-principal-denied` — no v1
+  grant exists, and no channel or committed fact carries one. Equal
+  defining principals never consult the policy (the authorizer's
+  `importer != imported` gate), so external references between
+  Root-principal records — the real boot-core-v1 shape — are unaffected.
+  This is the defining-principal predicate that makes #34 reachable and
+  meaningful (fixture F: an external reference crossing defining
+  principals — no v1 grant exists — not a role-direction duplicate).
+  The rule is deliberately fail-closed and monotonically relaxable: a
+  real grant mechanism arrives with the O-4 real-policy / armed-posture
+  work as a future amendment, never as an implementation choice.
+  *(A2 provenance: the r5 text named the predicate and its inputs but
+  no derivable grant relation — the implementation-exposed defect in
+  `issues/closed/20260824-llp0056-s10-grant-authority-defect.md`; option 1 of
+  that analysis was taken.)*
 
 EXECUTION attribution on this lane still collapses to the root
 principal exactly as landed (`runner_pipeline.rs:6119-6131` — no
@@ -1502,6 +1543,16 @@ alone; nothing admits for real until leg 3, which is the moment
 
 ## Revision history
 
+- **A2 (2026-08-24, post-acceptance amendment):** §10 external-reference
+  rule made decidable — v1 DENY-ALL-CROSSING (every external edge whose
+  origin `definingPrincipal` ≠ target's refuses #34; equal principals
+  never consult the policy; no v1 grant exists; relaxation is a future
+  O-4/armed amendment) — and the §4.7/§3.3 `resolverInventoryDigest`
+  phantom-input claim deleted (field RESERVED on the wire, pinned O-3
+  preimage untouched). Both edits outside the §6.2 lockstep bytes.
+  Approved by Charlie Cheever via session exact-b7 after the
+  implementation lane's STOP-AND-REPORT
+  (`issues/closed/20260824-llp0056-s10-grant-authority-defect.md`).
 - **r5 (2026-08-24):** Round-3 delta fold (grok READY 0-MATERIAL,
   second consecutive; codex NOT READY with 2 MATERIALs, both verified
   against the trees). Codex: the §3.3 authority claim overstated the

@@ -1,6 +1,6 @@
 # LLP 0056 §10 defect: no dev-unarmed grant authority — #34 unimplementable without inventing security semantics
 
-**Status:** Open
+**Status:** Resolved (2026-08-24 — LLP 0056 Amendment A2)
 **Severity:** P1 (blocks the LLP 0056 legs 2/3 admission driver — 0413.001 §6 "no composition admits" stays in force)
 **Systems:** Module Loader, Security, Conformance
 **Author:** Claude (Fable 5), verifying the codex gpt-5.6-sol implementation lane's stop-rule report
@@ -79,3 +79,19 @@ step-ordered driver, steps 2–7, fixture families B/C/F-i, covering map,
 and legs-3 work are stopped pending the amendment. Full detail:
 the lane's `.l23/BLOCKED.md` / `.l23/slice2-report.md` (session
 scratch), summarized here.
+
+## Resolution (2026-08-24)
+
+Charlie Cheever approved both halves ("sure amend it", relayed via
+session exact-b7, on the recommendation of the legs-2/3 lane + exact-9e
++ exact-b7's independent read): **option 1 — v1 DENY-ALL-CROSSING** for
+§10 (every external edge crossing defining principals refuses #34; equal
+principals never consult the policy; no v1 grant exists; relaxation is a
+future O-4/armed amendment), and the §4.7 `resolverInventoryDigest`
+phantom-input claim is DELETED with the field marked RESERVED on the
+wire (the lane's delegated call: the pinned O-3 preimage and vector
+corpus stay untouched; the field is mandatory in the landed O-1 schema;
+inventing a comparison target would be new normative surface).
+Amendment A2 landed on the spec with both edits verified OUTSIDE the
+§6.2 lockstep row bytes (row #34's predicate text unchanged). Driver
+work (steps 2-7, leg 3, fixture families) resumed at the amendment.
