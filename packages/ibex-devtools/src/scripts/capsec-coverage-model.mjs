@@ -14511,7 +14511,7 @@ function classifyConcreteSurface(surface) {
       return closedSpec(
         "vm:evaluate",
         "WP8",
-        "Execution-activating descriptor export invocation exists only in dev-committed-embedder builds, is excluded from armed Hosts, and requires the descriptor executor's private capability.",
+        "Execution-activating export invocation (LLP 0056 step 9). The C symbol exists only in dev-committed-embedder builds and refuses armed runtimes NATIVELY (runtime->armed check inside the definition — the exclusion holds for direct C callers, not just the crate-private Rust wrapper). It invokes only an already-EVALUATED record's named export with zero arguments. Descriptor provenance is a Rust-crate-internal discipline (the executor-owned capability token), deliberately NOT claimed as an ABI property of the C symbol.",
       );
     }
     if (

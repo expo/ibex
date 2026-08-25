@@ -4787,6 +4787,19 @@ extern "C" int32_t ex_hermes_module_invoke_export(
   }
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  // Native armed exclusion (LLP 0056 §10, security delta D1): this call
+  // exists only for the dev-unarmed composition descriptor executor; an
+  // armed runtime must be refused HERE, not merely by the crate-private
+  // Rust wrapper, because the C symbol is directly callable by any
+  // embedder linking a dev-committed-embedder build. The general
+  // exactRuntimeEnterUserExecution gate deliberately permits armed
+  // execution and is therefore insufficient on its own for this entry.
+  if (runtime->armed) {
+    writeError(
+        out_error,
+        "module export invoke is dev-unarmed only: the runtime is armed");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (!exactRuntimeEnterUserExecution(runtime)) {
     writeError(
         out_error,

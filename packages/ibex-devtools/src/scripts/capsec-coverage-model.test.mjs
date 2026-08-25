@@ -75,8 +75,10 @@ test("descriptor export invocation is classified as a closed activation seam", (
   });
   expect(classified.specification.implementationOwner).toBe("WP8");
   expect(classified.edge.rationale).toContain("dev-committed-embedder");
-  expect(classified.edge.rationale).toContain("excluded from armed Hosts");
-  expect(classified.edge.rationale).toContain("private capability");
+  expect(classified.edge.rationale).toContain("refuses armed runtimes NATIVELY");
+  expect(classified.edge.rationale).toContain(
+    "NOT claimed as an ABI property",
+  );
 });
 
 test("Lane C A2 exact façades do not assert duplicate effect cells", () => {

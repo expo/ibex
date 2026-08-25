@@ -7159,6 +7159,60 @@ export const result = JSON.stringify({
         }
     }
 
+    /// LLP 0056 §10 / security delta D1: the raw C invoke symbol must refuse
+    /// an ARMED runtime natively — the crate-private Rust wrapper's armed
+    /// assert does not protect a direct C caller in a
+    /// dev-committed-embedder build. The armed check runs after the drive
+    /// guard and before any record lookup, so a zeroed handle never gets
+    /// dereferenced.
+    #[cfg(all(
+        feature = "dev-committed-embedder",
+        feature = "capsec-conformance-observer",
+        not(target_os = "windows")
+    ))]
+    #[test]
+    fn raw_invoke_export_abi_refuses_an_armed_runtime_natively() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::module_runner_attribution_test_host();
+        let armed_digest = CString::new(host.armed_snapshot().unwrap().digest().as_str()).unwrap();
+        crate::host::abi::install_host(host);
+        unsafe {
+            let raw = ex_hermes_create_armed(armed_digest.as_ptr());
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let mut outcome = NativeModuleInvokeOutcomeV1 {
+                abi_version: MODULE_INVOKE_OUTCOME_ABI_VERSION_V1,
+                struct_size: u32::try_from(std::mem::size_of::<NativeModuleInvokeOutcomeV1>())
+                    .unwrap(),
+                returned_thenable: 0,
+                reserved: 0,
+            };
+            let mut error = std::ptr::null_mut();
+            let mut error_token = 0;
+            let status = ex_hermes_module_invoke_export(
+                raw,
+                nonce,
+                NativeModuleHandle::default(),
+                b"installExactNativeAgentBootstrap".as_ptr(),
+                b"installExactNativeAgentBootstrap".len(),
+                &mut outcome,
+                &mut error,
+                &mut error_token,
+            );
+            assert_ne!(status, 0, "armed runtime must refuse the invoke ABI");
+            assert!(!error.is_null());
+            let message = std::ffi::CStr::from_ptr(error)
+                .to_string_lossy()
+                .into_owned();
+            ex_hermes_free_string(error);
+            assert!(
+                message.contains("dev-unarmed only"),
+                "refusal must be the native armed exclusion, got: {message}"
+            );
+            ex_hermes_destroy(raw);
+        }
+    }
+
     #[test]
     fn synchronous_graph_links_every_record_before_dependency_first_evaluation() {
         let _host_guard = crate::host::abi::host_test_lock();
