@@ -311,6 +311,7 @@ impl HotUpdateConsumerSessionV1 {
                 ReplayEntry::Pending {
                     envelope_digest: Some(bound_digest),
                 } if bound_digest == &envelope_digest => HotUpdateAdmissionV1::Busy {
+                    class: HotUpdateRefusalClassV1::KeepLastGood,
                     diagnostic: format!("hot update {} is in flight", body.update_id),
                 },
                 ReplayEntry::Pending { .. } => HotUpdateAdmissionV1::IdentityConflict {
@@ -340,6 +341,7 @@ impl HotUpdateConsumerSessionV1 {
         // prevent the producer from retrying after the owner-thread flight ends.
         if self.pending_update.is_some() || surface.is_in_flight() {
             return HotUpdateAdmissionV1::Busy {
+                class: HotUpdateRefusalClassV1::KeepLastGood,
                 diagnostic:
                     "hot revision surface is busy; retry after the in-flight update settles"
                         .to_owned(),
@@ -533,6 +535,18 @@ impl HotUpdateConsumerSessionV1 {
             ));
         }
 
+        // The digest is compared at the live coordinate BEFORE the algebra
+        // begins (§5.2 check 3's listed order): a producer whose graph state
+        // desynced must be answered with the desync class even when its
+        // invalidation set would also refuse for a lesser reason.
+        if &admitted.body.base_graph_digest != surface.graph_digest() {
+            return Err(self.refuse_admitted(
+                &mut admitted,
+                HotUpdateRefusalClassV1::FullReloadCurrentAuthority,
+                "hot update base graph digest is stale; pull live coordinates and restage",
+            ));
+        }
+
         // The equality check above proved the envelope's claimed base IS the
         // live coordinate, so passing `live` here passes the update's claimed
         // base by value; the algebra's begin-time CAS remains the §5.2-item-8
@@ -584,15 +598,6 @@ impl HotUpdateConsumerSessionV1 {
                 return Err(self.refuse_admitted(&mut admitted, class, &message));
             }
         };
-
-        if &admitted.body.base_graph_digest != surface.graph_digest() {
-            drop(begun);
-            return Err(self.refuse_admitted(
-                &mut admitted,
-                HotUpdateRefusalClassV1::FullReloadCurrentAuthority,
-                "hot update base graph digest is stale; pull live coordinates and restage",
-            ));
-        }
 
         let settlement = HotUpdateSettlementV1 {
             update_id: admitted.update_id.clone(),
@@ -787,6 +792,7 @@ pub enum HotUpdateAdmissionV1 {
         diagnostic: String,
     },
     Busy {
+        class: HotUpdateRefusalClassV1,
         diagnostic: String,
     },
     Duplicate {
@@ -1455,6 +1461,26 @@ mod tests {
     }
 
     #[test]
+    fn f9_graph_desync_outranks_lesser_begin_refusals() {
+        // §5.2 check 3 lists the digest comparison before begin_revision: a
+        // desynced producer must be answered with the desync class even when
+        // its update would also refuse for a lesser reason (here: an empty
+        // invalidation set, which alone is keep-last-good).
+        let mut rig = Rig::new("run-desync-outranks");
+        let mut body = rig.body("desync-empty-invalidation");
+        body.base_graph_digest = digest("desynced-live-graph");
+        let envelope = rig.signing.sign(&body).unwrap();
+        assert_check3_terminalized(
+            &mut rig,
+            body,
+            envelope,
+            Vec::new(),
+            HotUpdateRefusalClassV1::FullReloadCurrentAuthority,
+            "hot update base graph digest is stale; pull live coordinates and restage",
+        );
+    }
+
+    #[test]
     fn f9_stale_revision_and_graph_digest_after_commit_have_distinct_replay_outcomes() {
         let mut rig = Rig::new("run-post-commit-stale");
         let (_committed_body, committed_envelope) = commit_update(&mut rig, "committed", 2);
@@ -1501,7 +1527,8 @@ mod tests {
         let envelope = rig.signing.sign(&body).unwrap();
         let admitted = take_admitted(rig.consumer.admit(&rig.surface, &envelope, &rig.payload));
         match rig.consumer.admit(&rig.surface, &envelope, &rig.payload) {
-            HotUpdateAdmissionV1::Busy { diagnostic } => {
+            HotUpdateAdmissionV1::Busy { class, diagnostic } => {
+                assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
                 assert_eq!(diagnostic, "hot update pending is in flight");
             }
             other => panic!("expected pending busy, got {other:?}"),
@@ -1548,10 +1575,13 @@ mod tests {
             .consumer
             .admit(&rig.surface, &second_envelope, &rig.payload)
         {
-            HotUpdateAdmissionV1::Busy { diagnostic } => assert_eq!(
-                diagnostic,
-                "hot revision surface is busy; retry after the in-flight update settles"
-            ),
+            HotUpdateAdmissionV1::Busy { class, diagnostic } => {
+                assert_eq!(class, HotUpdateRefusalClassV1::KeepLastGood);
+                assert_eq!(
+                    diagnostic,
+                    "hot revision surface is busy; retry after the in-flight update settles"
+                );
+            }
             other => panic!("expected pending reservation to answer busy, got {other:?}"),
         }
         assert!(!rig.consumer.replay.contains_key("pending-b"));
