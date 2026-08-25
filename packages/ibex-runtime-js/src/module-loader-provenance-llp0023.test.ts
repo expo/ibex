@@ -156,8 +156,12 @@ function makeLoader(
   compartmentBindResult = true,
   deniedSpecifier?: string,
   promiseConstructor: PromiseConstructor = Promise,
+  devServedMode = false,
 ) {
   let dispatcher: StaticDispatcher | undefined;
+  let hotRevisionInvalidator: ((keys: readonly string[]) => boolean) | undefined;
+  let devServedLifecycle: ((action: string) => boolean) | undefined;
+  let devServedQuarantineCalls = 0;
   const resolutionCounts = new Map<string, number>();
   const packageRegistrations: Array<{
     id: number;
@@ -209,7 +213,27 @@ function makeLoader(
       return specifier !== deniedSpecifier;
     },
     __exactPinProcessStreams() {},
+    __exactCaptureHotRevisionRecordInvalidator(
+      captured: (keys: readonly string[]) => boolean,
+    ) {
+      if (hotRevisionInvalidator) return false;
+      hotRevisionInvalidator = captured;
+      return true;
+    },
   };
+  if (devServedMode) {
+    sandbox.__exactCompatModes = Object.freeze(['dev-served']);
+    sandbox.__exactQuarantineDevServedModuleTable = () => {
+      devServedQuarantineCalls++;
+    };
+    sandbox.__exactCaptureDevServedModuleTableLifecycle = (
+      captured: (action: string) => boolean,
+    ) => {
+      if (devServedLifecycle) return false;
+      devServedLifecycle = captured;
+      return true;
+    };
+  }
   sandbox.globalThis = sandbox;
   const resolve = (specifier: string) => {
     resolutionCounts.set(specifier, (resolutionCounts.get(specifier) ?? 0) + 1);
@@ -232,6 +256,12 @@ function makeLoader(
   vm.runInContext(generatedKeysSource, sandbox, { filename: 'import-grant-keys.generated.js' });
   vm.runInContext(loaderSource, sandbox, { filename: 'module-loader.js' });
   if (!dispatcher) throw new Error('module loader did not capture the native dispatcher');
+  if (!hotRevisionInvalidator) {
+    throw new Error('module loader did not capture the hot-revision invalidator');
+  }
+  if (devServedMode && !devServedLifecycle) {
+    throw new Error('module loader did not capture the dev-served lifecycle');
+  }
   return {
     sandbox,
     dispatcher,
@@ -241,6 +271,9 @@ function makeLoader(
     compartmentBindings,
     importChecks,
     packageCompartment,
+    hotRevisionInvalidator,
+    devServedLifecycle,
+    devServedQuarantineCalls: () => devServedQuarantineCalls,
   };
 }
 
@@ -293,6 +326,39 @@ test('native-only registry protocol makes bundle-first entries exact raw hits', 
   expect(rawB).toBe(bundle.b);
   expect(rawA).not.toBe(rawB);
   expect(sandbox.__originalRuns).toEqual({ a: 1, b: 1 });
+});
+
+test('f7_live_post_commit_resolution_skips_capture_table', () => {
+  const {
+    sandbox,
+    resolutionCounts,
+    hotRevisionInvalidator,
+    devServedLifecycle,
+    devServedQuarantineCalls,
+  } = makeLoader(true, undefined, Promise, true);
+  expect(sandbox.__exactCaptureHotRevisionRecordInvalidator).toBeUndefined();
+  expect(sandbox.__exactCaptureDevServedModuleTableLifecycle).toBeUndefined();
+  expect(devServedLifecycle!('begin')).toBe(true);
+  const captureDevServedTable = sandbox.__ibexCaptureDevServedModuleTable;
+  expect(typeof captureDevServedTable).toBe('function');
+  expect(captureDevServedTable(Object.freeze(Object.create(null)))).toBe(true);
+  expect(sandbox.__ibexCaptureDevServedModuleTable).toBeUndefined();
+  expect(devServedLifecycle!('mark-run-app')).toBe(true);
+
+  const first = sandbox.require('a.js');
+  expect(first.name).toBe('a');
+  expect(sandbox.__originalRuns.a).toBe(1);
+  expect(resolutionCounts.get('a.js')).toBe(1);
+  expect(hotRevisionInvalidator(Object.freeze([sourceA]))).toBe(true);
+  expect(devServedQuarantineCalls()).toBe(0);
+
+  const successor = sandbox.require('a.js');
+  expect(successor.name).toBe('a');
+  expect(successor).not.toBe(first);
+  expect(sandbox.__originalRuns.a).toBe(2);
+  expect(resolutionCounts.get('a.js')).toBe(2);
+  expect(devServedLifecycle!('finish')).toBe(true);
+  expect(devServedQuarantineCalls()).toBe(0);
 });
 
 test('structured-session dynamic import reauthorizes the exact SourceId without re-resolving', async () => {

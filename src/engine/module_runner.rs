@@ -4650,6 +4650,17 @@ mod tests {
         fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
         fn ex_hermes_poll(runtime: *mut c_void, now_ms: u64) -> i32;
         fn ex_hermes_destroy(runtime: *mut c_void);
+        fn ibex_test_module_carrier_occupancy(
+            runtime: *mut c_void,
+            runtime_nonce: u64,
+            principal_id: u32,
+            compartment_identity: *const u8,
+            compartment_identity_len: usize,
+            carrier_digest: *const u8,
+            carrier_digest_len: usize,
+            out_occupancy: *mut u32,
+            out_table_present: *mut i32,
+        ) -> i32;
         #[cfg(feature = "capsec-conformance-observer")]
         fn ibex_test_install_capsec_context_observer(
             runtime: *mut c_void,
@@ -5138,6 +5149,41 @@ export const result = JSON.stringify({
         (context, factory, record)
     }
 
+    fn prepared_hot_test_record<'runtime>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        manifest: &PreparedModuleCarrierV2,
+        carrier: &AdmittedPreparedCarrierV2,
+        entry_id: &str,
+        source_id: &SourceId,
+        graph_generation: u64,
+        label: &str,
+    ) -> (
+        NativeGraphContext<'runtime>,
+        CompiledModuleFactory<'runtime>,
+        NativeModuleRecord<'runtime>,
+    ) {
+        let artifact = manifest.prepared_artifact(entry_id).unwrap();
+        let context = runtime
+            .create_graph_context(
+                GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], graph_generation)
+                    .unwrap(),
+            )
+            .unwrap();
+        let factory = runtime
+            .load_verified_prepared_factory(
+                verify_prepared_artifact_entry(&artifact, manifest, entry_id),
+                carrier.entry(entry_id).unwrap(),
+                0,
+                None,
+                graph_generation,
+                label,
+            )
+            .unwrap();
+        let mut record = factory.create_record(&context, source_id).unwrap();
+        record.declare_export("value").unwrap();
+        (context, factory, record)
+    }
+
     fn publish_hot_test_records(
         runtime: &NativeModuleRuntime<'_>,
         records: &mut [&mut NativeModuleRecord<'_>],
@@ -5179,6 +5225,35 @@ export const result = JSON.stringify({
             0
         );
         take_error(output)
+    }
+
+    fn test_carrier_occupancy(
+        raw: *mut c_void,
+        nonce: u64,
+        principal_id: u32,
+        compartment: Option<&str>,
+        carrier_digest: &Digest,
+    ) -> (u32, bool) {
+        let compartment = compartment.unwrap_or("");
+        let mut occupancy = 0;
+        let mut table_present = 0;
+        assert_eq!(
+            unsafe {
+                ibex_test_module_carrier_occupancy(
+                    raw,
+                    nonce,
+                    principal_id,
+                    compartment.as_ptr(),
+                    compartment.len(),
+                    carrier_digest.as_str().as_ptr(),
+                    carrier_digest.as_str().len(),
+                    &mut occupancy,
+                    &mut table_present,
+                )
+            },
+            0
+        );
+        (occupancy, table_present == 1)
     }
 
     struct PanicGraphPolicy;
@@ -5497,6 +5572,14 @@ export const result = JSON.stringify({
         artifact: &'a ModuleArtifactV1,
         manifest: &PreparedModuleCarrierV2,
     ) -> VerifiedModuleArtifactV1<'a> {
+        verify_prepared_artifact_entry(artifact, manifest, "entry")
+    }
+
+    fn verify_prepared_artifact_entry<'a>(
+        artifact: &'a ModuleArtifactV1,
+        manifest: &PreparedModuleCarrierV2,
+        entry_id: &str,
+    ) -> VerifiedModuleArtifactV1<'a> {
         artifact
             .verify_for_admission(&ArtifactAdmissionV1::DigestBoundPrepared {
                 expected_source_id: artifact.semantics.source_id.0.clone(),
@@ -5505,7 +5588,7 @@ export const result = JSON.stringify({
                 producer_binary_digest: digest("prepared-producer"),
                 deployment_graph_digest: digest("prepared-graph"),
                 expected_carrier_digest: manifest.carrier_digest.clone(),
-                expected_entry_id: NonEmptyString::new("entry").unwrap(),
+                expected_entry_id: NonEmptyString::new(entry_id).unwrap(),
                 authorized_semantic_digests: std::sync::Arc::new(
                     [artifact.semantic_digest.clone()].into(),
                 ),
@@ -9538,6 +9621,288 @@ export const result = JSON.stringify({
             drop(successor_context);
             drop(discarded_context);
             drop(prior_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn f7_carrier_occupancy_retires_at_zero() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("hot-revision-carrier-project").unwrap(),
+        };
+        let first_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("first.mjs").unwrap()],
+        )
+        .unwrap();
+        let second_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("second.mjs").unwrap()],
+        )
+        .unwrap();
+        let third_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("third.mjs").unwrap()],
+        )
+        .unwrap();
+        let first_artifact = test_artifact_with_factory(
+            first_id.clone(),
+            "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+            &["value"],
+        );
+        let second_artifact = test_artifact_with_factory(
+            second_id.clone(),
+            "function ($export) { return { declare: function () {}, execute: function () { $export('value', 2); } }; }",
+            &["value"],
+        );
+        let third_artifact = test_artifact_with_factory(
+            third_id.clone(),
+            "function ($export) { return { declare: function () {}, execute: function () { $export('value', 3); } }; }",
+            &["value"],
+        );
+        let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-test").unwrap(),
+            digest("prepared-producer"),
+            digest("prepared-graph"),
+            [
+                (
+                    NonEmptyString::new("first").unwrap(),
+                    verify_test_artifact(&first_artifact),
+                ),
+                (
+                    NonEmptyString::new("second").unwrap(),
+                    verify_test_artifact(&second_artifact),
+                ),
+                (
+                    NonEmptyString::new("third").unwrap(),
+                    verify_test_artifact(&third_artifact),
+                ),
+            ],
+        )
+        .unwrap();
+        let carrier = AdmittedPreparedCarrierV2::decode_and_admit(
+            &manifest.encode_canonical().unwrap(),
+            &bytes,
+            &prepared_admission(owner, &manifest),
+        )
+        .unwrap();
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 59;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let (first_context, first_factory, mut first) = prepared_hot_test_record(
+                &runtime,
+                &manifest,
+                &carrier,
+                "first",
+                &first_id,
+                graph_generation,
+                "carrier-first.mjs",
+            );
+            let (second_context, second_factory, mut second) = prepared_hot_test_record(
+                &runtime,
+                &manifest,
+                &carrier,
+                "second",
+                &second_id,
+                graph_generation,
+                "carrier-second.mjs",
+            );
+            first
+                .instantiate("file:hot-revision-carrier-project/first.mjs", false)
+                .unwrap();
+            second
+                .instantiate("file:hot-revision-carrier-project/second.mjs", false)
+                .unwrap();
+            first.run_declare().unwrap();
+            second.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut first, &mut second]);
+            assert_eq!(
+                first.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                second.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (2, true)
+            );
+
+            let (first_successor_context, first_successor_factory, mut first_successor) =
+                hot_test_record(
+                    &runtime,
+                    &first_id,
+                    graph_generation,
+                    "function ($export) { return { declare: function () {}, execute: function () { $export('value', 11); } }; }",
+                    &["value"],
+                    "carrier-first-successor.mjs",
+                );
+            first_successor
+                .instantiate("file:hot-revision-carrier-project/first.mjs", false)
+                .unwrap();
+            first_successor.run_declare().unwrap();
+            assert_eq!(
+                first_successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        first.live_handle().unwrap().opaque[2],
+                        first_successor.live_handle().unwrap().opaque[2],
+                    )],
+                )
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (1, true),
+                "the shared table must survive while the second record occupies it"
+            );
+
+            let third_prepared = manifest.prepared_artifact("third").unwrap();
+            let surviving_table_factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(&third_prepared, &manifest, "third"),
+                    carrier.entry("third").unwrap(),
+                    0,
+                    None,
+                    graph_generation,
+                    "carrier-third-surviving-table.mjs",
+                )
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (1, true),
+                "loading a factory must not count as record occupancy"
+            );
+            drop(surviving_table_factory);
+
+            let (second_successor_context, second_successor_factory, mut second_successor) =
+                hot_test_record(
+                    &runtime,
+                    &second_id,
+                    graph_generation,
+                    "function ($export) { return { declare: function () {}, execute: function () { $export('value', 22); } }; }",
+                    &["value"],
+                    "carrier-second-successor.mjs",
+                );
+            second_successor
+                .instantiate("file:hot-revision-carrier-project/second.mjs", false)
+                .unwrap();
+            second_successor.run_declare().unwrap();
+            assert_eq!(
+                second_successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        second.live_handle().unwrap().opaque[2],
+                        second_successor.live_handle().unwrap().opaque[2],
+                    )],
+                )
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, false),
+                "the last carrier-record retirement must release the table"
+            );
+
+            let third_prepared = manifest.prepared_artifact("third").unwrap();
+            let reloaded_table_factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(&third_prepared, &manifest, "third"),
+                    carrier.entry("third").unwrap(),
+                    0,
+                    None,
+                    graph_generation,
+                    "carrier-third-reloaded-table.mjs",
+                )
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, true),
+                "loading after zero occupancy must evaluate and memoize a new table"
+            );
+            drop(reloaded_table_factory);
+
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+
+            for generation in [60, 61] {
+                assert_eq!(ex_hermes_module_pin_generation(raw, nonce, generation), 0);
+            }
+            let (generation_60_context, generation_60_factory, generation_60_record) =
+                prepared_hot_test_record(
+                    &runtime,
+                    &manifest,
+                    &carrier,
+                    "first",
+                    &first_id,
+                    60,
+                    "carrier-generation-60.mjs",
+                );
+            let (generation_61_context, generation_61_factory, generation_61_record) =
+                prepared_hot_test_record(
+                    &runtime,
+                    &manifest,
+                    &carrier,
+                    "second",
+                    &second_id,
+                    61,
+                    "carrier-generation-61.mjs",
+                );
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (2, true)
+            );
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 60), 0);
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (1, true),
+                "tearing down one generation must preserve another generation's record"
+            );
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 61), 0);
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, false)
+            );
+
+            drop(generation_61_record);
+            drop(generation_60_record);
+            drop(generation_61_factory);
+            drop(generation_60_factory);
+            drop(generation_61_context);
+            drop(generation_60_context);
+            drop(second_successor);
+            drop(first_successor);
+            drop(second);
+            drop(first);
+            drop(second_successor_factory);
+            drop(first_successor_factory);
+            drop(second_factory);
+            drop(first_factory);
+            drop(second_successor_context);
+            drop(first_successor_context);
+            drop(second_context);
+            drop(first_context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

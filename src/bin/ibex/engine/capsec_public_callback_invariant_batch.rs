@@ -1927,7 +1927,7 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
   var removed = delete globalThis[name];
   if (typeof observer !== 'function' || !removed || (name in globalThis)) throw new Error('CapSec context observer was project-reachable');
   var descriptor = Object.getOwnPropertyDescriptor(globalThis, '__ibexLockedDown');
-  var hatches = ['__exactSetActiveModuleId','__exactGrantCapability','__exactSetPendingPackageId','__exactRegisterPackage','__exactCheckImport','__exactSetCompartmentFor','__exactDeepFreeze','__exactNativeFreeze'];
+  var hatches = ['__exactSetActiveModuleId','__exactGrantCapability','__exactSetPendingPackageId','__exactRegisterPackage','__exactCheckImport','__exactSetCompartmentFor','__exactDeepFreeze','__exactNativeFreeze','__exactCaptureHotRevisionRecordInvalidator'];
   var hatchesAbsent = hatches.every(function(name) {{ return !(name in globalThis); }});
   var compartment = globalThis.__compartments['image-lib@2.4.1'];
   var compartmentWithholdsAuthority = compartment.Ibex === undefined && compartment.__exactTypedPermissionRequest === undefined;

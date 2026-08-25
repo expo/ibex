@@ -54,6 +54,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -235,6 +236,9 @@ enum class ExactHostIngressTag : uint8_t {
   V2,
 };
 
+using CarrierTableKey =
+    std::tuple<uint32_t, std::string, std::string>;
+
 struct ModuleFactoryEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
@@ -242,6 +246,7 @@ struct ModuleFactoryEntry {
   std::string compartment_identity;
   std::string semantic_digest;
   std::string source_id;
+  std::optional<CarrierTableKey> carrier_key;
   std::shared_ptr<facebook::jsi::Function> factory;
 };
 
@@ -281,6 +286,7 @@ struct NativeModuleRecordEntry {
   bool published{false};
   std::string source_id;
   uint64_t context_handle_id{0};
+  std::optional<CarrierTableKey> carrier_key;
   std::shared_ptr<facebook::jsi::Function> factory;
   NativeModuleRecordState state{NativeModuleRecordState::New};
   std::map<std::string, NativeModuleBindingCell> export_cells;
@@ -712,6 +718,8 @@ struct ExactHermesRuntime {
   bool bootstrap_dev_served{false};
   std::unique_ptr<facebook::jsi::Function>
       dev_served_module_table_lifecycle;
+  std::unique_ptr<facebook::jsi::Function>
+      hot_revision_record_invalidator;
   // The legacy lazy-bootstrap callbacks can execute after diagnostic package
   // code begins. Their source/HBC choices are therefore captured during the
   // native bootstrap and never re-read from the process environment.
@@ -852,9 +860,13 @@ struct ExactHermesRuntime {
   std::deque<uint64_t> module_dynamic_activation_queue;
   // One evaluated prepared carrier table per authenticated principal/content
   // pair. Individual module handles select factories from this retained table.
-  std::map<std::tuple<uint32_t, std::string, std::string>,
-           std::shared_ptr<facebook::jsi::Object>>
+  std::map<CarrierTableKey, std::shared_ptr<facebook::jsi::Object>>
       prepared_carrier_tables;
+  // Live carrier-provenance records are the only occupancy unit. Neither the
+  // memo's own shared_ptr nor extracted ModuleFactoryEntry functions retain a
+  // logical table reference.
+  // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
+  std::map<CarrierTableKey, uint32_t> prepared_carrier_occupancy;
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;

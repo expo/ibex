@@ -227,6 +227,39 @@ void releaseContextReference(ExactHermesRuntime* runtime, uint64_t contextId) {
   }
 }
 
+bool preparedCarrierRetirementsAreValid(
+    ExactHermesRuntime* runtime,
+    const std::map<CarrierTableKey, uint32_t>& retirements) {
+  for (const auto& [key, count] : retirements) {
+    auto occupancy = runtime->prepared_carrier_occupancy.find(key);
+    if (count == 0 ||
+        occupancy == runtime->prepared_carrier_occupancy.end() ||
+        occupancy->second < count) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool retirePreparedCarrierRecord(
+    ExactHermesRuntime* runtime,
+    const std::optional<CarrierTableKey>& carrierKey) {
+  if (!carrierKey) return true;
+  auto occupancy = runtime->prepared_carrier_occupancy.find(*carrierKey);
+  // Missing/zero occupancy is a native programming error. Never let the
+  // unsigned count wrap and turn an already-retired table immortal.
+  if (occupancy == runtime->prepared_carrier_occupancy.end() ||
+      occupancy->second == 0) {
+    return false;
+  }
+  --occupancy->second;
+  if (occupancy->second == 0) {
+    runtime->prepared_carrier_tables.erase(*carrierKey);
+    runtime->prepared_carrier_occupancy.erase(occupancy);
+  }
+  return true;
+}
+
 void eraseDynamicActivationsForRequester(
     ExactHermesRuntime* runtime,
     uint64_t graphGeneration,
@@ -1881,6 +1914,43 @@ extern "C" char* ibex_test_take_module_runner_abi_observation() {
   return result;
 }
 #endif
+
+extern "C" int32_t ibex_test_module_carrier_occupancy(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint32_t principal_id,
+    const uint8_t* compartment_identity,
+    size_t compartment_identity_len,
+    const uint8_t* carrier_digest,
+    size_t carrier_digest_len,
+    uint32_t* out_occupancy,
+    int32_t* out_table_present) {
+  if (out_occupancy) *out_occupancy = 0;
+  if (out_table_present) *out_table_present = 0;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
+  if (!drive) return drive.status();
+  if (carrier_digest == nullptr || carrier_digest_len == 0 ||
+      out_occupancy == nullptr || out_table_present == nullptr ||
+      (compartment_identity_len != 0 && compartment_identity == nullptr)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const CarrierTableKey key = std::make_tuple(
+      principal_id,
+      std::string(
+          reinterpret_cast<const char*>(compartment_identity),
+          compartment_identity_len),
+      std::string(
+          reinterpret_cast<const char*>(carrier_digest),
+          carrier_digest_len));
+  auto occupancy = runtime->prepared_carrier_occupancy.find(key);
+  if (occupancy != runtime->prepared_carrier_occupancy.end()) {
+    *out_occupancy = occupancy->second;
+  }
+  *out_table_present =
+      runtime->prepared_carrier_tables.count(key) == 1 ? 1 : 0;
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_module_compile_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -2251,6 +2321,7 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     stored.semantic_digest = digest;
     stored.source_id.assign(
         reinterpret_cast<const char*>(source_id), source_id_len);
+    stored.carrier_key = cacheKey;
     stored.factory = std::make_shared<facebook::jsi::Function>(
         std::move(factory));
     runtime->module_factories.emplace(id, std::move(stored));
@@ -2860,9 +2931,28 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
           graph_generation) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  if (runtime->pinned_module_generations.erase(graph_generation) != 1) {
+  if (runtime->pinned_module_generations.count(graph_generation) != 1) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
+  std::map<CarrierTableKey, uint32_t> carrierRetirements;
+  try {
+    for (const auto& [_, record] : runtime->module_records) {
+      if (record.graph_generation != graph_generation || !record.carrier_key) {
+        continue;
+      }
+      auto inserted = carrierRetirements.emplace(*record.carrier_key, 0);
+      if (inserted.first->second == std::numeric_limits<uint32_t>::max()) {
+        return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      }
+      ++inserted.first->second;
+    }
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (!preparedCarrierRetirementsAreValid(runtime, carrierRetirements)) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  runtime->pinned_module_generations.erase(graph_generation);
   runtime->commonjs_require_providers.erase(graph_generation);
   for (auto it =
            runtime->module_dynamic_activation_requests.begin();
@@ -2917,6 +3007,9 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
       continue;
     }
     const uint64_t contextId = it->second.context_handle_id;
+    if (!retirePreparedCarrierRecord(runtime, it->second.carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     it = runtime->module_records.erase(it);
     releaseContextReference(runtime, contextId);
   }
@@ -2959,6 +3052,9 @@ extern "C" int32_t ex_hermes_module_release_handle(
         handle.opaque[1],
         record->second.source_id,
         handle.opaque[2]);
+    if (!retirePreparedCarrierRecord(runtime, record->second.carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     releaseContextReference(runtime, record->second.context_handle_id);
     runtime->module_records.erase(record);
     return EXACT_RUNTIME_DRIVE_OK;
@@ -3098,10 +3194,13 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
     NativeModuleRecordEntry* prior{nullptr};
     NativeModuleRecordEntry* successor{nullptr};
     uint64_t* slot_record_id{nullptr};
+    std::string source_id;
+    std::optional<CarrierTableKey> prior_carrier_key;
   };
 
   std::vector<HotRevisionCommitPair> pairs;
   std::unordered_map<uint64_t, uint64_t> forwardingNodes;
+  std::map<CarrierTableKey, uint32_t> carrierRetirements;
   try {
     pairs.reserve(pair_count);
     forwardingNodes.reserve(pair_count);
@@ -3127,6 +3226,7 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
       if (!prior->second.published || successor->second.published ||
           successor->second.state < NativeModuleRecordState::Instantiated ||
           prior->second.source_id != successor->second.source_id ||
+          successor->second.carrier_key.has_value() ||
           !sourceIds.insert(prior->second.source_id).second ||
           (prior->second.namespace_object &&
            successor->second.namespace_object)) {
@@ -3141,12 +3241,23 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
       if (runtime->module_record_forwarding.count(priorId) == 0) {
         forwardingNodes.emplace(priorId, successorId);
       }
+      if (prior->second.carrier_key) {
+        auto retirement =
+            carrierRetirements.emplace(*prior->second.carrier_key, 0);
+        if (retirement.first->second ==
+            std::numeric_limits<uint32_t>::max()) {
+          return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+        }
+        ++retirement.first->second;
+      }
       pairs.push_back({
           priorId,
           successorId,
           &prior->second,
           &successor->second,
-          &slot->second});
+          &slot->second,
+          prior->second.source_id,
+          prior->second.carrier_key});
     }
     for (const auto& [_, request] :
          runtime->module_dynamic_activation_requests) {
@@ -3162,6 +3273,10 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
     }
     runtime->module_record_forwarding.reserve(
         runtime->module_record_forwarding.size() + forwardingNodes.size());
+    if (!preparedCarrierRetirementsAreValid(
+            runtime, carrierRetirements)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
   } catch (...) {
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
@@ -3189,7 +3304,39 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
     const uint64_t contextId = pair.prior->context_handle_id;
     releaseContextReference(runtime, contextId);
     runtime->module_records.erase(pair.prior_record_id);
-    // D2: loader invalidator + carrier occupancy mount here.
+  }
+
+  if (runtime->hot_revision_record_invalidator) {
+    try {
+      auto& rt = *runtime->runtime;
+      facebook::jsi::Array sourceIds(rt, pairs.size());
+      for (size_t index = 0; index < pairs.size(); ++index) {
+        sourceIds.setValueAtIndex(
+            rt,
+            index,
+            facebook::jsi::String::createFromUtf8(
+                rt, pairs[index].source_id));
+      }
+      // Direct invocation is part of the fenced publication bundle: no host
+      // task scope, microtask drain, host poll, or timer slice is opened. The
+      // loader-private function mutates only its null-prototype cache maps and
+      // never consults the boot-only __devServed capture table or quarantine.
+      // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
+      runtime->hot_revision_record_invalidator->call(rt, sourceIds);
+    } catch (...) {
+      // The native maps are already published. The caller treats this
+      // invariant failure as a quarantine/recreate signal; the private loader
+      // callback cannot throw absent a loader bug or engine failure.
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+  } else {
+    // Loader-less boot lanes leave this optional pointer null. This is
+    // dev-lane machinery; those lanes have no revision-served cache entries.
+  }
+  for (const auto& pair : pairs) {
+    if (!retirePreparedCarrierRecord(runtime, pair.prior_carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
   }
   return EXACT_RUNTIME_DRIVE_OK;
 }
@@ -3218,6 +3365,9 @@ extern "C" int32_t ex_hermes_module_discard_unpublished_record(
     eraseDynamicActivationsForRequester(
         runtime, handle.opaque[1], handle.opaque[2], false);
     const uint64_t contextId = module->second.context_handle_id;
+    if (!retirePreparedCarrierRecord(runtime, module->second.carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     runtime->module_records.erase(module);
     releaseContextReference(runtime, contextId);
     return EXACT_RUNTIME_DRIVE_OK;
@@ -3243,6 +3393,9 @@ extern "C" int32_t ex_hermes_module_discard_unpublished_record(
       return EXACT_RUNTIME_DRIVE_INVALID;
     }
     const uint64_t adapterContextId = adapter->second.context_handle_id;
+    if (!retirePreparedCarrierRecord(runtime, adapter->second.carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     runtime->module_records.erase(adapter);
     releaseContextReference(runtime, adapterContextId);
   }
@@ -3359,17 +3512,53 @@ extern "C" int32_t ex_hermes_module_create_record(
   entry.source_goal = factoryIt->second.source_goal;
   entry.source_id.assign(reinterpret_cast<const char*>(source_id), source_id_len);
   entry.context_handle_id = context.opaque[2];
+  entry.carrier_key = factoryIt->second.carrier_key;
   entry.factory = factoryIt->second.factory;
   if (contextIt->second.references == std::numeric_limits<uint32_t>::max()) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
-  const uint64_t id = nextHandleId(runtime);
-  ++contextIt->second.references;
-  runtime->module_records.emplace(id, std::move(entry));
-  out_record->opaque[0] = runtime_nonce;
-  out_record->opaque[1] = factory.opaque[1];
-  out_record->opaque[2] = id;
-  return EXACT_RUNTIME_DRIVE_OK;
+  auto occupancy = runtime->prepared_carrier_occupancy.end();
+  if (entry.carrier_key) {
+    occupancy = runtime->prepared_carrier_occupancy.find(*entry.carrier_key);
+    if (occupancy != runtime->prepared_carrier_occupancy.end() &&
+        occupancy->second == std::numeric_limits<uint32_t>::max()) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+  }
+  bool insertedOccupancy = false;
+  try {
+    if (entry.carrier_key &&
+        occupancy == runtime->prepared_carrier_occupancy.end()) {
+      auto inserted = runtime->prepared_carrier_occupancy.emplace(
+          *entry.carrier_key, 0);
+      occupancy = inserted.first;
+      insertedOccupancy = inserted.second;
+      if (!insertedOccupancy) {
+        return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      }
+    }
+    const uint64_t id = nextHandleId(runtime);
+    auto insertedRecord = runtime->module_records.emplace(id, std::move(entry));
+    if (!insertedRecord.second) {
+      if (insertedOccupancy) {
+        runtime->prepared_carrier_occupancy.erase(occupancy);
+      }
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+    ++contextIt->second.references;
+    if (occupancy != runtime->prepared_carrier_occupancy.end()) {
+      ++occupancy->second;
+    }
+    out_record->opaque[0] = runtime_nonce;
+    out_record->opaque[1] = factory.opaque[1];
+    out_record->opaque[2] = id;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (...) {
+    if (insertedOccupancy && occupancy->second == 0) {
+      runtime->prepared_carrier_occupancy.erase(occupancy);
+    }
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
 }
 
 extern "C" int32_t ex_hermes_module_record_declare_export(

@@ -336,7 +336,8 @@ fn startup_postcondition_script(postcondition: &str, marker: &str) -> String {
             "__exactSetActiveModuleId", "__exactGrantCapability",
             "__exactSetPendingPackageId", "__exactRegisterPackage",
             "__exactCheckImport", "__exactSetCompartmentFor",
-            "__exactResolveManifestBuiltinInternal"
+            "__exactResolveManifestBuiltinInternal",
+            "__exactCaptureHotRevisionRecordInvalidator"
           ].every(function (name) { return typeof globalThis[name] === "undefined"; }) &&
             (!globalThis.Exact ||
               typeof globalThis.Exact.setModuleCapabilities === "undefined")

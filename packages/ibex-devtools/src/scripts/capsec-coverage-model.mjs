@@ -151,6 +151,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactCapabilityCheck",
   "__exactCaptureBootstrapInternalModule",
   "__exactCaptureDevServedModuleTableLifecycle",
+  "__exactCaptureHotRevisionRecordInvalidator",
   "__exactCaptureSessionStaticImport",
   "__exactCheckImport",
   "__exactChmod",
@@ -5279,6 +5280,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_has_pending_tasks",
     "ex_hermes_interrupt_eval",
     "ex_hermes_module_clear_commonjs_require_provider",
+    "ex_hermes_module_commit_hot_revision",
     "ex_hermes_module_compile_factory",
     "ex_hermes_module_complete_dynamic_activation",
     "ex_hermes_module_create_record",
@@ -14474,6 +14476,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_graph_context_create",
         "ex_hermes_graph_context_retain",
         "ex_hermes_module_clear_commonjs_require_provider",
+        "ex_hermes_module_commit_hot_revision",
         "ex_hermes_module_complete_dynamic_activation",
         "ex_hermes_module_create_record",
         "ex_hermes_module_publish_records",
@@ -14620,6 +14623,9 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (surface.name === "__exactCaptureDevServedModuleTableLifecycle") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (surface.name === "__exactCaptureHotRevisionRecordInvalidator") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (surface.name === "__exactQuarantineDevServedModuleTable") {

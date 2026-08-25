@@ -4739,6 +4739,34 @@ void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
     rt.global().setProperty(
         rt, "__exactQuarantineDevServedModuleTable", std::move(quarantine));
   }
+  // The loader consumes this rendezvous whenever its native module-runner
+  // surface is installed. Boots which never evaluate the loader leave the
+  // retained pointer null, and the commit ABI treats that as a harmless skip.
+  auto captureHotRevisionRecordInvalidator =
+      facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(
+              rt, "capture hot-revision record invalidator"),
+          1,
+          [handle](facebook::jsi::Runtime& callbackRuntime,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value* args,
+                   size_t count) -> facebook::jsi::Value {
+            if (count != 1 || !args[0].isObject() ||
+                !args[0].asObject(callbackRuntime).isFunction(callbackRuntime) ||
+                handle->hot_revision_record_invalidator) {
+              return facebook::jsi::Value(false);
+            }
+            handle->hot_revision_record_invalidator =
+                std::make_unique<facebook::jsi::Function>(
+                    args[0].asObject(callbackRuntime).asFunction(
+                        callbackRuntime));
+            return facebook::jsi::Value(true);
+          });
+  rt.global().setProperty(
+      rt,
+      "__exactCaptureHotRevisionRecordInvalidator",
+      std::move(captureHotRevisionRecordInvalidator));
   if (handle->process_ipc_fd >= 0) {
     // Publish a dedicated frozen bootstrap input rather than projecting the
     // inherited descriptor through either the principal environment or the
@@ -6603,7 +6631,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                  '__exactCheckImport', '__exactSetCompartmentFor',
                  '__exactResolveManifestBuiltinInternal',
                  '__exactCaptureBootstrapInternalModule',
-	                 '__ibexRegisterRuntimeExtensionModule'];
+                 '__exactCaptureHotRevisionRecordInvalidator',
+                 '__ibexRegisterRuntimeExtensionModule'];
   if (sealSelfGrant) {
     hatches.push('__exactModuleResolve', '__exactModuleResolveMeta',
                  '__exactNativeModuleResolve', '__exactNativeModuleResolveMeta');
@@ -9253,6 +9282,11 @@ static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
       throw std::runtime_error(
           "dev-served module table lifecycle was not captured");
     }
+    if (handle->module_function_constructor &&
+        !handle->hot_revision_record_invalidator) {
+      throw std::runtime_error(
+          "hot-revision record invalidator was not captured");
+    }
     if (!handle->structured_promise_rejection_tracker_configured ||
         !handle->structured_unhandled_rejection_handler ||
         !handle->structured_rejection_handled_handler) {
@@ -9287,6 +9321,7 @@ static bool sealRootGlobalSessionBridges(ExactHermesRuntime* handle) {
              // temporary process/bootstrap wires before this final sweep.
              "__exactCompatModes",
              "__exactCaptureDevServedModuleTableLifecycle",
+             "__exactCaptureHotRevisionRecordInvalidator",
              // Native Android delivery retains this completed shared-runtime
              // consumer before its forgeable project-visible rendezvous is
              // removed. Compatibility runtimes never enter this armed seal.
@@ -9811,6 +9846,7 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
         "__exactSetPendingPackageId",
         "__exactResolveManifestBuiltinInternal",
         "__exactCaptureBootstrapInternalModule",
+        "__exactCaptureHotRevisionRecordInvalidator",
         "__exactModuleResolve",
         "__exactModuleResolveMeta",
         "__exactNativeModuleResolve",

@@ -126,6 +126,7 @@
   var __privPromiseThen = Function.prototype.call.bind(Promise.prototype.then);
   var __privArrayIsArray = Array.isArray;
   var __privObjectFreeze = Object.freeze;
+  var __privObjectCreate = Object.create;
   var __privObjectDefineProperty = Object.defineProperty;
   var __privObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
   var __privObjectKeys = Object.keys;
@@ -5982,6 +5983,56 @@
   // referrers and absolute requests are cwd-independent.
   // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
   var __authenticatedResolutionMemo = Object.create(null);
+  // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
+  function __privInvalidateHotRevisionRecords(cacheKeys) {
+    if (!__privArrayIsArray(cacheKeys)) {
+      throw new TypeError('Hot-revision cache keys must be an array');
+    }
+    // Native supplies a fresh JSI array. Freeze it with the loader-captured
+    // intrinsic before any descriptor read so the surgery observes one closed
+    // key set even in a mutable diagnostic realm.
+    cacheKeys = __privObjectFreeze(cacheKeys);
+    var length = devServedDataValue(cacheKeys, 'length');
+    var ownKeys = __privReflectOwnKeys(cacheKeys);
+    var ownKeyCount = devServedDataValue(ownKeys, 'length');
+    if (!__privObjectIsFrozen(cacheKeys) || typeof length !== 'number' ||
+        length < 0 || length % 1 !== 0 ||
+        ownKeyCount !== length + 1) {
+      throw new TypeError('Hot-revision cache keys must be a frozen dense array');
+    }
+    var replaced = __privObjectCreate(null);
+    for (var index = 0; index < length; index++) {
+      var cacheKey = devServedDataValue(cacheKeys, index);
+      if (typeof cacheKey !== 'string' || cacheKey.length === 0) {
+        throw new TypeError('Hot-revision cache key must be a non-empty string');
+      }
+      replaced[cacheKey] = true;
+      delete cache[cacheKey];
+    }
+    var routeKeys = __privObjectKeys(__authenticatedResolutionMemo);
+    var routeLength = devServedDataValue(routeKeys, 'length');
+    for (var routeIndex = 0; routeIndex < routeLength; routeIndex++) {
+      var routeKey = devServedDataValue(routeKeys, routeIndex);
+      var route = devServedDataValue(__authenticatedResolutionMemo, routeKey);
+      var routeCacheKey = route && typeof route === 'object'
+        ? devServedDataValue(route, 'cacheKey')
+        : undefined;
+      if (typeof routeCacheKey === 'string' &&
+          devServedDataValue(replaced, routeCacheKey) === true) {
+        delete __authenticatedResolutionMemo[routeKey];
+      }
+    }
+    return true;
+  }
+  if (typeof g.__exactCaptureHotRevisionRecordInvalidator === 'function') {
+    if (g.__exactCaptureHotRevisionRecordInvalidator(
+          __privInvalidateHotRevisionRecords) !== true) {
+      throw new Error('Hot-revision record invalidator capture failed');
+    }
+    try { delete g.__exactCaptureHotRevisionRecordInvalidator; } catch (__hotRevisionCleanupError) {
+      throw __hotRevisionCleanupError;
+    }
+  }
   function authenticatedResolutionContext(specifier, referrer, resolverMode, resolutionKind) {
     if (!__armedResolverCapture || typeof specifier !== 'string' ||
         typeof referrer !== 'string') {

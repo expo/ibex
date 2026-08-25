@@ -36,6 +36,10 @@ const PRIVATE_CONSUMERS = new Map([
     "__exactCaptureDevServedModuleTableLifecycle",
     "trusted-module-loader",
   ],
+  // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail — the
+  // hot-revision cache invalidator is captured into native owner-thread state
+  // and its root-global rendezvous is absent before project evaluation.
+  ["__exactCaptureHotRevisionRecordInvalidator", "trusted-module-loader"],
   ["__exactCaptureSessionStaticImport", "trusted-module-loader"],
   ["__exactCheckImport", "trusted-module-loader"],
   ["__exactExit", "runtime-process-lifecycle-adapter"],
