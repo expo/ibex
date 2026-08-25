@@ -349,7 +349,9 @@ test('f7_live_post_commit_resolution_skips_capture_table', () => {
   expect(first.name).toBe('a');
   expect(sandbox.__originalRuns.a).toBe(1);
   expect(resolutionCounts.get('a.js')).toBe(1);
-  expect(hotRevisionInvalidator(Object.freeze([sourceA]))).toBe(true);
+  expect(
+    hotRevisionInvalidator(Object.freeze([sourceA]), Object.freeze([])),
+  ).toBe(true);
   expect(devServedQuarantineCalls()).toBe(0);
 
   const successor = sandbox.require('a.js');
