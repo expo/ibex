@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -320,6 +320,109 @@ fn assert_registry_parity(root: &Path) {
         .all(|code| !admission_codes.contains(code)));
 }
 
+fn assert_no_line_number_keys(value: &Value) {
+    match value {
+        Value::Array(values) => values.iter().for_each(assert_no_line_number_keys),
+        Value::Object(object) => {
+            assert!(
+                !object.contains_key("line"),
+                "covering-map keys must be stable"
+            );
+            object.values().for_each(assert_no_line_number_keys);
+        }
+        _ => {}
+    }
+}
+
+fn refusal_variant_sites(source: &str) -> BTreeSet<String> {
+    let marker = "CompositionRefusalCode::";
+    source
+        .match_indices(marker)
+        .filter_map(|(start, _)| {
+            let suffix = &source[start + marker.len()..];
+            let length = suffix
+                .bytes()
+                .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                .count();
+            (length != 0).then(|| suffix[..length].to_owned())
+        })
+        .collect()
+}
+
+fn legacy_refusal_tokens(source: &str) -> BTreeSet<String> {
+    source
+        .split(|character: char| !(character.is_ascii_uppercase() || character == '_'))
+        .filter(|token| {
+            token.starts_with("IBEX_PREPARED_") || token.starts_with("IBEX_DEV_COMMITTED_")
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+fn assert_covering_map(root: &Path) {
+    let covering_map = read_json(&root.join("covering-map.json"));
+    assert_eq!(
+        covering_map["schema"],
+        "ibex/prepared-composition-covering-map/1"
+    );
+    assert_no_line_number_keys(&covering_map);
+
+    let rows = covering_map["rows"].as_array().unwrap();
+    let mut indexed_rows = BTreeMap::new();
+    for row in rows {
+        let file = row["file"].as_str().unwrap();
+        let message_class = row["tokenOrMessageClass"].as_str().unwrap();
+        assert!(
+            indexed_rows.insert((file, message_class), row).is_none(),
+            "duplicate covering-map key ({file}, {message_class})"
+        );
+        if let Some(code) = row["registryCode"].as_str() {
+            assert!(
+                CompositionRefusalCode::from_code(code).is_some(),
+                "unknown registry code {code} in ({file}, {message_class})"
+            );
+        } else {
+            assert!(
+                row.get("disposition").and_then(Value::as_str).is_some(),
+                "unmapped covering-map row ({file}, {message_class}) needs a disposition"
+            );
+        }
+    }
+
+    for file in covering_map["pinnedSources"].as_array().unwrap() {
+        let file = file.as_str().unwrap();
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(file)).unwrap();
+        for variant in refusal_variant_sites(&source) {
+            let message_class = format!("CompositionRefusalCode::{variant}");
+            let row = indexed_rows
+                .get(&(file, message_class.as_str()))
+                .unwrap_or_else(|| panic!("unmapped refusal site ({file}, {message_class})"));
+            let code = CompositionRefusalCode::ALL
+                .iter()
+                .find(|code| format!("{code:?}") == variant)
+                .unwrap_or_else(|| panic!("unknown refusal variant {variant} in {file}"));
+            assert_eq!(
+                row["registryCode"],
+                code.as_str(),
+                "wrong registry code for ({file}, {message_class})"
+            );
+        }
+
+        if file.ends_with("runner_pipeline.rs") {
+            for token in legacy_refusal_tokens(&source) {
+                assert!(
+                    indexed_rows.keys().any(|(row_file, message_class)| {
+                        *row_file == file
+                            && (*message_class == token
+                                || message_class.starts_with(&format!("{token}/")))
+                    }),
+                    "unmapped legacy refusal token ({file}, {token})"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn exact_prepared_composition_vectors_and_registry_match_rust() {
     let root = fixture_root();
@@ -347,4 +450,5 @@ fn exact_prepared_composition_vectors_and_registry_match_rust() {
     assert_typed_ingest(&corpus);
     assert_recipe_vectors(&corpus);
     assert_registry_parity(&root);
+    assert_covering_map(&root);
 }
