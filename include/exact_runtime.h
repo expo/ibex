@@ -843,13 +843,22 @@ int32_t ex_hermes_module_publish_records(
 
 /// Atomically retarget one pinned generation's stable module slots from fully
 /// prevalidated prior records to their unpublished successor records.
+/// `cache_keys` and `retired_dev_served_ids` are independent, caller-owned
+/// pointer/length lists forwarded verbatim to the private loader invalidator;
+/// zero-count lists may use null pointer and length arrays.
 int32_t ex_hermes_module_commit_hot_revision(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation,
     uint32_t pair_count,
     const uint64_t* prior_record_ids,
-    const uint64_t* successor_record_ids);
+    const uint64_t* successor_record_ids,
+    const uint8_t* const* cache_keys,
+    const size_t* cache_key_lengths,
+    size_t cache_key_count,
+    const uint8_t* const* retired_dev_served_ids,
+    const size_t* retired_dev_served_id_lengths,
+    size_t retired_dev_served_id_count);
 
 /// Roll back one record that has not been published into a live graph. Unlike
 /// ordinary release, this erases the record even while its generation is

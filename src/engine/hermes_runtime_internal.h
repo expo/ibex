@@ -283,8 +283,10 @@ struct NativeModuleImportBinding {
 struct NativeModuleRecordEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
+  uint32_t principal_id{0};
   bool published{false};
   std::string source_id;
+  std::string compartment_identity;
   uint64_t context_handle_id{0};
   std::optional<CarrierTableKey> carrier_key;
   std::shared_ptr<facebook::jsi::Function> factory;
@@ -337,9 +339,15 @@ struct NativeCommonJsRequireProviderEntry {
 struct NativeCommonJsRecordEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
+  uint32_t principal_id{0};
   bool published{false};
   std::string source_id;
+  std::string compartment_identity;
   uint64_t context_handle_id{0};
+  // CommonJS backing records, not their ESM adapters, are carrier occupancy
+  // units and retire the reference on every record-erasure path.
+  // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
+  std::optional<CarrierTableKey> carrier_key;
   std::shared_ptr<facebook::jsi::Function> factory;
   NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
   std::map<std::string, NativeCommonJsRequireBinding> require_bindings;

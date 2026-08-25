@@ -21,6 +21,7 @@ use super::security::GraphImportPolicy;
 pub struct HotRevisionSurfaceV1 {
     generations: ModuleExecutionGenerationsV2,
     in_flight: Rc<Cell<bool>>,
+    quarantined: Cell<bool>,
 }
 
 impl HotRevisionSurfaceV1 {
@@ -28,6 +29,7 @@ impl HotRevisionSurfaceV1 {
         Self {
             generations,
             in_flight: Rc::new(Cell::new(false)),
+            quarantined: Cell::new(false),
         }
     }
 
@@ -90,6 +92,9 @@ impl HotRevisionSurfaceV1 {
         base: (ExecutionGeneration, HotRevision),
         invalidated: impl IntoIterator<Item = SourceId>,
     ) -> Result<HotRevisionBegunV1> {
+        if self.quarantined.get() {
+            bail!("hot revision surface is quarantined; recreate the runtime");
+        }
         if self.in_flight.get() {
             bail!("hot revision surface is busy");
         }
@@ -121,6 +126,10 @@ impl HotRevisionSurfaceV1 {
         policy: &P,
         ready: HotRevisionReadyToPublishV1,
     ) -> Result<HotRevisionCommitV1> {
+        // This latch deliberately precedes every commit-bundle backstop. It is
+        // cleared only after graph adoption and the activation flip both
+        // complete, so an error or unwind leaves this runtime surface fail-stop.
+        self.quarantined.set(true);
         let HotRevisionReadyToPublishV1 {
             state,
             activation_token,
@@ -134,6 +143,7 @@ impl HotRevisionSurfaceV1 {
         // Engine §5.3 step 3 mounts immediately before this activation flip.
         activation_token.apply();
         // Engine §5.3 steps 5 and 6 mount immediately after this flip.
+        self.quarantined.set(false);
         Ok(commit)
     }
 }
@@ -559,6 +569,66 @@ mod tests {
         assert_eq!(surface.install_revision(&a).unwrap().get(), 1);
         assert_eq!(surface.install_revision(&b).unwrap(), HotRevision::BOOT);
         assert_eq!(flip_count.get(), 1);
+    }
+
+    #[test]
+    fn activation_flip_panic_quarantines_the_surface() {
+        let source_id = source("entry.mjs");
+        let current_policy = policy();
+        let replacement = artifact(source_id.clone(), 2);
+        let mut surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
+        let ready = ready_revision(
+            &surface,
+            &current_policy,
+            &source_id,
+            &replacement,
+            ActivationTokenV1::flip(|| panic!("test activation flip panic")),
+        );
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = surface.commit(&current_policy, ready);
+        }));
+        assert!(panic.is_err());
+        let error = surface
+            .begin(
+                &current_policy,
+                HmrOrigin::Exact,
+                surface.current_coordinates(),
+                [source_id],
+            )
+            .err()
+            .expect("a panicked commit must poison the surface");
+        assert_eq!(
+            error.to_string(),
+            "hot revision surface is quarantined; recreate the runtime"
+        );
+    }
+
+    #[test]
+    fn successful_commit_clears_quarantine_latch_for_the_next_revision() {
+        let source_id = source("entry.mjs");
+        let current_policy = policy();
+        let first_replacement = artifact(source_id.clone(), 2);
+        let second_replacement = artifact(source_id.clone(), 3);
+        let mut surface = surface(&[artifact(source_id.clone(), 1)], &current_policy);
+
+        let first = ready_revision(
+            &surface,
+            &current_policy,
+            &source_id,
+            &first_replacement,
+            ActivationTokenV1::trivial(),
+        );
+        surface.commit(&current_policy, first).unwrap();
+        let second = ready_revision(
+            &surface,
+            &current_policy,
+            &source_id,
+            &second_replacement,
+            ActivationTokenV1::trivial(),
+        );
+        surface.commit(&current_policy, second).unwrap();
+        assert_eq!(surface.current_revision().get(), 2);
     }
 
     #[test]

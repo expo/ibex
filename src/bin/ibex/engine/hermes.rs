@@ -621,6 +621,12 @@ extern "C" {
         pair_count: u32,
         prior_record_ids: *const u64,
         successor_record_ids: *const u64,
+        cache_keys: *const *const u8,
+        cache_key_lengths: *const usize,
+        cache_key_count: usize,
+        retired_dev_served_ids: *const *const u8,
+        retired_dev_served_id_lengths: *const usize,
+        retired_dev_served_id_count: usize,
     ) -> i32;
     #[cfg(all(test, feature = "module-runner"))]
     fn ex_hermes_module_compile_factory(

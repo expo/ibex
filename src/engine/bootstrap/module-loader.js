@@ -147,6 +147,9 @@
   }
   var __devServedTable = null;
   var __devServedIds = null;
+  // @ref LLP 0055#51-not-the-capture-table — a committed incarnation may
+  // never fall back to its boot-only dev-served bytes.
+  var __hotRetiredDevServedIds = __privObjectCreate(null);
   var __devServedCaptureState = 'idle';
 
   function quarantineDevServedModuleTable(message) {
@@ -5984,14 +5987,16 @@
   // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
   var __authenticatedResolutionMemo = Object.create(null);
   // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
-  function __privInvalidateHotRevisionRecords(cacheKeys) {
-    if (!__privArrayIsArray(cacheKeys)) {
-      throw new TypeError('Hot-revision cache keys must be an array');
+  function __privInvalidateHotRevisionRecords(cacheKeys, retiredDevServedIds) {
+    if (!__privArrayIsArray(cacheKeys) ||
+        !__privArrayIsArray(retiredDevServedIds)) {
+      throw new TypeError('Hot-revision invalidation inputs must be arrays');
     }
     // Native supplies a fresh JSI array. Freeze it with the loader-captured
     // intrinsic before any descriptor read so the surgery observes one closed
     // key set even in a mutable diagnostic realm.
     cacheKeys = __privObjectFreeze(cacheKeys);
+    retiredDevServedIds = __privObjectFreeze(retiredDevServedIds);
     var length = devServedDataValue(cacheKeys, 'length');
     var ownKeys = __privReflectOwnKeys(cacheKeys);
     var ownKeyCount = devServedDataValue(ownKeys, 'length');
@@ -6000,12 +6005,35 @@
         ownKeyCount !== length + 1) {
       throw new TypeError('Hot-revision cache keys must be a frozen dense array');
     }
+    var retiredLength = devServedDataValue(retiredDevServedIds, 'length');
+    var retiredOwnKeys = __privReflectOwnKeys(retiredDevServedIds);
+    var retiredOwnKeyCount = devServedDataValue(retiredOwnKeys, 'length');
+    if (!__privObjectIsFrozen(retiredDevServedIds) ||
+        typeof retiredLength !== 'number' || retiredLength < 0 ||
+        retiredLength % 1 !== 0 ||
+        retiredOwnKeyCount !== retiredLength + 1) {
+      throw new TypeError(
+        'Hot-revision retired dev-served ids must be a frozen dense array');
+    }
+    for (var validateIndex = 0; validateIndex < length; validateIndex++) {
+      var validatedCacheKey = devServedDataValue(cacheKeys, validateIndex);
+      if (typeof validatedCacheKey !== 'string' || validatedCacheKey.length === 0) {
+        throw new TypeError('Hot-revision cache key must be a non-empty string');
+      }
+    }
+    for (var retiredValidateIndex = 0;
+         retiredValidateIndex < retiredLength;
+         retiredValidateIndex++) {
+      var validatedRetiredId =
+        devServedDataValue(retiredDevServedIds, retiredValidateIndex);
+      if (typeof validatedRetiredId !== 'string' || validatedRetiredId.length === 0) {
+        throw new TypeError(
+          'Hot-revision retired dev-served id must be a non-empty string');
+      }
+    }
     var replaced = __privObjectCreate(null);
     for (var index = 0; index < length; index++) {
       var cacheKey = devServedDataValue(cacheKeys, index);
-      if (typeof cacheKey !== 'string' || cacheKey.length === 0) {
-        throw new TypeError('Hot-revision cache key must be a non-empty string');
-      }
       replaced[cacheKey] = true;
       delete cache[cacheKey];
     }
@@ -6020,6 +6048,35 @@
       if (typeof routeCacheKey === 'string' &&
           devServedDataValue(replaced, routeCacheKey) === true) {
         delete __authenticatedResolutionMemo[routeKey];
+      }
+    }
+    for (var retiredIndex = 0; retiredIndex < retiredLength; retiredIndex++) {
+      var retiredId = devServedDataValue(retiredDevServedIds, retiredIndex);
+      __hotRetiredDevServedIds[retiredId] = true;
+    }
+    // These postconditions use only captured descriptor/own-key intrinsics over
+    // loader-owned null-prototype maps; no package getter or proxy is reachable.
+    for (var verifyIndex = 0; verifyIndex < length; verifyIndex++) {
+      if (__privObjectGetOwnPropertyDescriptor(
+            cache, devServedDataValue(cacheKeys, verifyIndex))) {
+        throw new Error('Hot-revision cache invalidation retained a cache row');
+      }
+    }
+    var remainingRouteKeys = __privObjectKeys(__authenticatedResolutionMemo);
+    var remainingRouteLength = devServedDataValue(remainingRouteKeys, 'length');
+    for (var verifyRouteIndex = 0;
+         verifyRouteIndex < remainingRouteLength;
+         verifyRouteIndex++) {
+      var remainingRouteKey =
+        devServedDataValue(remainingRouteKeys, verifyRouteIndex);
+      var remainingRoute =
+        devServedDataValue(__authenticatedResolutionMemo, remainingRouteKey);
+      var remainingCacheKey = remainingRoute && typeof remainingRoute === 'object'
+        ? devServedDataValue(remainingRoute, 'cacheKey')
+        : undefined;
+      if (typeof remainingCacheKey === 'string' &&
+          devServedDataValue(replaced, remainingCacheKey) === true) {
+        throw new Error('Hot-revision cache invalidation retained a memo row');
       }
     }
     return true;
@@ -6399,6 +6456,10 @@
     var candidates = devServedLookupCandidates(resolved);
     var id = null;
     for (var index = 0; index < candidates.length; index++) {
+      if (devServedDataValue(__hotRetiredDevServedIds, candidates[index]) === true) {
+        throw new Error(
+          'dev-served module was replaced by a hot revision and cannot re-serve boot bytes');
+      }
       if (devServedDataValue(__devServedTable, candidates[index])) {
         id = candidates[index];
         break;
@@ -6406,6 +6467,10 @@
     }
     if (id === null) id = findDevServedBySuffix(specifier);
     if (id === null) return null;
+    if (devServedDataValue(__hotRetiredDevServedIds, id) === true) {
+      throw new Error(
+        'dev-served module was replaced by a hot revision and cannot re-serve boot bytes');
+    }
     var served = devServedDataValue(__devServedTable, id);
     var record = __privObjectFreeze({
       schema: 'ibex/dev-served-module/1',

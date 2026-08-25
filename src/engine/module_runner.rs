@@ -146,6 +146,12 @@ unsafe extern "C" {
         pair_count: u32,
         prior_record_ids: *const u64,
         successor_record_ids: *const u64,
+        cache_keys: *const *const u8,
+        cache_key_lengths: *const usize,
+        cache_key_count: usize,
+        retired_dev_served_ids: *const *const u8,
+        retired_dev_served_id_lengths: *const usize,
+        retired_dev_served_id_count: usize,
     ) -> i32;
     fn ex_hermes_module_discard_unpublished_record(
         runtime: *mut c_void,
@@ -1007,8 +1013,16 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
     /// Commit a prevalidated set of record-id replacements inside one pinned
     /// execution generation. The ids are the native handle payloads, not
     /// capabilities, because the caller continues to own the retired handles.
+    /// Loader cache keys and dev-served boot identities are supplied separately:
+    /// their identity domains are not interchangeable.
     // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
-    pub fn commit_hot_revision(&self, graph_generation: u64, pairs: &[(u64, u64)]) -> Result<()> {
+    pub fn commit_hot_revision(
+        &self,
+        graph_generation: u64,
+        pairs: &[(u64, u64)],
+        cache_keys: &[&str],
+        retired_dev_served_ids: &[&str],
+    ) -> Result<()> {
         if graph_generation == 0 || pairs.is_empty() {
             bail!("hot-revision commit requires a generation and record pairs");
         }
@@ -1016,6 +1030,19 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             .context("hot-revision commit pair count exceeds the native ABI")?;
         let prior_record_ids = pairs.iter().map(|pair| pair.0).collect::<Vec<_>>();
         let successor_record_ids = pairs.iter().map(|pair| pair.1).collect::<Vec<_>>();
+        let cache_key_pointers = cache_keys
+            .iter()
+            .map(|key| key.as_ptr())
+            .collect::<Vec<_>>();
+        let cache_key_lengths = cache_keys.iter().map(|key| key.len()).collect::<Vec<_>>();
+        let retired_dev_served_id_pointers = retired_dev_served_ids
+            .iter()
+            .map(|id| id.as_ptr())
+            .collect::<Vec<_>>();
+        let retired_dev_served_id_lengths = retired_dev_served_ids
+            .iter()
+            .map(|id| id.len())
+            .collect::<Vec<_>>();
         let status = unsafe {
             ex_hermes_module_commit_hot_revision(
                 self.raw.as_ptr(),
@@ -1024,8 +1051,19 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
                 pair_count,
                 prior_record_ids.as_ptr(),
                 successor_record_ids.as_ptr(),
+                cache_key_pointers.as_ptr(),
+                cache_key_lengths.as_ptr(),
+                cache_keys.len(),
+                retired_dev_served_id_pointers.as_ptr(),
+                retired_dev_served_id_lengths.as_ptr(),
+                retired_dev_served_ids.len(),
             )
         };
+        if status == -5 {
+            bail!(
+                "native hot-revision commit failed after publication; runtime is quarantined; recreate the runtime"
+            );
+        }
         if status != 0 {
             bail!("native hot-revision commit refused ({status})");
         }
@@ -4660,6 +4698,10 @@ mod tests {
             carrier_digest_len: usize,
             out_occupancy: *mut u32,
             out_table_present: *mut i32,
+        ) -> i32;
+        fn ibex_test_module_install_throwing_hot_revision_invalidator(
+            runtime: *mut c_void,
+            runtime_nonce: u64,
         ) -> i32;
         #[cfg(feature = "capsec-conformance-observer")]
         fn ibex_test_install_capsec_context_observer(
@@ -9438,6 +9480,8 @@ export const result = JSON.stringify({
             let commit = runtime.commit_hot_revision(
                 graph_generation,
                 &[(target_record_id, replacement_record_id)],
+                &[],
+                &[],
             );
 
             if refuse {
@@ -9519,6 +9563,251 @@ export const result = JSON.stringify({
     #[test]
     fn f5_refused_commit_mutates_nothing() {
         run_f5_slot_switch_fixture(true);
+    }
+
+    #[test]
+    fn f5_unchanged_suspended_tla_importer_resumes_on_the_successor() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 551;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let target_id = SourceId::synthetic("hot-revision-f5-tla", "target").unwrap();
+            let importer_id = SourceId::synthetic("hot-revision-f5-tla", "importer").unwrap();
+            let (target_context, target_factory, mut target) = hot_test_record(
+                &runtime,
+                &target_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('named', 1); } }; }",
+                &["named"],
+                "f5-tla-target.mjs",
+            );
+            let (importer_context, importer_factory, mut importer) = hot_test_record(
+                &runtime,
+                &importer_id,
+                graph_generation,
+                "function ($export, context) { function readTarget() { return context.importValue('./target', 'named'); } return { declare: function () {}, execute: function () { globalThis.__f5TlaImporterRuns = (globalThis.__f5TlaImporterRuns || 0) + 1; globalThis.__f5TlaReadTarget = readTarget; return new Promise(function (resolve) { globalThis.__f5TlaResume = resolve; }).then(function () { var observed = readTarget(); globalThis.__f5TlaObserved = observed; $export('observed', observed); }); } }; }",
+                &["observed"],
+                "f5-tla-importer.mjs",
+            );
+            importer
+                .link_import("./target", "named", &target, "named")
+                .unwrap();
+            target
+                .instantiate("synthetic:hot-revision-f5-tla/target", false)
+                .unwrap();
+            importer
+                .instantiate("synthetic:hot-revision-f5-tla/importer", true)
+                .unwrap();
+            target.run_declare().unwrap();
+            importer.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut target, &mut importer]);
+            assert_eq!(
+                target.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                importer.run_execute().unwrap(),
+                ModuleExecutionKind::Asynchronous
+            );
+            assert_eq!(
+                importer.poll_evaluation().unwrap(),
+                ModuleEvaluationState::Pending
+            );
+
+            let (successor_context, successor_factory, mut successor) = hot_test_record(
+                &runtime,
+                &target_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('named', 2); } }; }",
+                &["named"],
+                "f5-tla-successor.mjs",
+            );
+            successor
+                .instantiate("synthetic:hot-revision-f5-tla/successor", false)
+                .unwrap();
+            successor.run_declare().unwrap();
+            assert_eq!(
+                successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            let cache_key = target_id.encode().unwrap();
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        target.live_handle().unwrap().opaque[2],
+                        successor.live_handle().unwrap().opaque[2],
+                    )],
+                    &[cache_key.as_str()],
+                    &[],
+                )
+                .unwrap();
+
+            assert_eq!(
+                eval_hot_test(
+                    raw,
+                    "globalThis.__f5TlaResume(); 'resumed'",
+                    "f5-tla-resume.js",
+                ),
+                "resumed"
+            );
+            let mut settlement = ModuleEvaluationState::Pending;
+            for tick in 0..8 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+                settlement = importer.poll_evaluation().unwrap();
+                if settlement == ModuleEvaluationState::Evaluated {
+                    break;
+                }
+            }
+            assert_eq!(settlement, ModuleEvaluationState::Evaluated);
+            assert_eq!(importer.namespace_json().unwrap(), r#"{"observed":2}"#);
+            assert_eq!(
+                eval_hot_test(
+                    raw,
+                    "String(globalThis.__f5TlaImporterRuns) + ':' + String(globalThis.__f5TlaObserved) + ':' + String(globalThis.__f5TlaReadTarget())",
+                    "f5-tla-observation.js",
+                ),
+                "1:2:2"
+            );
+
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(successor);
+            drop(importer);
+            drop(target);
+            drop(successor_factory);
+            drop(importer_factory);
+            drop(target_factory);
+            drop(successor_context);
+            drop(importer_context);
+            drop(target_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn cjs_implicated_hot_revision_pair_refuses_without_mutation() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 552;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("hot-revision-cjs-refusal", "target").unwrap();
+            let prior_artifact = test_commonjs_artifact(
+                source_id.clone(),
+                "function (require, module, exports) { exports.value = 1; }",
+                &["value"],
+            );
+            let prior_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], graph_generation)
+                        .unwrap(),
+                )
+                .unwrap();
+            let prior_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&prior_artifact),
+                    0,
+                    None,
+                    graph_generation,
+                    "cjs-refusal-prior.cjs",
+                )
+                .unwrap();
+            let mut prior = prior_factory
+                .create_commonjs_record(&prior_context, &source_id, "/prior.cjs", "/")
+                .unwrap();
+            prior.declare_detected_export("value").unwrap();
+            let mut prior_adapter = prior.create_esm_adapter().unwrap();
+            let prior_handle = prior.live_handle().unwrap();
+            assert_eq!(
+                ex_hermes_module_publish_records(raw, nonce, &prior_handle, 1),
+                0
+            );
+            prior.published = true;
+            prior_adapter.published = true;
+            prior.evaluate().unwrap();
+
+            let successor_artifact = test_commonjs_artifact(
+                source_id.clone(),
+                "function (require, module, exports) { exports.value = 2; }",
+                &["value"],
+            );
+            let successor_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], graph_generation)
+                        .unwrap(),
+                )
+                .unwrap();
+            let successor_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&successor_artifact),
+                    0,
+                    None,
+                    graph_generation,
+                    "cjs-refusal-successor.cjs",
+                )
+                .unwrap();
+            let mut successor = successor_factory
+                .create_commonjs_record(&successor_context, &source_id, "/successor.cjs", "/")
+                .unwrap();
+            successor.declare_detected_export("value").unwrap();
+            let successor_adapter = successor.create_esm_adapter().unwrap();
+            successor.evaluate().unwrap();
+            let prior_before = prior_adapter.namespace_json().unwrap();
+            let successor_before = successor_adapter.namespace_json().unwrap();
+            let cache_key = source_id.encode().unwrap();
+            let error = runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        prior_adapter.live_handle().unwrap().opaque[2],
+                        successor_adapter.live_handle().unwrap().opaque[2],
+                    )],
+                    &[cache_key.as_str()],
+                    &[],
+                )
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("(-1)"), "unexpected refusal: {error}");
+            assert_eq!(prior_adapter.namespace_json().unwrap(), prior_before);
+            assert_eq!(
+                successor_adapter.namespace_json().unwrap(),
+                successor_before
+            );
+
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(successor_adapter);
+            drop(successor);
+            drop(prior_adapter);
+            drop(prior);
+            drop(successor_factory);
+            drop(prior_factory);
+            drop(successor_context);
+            drop(prior_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
     }
 
     #[test]
@@ -9604,6 +9893,8 @@ export const result = JSON.stringify({
                         prior.live_handle().unwrap().opaque[2],
                         successor.live_handle().unwrap().opaque[2],
                     )],
+                    &[],
+                    &[],
                 )
                 .unwrap();
             assert_eq!(successor.namespace_json().unwrap(), r#"{"value":3}"#);
@@ -9620,6 +9911,85 @@ export const result = JSON.stringify({
             drop(prior_factory);
             drop(successor_context);
             drop(discarded_context);
+            drop(prior_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn hot_revision_successor_must_be_fully_evaluated() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 554;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("hot-revision-settlement", "target").unwrap();
+            let (prior_context, prior_factory, mut prior) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+                &["value"],
+                "settlement-prior.mjs",
+            );
+            prior
+                .instantiate("synthetic:hot-revision-settlement/prior", false)
+                .unwrap();
+            prior.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut prior]);
+            assert_eq!(
+                prior.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            let (successor_context, successor_factory, mut successor) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 2); } }; }",
+                &["value"],
+                "settlement-successor.mjs",
+            );
+            successor
+                .instantiate("synthetic:hot-revision-settlement/successor", false)
+                .unwrap();
+            successor.run_declare().unwrap();
+            let pair = [(
+                prior.live_handle().unwrap().opaque[2],
+                successor.live_handle().unwrap().opaque[2],
+            )];
+            let cache_key = source_id.encode().unwrap();
+            let refusal = runtime
+                .commit_hot_revision(graph_generation, &pair, &[cache_key.as_str()], &[])
+                .unwrap_err()
+                .to_string();
+            assert!(refusal.contains("(-1)"), "unexpected refusal: {refusal}");
+            assert_eq!(prior.namespace_json().unwrap(), r#"{"value":1}"#);
+
+            assert_eq!(
+                successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(graph_generation, &pair, &[cache_key.as_str()], &[])
+                .unwrap();
+            assert_eq!(successor.namespace_json().unwrap(), r#"{"value":2}"#);
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(successor);
+            drop(prior);
+            drop(successor_factory);
+            drop(prior_factory);
+            drop(successor_context);
             drop(prior_context);
             drop(runtime);
             ex_hermes_destroy(raw);
@@ -9648,6 +10018,11 @@ export const result = JSON.stringify({
             vec![PathComponent::utf8("third.mjs").unwrap()],
         )
         .unwrap();
+        let commonjs_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("legacy.cjs").unwrap()],
+        )
+        .unwrap();
         let first_artifact = test_artifact_with_factory(
             first_id.clone(),
             "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
@@ -9661,6 +10036,11 @@ export const result = JSON.stringify({
         let third_artifact = test_artifact_with_factory(
             third_id.clone(),
             "function ($export) { return { declare: function () {}, execute: function () { $export('value', 3); } }; }",
+            &["value"],
+        );
+        let commonjs_artifact = test_commonjs_artifact(
+            commonjs_id.clone(),
+            "function (require, module, exports) { exports.value = 4; }",
             &["value"],
         );
         let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
@@ -9680,6 +10060,10 @@ export const result = JSON.stringify({
                 (
                     NonEmptyString::new("third").unwrap(),
                     verify_test_artifact(&third_artifact),
+                ),
+                (
+                    NonEmptyString::new("commonjs").unwrap(),
+                    verify_test_artifact(&commonjs_artifact),
                 ),
             ],
         )
@@ -9765,6 +10149,8 @@ export const result = JSON.stringify({
                         first.live_handle().unwrap().opaque[2],
                         first_successor.live_handle().unwrap().opaque[2],
                     )],
+                    &[],
+                    &[],
                 )
                 .unwrap();
             assert_eq!(
@@ -9815,6 +10201,8 @@ export const result = JSON.stringify({
                         second.live_handle().unwrap().opaque[2],
                         second_successor.live_handle().unwrap().opaque[2],
                     )],
+                    &[],
+                    &[],
                 )
                 .unwrap();
             assert_eq!(
@@ -9846,51 +10234,192 @@ export const result = JSON.stringify({
                 0
             );
 
-            for generation in [60, 61] {
+            assert_eq!(ex_hermes_module_pin_generation(raw, nonce, 60), 0);
+            let (mixed_esm_context, mixed_esm_factory, mixed_esm_record) = prepared_hot_test_record(
+                &runtime,
+                &manifest,
+                &carrier,
+                "first",
+                &first_id,
+                60,
+                "carrier-mixed-esm.mjs",
+            );
+            let mixed_commonjs_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(commonjs_id.clone(), 0, 0, [0], 60).unwrap(),
+                )
+                .unwrap();
+            let mixed_commonjs_prepared = manifest.prepared_artifact("commonjs").unwrap();
+            let mixed_commonjs_factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(&mixed_commonjs_prepared, &manifest, "commonjs"),
+                    carrier.entry("commonjs").unwrap(),
+                    0,
+                    None,
+                    60,
+                    "carrier-mixed-commonjs.cjs",
+                )
+                .unwrap();
+            let mixed_commonjs_record = mixed_commonjs_factory
+                .create_commonjs_record(&mixed_commonjs_context, &commonjs_id, "/legacy.cjs", "/")
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (2, true),
+                "one ESM record and one CommonJS record must both occupy the carrier"
+            );
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 60), 0);
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, false),
+                "mixed ESM/CommonJS teardown must drain both carrier references"
+            );
+
+            for generation in [61, 62] {
                 assert_eq!(ex_hermes_module_pin_generation(raw, nonce, generation), 0);
             }
-            let (generation_60_context, generation_60_factory, generation_60_record) =
-                prepared_hot_test_record(
-                    &runtime,
-                    &manifest,
-                    &carrier,
-                    "first",
-                    &first_id,
-                    60,
-                    "carrier-generation-60.mjs",
-                );
-            let (generation_61_context, generation_61_factory, generation_61_record) =
+            let generation_61_commonjs_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(commonjs_id.clone(), 0, 0, [0], 61).unwrap(),
+                )
+                .unwrap();
+            let generation_61_commonjs_prepared = manifest.prepared_artifact("commonjs").unwrap();
+            let generation_61_commonjs_factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(
+                        &generation_61_commonjs_prepared,
+                        &manifest,
+                        "commonjs",
+                    ),
+                    carrier.entry("commonjs").unwrap(),
+                    0,
+                    None,
+                    61,
+                    "carrier-generation-61.cjs",
+                )
+                .unwrap();
+            let generation_61_commonjs_record = generation_61_commonjs_factory
+                .create_commonjs_record(
+                    &generation_61_commonjs_context,
+                    &commonjs_id,
+                    "/generation-61.cjs",
+                    "/",
+                )
+                .unwrap();
+            let (generation_62_context, generation_62_factory, generation_62_record) =
                 prepared_hot_test_record(
                     &runtime,
                     &manifest,
                     &carrier,
                     "second",
                     &second_id,
-                    61,
-                    "carrier-generation-61.mjs",
+                    62,
+                    "carrier-generation-62.mjs",
                 );
             assert_eq!(
                 test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
                 (2, true)
             );
-            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 60), 0);
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 61), 0);
             assert_eq!(
                 test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
                 (1, true),
                 "tearing down one generation must preserve another generation's record"
             );
-            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 61), 0);
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 62), 0);
             assert_eq!(
                 test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
                 (0, false)
             );
 
-            drop(generation_61_record);
-            drop(generation_60_record);
-            drop(generation_61_factory);
-            drop(generation_60_factory);
-            drop(generation_61_context);
-            drop(generation_60_context);
+            let release_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(commonjs_id.clone(), 0, 0, [0], 63).unwrap(),
+                )
+                .unwrap();
+            let release_prepared = manifest.prepared_artifact("commonjs").unwrap();
+            let release_factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(&release_prepared, &manifest, "commonjs"),
+                    carrier.entry("commonjs").unwrap(),
+                    0,
+                    None,
+                    63,
+                    "carrier-release-commonjs.cjs",
+                )
+                .unwrap();
+            let release_record = release_factory
+                .create_commonjs_record(&release_context, &commonjs_id, "/release.cjs", "/")
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (1, true)
+            );
+            assert_eq!(
+                ex_hermes_module_release_handle(raw, nonce, release_record.live_handle().unwrap(),),
+                0
+            );
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, false),
+                "CommonJS handle release must retire its carrier occupancy"
+            );
+
+            let discard_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(commonjs_id.clone(), 0, 0, [0], 64).unwrap(),
+                )
+                .unwrap();
+            let discard_prepared = manifest.prepared_artifact("commonjs").unwrap();
+            let discard_factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(&discard_prepared, &manifest, "commonjs"),
+                    carrier.entry("commonjs").unwrap(),
+                    0,
+                    None,
+                    64,
+                    "carrier-discard-commonjs.cjs",
+                )
+                .unwrap();
+            let discard_record = discard_factory
+                .create_commonjs_record(&discard_context, &commonjs_id, "/discard.cjs", "/")
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (1, true)
+            );
+            assert_eq!(
+                ex_hermes_module_discard_unpublished_record(
+                    raw,
+                    nonce,
+                    discard_record.live_handle().unwrap(),
+                ),
+                0
+            );
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, false),
+                "CommonJS unpublished discard must retire its carrier occupancy"
+            );
+
+            drop(discard_record);
+            drop(discard_factory);
+            drop(discard_context);
+            drop(release_record);
+            drop(release_factory);
+            drop(release_context);
+            drop(generation_62_record);
+            drop(generation_61_commonjs_record);
+            drop(generation_62_factory);
+            drop(generation_61_commonjs_factory);
+            drop(generation_62_context);
+            drop(generation_61_commonjs_context);
+            drop(mixed_commonjs_record);
+            drop(mixed_esm_record);
+            drop(mixed_commonjs_factory);
+            drop(mixed_esm_factory);
+            drop(mixed_commonjs_context);
+            drop(mixed_esm_context);
             drop(second_successor);
             drop(first_successor);
             drop(second);
@@ -9960,6 +10489,8 @@ export const result = JSON.stringify({
                         prior.live_handle().unwrap().opaque[2],
                         successor.live_handle().unwrap().opaque[2],
                     )],
+                    &[],
+                    &[],
                 )
                 .unwrap();
             let stale_write = prior.run_execute().unwrap_err().to_string();
@@ -9977,6 +10508,127 @@ export const result = JSON.stringify({
             drop(successor_context);
             drop(prior_context);
             drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn post_publication_invalidator_throw_quarantines_the_runtime() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 553;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("hot-revision-quarantine", "target").unwrap();
+            let (prior_context, prior_factory, mut prior) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+                &["value"],
+                "quarantine-prior.mjs",
+            );
+            prior
+                .instantiate("synthetic:hot-revision-quarantine/prior", false)
+                .unwrap();
+            prior.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut prior]);
+            assert_eq!(
+                prior.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            let (successor_context, successor_factory, mut successor) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 2); } }; }",
+                &["value"],
+                "quarantine-successor.mjs",
+            );
+            successor
+                .instantiate("synthetic:hot-revision-quarantine/successor", false)
+                .unwrap();
+            successor.run_declare().unwrap();
+            assert_eq!(
+                successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                ibex_test_module_install_throwing_hot_revision_invalidator(raw, nonce),
+                0
+            );
+            let cache_key = source_id.encode().unwrap();
+            let error = runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        prior.live_handle().unwrap().opaque[2],
+                        successor.live_handle().unwrap().opaque[2],
+                    )],
+                    &[cache_key.as_str()],
+                    &[],
+                )
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                error,
+                "native hot-revision commit failed after publication; runtime is quarantined; recreate the runtime"
+            );
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation + 1),
+                -6,
+                "a follow-up module ABI call must observe the quarantined lifecycle"
+            );
+
+            std::mem::forget(successor);
+            std::mem::forget(prior);
+            std::mem::forget(successor_factory);
+            std::mem::forget(prior_factory);
+            std::mem::forget(successor_context);
+            std::mem::forget(prior_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn armed_runtime_structurally_refuses_hot_revision_commit() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::module_runner_attribution_test_host();
+        let armed_digest = CString::new(host.armed_snapshot().unwrap().digest().as_str()).unwrap();
+        crate::host::abi::install_host(host);
+        unsafe {
+            let raw = ex_hermes_create_armed(armed_digest.as_ptr());
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let prior = [u64::MAX - 1];
+            let successor = [u64::MAX];
+            assert_eq!(
+                ex_hermes_module_commit_hot_revision(
+                    raw,
+                    nonce,
+                    1,
+                    1,
+                    prior.as_ptr(),
+                    successor.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                ),
+                -1,
+                "the armed posture must refuse before record lookup"
+            );
             ex_hermes_destroy(raw);
         }
     }
@@ -10036,6 +10688,8 @@ export const result = JSON.stringify({
                         prior.live_handle().unwrap().opaque[2],
                         successor.live_handle().unwrap().opaque[2],
                     )],
+                    &[],
+                    &[],
                 )
                 .unwrap();
             let (second_context, second_factory, mut second) = hot_test_record(
@@ -10061,6 +10715,8 @@ export const result = JSON.stringify({
                         successor.live_handle().unwrap().opaque[2],
                         second.live_handle().unwrap().opaque[2],
                     )],
+                    &[],
+                    &[],
                 )
                 .unwrap();
             assert_eq!(second.namespace_json().unwrap(), r#"{"value":3}"#);

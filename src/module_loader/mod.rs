@@ -8091,6 +8091,7 @@ fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
             "repeated",
             "late",
             "unconsumed-finish",
+            "hot-revision-retired",
         ];
         for scenario in scenarios {
             let script = r#"
@@ -8100,6 +8101,7 @@ let nativeResolves = 0;
 let importChecks = 0;
 let quarantines = 0;
 let lifecycle = null;
+let hotRevisionInvalidator = null;
 globalThis.__exactHasSharedRuntimeBundle = true;
 globalThis.__exactCompatModes = Object.freeze(['dev-served']);
 globalThis.__exactCaptureSessionStaticImport = function() {
@@ -8115,6 +8117,11 @@ globalThis.__exactQuarantineDevServedModuleTable = function() { quarantines++; }
 globalThis.__exactCaptureDevServedModuleTableLifecycle = function(value) {
   if (lifecycle !== null || typeof value !== 'function') return false;
   lifecycle = value;
+  return true;
+};
+globalThis.__exactCaptureHotRevisionRecordInvalidator = function(value) {
+  if (hotRevisionInvalidator !== null || typeof value !== 'function') return false;
+  hotRevisionInvalidator = value;
   return true;
 };
 function nativeResolve(specifier) {
@@ -8188,6 +8195,29 @@ if (scenario === 'success') {
   lifecycle('finish');
   if (typeof globalThis.__ibexCaptureDevServedModuleTable !== 'undefined') {
     throw new Error('finish retained the unconsumed capture hook');
+  }
+} else if (scenario === 'hot-revision-retired') {
+  if (capture(freezeTable(table)) !== true) throw new Error('capture failed');
+  const cacheKey = '/src/dep.ts';
+  const first = globalThis.require(cacheKey);
+  if (first.value !== 41 || first.runs !== 1 ||
+      typeof hotRevisionInvalidator !== 'function') {
+    throw new Error('real dev-served record did not populate the loader cache');
+  }
+  if (hotRevisionInvalidator([cacheKey], [cacheKey]) !== true) {
+    throw new Error('hot-revision invalidation failed');
+  }
+  let retiredError = null;
+  try { globalThis.require(cacheKey); } catch (error) { retiredError = error; }
+  if (!retiredError || retiredError.message !==
+      'dev-served module was replaced by a hot revision and cannot re-serve boot bytes' ||
+      quarantines !== 0 || globalThis.__devRuns !== 1 || nativeResolves !== 0) {
+    throw new Error(JSON.stringify({
+      retiredError: retiredError && retiredError.message,
+      quarantines: quarantines,
+      runs: globalThis.__devRuns,
+      nativeResolves: nativeResolves
+    }));
   }
 }
 "#

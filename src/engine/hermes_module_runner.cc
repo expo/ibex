@@ -1951,6 +1951,33 @@ extern "C" int32_t ibex_test_module_carrier_occupancy(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t
+ibex_test_module_install_throwing_hot_revision_invalidator(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
+  if (!drive) return drive.status();
+  static constexpr char kThrowingInvalidator[] =
+      "(function(){throw new Error('test hot-revision invalidator failure');})";
+  try {
+    auto& rt = *runtime->runtime;
+    auto buffer = std::make_shared<CarrierMemoryBuffer>(
+        reinterpret_cast<const uint8_t*>(kThrowingInvalidator),
+        sizeof(kThrowingInvalidator) - 1);
+    auto value = rt.evaluateJavaScript(
+        buffer, "<test-hot-revision-throwing-invalidator>");
+    if (!value.isObject() || !value.asObject(rt).isFunction(rt)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+    runtime->hot_revision_record_invalidator =
+        std::make_unique<facebook::jsi::Function>(
+            value.asObject(rt).asFunction(rt));
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+}
+
 extern "C" int32_t ex_hermes_module_compile_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -2427,6 +2454,16 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
       contextIt->second.references == std::numeric_limits<uint32_t>::max()) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
+  auto occupancy = runtime->prepared_carrier_occupancy.end();
+  if (factoryIt->second.carrier_key) {
+    occupancy = runtime->prepared_carrier_occupancy.find(
+        *factoryIt->second.carrier_key);
+    if (occupancy != runtime->prepared_carrier_occupancy.end() &&
+        occupancy->second == std::numeric_limits<uint32_t>::max()) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+  }
+  bool insertedOccupancy = false;
   try {
     auto& rt = *runtime->runtime;
     facebook::jsi::Object initialExports(rt);
@@ -2435,9 +2472,12 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
     NativeCommonJsRecordEntry entry;
     entry.graph_generation = factory.opaque[1];
     entry.source_goal = factoryIt->second.source_goal;
+    entry.principal_id = factoryIt->second.principal_id;
     entry.source_id.assign(
         reinterpret_cast<const char*>(source_id), source_id_len);
+    entry.compartment_identity = factoryIt->second.compartment_identity;
     entry.context_handle_id = context.opaque[2];
+    entry.carrier_key = factoryIt->second.carrier_key;
     entry.factory = factoryIt->second.factory;
     entry.filename.assign(reinterpret_cast<const char*>(filename), filename_len);
     entry.dirname.assign(reinterpret_cast<const char*>(dirname), dirname_len);
@@ -2445,14 +2485,37 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
         std::make_shared<facebook::jsi::Object>(std::move(module));
     entry.exports_value =
         std::make_shared<facebook::jsi::Value>(rt, initialExports);
+    if (entry.carrier_key &&
+        occupancy == runtime->prepared_carrier_occupancy.end()) {
+      auto inserted = runtime->prepared_carrier_occupancy.emplace(
+          *entry.carrier_key, 0);
+      occupancy = inserted.first;
+      insertedOccupancy = inserted.second;
+      if (!insertedOccupancy) {
+        return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      }
+    }
     const uint64_t id = nextHandleId(runtime);
+    auto insertedRecord = runtime->commonjs_records.emplace(
+        id, std::move(entry));
+    if (!insertedRecord.second) {
+      if (insertedOccupancy) {
+        runtime->prepared_carrier_occupancy.erase(occupancy);
+      }
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     ++contextIt->second.references;
-    runtime->commonjs_records.emplace(id, std::move(entry));
+    if (occupancy != runtime->prepared_carrier_occupancy.end()) {
+      ++occupancy->second;
+    }
     out_record->opaque[0] = runtime_nonce;
     out_record->opaque[1] = factory.opaque[1];
     out_record->opaque[2] = id;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (...) {
+    if (insertedOccupancy && occupancy->second == 0) {
+      runtime->prepared_carrier_occupancy.erase(occupancy);
+    }
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
 }
@@ -2862,7 +2925,10 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
     auto& rt = *runtime->runtime;
     NativeModuleRecordEntry adapter;
     adapter.graph_generation = commonjs->graph_generation;
+    adapter.source_goal = commonjs->source_goal;
+    adapter.principal_id = commonjs->principal_id;
     adapter.source_id = commonjs->source_id;
+    adapter.compartment_identity = commonjs->compartment_identity;
     adapter.context_handle_id = commonjs->context_handle_id;
     adapter.state = NativeModuleRecordState::Instantiated;
     for (const auto& name : commonjs->detected_exports) {
@@ -2946,6 +3012,16 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
       }
       ++inserted.first->second;
     }
+    for (const auto& [_, record] : runtime->commonjs_records) {
+      if (record.graph_generation != graph_generation || !record.carrier_key) {
+        continue;
+      }
+      auto inserted = carrierRetirements.emplace(*record.carrier_key, 0);
+      if (inserted.first->second == std::numeric_limits<uint32_t>::max()) {
+        return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      }
+      ++inserted.first->second;
+    }
   } catch (...) {
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
@@ -2997,6 +3073,9 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
       continue;
     }
     const uint64_t contextId = it->second.context_handle_id;
+    if (!retirePreparedCarrierRecord(runtime, it->second.carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     it = runtime->commonjs_records.erase(it);
     releaseContextReference(runtime, contextId);
   }
@@ -3067,6 +3146,9 @@ extern "C" int32_t ex_hermes_module_release_handle(
     }
     eraseDynamicActivationsForRequester(
         runtime, handle.opaque[1], handle.opaque[2], true);
+    if (!retirePreparedCarrierRecord(runtime, commonjs->second.carrier_key)) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     releaseContextReference(runtime, commonjs->second.context_handle_id);
     runtime->commonjs_records.erase(commonjs);
     return EXACT_RUNTIME_DRIVE_OK;
@@ -3175,13 +3257,26 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
     uint64_t graph_generation,
     uint32_t pair_count,
     const uint64_t* prior_record_ids,
-    const uint64_t* successor_record_ids) {
+    const uint64_t* successor_record_ids,
+    const uint8_t* const* cache_keys,
+    const size_t* cache_key_lengths,
+    size_t cache_key_count,
+    const uint8_t* const* retired_dev_served_ids,
+    const size_t* retired_dev_served_id_lengths,
+    size_t retired_dev_served_id_count) {
   observeModuleRunnerAbi(__func__);
   // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
-  if (graph_generation == 0 || pair_count == 0 ||
-      prior_record_ids == nullptr || successor_record_ids == nullptr) {
+  // @ref LLP 0042#development-commitment — mutable dev publications are not
+  // an armed production-runtime operation.
+  if (runtime->armed || graph_generation == 0 || pair_count == 0 ||
+      prior_record_ids == nullptr || successor_record_ids == nullptr ||
+      (cache_key_count != 0 &&
+       (cache_keys == nullptr || cache_key_lengths == nullptr)) ||
+      (retired_dev_served_id_count != 0 &&
+       (retired_dev_served_ids == nullptr ||
+        retired_dev_served_id_lengths == nullptr))) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   if (runtime->pinned_module_generations.count(graph_generation) == 0) {
@@ -3194,13 +3289,14 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
     NativeModuleRecordEntry* prior{nullptr};
     NativeModuleRecordEntry* successor{nullptr};
     uint64_t* slot_record_id{nullptr};
-    std::string source_id;
     std::optional<CarrierTableKey> prior_carrier_key;
   };
 
   std::vector<HotRevisionCommitPair> pairs;
   std::unordered_map<uint64_t, uint64_t> forwardingNodes;
   std::map<CarrierTableKey, uint32_t> carrierRetirements;
+  std::optional<facebook::jsi::Array> cacheKeyArguments;
+  std::optional<facebook::jsi::Array> retiredDevServedIdArguments;
   try {
     pairs.reserve(pair_count);
     forwardingNodes.reserve(pair_count);
@@ -3224,12 +3320,29 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
         return EXACT_RUNTIME_DRIVE_STALE;
       }
       if (!prior->second.published || successor->second.published ||
-          successor->second.state < NativeModuleRecordState::Instantiated ||
+          successor->second.state != NativeModuleRecordState::Evaluated ||
           prior->second.source_id != successor->second.source_id ||
+          prior->second.principal_id != successor->second.principal_id ||
+          prior->second.compartment_identity !=
+              successor->second.compartment_identity ||
           successor->second.carrier_key.has_value() ||
           !sourceIds.insert(prior->second.source_id).second ||
           (prior->second.namespace_object &&
            successor->second.namespace_object)) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      bool commonJsImplicated =
+          prior->second.source_goal == 1 || successor->second.source_goal == 1;
+      if (!commonJsImplicated) {
+        for (const auto& [_, commonjs] : runtime->commonjs_records) {
+          if (commonjs.adapter_record_id == priorId ||
+              commonjs.adapter_record_id == successorId) {
+            commonJsImplicated = true;
+            break;
+          }
+        }
+      }
+      if (commonJsImplicated) {
         return EXACT_RUNTIME_DRIVE_INVALID;
       }
       auto slot = runtime->module_source_slots.find(
@@ -3246,7 +3359,7 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
             carrierRetirements.emplace(*prior->second.carrier_key, 0);
         if (retirement.first->second ==
             std::numeric_limits<uint32_t>::max()) {
-          return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+          return EXACT_RUNTIME_DRIVE_INVALID;
         }
         ++retirement.first->second;
       }
@@ -3256,7 +3369,6 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
           &prior->second,
           &successor->second,
           &slot->second,
-          prior->second.source_id,
           prior->second.carrier_key});
     }
     for (const auto& [_, request] :
@@ -3269,74 +3381,98 @@ extern "C" int32_t ex_hermes_module_commit_hot_revision(
     if (forwardingNodes.size() >
         runtime->module_record_forwarding.max_size() -
             runtime->module_record_forwarding.size()) {
-      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      return EXACT_RUNTIME_DRIVE_INVALID;
     }
     runtime->module_record_forwarding.reserve(
         runtime->module_record_forwarding.size() + forwardingNodes.size());
     if (!preparedCarrierRetirementsAreValid(
             runtime, carrierRetirements)) {
-      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      return EXACT_RUNTIME_DRIVE_INVALID;
     }
-  } catch (...) {
-    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
-  }
-
-  for (const auto& pair : pairs) {
-    pair.successor->published = true;
-    *pair.slot_record_id = pair.successor_record_id;
-    for (auto& [_, targetRecordId] : runtime->module_record_forwarding) {
-      if (targetRecordId == pair.prior_record_id) {
-        targetRecordId = pair.successor_record_id;
+    for (size_t index = 0; index < cache_key_count; ++index) {
+      if (cache_keys[index] == nullptr || cache_key_lengths[index] == 0) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
       }
     }
-    auto forwarding = runtime->module_record_forwarding.find(
-        pair.prior_record_id);
-    if (forwarding != runtime->module_record_forwarding.end()) {
-      forwarding->second = pair.successor_record_id;
-    } else {
-      auto node = forwardingNodes.extract(pair.prior_record_id);
-      runtime->module_record_forwarding.insert(std::move(node));
+    for (size_t index = 0; index < retired_dev_served_id_count; ++index) {
+      if (retired_dev_served_ids[index] == nullptr ||
+          retired_dev_served_id_lengths[index] == 0) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
     }
-    if (pair.prior->namespace_object) {
-      pair.successor->namespace_object =
-          std::move(pair.prior->namespace_object);
-    }
-    const uint64_t contextId = pair.prior->context_handle_id;
-    releaseContextReference(runtime, contextId);
-    runtime->module_records.erase(pair.prior_record_id);
-  }
-
-  if (runtime->hot_revision_record_invalidator) {
-    try {
+    if (runtime->hot_revision_record_invalidator) {
       auto& rt = *runtime->runtime;
-      facebook::jsi::Array sourceIds(rt, pairs.size());
-      for (size_t index = 0; index < pairs.size(); ++index) {
-        sourceIds.setValueAtIndex(
+      cacheKeyArguments.emplace(rt, cache_key_count);
+      for (size_t index = 0; index < cache_key_count; ++index) {
+        cacheKeyArguments->setValueAtIndex(
             rt,
             index,
             facebook::jsi::String::createFromUtf8(
-                rt, pairs[index].source_id));
+                rt, cache_keys[index], cache_key_lengths[index]));
       }
+      retiredDevServedIdArguments.emplace(rt, retired_dev_served_id_count);
+      for (size_t index = 0; index < retired_dev_served_id_count; ++index) {
+        retiredDevServedIdArguments->setValueAtIndex(
+            rt,
+            index,
+            facebook::jsi::String::createFromUtf8(
+                rt,
+                retired_dev_served_ids[index],
+                retired_dev_served_id_lengths[index]));
+      }
+    }
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  try {
+    for (const auto& pair : pairs) {
+      pair.successor->published = true;
+      *pair.slot_record_id = pair.successor_record_id;
+      for (auto& [_, targetRecordId] : runtime->module_record_forwarding) {
+        if (targetRecordId == pair.prior_record_id) {
+          targetRecordId = pair.successor_record_id;
+        }
+      }
+      auto forwarding = runtime->module_record_forwarding.find(
+          pair.prior_record_id);
+      if (forwarding != runtime->module_record_forwarding.end()) {
+        forwarding->second = pair.successor_record_id;
+      } else {
+        auto node = forwardingNodes.extract(pair.prior_record_id);
+        runtime->module_record_forwarding.insert(std::move(node));
+      }
+      if (pair.prior->namespace_object) {
+        pair.successor->namespace_object =
+            std::move(pair.prior->namespace_object);
+      }
+      const uint64_t contextId = pair.prior->context_handle_id;
+      releaseContextReference(runtime, contextId);
+      runtime->module_records.erase(pair.prior_record_id);
+    }
+
+    if (runtime->hot_revision_record_invalidator) {
+      auto& rt = *runtime->runtime;
       // Direct invocation is part of the fenced publication bundle: no host
       // task scope, microtask drain, host poll, or timer slice is opened. The
       // loader-private function mutates only its null-prototype cache maps and
       // never consults the boot-only __devServed capture table or quarantine.
       // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
-      runtime->hot_revision_record_invalidator->call(rt, sourceIds);
-    } catch (...) {
-      // The native maps are already published. The caller treats this
-      // invariant failure as a quarantine/recreate signal; the private loader
-      // callback cannot throw absent a loader bug or engine failure.
-      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      runtime->hot_revision_record_invalidator->call(
+          rt, *cacheKeyArguments, *retiredDevServedIdArguments);
+    } else {
+      // Loader-less boot lanes leave this optional pointer null. This is
+      // dev-lane machinery; those lanes have no revision-served cache entries.
     }
-  } else {
-    // Loader-less boot lanes leave this optional pointer null. This is
-    // dev-lane machinery; those lanes have no revision-served cache entries.
-  }
-  for (const auto& pair : pairs) {
-    if (!retirePreparedCarrierRecord(runtime, pair.prior_carrier_key)) {
-      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    for (const auto& pair : pairs) {
+      if (!retirePreparedCarrierRecord(runtime, pair.prior_carrier_key)) {
+        (void)exactRuntimeQuarantine(runtime);
+        return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+      }
     }
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
   return EXACT_RUNTIME_DRIVE_OK;
 }
@@ -3392,6 +3528,13 @@ extern "C" int32_t ex_hermes_module_discard_unpublished_record(
         adapter->second.state == NativeModuleRecordState::Evaluated) {
       return EXACT_RUNTIME_DRIVE_INVALID;
     }
+  }
+  if (!retirePreparedCarrierRecord(runtime, commonjs->second.carrier_key)) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (commonjs->second.adapter_record_id != 0) {
+    auto adapter =
+        runtime->module_records.find(commonjs->second.adapter_record_id);
     const uint64_t adapterContextId = adapter->second.context_handle_id;
     if (!retirePreparedCarrierRecord(runtime, adapter->second.carrier_key)) {
       return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -3510,7 +3653,9 @@ extern "C" int32_t ex_hermes_module_create_record(
   NativeModuleRecordEntry entry;
   entry.graph_generation = factory.opaque[1];
   entry.source_goal = factoryIt->second.source_goal;
+  entry.principal_id = factoryIt->second.principal_id;
   entry.source_id.assign(reinterpret_cast<const char*>(source_id), source_id_len);
+  entry.compartment_identity = factoryIt->second.compartment_identity;
   entry.context_handle_id = context.opaque[2];
   entry.carrier_key = factoryIt->second.carrier_key;
   entry.factory = factoryIt->second.factory;
