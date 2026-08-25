@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include "../../include/exact_runtime.h"
 
 #if defined(__clang__)
