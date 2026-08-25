@@ -1086,6 +1086,42 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
     ) -> anyhow::Result<Vec<AuthorizedGraphOperation>> {
         let mut receipts = Vec::new();
         for source_id in self.static_linkage_order(entry)? {
+            self.authorize_record_operations(&source_id, authorizer, contexts, &mut receipts)?;
+        }
+        Ok(receipts)
+    }
+
+    /// Authorize every ADMITTED record's operations in one pass. The
+    /// composition driver's step 6 authorizes the complete admitted union
+    /// where every record carries its own CapSec context, so the union of
+    /// per-root reachable sweeps is exactly this set — computed without the
+    /// O(records x closure) traversal (the sweep-per-root shape measured
+    /// ~6-9 s at 625 records on the first live composition boots).
+    pub(crate) fn authorize_admitted_record_operations<P: GraphImportPolicy>(
+        &self,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+    ) -> anyhow::Result<Vec<AuthorizedGraphOperation>> {
+        let mut receipts = Vec::new();
+        for source_id in contexts.keys() {
+            self.authorize_record_operations(source_id, authorizer, contexts, &mut receipts)?;
+        }
+        Ok(receipts)
+    }
+
+    /// One record's operation authorization: its static edges under the
+    /// record's own requester context, plus the compile/instantiate/execute
+    /// factory triple under the initialization boundary. Shared verbatim by
+    /// the reachable-closure sweep and the admitted-union pass above.
+    fn authorize_record_operations<P: GraphImportPolicy>(
+        &self,
+        source_id: &SourceId,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        receipts: &mut Vec<AuthorizedGraphOperation>,
+    ) -> anyhow::Result<()> {
+        {
+            let source_id = source_id.clone();
             let context = contexts.get(&source_id).ok_or_else(|| {
                 anyhow::anyhow!("reachable ModuleRecord {source_id:?} has no CapSec context")
             })?;
@@ -1239,7 +1275,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 receipts.push(authorizer.authorize(decision)?);
             }
         }
-        Ok(receipts)
+        Ok(())
     }
 
     /// Decide every finite dynamic-import candidate without failing entry
@@ -1326,6 +1362,70 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         }
         for target in allowed_targets {
             receipts.extend(self.authorize_reachable_operations(&target, authorizer, contexts)?);
+        }
+        Ok(DynamicAuthorizationPlan {
+            receipts,
+            allowed_bindings,
+        })
+    }
+
+    /// Authorize the ADMITTED union's dynamic-import candidates in one pass:
+    /// every context-bearing record's declared bindings run through the same
+    /// per-binding decision as `authorize_filtered_dynamic_candidates`, but
+    /// with no closure traversal and no allowed-target expansion — every
+    /// admitted record already carries its own context and its operations
+    /// are authorized by `authorize_admitted_record_operations`, so the
+    /// composition driver's merged receipt set is identical to the per-root
+    /// sweep union while the work stays O(records + bindings).
+    pub(crate) fn authorize_admitted_dynamic_candidates<P, F>(
+        &self,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        include: F,
+    ) -> anyhow::Result<DynamicAuthorizationPlan>
+    where
+        P: GraphImportPolicy,
+        F: Fn(&SourceId, &DynamicImportBindingPlan) -> bool,
+    {
+        let mut receipts = Vec::new();
+        let mut allowed_bindings: BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>> =
+            BTreeMap::new();
+        for (source_id, context) in contexts {
+            let bindings = self.dynamic_import_bindings(source_id)?;
+            if bindings.is_empty() {
+                continue;
+            }
+            for binding in bindings {
+                if !include(source_id, &binding) {
+                    continue;
+                }
+                let binding_key = binding.key();
+                let kind = if binding.attributes.asserts_json() {
+                    GraphOperationKind::JsonLoad
+                } else {
+                    GraphOperationKind::DynamicImport
+                };
+                let decision = GraphDecisionSet::new(
+                    kind,
+                    context.clone(),
+                    binding.target,
+                    &binding.specifier,
+                    super::identity::ResolutionKind::DynamicImport,
+                    super::identity::ConditionSet::for_kind(
+                        super::identity::ResolutionKind::DynamicImport,
+                    ),
+                    binding.attributes,
+                    None,
+                    None,
+                )?;
+                if let Some(receipt) = authorizer.authorize_if_allowed(decision)? {
+                    allowed_bindings
+                        .entry(source_id.clone())
+                        .or_default()
+                        .insert(binding_key);
+                    receipts.push(receipt);
+                }
+            }
         }
         Ok(DynamicAuthorizationPlan {
             receipts,

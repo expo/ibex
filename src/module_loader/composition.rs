@@ -1498,15 +1498,19 @@ fn authorize_native_composition_plan_v1(
         BTreeMap::<SourceId, BTreeSet<DynamicImportBindingKey>>::new();
 
     // Step 6 authorizes the complete admitted union. Step 8 later selects the
-    // entry-plan closure without asking policy again.
-    for root in contexts.keys() {
-        for receipt in plan.authorize_reachable_operations(root, &authorizer, &contexts)? {
-            receipts
-                .entry(receipt.decision().operation_id.as_str().to_owned())
-                .or_insert(receipt);
-        }
-        let dynamic = plan.authorize_filtered_dynamic_candidates(
-            root,
+    // entry-plan closure without asking policy again. Every admitted record
+    // carries its own CapSec context, so the union of per-root reachable
+    // sweeps is exactly one pass over the admitted records — the sweep-per-
+    // root shape re-walked the closure from all ~N records and measured
+    // ~6-9 s at 625 records on the first live composition boots; the
+    // one-pass form produces the identical merged receipt/binding set.
+    for receipt in plan.authorize_admitted_record_operations(&authorizer, &contexts)? {
+        receipts
+            .entry(receipt.decision().operation_id.as_str().to_owned())
+            .or_insert(receipt);
+    }
+    {
+        let dynamic = plan.authorize_admitted_dynamic_candidates(
             &authorizer,
             &contexts,
             |requester, binding| {
