@@ -1,14 +1,36 @@
 //! Package-aware composition wire, admission, and report surfaces.
 
-use std::collections::BTreeMap;
+#[cfg(feature = "dev-committed-embedder")]
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(feature = "dev-committed-embedder")]
+use std::path::Path;
+#[cfg(feature = "dev-committed-embedder")]
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
+#[cfg(feature = "dev-committed-embedder")]
+use capsec_semantics::model::Principal;
 use capsec_semantics::model::{Digest, NonEmptyString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg(feature = "dev-committed-embedder")]
+use super::artifact::DynamicEdgeV1;
 use super::artifact::{digest_bytes, source_integrity, ModuleArtifactV1};
+#[cfg(feature = "dev-committed-embedder")]
+use super::carrier::PreparedCarrierEngineBindingV2;
+#[cfg(feature = "dev-committed-embedder")]
+use super::graph::{
+    ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
+};
 use super::identity::{ResolutionKind, SourceId};
+#[cfg(all(feature = "dev-committed-embedder", test))]
+use super::runner_pipeline::parse_dev_composition_channel_records_unchecked_v1;
+#[cfg(feature = "dev-committed-embedder")]
+use super::runner_pipeline::{
+    admit_composition_package_v1, parse_dev_composition_channel_records_v1,
+    read_bounded_prepared_file, AdmittedCompositionPackageV1, CommittedHbcEngineExpectationV1,
+};
 
 pub use super::composition_refusals_generated::{
     composition_step_default, CompositionRefusalClass, CompositionRefusalCode,
@@ -122,6 +144,14 @@ impl CompositionRole {
         match self {
             Self::App => "app",
             Self::Agent => "agent",
+        }
+    }
+
+    #[cfg(feature = "dev-committed-embedder")]
+    fn order(self) -> u8 {
+        match self {
+            Self::App => 0,
+            Self::Agent => 1,
         }
     }
 }
@@ -451,7 +481,11 @@ pub struct CompositionReportCommonV1 {
 /// Total §8 report. Slice 2 serializes `channel-error` and `refused`; the
 /// admitted variants are defined now for the slice-3 handoff.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "admissionStatus", rename_all = "kebab-case")]
+#[serde(
+    tag = "admissionStatus",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum DevUnarmedCompositionStartupReportV1 {
     ChannelError {
         #[serde(flatten)]
@@ -503,9 +537,7 @@ where
 
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Clone, Debug)]
-// driver-wiring pending the LLP 0056 §10 amendment
-// (issues/20260824-llp0056-s10-grant-authority-defect.md): consumed by the
-// blocked step-6/slice-3 driver, constructed by nothing yet.
+// slice-3: the authorized linker consumes these retained exact-edge proofs.
 #[allow(dead_code)]
 struct CompositionAuthorizedEdgeV1 {
     origin: SourceId,
@@ -519,8 +551,7 @@ struct CompositionAuthorizedEdgeV1 {
 /// decision.
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
-// driver-wiring pending the §10 amendment: fields are read by the blocked
-// slice-3 linker consumption; nothing constructs this yet.
+// slice-3: the authorized multi-root linker consumes these retained fields.
 #[allow(dead_code)]
 pub struct AuthorizedCompositionPlanV1 {
     packages: BTreeMap<CompositionRole, super::runner_pipeline::AdmittedCompositionPackageV1>,
@@ -548,6 +579,1423 @@ pub enum CompositionAdmissionOutcomeV1 {
     ChannelError(DevUnarmedCompositionStartupReportV1),
     Refused(DevUnarmedCompositionStartupReportV1),
     Admitted(Box<AdmittedCompositionV1>),
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+const COMPOSITION_REPORT_SCHEMA_V1: &str = "ibex/dev-unarmed-composition-startup-report/1";
+#[cfg(feature = "dev-committed-embedder")]
+const DEV_UNARMED_COMPOSITION_AUTHORITY_V1: &str = "dev-unarmed-dev-served (non-production)";
+#[cfg(feature = "dev-committed-embedder")]
+const DEV_UNARMED_FINGERPRINT_POSTURE_V1: &str =
+    "artifact-vouched external producer (currency check pending LLP 0043 registry)";
+#[cfg(feature = "dev-committed-embedder")]
+const DEV_UNARMED_ATTRIBUTION_V1: &str = "collapsed-to-root (dev-unarmed; no compartment registry)";
+
+#[cfg(feature = "dev-committed-embedder")]
+enum CompositionEngineProbeV1 {
+    Runtime,
+    #[cfg(test)]
+    Fixed(Option<CommittedHbcEngineExpectationV1>),
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+enum CompositionChannelProbeV1 {
+    Checked,
+    #[cfg(test)]
+    Unchecked,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn i_json_duration_us(duration: Duration) -> u64 {
+    u64::try_from(duration.as_micros())
+        .unwrap_or(I_JSON_MAX_SAFE_INTEGER)
+        .min(I_JSON_MAX_SAFE_INTEGER)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn digest_prefix(digest: &Digest) -> String {
+    digest.as_str().chars().take(24).collect()
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn runtime_hbc_engine_expectation_v1() -> Option<CommittedHbcEngineExpectationV1> {
+    let (Ok(digest), Ok(bytecode_version)) = (
+        crate::engine::loaded_engine_binary_digest(),
+        crate::engine::loaded_engine_bytecode_version(),
+    ) else {
+        return None;
+    };
+    let binary_digest = Digest::new(digest).ok()?;
+    Some(CommittedHbcEngineExpectationV1 {
+        engine_binding: PreparedCarrierEngineBindingV2::LoadedFile { binary_digest },
+        bytecode_version,
+    })
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn engine_binding_digest_prefix_v1(
+    engine: Option<&CommittedHbcEngineExpectationV1>,
+) -> Option<String> {
+    match engine.map(|engine| &engine.engine_binding) {
+        Some(PreparedCarrierEngineBindingV2::LoadedFile { binary_digest }) => {
+            Some(digest_prefix(binary_digest))
+        }
+        Some(PreparedCarrierEngineBindingV2::StaticCompatibility { .. }) | None => None,
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn channel_token_from_error_v1(detail: &str) -> String {
+    [
+        IBEX_DEV_COMPOSITION_ARMED_CONTEXT,
+        IBEX_DEV_COMPOSITION_SCHEMA,
+        IBEX_DEV_COMPOSITION_CORRUPT,
+    ]
+    .into_iter()
+    .find(|token| detail.contains(token))
+    .unwrap_or(IBEX_DEV_COMPOSITION_CORRUPT)
+    .to_owned()
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn report_common_v1(
+    envelope: Option<&PreparedCompositionV1>,
+    composition_root: Option<&Digest>,
+    admitted_packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    statuses: &BTreeMap<CompositionRole, CompositionPackageVerificationStatusV1>,
+    engine_binding_digest_prefix: Option<String>,
+    commitment_parse_us: u64,
+    admission_us: u64,
+) -> CompositionReportCommonV1 {
+    let packages = envelope.map_or_else(Vec::new, |envelope| {
+        envelope
+            .packages
+            .iter()
+            .map(|attestation| {
+                let admitted = admitted_packages.get(&attestation.role);
+                if let Some(package) = admitted {
+                    debug_assert_eq!(package.role, attestation.role);
+                    debug_assert_eq!(package.package_root, attestation.package_root);
+                }
+                CompositionReportPackageV1 {
+                    role: attestation.role,
+                    package_root_prefix: admitted.map_or_else(
+                        || digest_prefix(&attestation.package_root),
+                        |package| digest_prefix(&package.package_root),
+                    ),
+                    record_count: admitted
+                        .map(|package| package.records.len() as u64)
+                        .unwrap_or(0),
+                    carrier_count: admitted
+                        .map(|package| package.carrier_count as u64)
+                        .unwrap_or(0),
+                    hbc_carrier_count: admitted
+                        .map(|package| package.hbc_carrier_count as u64)
+                        .unwrap_or(0),
+                    javascript_carrier_count: admitted
+                        .map(|package| package.javascript_carrier_count as u64)
+                        .unwrap_or(0),
+                    verification_status: statuses
+                        .get(&attestation.role)
+                        .copied()
+                        .unwrap_or(CompositionPackageVerificationStatusV1::NotChecked),
+                }
+            })
+            .collect()
+    });
+    CompositionReportCommonV1 {
+        schema: COMPOSITION_REPORT_SCHEMA_V1,
+        composition_schema_version: 1,
+        authority: DEV_UNARMED_COMPOSITION_AUTHORITY_V1,
+        posture: "dev-unarmed",
+        non_production: true,
+        fingerprint_posture: DEV_UNARMED_FINGERPRINT_POSTURE_V1,
+        attribution: DEV_UNARMED_ATTRIBUTION_V1,
+        declared_roles: envelope.map(|envelope| envelope.declaration.clone()),
+        composition_root_prefix: composition_root.map(digest_prefix),
+        entry_plan: envelope.map(|envelope| envelope.entry_plan.clone()),
+        engine_binding_digest_prefix,
+        packages,
+        commitment_parse_us,
+        admission_us,
+        graph_link_us: 0,
+        agent_evaluate_us: 0,
+        agent_invoke_us: 0,
+        app_evaluate_us: 0,
+        agent_evaluated_record_count: 0,
+        app_evaluated_record_count: 0,
+        shared_evaluated_record_count: 0,
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[allow(clippy::too_many_arguments)]
+fn refused_outcome_v1(
+    envelope: Option<&PreparedCompositionV1>,
+    composition_root: Option<&Digest>,
+    admitted_packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    statuses: &BTreeMap<CompositionRole, CompositionPackageVerificationStatusV1>,
+    engine_binding_digest_prefix: Option<String>,
+    commitment_parse_us: u64,
+    admission_started: Instant,
+    code: CompositionRefusalCode,
+    package_role: Option<CompositionRole>,
+    detail: impl Into<String>,
+) -> CompositionAdmissionOutcomeV1 {
+    let report = DevUnarmedCompositionStartupReportV1::Refused {
+        common: report_common_v1(
+            envelope,
+            composition_root,
+            admitted_packages,
+            statuses,
+            engine_binding_digest_prefix,
+            commitment_parse_us,
+            i_json_duration_us(admission_started.elapsed()),
+        ),
+        failure_stage: u32::from(code.step()),
+        reason_code: code,
+        package_role,
+        detail: detail.into(),
+    };
+    CompositionAdmissionOutcomeV1::Refused(report)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn digest_canonical_value_v1<T: Serialize>(domain: &str, value: &T) -> Result<Digest> {
+    let value = serde_json::to_value(value)?;
+    let bytes = capsec_semantics::canonical::to_jcs_bytes(&value)?;
+    digest_bytes(domain, &bytes)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn served_package_roles_v1(composition_dir: &Path) -> Result<Vec<String>> {
+    let packages_dir = composition_dir.join("packages");
+    let entries = match std::fs::read_dir(&packages_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(anyhow!(
+                "cannot enumerate composition packages {}: {error}",
+                packages_dir.display()
+            ))
+        }
+    };
+    let mut roles = Vec::new();
+    for entry in entries {
+        let entry = entry.context("cannot enumerate a composition package entry")?;
+        roles.push(
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow!("composition package name is not UTF-8"))?,
+        );
+    }
+    roles.sort();
+    Ok(roles)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn declaration_roles_v1(declaration: &[String]) -> Option<Vec<CompositionRole>> {
+    declaration
+        .iter()
+        .map(|role| match role.as_str() {
+            "app" => Some(CompositionRole::App),
+            "agent" => Some(CompositionRole::Agent),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn legal_declaration_v1(declaration: &[String]) -> bool {
+    matches!(declaration, [app] if app == "app")
+        || matches!(declaration, [app, agent] if app == "app" && agent == "agent")
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn source_id_wire_v1(source_id: &SourceId) -> Result<String> {
+    source_id
+        .encode()
+        .context("cannot encode admitted SourceId")
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn normalize_vite_dev_specifier_v1(specifier: &str) -> String {
+    let (mut path, query) = specifier
+        .split_once('?')
+        .map_or((specifier, ""), |(path, query)| (path, query));
+    if path.starts_with("/@fs/") {
+        path = &path["/@fs".len()..];
+    }
+    let kept = query
+        .split('&')
+        .filter(|parameter| {
+            !parameter.is_empty()
+                && !parameter.starts_with("v=")
+                && !parameter.starts_with("t=")
+                && *parameter != "import"
+        })
+        .collect::<Vec<_>>();
+    if kept.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{path}?{}", kept.join("&"))
+    }
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn alias_matches_specifier_v1(alias_id: &str, specifier: &str) -> bool {
+    specifier == alias_id
+        || normalize_vite_dev_specifier_v1(specifier) == normalize_vite_dev_specifier_v1(alias_id)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn alias_import_sites_v1(
+    alias_id: &str,
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+) -> Result<Vec<AliasImportSiteV1>> {
+    let mut rows = Vec::new();
+    for package in packages.values() {
+        for (source_id, record) in &package.records {
+            let importer = source_id_wire_v1(source_id)?;
+            for binding in &record.bindings {
+                if alias_matches_specifier_v1(alias_id, &binding.specifier) {
+                    rows.push(AliasImportSiteV1 {
+                        importer: importer.clone(),
+                        specifier: binding.specifier.clone(),
+                    });
+                }
+            }
+        }
+        for row in &package.host_bridged_inventory {
+            if alias_matches_specifier_v1(alias_id, &row.specifier) {
+                rows.push(AliasImportSiteV1 {
+                    importer: row.module.clone(),
+                    specifier: row.specifier.clone(),
+                });
+            }
+        }
+    }
+    Ok(rows)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn validate_alias_table_v1(
+    envelope: &PreparedCompositionV1,
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+) -> Result<(), String> {
+    let owned = packages
+        .values()
+        .flat_map(|package| package.records.keys())
+        .map(|source_id| source_id_wire_v1(source_id).map(|wire| (wire, source_id)))
+        .collect::<Result<BTreeMap<_, _>>>()
+        .map_err(|error| format!("{error:#}"))?;
+    let mut rows = envelope.alias_table.rows.clone();
+    rows.sort_by(|left, right| compare_utf16(&left.alias_id, &right.alias_id));
+    if rows != envelope.alias_table.rows {
+        return Err("alias table rows are not sorted by aliasId".into());
+    }
+    let digest = digest_canonical_value_v1(PREPARED_ALIAS_TABLE_DOMAIN_V1, &rows)
+        .map_err(|error| format!("cannot recompute alias-table digest: {error:#}"))?;
+    if digest != envelope.alias_table.digest {
+        return Err("alias-table digest differs from its committed rows".into());
+    }
+    let mut aliases = BTreeSet::new();
+    for row in &rows {
+        if !aliases.insert(row.alias_id.clone()) {
+            return Err("alias table repeats an aliasId".into());
+        }
+        if owned.contains_key(&row.alias_id) {
+            return Err("aliasId collides with an owned SourceId".into());
+        }
+        let representative = owned
+            .get(&row.representative_source_id)
+            .ok_or_else(|| "alias representative is absent from the composition".to_owned())?;
+        let record = packages
+            .values()
+            .find_map(|package| package.records.get(*representative))
+            .expect("owned representative has an admitted record");
+        if record.artifact.semantics.source_integrity != row.representative_source_integrity {
+            return Err("alias representative source integrity disagrees".into());
+        }
+        // Amendment A2: the O-3 preimage consumes committed import-site rows
+        // only. `resolverInventoryDigest` is intentionally absent here.
+        let sites = alias_import_sites_v1(&row.alias_id, packages)
+            .map_err(|error| format!("cannot collect alias import sites: {error:#}"))?;
+        let observed = compute_alias_import_site_inventory_digest(&sites)
+            .map_err(|error| format!("cannot recompute alias import sites: {error:#}"))?;
+        if observed != row.import_site_inventory_digest {
+            return Err("alias import-site evidence disagrees".into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn ownership_map_v1(
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+) -> BTreeMap<SourceId, CompositionRole> {
+    packages
+        .iter()
+        .flat_map(|(role, package)| {
+            package
+                .records
+                .keys()
+                .cloned()
+                .map(|source_id| (source_id, *role))
+        })
+        .collect()
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn resolve_alias_target_v1(
+    target: &SourceId,
+    ownership: &BTreeMap<SourceId, CompositionRole>,
+    alias_rows: &[CompositionAliasRowV1],
+) -> Result<SourceId> {
+    if ownership.contains_key(target) {
+        return Ok(target.clone());
+    }
+    let wire = source_id_wire_v1(target)?;
+    let Some(alias) = alias_rows.iter().find(|row| row.alias_id == wire) else {
+        return Ok(target.clone());
+    };
+    SourceId::decode(&alias.representative_source_id)
+        .context("alias representative is not a canonical SourceId")
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PartitionRowV1<'a> {
+    source_id: &'a str,
+    role: CompositionRole,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn recompute_partition_v1(
+    declaration: &[CompositionRole],
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+) -> Result<CompositionPartitionV1> {
+    let mut encoded = Vec::new();
+    for (role, package) in packages {
+        for source_id in package.records.keys() {
+            encoded.push((source_id_wire_v1(source_id)?, *role));
+        }
+    }
+    encoded
+        .sort_by(|left, right| compare_utf16(&left.0, &right.0).then_with(|| left.1.cmp(&right.1)));
+    encoded.dedup();
+    let rows = encoded
+        .iter()
+        .map(|(source_id, role)| PartitionRowV1 {
+            source_id,
+            role: *role,
+        })
+        .collect::<Vec<_>>();
+    let digest = digest_canonical_value_v1(PREPARED_PARTITION_DOMAIN_V1, &rows)?;
+    let roles = CompositionPartitionRolesV1 {
+        app: declaration.contains(&CompositionRole::App).then(|| {
+            packages
+                .get(&CompositionRole::App)
+                .map_or(0, |package| package.records.len() as u64)
+        }),
+        agent: declaration.contains(&CompositionRole::Agent).then(|| {
+            packages
+                .get(&CompositionRole::Agent)
+                .map_or(0, |package| package.records.len() as u64)
+        }),
+    };
+    Ok(CompositionPartitionV1 { digest, roles })
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn recompute_union_rows_v1(
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    ownership: &BTreeMap<SourceId, CompositionRole>,
+    aliases: &[CompositionAliasRowV1],
+) -> Result<Vec<CompositionUnionBindingRowV1>> {
+    let mut rows = Vec::new();
+    for (from_role, package) in packages {
+        for (origin, record) in &package.records {
+            for binding in &record.bindings {
+                let PreparedPackageBindingTargetV1::External { role, source_id } = &binding.target
+                else {
+                    continue;
+                };
+                let target = resolve_alias_target_v1(source_id, ownership, aliases)?;
+                rows.push(CompositionUnionBindingRowV1 {
+                    from_role: *from_role,
+                    from_source_id: source_id_wire_v1(origin)?,
+                    specifier: binding.specifier.clone(),
+                    to_role: *role,
+                    to_source_id: source_id_wire_v1(&target)?,
+                });
+            }
+        }
+    }
+    rows.sort_by(|left, right| {
+        left.from_role
+            .cmp(&right.from_role)
+            .then_with(|| compare_utf16(&left.from_source_id, &right.from_source_id))
+            .then_with(|| compare_utf16(&left.specifier, &right.specifier))
+    });
+    Ok(rows)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn literal_dynamic_specifiers_v1(
+    record: &super::runner_pipeline::AdmittedCompositionPackageRecordV1,
+) -> BTreeSet<String> {
+    record
+        .artifact
+        .semantics
+        .dynamic_edges
+        .iter()
+        .filter_map(|edge| match edge {
+            DynamicEdgeV1::Literal { specifier, .. } => Some(specifier.as_str().to_owned()),
+            DynamicEdgeV1::Computed { .. } => None,
+        })
+        .collect()
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn recompute_boundary_rows_v1(
+    package: &AdmittedCompositionPackageV1,
+) -> Result<Vec<HostBridgedInventoryRowV1>> {
+    let mut rows = Vec::new();
+    for (source_id, record) in &package.records {
+        let bound_dynamic = record
+            .bindings
+            .iter()
+            .filter(|binding| binding.resolution_kind == ResolutionKind::DynamicImport)
+            .map(|binding| binding.specifier.as_str())
+            .collect::<BTreeSet<_>>();
+        for specifier in literal_dynamic_specifiers_v1(record) {
+            if !bound_dynamic.contains(specifier.as_str()) {
+                rows.push(HostBridgedInventoryRowV1 {
+                    module: source_id_wire_v1(source_id)?,
+                    specifier,
+                    reason: HostBridgedReasonV1::TargetIsNotBundleModule,
+                });
+            }
+        }
+    }
+    rows.sort_by(|left, right| {
+        compare_utf16(&left.module, &right.module)
+            .then_with(|| compare_utf16(&left.specifier, &right.specifier))
+    });
+    Ok(rows)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn computed_candidate_site_map_v1(
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+) -> Result<ComputedCandidateSiteMap> {
+    let mut rows = ComputedCandidateSiteMap::new();
+    for record in packages
+        .values()
+        .flat_map(|package| package.records.values())
+    {
+        for table in &record.candidate_tables {
+            for candidate in &table.candidates {
+                let key = (table.site, candidate.specifier.as_str().to_owned());
+                let binding = ComputedCandidateBinding {
+                    target: candidate.target.0.clone(),
+                    attributes: candidate.attributes.clone(),
+                };
+                if let Some(previous) = rows
+                    .entry(table.requester.0.clone())
+                    .or_default()
+                    .insert(key, binding.clone())
+                {
+                    if previous != binding {
+                        bail!("computed-candidate site and spelling disagree across sidecars");
+                    }
+                }
+            }
+        }
+    }
+    Ok(rows)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn build_union_plan_v1<'a>(
+    packages: &'a BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    ownership: &BTreeMap<SourceId, CompositionRole>,
+    aliases: &[CompositionAliasRowV1],
+) -> Result<SynchronousGraphPlan<'a>> {
+    let mut records = Vec::new();
+    for package in packages.values() {
+        for record in package.records.values() {
+            let mut bindings = BTreeMap::new();
+            for binding in &record.bindings {
+                let target = match &binding.target {
+                    PreparedPackageBindingTargetV1::Local { source_id }
+                    | PreparedPackageBindingTargetV1::External { source_id, .. } => {
+                        resolve_alias_target_v1(source_id, ownership, aliases)?
+                    }
+                };
+                bindings.insert(
+                    GraphEdgeKey::new(binding.specifier.clone(), binding.resolution_kind),
+                    target,
+                );
+            }
+            records.push((record.verified(), bindings));
+        }
+    }
+    let candidates = computed_candidate_site_map_v1(packages)?;
+    SynchronousGraphPlan::new_typed_with_computed_candidates(records, candidates)
+        .map_err(anyhow::Error::from)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn effective_record_principal_v1(
+    package: &AdmittedCompositionPackageV1,
+    source_id: &SourceId,
+) -> Result<Principal> {
+    if let Some(principal) = source_id.defining_principal() {
+        return Ok(principal.clone());
+    }
+    package
+        .principals
+        .iter()
+        .find(|principal| principal.is_root())
+        .cloned()
+        .ok_or_else(|| anyhow!("admitted package has no root principal for builtin attribution"))
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn authorize_composition_edges_v1(
+    packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
+    ownership: &BTreeMap<SourceId, CompositionRole>,
+    aliases: &[CompositionAliasRowV1],
+) -> std::result::Result<Vec<CompositionAuthorizedEdgeV1>, String> {
+    let mut authorized = Vec::new();
+    for (origin_role, package) in packages {
+        for (origin, record) in &package.records {
+            for binding in &record.bindings {
+                let (declared_target, external) = match &binding.target {
+                    PreparedPackageBindingTargetV1::Local { source_id } => (source_id, false),
+                    PreparedPackageBindingTargetV1::External { source_id, .. } => (source_id, true),
+                };
+                let target = resolve_alias_target_v1(declared_target, ownership, aliases)
+                    .map_err(|error| format!("cannot resolve authorized edge: {error:#}"))?;
+                let target_role = ownership
+                    .get(&target)
+                    .ok_or_else(|| "authorized edge target is absent".to_owned())?;
+                let target_package = packages
+                    .get(target_role)
+                    .expect("ownership only names admitted packages");
+                if external {
+                    let importer = effective_record_principal_v1(package, origin)
+                        .map_err(|error| format!("{error:#}"))?;
+                    let imported = effective_record_principal_v1(target_package, &target)
+                        .map_err(|error| format!("{error:#}"))?;
+                    // @ref LLP 0056#10-security-posture-v1--authorized-linker-defining-principals — A2 denies every external edge crossing defining principals; equal principals bypass policy.
+                    if importer != imported {
+                        return Err(format!(
+                            "external {} edge from {} package crosses defining principals",
+                            binding.specifier,
+                            origin_role.as_str()
+                        ));
+                    }
+                }
+                // Internal package edges retain the landed dev-lane effective
+                // policy: this v1 driver invents no new internal denial.
+                authorized.push(CompositionAuthorizedEdgeV1 {
+                    origin: origin.clone(),
+                    target,
+                    specifier: binding.specifier.clone(),
+                    resolution_kind: binding.resolution_kind,
+                });
+            }
+        }
+    }
+    Ok(authorized)
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn entry_plan_digest_v1(entries: &[CompositionEntryDescriptorV1]) -> Result<Digest> {
+    digest_canonical_value_v1(PREPARED_ENTRY_PLAN_DOMAIN_V1, &entries)
+}
+
+/// Admit a prepared package composition through LLP 0056 step 7.
+///
+/// This dev-only driver is total: step-0 channel failures and step-1–7
+/// refusals are returned as serialized-report values, while success carries
+/// the typed step-6 authorization capability into the slice-3 linker.
+// @ref LLP 0056#5-the-nine-steps--the-ibex-half — predicates run in registry order and cross-package step 3 selects the lowest `(step, ordinal, roleOrder)` tuple.
+#[cfg(feature = "dev-committed-embedder")]
+pub fn admit_prepared_composition_v1(
+    composition_dir: &Path,
+    commitment_text: &str,
+    expectations_text: &str,
+    project_root: &Path,
+) -> CompositionAdmissionOutcomeV1 {
+    admit_prepared_composition_with_probes_v1(
+        composition_dir,
+        commitment_text,
+        expectations_text,
+        project_root,
+        CompositionChannelProbeV1::Checked,
+        CompositionEngineProbeV1::Runtime,
+    )
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+fn admit_prepared_composition_with_probes_v1(
+    composition_dir: &Path,
+    commitment_text: &str,
+    expectations_text: &str,
+    project_root: &Path,
+    channel_probe: CompositionChannelProbeV1,
+    engine_probe: CompositionEngineProbeV1,
+) -> CompositionAdmissionOutcomeV1 {
+    let channel_started = Instant::now();
+    let parsed = match channel_probe {
+        CompositionChannelProbeV1::Checked => {
+            parse_dev_composition_channel_records_v1(commitment_text, expectations_text)
+        }
+        #[cfg(test)]
+        CompositionChannelProbeV1::Unchecked => {
+            parse_dev_composition_channel_records_unchecked_v1(commitment_text, expectations_text)
+        }
+    };
+    let commitment_parse_us = i_json_duration_us(channel_started.elapsed());
+    let (commitment, expectations) = match parsed {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let detail = format!("{error:#}");
+            let report = DevUnarmedCompositionStartupReportV1::ChannelError {
+                common: report_common_v1(
+                    None,
+                    None,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    None,
+                    commitment_parse_us,
+                    0,
+                ),
+                channel_token: channel_token_from_error_v1(&detail),
+                detail,
+            };
+            return CompositionAdmissionOutcomeV1::ChannelError(report);
+        }
+    };
+    let hbc_engine = match engine_probe {
+        CompositionEngineProbeV1::Runtime => runtime_hbc_engine_expectation_v1(),
+        #[cfg(test)]
+        CompositionEngineProbeV1::Fixed(engine) => engine,
+    };
+    let engine_binding_digest_prefix = engine_binding_digest_prefix_v1(hbc_engine.as_ref());
+    let admission_started = Instant::now();
+    let mut statuses = BTreeMap::new();
+    let mut admitted_packages = BTreeMap::new();
+
+    // Step 1: the envelope is the only served object decoded before its
+    // independently held composition-root commitment is checked.
+    let envelope_bytes = match read_bounded_prepared_file(
+        &composition_dir.join("composition.json"),
+        MAX_COMPOSITION_ENVELOPE_BYTES_V1,
+        "composition envelope",
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return refused_outcome_v1(
+                None,
+                None,
+                &admitted_packages,
+                &statuses,
+                engine_binding_digest_prefix,
+                commitment_parse_us,
+                admission_started,
+                CompositionRefusalCode::EnvelopeMalformed,
+                None,
+                format!("{error:#}"),
+            )
+        }
+    };
+    let envelope = match PreparedCompositionV1::decode_canonical(&envelope_bytes) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            return refused_outcome_v1(
+                None,
+                None,
+                &admitted_packages,
+                &statuses,
+                engine_binding_digest_prefix,
+                commitment_parse_us,
+                admission_started,
+                CompositionRefusalCode::EnvelopeMalformed,
+                None,
+                format!("{error:#}"),
+            )
+        }
+    };
+    let observed_composition_root =
+        match digest_bytes(PREPARED_COMPOSITION_ROOT_DOMAIN_V1, &envelope_bytes) {
+            Ok(digest) => digest,
+            Err(error) => {
+                return refused_outcome_v1(
+                    Some(&envelope),
+                    None,
+                    &admitted_packages,
+                    &statuses,
+                    engine_binding_digest_prefix,
+                    commitment_parse_us,
+                    admission_started,
+                    CompositionRefusalCode::CompositionCommitmentMismatch,
+                    None,
+                    format!("cannot digest composition envelope: {error:#}"),
+                )
+            }
+        };
+
+    macro_rules! refuse {
+        ($code:expr, $role:expr, $detail:expr) => {
+            return refused_outcome_v1(
+                Some(&envelope),
+                Some(&observed_composition_root),
+                &admitted_packages,
+                &statuses,
+                engine_binding_digest_prefix.clone(),
+                commitment_parse_us,
+                admission_started,
+                $code,
+                $role,
+                $detail,
+            )
+        };
+    }
+
+    // Step 2a: authenticate the envelope and then check only its internal
+    // parity facts. Invalid declarations remain reachable at #6/#7/#10.
+    if observed_composition_root != commitment.composition_root_digest {
+        refuse!(
+            CompositionRefusalCode::CompositionCommitmentMismatch,
+            None,
+            "composition envelope digest differs from the host-held commitment"
+        );
+    }
+    if legal_declaration_v1(&envelope.declaration)
+        && (envelope.entry_plan.entries.len() != envelope.declaration.len()
+            || envelope.packages.len() != envelope.declaration.len()
+            || envelope
+                .packages
+                .iter()
+                .zip(&envelope.declaration)
+                .any(|(package, role)| package.role.as_str() != role))
+    {
+        refuse!(
+            CompositionRefusalCode::CompositionCommitmentMismatch,
+            None,
+            "composition envelope declaration parity is internally inconsistent"
+        );
+    }
+
+    // Step 2b, registry ordinals #3–#10.
+    if envelope.freshness.session_nonce != expectations.session_nonce
+        || expectations.now_unix_ms > envelope.freshness.expires_at_ms
+        || envelope.freshness.authority_generation != expectations.authority_generation
+        || envelope.freshness.resolver_generation != expectations.resolver_generation
+    {
+        refuse!(
+            CompositionRefusalCode::CompositionReplayed,
+            None,
+            "composition freshness differs from verifier-held live state"
+        );
+    }
+    if envelope.freshness.policy_digest != expectations.policy_digest {
+        refuse!(
+            CompositionRefusalCode::CompositionPolicyStale,
+            None,
+            "composition policy digest differs from verifier-held policy"
+        );
+    }
+    if envelope.freshness.target != expectations.expected_target
+        || !matches!(
+            envelope.freshness.encoding.as_str(),
+            "javascript-factory-table" | "hermes-bytecode"
+        )
+        || envelope.freshness.agent_packing != "boot-core-v1"
+    {
+        refuse!(
+            CompositionRefusalCode::IbexTargetProfileMismatch,
+            None,
+            "composition target, encoding, or agent-packing profile is incompatible"
+        );
+    }
+    if envelope
+        .declaration
+        .iter()
+        .any(|role| !matches!(role.as_str(), "app" | "agent"))
+    {
+        refuse!(
+            CompositionRefusalCode::CompositionUnknownRole,
+            None,
+            "composition declaration contains an unknown role"
+        );
+    }
+    let declaration_unique = envelope.declaration.iter().collect::<BTreeSet<_>>();
+    let package_roles = envelope
+        .packages
+        .iter()
+        .map(|package| package.role)
+        .collect::<Vec<_>>();
+    if declaration_unique.len() != envelope.declaration.len()
+        || package_roles.iter().collect::<BTreeSet<_>>().len() != package_roles.len()
+    {
+        refuse!(
+            CompositionRefusalCode::CompositionDuplicateRole,
+            None,
+            "composition repeats a role"
+        );
+    }
+    let served_roles = match served_package_roles_v1(composition_dir) {
+        Ok(roles) => roles,
+        Err(error) => {
+            refuse!(
+                CompositionRefusalCode::CompositionMismatch,
+                None,
+                format!("cannot establish served package roles: {error:#}")
+            );
+        }
+    };
+    if served_roles
+        .iter()
+        .any(|role| !envelope.declaration.contains(role))
+    {
+        refuse!(
+            CompositionRefusalCode::CompositionPackageExtra,
+            None,
+            "served composition contains an undeclared package"
+        );
+    }
+    if envelope
+        .declaration
+        .iter()
+        .any(|role| !served_roles.contains(role))
+    {
+        refuse!(
+            CompositionRefusalCode::CompositionPackageMissing,
+            None,
+            "declared composition package is not served"
+        );
+    }
+    let expected_role_names = expectations
+        .expected_roles
+        .iter()
+        .map(|role| role.as_str().to_owned())
+        .collect::<Vec<_>>();
+    if !legal_declaration_v1(&envelope.declaration) || envelope.declaration != expected_role_names {
+        refuse!(
+            CompositionRefusalCode::CompositionMismatch,
+            None,
+            "composition declaration differs from verifier-held effective roles"
+        );
+    }
+    let declaration = declaration_roles_v1(&envelope.declaration)
+        .expect("closed legal declaration maps to typed roles");
+
+    // Step 3 package predicates are completed for every package, then the
+    // lowest `(ordinal, roleOrder)` failure wins. This prevents a later app
+    // failure from suppressing an earlier agent predicate.
+    let mut package_results = Vec::new();
+    for role in &declaration {
+        let attestation = envelope
+            .packages
+            .iter()
+            .find(|package| package.role == *role)
+            .expect("step 2 established one attestation per declared role");
+        package_results.push((
+            *role,
+            admit_composition_package_v1(
+                &composition_dir.join("packages").join(role.as_str()),
+                *role,
+                &attestation.package_root,
+                attestation.producer_generation,
+                project_root,
+                hbc_engine.as_ref(),
+            ),
+        ));
+    }
+    let winning_failure = package_results
+        .iter()
+        .filter_map(|(_, result)| result.as_ref().err())
+        .min_by_key(|failure| (failure.code.ordinal(), failure.role.order()))
+        .map(|failure| (failure.code, failure.role, failure.detail.clone()));
+    if let Some((failure_code, failure_role, failure_detail)) = winning_failure {
+        for (role, result) in package_results {
+            let status = if role == failure_role {
+                CompositionPackageVerificationStatusV1::Refused
+            } else if result.is_ok() {
+                CompositionPackageVerificationStatusV1::Verified
+            } else {
+                CompositionPackageVerificationStatusV1::NotChecked
+            };
+            statuses.insert(role, status);
+            if let Ok(package) = result {
+                admitted_packages.insert(role, package);
+            }
+        }
+        refuse!(failure_code, Some(failure_role), failure_detail);
+    }
+    for (role, result) in package_results {
+        admitted_packages.insert(
+            role,
+            result.expect("failure-free package sweep admitted every package"),
+        );
+    }
+    if envelope.packages.iter().any(|attestation| {
+        attestation.producer_generation != envelope.freshness.resolver_generation
+    }) || declaration.iter().any(|role| {
+        let package = admitted_packages
+            .get(role)
+            .expect("declared package was admitted");
+        package.producer_id != envelope.freshness.producer.id
+            || package.producer_binary_digest != envelope.freshness.producer.binary_digest
+    }) {
+        refuse!(
+            CompositionRefusalCode::GenerationSplice,
+            None,
+            "package generation or producer identity differs from the composition envelope"
+        );
+    }
+    if let Err(detail) = validate_alias_table_v1(&envelope, &admitted_packages) {
+        refuse!(CompositionRefusalCode::AliasConflict, None, detail);
+    }
+    for role in &declaration {
+        statuses.insert(*role, CompositionPackageVerificationStatusV1::Verified);
+    }
+
+    // Step 4: recomputation deliberately deduplicates `(SourceId, role)` so
+    // the lower #24 predicate remains independently reachable from #25/#26.
+    let recomputed_partition = match recompute_partition_v1(&declaration, &admitted_packages) {
+        Ok(partition) => partition,
+        Err(error) => {
+            refuse!(
+                CompositionRefusalCode::PartitionMismatch,
+                None,
+                format!("cannot recompute composition partition: {error:#}")
+            );
+        }
+    };
+    if recomputed_partition != envelope.partition {
+        refuse!(
+            CompositionRefusalCode::PartitionMismatch,
+            None,
+            "recomputed composition partition differs from the envelope"
+        );
+    }
+    if let Some((role, _)) = declaration.iter().find_map(|role| {
+        admitted_packages
+            .get(role)
+            .filter(|package| package.duplicate_source_id)
+            .map(|package| (*role, package))
+    }) {
+        statuses.insert(role, CompositionPackageVerificationStatusV1::Refused);
+        refuse!(
+            CompositionRefusalCode::IbexDuplicateSourceId,
+            Some(role),
+            "prepared package repeats a SourceId"
+        );
+    }
+    if declaration.contains(&CompositionRole::Agent) {
+        let app = admitted_packages
+            .get(&CompositionRole::App)
+            .expect("legal declaration requires app");
+        let agent = admitted_packages
+            .get(&CompositionRole::Agent)
+            .expect("declared agent package was admitted");
+        if agent
+            .records
+            .keys()
+            .any(|source_id| app.records.contains_key(source_id))
+        {
+            refuse!(
+                CompositionRefusalCode::PackageOverlap,
+                None,
+                "one SourceId is owned by both composition packages"
+            );
+        }
+    }
+
+    let ownership = ownership_map_v1(&admitted_packages);
+    // Step 5 #27 is an ordinal-outer sweep: any app edge resolving to an
+    // agent-owned record wins over every other no-third-state miss.
+    if let Some(app) = admitted_packages.get(&CompositionRole::App) {
+        for record in app.records.values() {
+            for binding in &record.bindings {
+                let source_id = match &binding.target {
+                    PreparedPackageBindingTargetV1::Local { source_id }
+                    | PreparedPackageBindingTargetV1::External { source_id, .. } => source_id,
+                };
+                let target =
+                    resolve_alias_target_v1(source_id, &ownership, &envelope.alias_table.rows)
+                        .unwrap_or_else(|_| source_id.clone());
+                if ownership.get(&target) == Some(&CompositionRole::Agent) {
+                    statuses.insert(
+                        CompositionRole::App,
+                        CompositionPackageVerificationStatusV1::Refused,
+                    );
+                    refuse!(
+                        CompositionRefusalCode::AppReferencesAgent,
+                        Some(CompositionRole::App),
+                        "application package declares an edge to an agent-owned record"
+                    );
+                }
+            }
+        }
+    }
+    for role in &declaration {
+        let package = admitted_packages
+            .get(role)
+            .expect("declared package was admitted");
+        for record in package.records.values() {
+            for binding in &record.bindings {
+                let valid = match &binding.target {
+                    PreparedPackageBindingTargetV1::Local { source_id } => {
+                        resolve_alias_target_v1(source_id, &ownership, &envelope.alias_table.rows)
+                            .ok()
+                            .and_then(|target| ownership.get(&target).copied())
+                            == Some(*role)
+                    }
+                    PreparedPackageBindingTargetV1::External {
+                        role: target_role, ..
+                    } => *role == CompositionRole::Agent && *target_role == CompositionRole::App,
+                };
+                if !valid {
+                    statuses.insert(*role, CompositionPackageVerificationStatusV1::Refused);
+                    refuse!(
+                        CompositionRefusalCode::LocalAgreementDisagreement,
+                        Some(*role),
+                        "package binding is neither local ownership nor a legal agent-to-app external reference"
+                    );
+                }
+            }
+        }
+    }
+
+    // Step 6 #29–#34.
+    let union_rows =
+        match recompute_union_rows_v1(&admitted_packages, &ownership, &envelope.alias_table.rows) {
+            Ok(rows) => rows,
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::UnionTableMismatch,
+                    None,
+                    format!("cannot recompute union binding table: {error:#}")
+                );
+            }
+        };
+    let union_digest = match digest_canonical_value_v1(PREPARED_UNION_TABLE_DOMAIN_V1, &union_rows)
+    {
+        Ok(digest) => digest,
+        Err(error) => {
+            refuse!(
+                CompositionRefusalCode::UnionTableMismatch,
+                None,
+                format!("cannot digest union binding table: {error:#}")
+            );
+        }
+    };
+    if envelope.union_binding_table.rows != union_rows
+        || envelope.union_binding_table.digest != union_digest
+    {
+        refuse!(
+            CompositionRefusalCode::UnionTableMismatch,
+            None,
+            "recomputed union binding table differs from the envelope"
+        );
+    }
+    let mut expected_inventories = Vec::new();
+    for role in &declaration {
+        let package = admitted_packages
+            .get(role)
+            .expect("declared package was admitted");
+        let rows = match recompute_boundary_rows_v1(package) {
+            Ok(rows) => rows,
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::BoundaryInventoryMismatch,
+                    None,
+                    format!("cannot recompute boundary inventory: {error:#}")
+                );
+            }
+        };
+        if rows != package.host_bridged_inventory {
+            refuse!(
+                CompositionRefusalCode::BoundaryInventoryMismatch,
+                None,
+                format!(
+                    "{} package boundary inventory violates locality",
+                    role.as_str()
+                )
+            );
+        }
+        let preimage = serde_json::json!({ "role": role, "rows": rows });
+        let digest =
+            match digest_canonical_value_v1(PREPARED_BOUNDARY_INVENTORY_DOMAIN_V1, &preimage) {
+                Ok(digest) => digest,
+                Err(error) => {
+                    refuse!(
+                        CompositionRefusalCode::BoundaryInventoryMismatch,
+                        None,
+                        format!("cannot digest boundary inventory: {error:#}")
+                    );
+                }
+            };
+        expected_inventories.push(CompositionHostBridgedInventoryV1 {
+            role: *role,
+            digest,
+            rows: package.host_bridged_inventory.clone(),
+        });
+    }
+    if expected_inventories != envelope.host_bridged_inventories {
+        refuse!(
+            CompositionRefusalCode::BoundaryInventoryMismatch,
+            None,
+            "composition boundary inventories differ from admitted package facts"
+        );
+    }
+    for package in admitted_packages.values() {
+        for record in package.records.values() {
+            for binding in &record.bindings {
+                let PreparedPackageBindingTargetV1::External { role, source_id } = &binding.target
+                else {
+                    continue;
+                };
+                let target =
+                    resolve_alias_target_v1(source_id, &ownership, &envelope.alias_table.rows)
+                        .unwrap_or_else(|_| source_id.clone());
+                let Some(owner) = ownership.get(&target) else {
+                    refuse!(
+                        CompositionRefusalCode::ExternalTargetAbsent,
+                        None,
+                        "external reference target is absent from the composition"
+                    );
+                };
+                if owner != role {
+                    refuse!(
+                        CompositionRefusalCode::ExternalOwnerMismatch,
+                        None,
+                        "external reference target is owned by a different package"
+                    );
+                }
+            }
+        }
+    }
+    let union_plan =
+        match build_union_plan_v1(&admitted_packages, &ownership, &envelope.alias_table.rows) {
+            Ok(plan) => plan,
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::ExportDisagreement,
+                    None,
+                    format!("cannot construct resolved union graph: {error:#}")
+                );
+            }
+        };
+    for source_id in ownership.keys() {
+        if let Err(error) = union_plan.import_bindings(source_id) {
+            refuse!(
+                CompositionRefusalCode::ExportDisagreement,
+                None,
+                format!("resolved import namespace disagrees: {error}")
+            );
+        }
+    }
+    let authorized_edges = match authorize_composition_edges_v1(
+        &admitted_packages,
+        &ownership,
+        &envelope.alias_table.rows,
+    ) {
+        Ok(edges) => edges,
+        Err(detail) => {
+            refuse!(CompositionRefusalCode::CrossPrincipalDenied, None, detail);
+        }
+    };
+
+    // Step 7 #35–#37. Digest/order/action recomputation precedes descriptor
+    // structure, followed by resolved namespace presence and linkage order.
+    let observed_entry_digest = match entry_plan_digest_v1(&envelope.entry_plan.entries) {
+        Ok(digest) => digest,
+        Err(error) => {
+            refuse!(
+                CompositionRefusalCode::EntryPlanMismatch,
+                None,
+                format!("cannot recompute entry-plan digest: {error:#}")
+            );
+        }
+    };
+    if observed_entry_digest != envelope.entry_plan.digest {
+        refuse!(
+            CompositionRefusalCode::EntryPlanMismatch,
+            None,
+            "entry-plan digest differs from its committed descriptors"
+        );
+    }
+    let expected_order = if declaration.contains(&CompositionRole::Agent) {
+        vec![CompositionRole::Agent, CompositionRole::App]
+    } else {
+        vec![CompositionRole::App]
+    };
+    if envelope.entry_plan.entries.len() != expected_order.len()
+        || envelope
+            .entry_plan
+            .entries
+            .iter()
+            .zip(&expected_order)
+            .any(|(entry, role)| entry.role != *role)
+    {
+        refuse!(
+            CompositionRefusalCode::EntryPlanMismatch,
+            None,
+            "entry-plan order or cardinality differs from the declaration"
+        );
+    }
+    for entry in &envelope.entry_plan.entries {
+        if !matches!(entry.action.as_str(), "evaluate" | "evaluate-then-invoke") {
+            refuse!(
+                CompositionRefusalCode::EntryDescriptorInvalid,
+                None,
+                "entry descriptor carries an unknown action"
+            );
+        }
+        match entry.role {
+            CompositionRole::App if entry.action != "evaluate" || entry.export.is_some() => {
+                refuse!(
+                    CompositionRefusalCode::EntryPlanMismatch,
+                    None,
+                    "app entry descriptor differs from the expected evaluate action"
+                );
+            }
+            CompositionRole::Agent
+                if entry.action == "evaluate-then-invoke"
+                    && entry.export.as_deref().is_none_or(str::is_empty) =>
+            {
+                refuse!(
+                    CompositionRefusalCode::EntryDescriptorInvalid,
+                    None,
+                    "agent invoke descriptor has no named export"
+                );
+            }
+            CompositionRole::Agent
+                if entry.action != "evaluate-then-invoke"
+                    || entry.export.as_deref() != Some("installExactNativeAgentBootstrap") =>
+            {
+                refuse!(
+                    CompositionRefusalCode::EntryPlanMismatch,
+                    None,
+                    "agent descriptor differs from the expected invoke plan"
+                );
+            }
+            CompositionRole::App | CompositionRole::Agent => {}
+        }
+    }
+    let mut roots = Vec::with_capacity(envelope.entry_plan.entries.len());
+    let mut roots_by_role = BTreeMap::new();
+    for entry in &envelope.entry_plan.entries {
+        let root = match SourceId::decode(&entry.root) {
+            Ok(root) => root,
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::EntryDescriptorInvalid,
+                    None,
+                    format!("entry descriptor root is malformed: {error:#}")
+                );
+            }
+        };
+        if ownership.get(&root) != Some(&entry.role) {
+            refuse!(
+                CompositionRefusalCode::EntryDescriptorInvalid,
+                None,
+                "entry descriptor root is not owned by its role"
+            );
+        }
+        roots_by_role.insert(entry.role, root.clone());
+        roots.push(root);
+    }
+    if let Some(agent_root) = roots_by_role.get(&CompositionRole::Agent) {
+        let namespace = match union_plan.namespace(agent_root) {
+            Ok(namespace) => namespace,
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::EntryDescriptorInvalid,
+                    None,
+                    format!("agent root namespace cannot be resolved: {error}")
+                );
+            }
+        };
+        if !namespace.contains_key("installExactNativeAgentBootstrap") {
+            refuse!(
+                CompositionRefusalCode::EntryDescriptorInvalid,
+                None,
+                "agent root lacks installExactNativeAgentBootstrap in its resolved namespace"
+            );
+        }
+        let app_root = roots_by_role
+            .get(&CompositionRole::App)
+            .expect("every legal declaration contains app");
+        match union_plan.evaluation_order(agent_root) {
+            Ok(closure) if closure.contains(app_root) => {
+                refuse!(
+                    CompositionRefusalCode::EntryPlanMismatch,
+                    None,
+                    "app root occurs in the agent evaluation closure"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                refuse!(
+                    CompositionRefusalCode::CompositionRootUnlinked,
+                    None,
+                    format!("agent root has no evaluation order: {error}")
+                );
+            }
+        }
+    }
+    for root in &roots {
+        if let Err(error) = union_plan.linkage_order(root) {
+            refuse!(
+                CompositionRefusalCode::CompositionRootUnlinked,
+                None,
+                format!("composition root has no linkage order: {error}")
+            );
+        }
+    }
+    let main_root = roots_by_role
+        .get(&CompositionRole::App)
+        .expect("every legal declaration contains app")
+        .clone();
+    drop(union_plan);
+
+    let report = DevUnarmedCompositionStartupReportV1::Admitted {
+        common: report_common_v1(
+            Some(&envelope),
+            Some(&observed_composition_root),
+            &admitted_packages,
+            &statuses,
+            engine_binding_digest_prefix,
+            commitment_parse_us,
+            i_json_duration_us(admission_started.elapsed()),
+        ),
+        agent_invoke_returned_thenable: false,
+    };
+    let authorized = AuthorizedCompositionPlanV1 {
+        packages: admitted_packages,
+        authorized_edges,
+        roots,
+        main_root,
+    };
+    CompositionAdmissionOutcomeV1::Admitted(Box::new(AdmittedCompositionV1 {
+        authorized,
+        envelope,
+        commitment,
+        expectations,
+        report,
+    }))
 }
 
 impl PreparedCompositionV1 {
@@ -1335,3 +2783,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "dev-committed-embedder"))]
+mod driver_tests;

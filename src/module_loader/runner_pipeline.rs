@@ -3453,12 +3453,7 @@ enum PackageAdmissionExpectationsV1<'a> {
 /// package from raw index records.
 enum AdmittedPackageV1 {
     SinglePublication(CommittedPublicationAdmissionV1),
-    // driver-wiring pending the LLP 0056 §10 amendment
-    // (issues/20260824-llp0056-s10-grant-authority-defect.md): constructed
-    // only through admit_composition_package_v1, which the blocked step-3
-    // driver will call.
     #[cfg(feature = "dev-committed-embedder")]
-    #[allow(dead_code)]
     Composition(AdmittedCompositionPackageV1),
 }
 
@@ -3488,8 +3483,6 @@ impl std::error::Error for CompositionPackageAdmissionFailureV1 {}
 
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
-// driver-wiring pending the §10 amendment: read by the blocked steps 4-8.
-#[allow(dead_code)]
 pub(crate) struct AdmittedCompositionPackageRecordV1 {
     pub(crate) artifact: ModuleArtifactV1,
     pub(crate) bindings: Vec<super::composition::PreparedPackageBindingV1>,
@@ -3501,9 +3494,6 @@ pub(crate) struct AdmittedCompositionPackageRecordV1 {
 
 #[cfg(feature = "dev-committed-embedder")]
 impl AdmittedCompositionPackageRecordV1 {
-    // driver-wiring pending the §10 amendment: the blocked slice-3 linker
-    // re-derives the verified view from the retained admission proof.
-    #[allow(dead_code)]
     pub(crate) fn verified(&self) -> VerifiedModuleArtifactV1<'_> {
         self.artifact
             .verify_for_admission_with_semantic_hint(
@@ -3517,15 +3507,17 @@ impl AdmittedCompositionPackageRecordV1 {
 
 #[cfg(feature = "dev-committed-embedder")]
 #[derive(Debug)]
-// driver-wiring pending the §10 amendment: read by the blocked composition
-// driver's steps 3-8 and the §8 per-package report rows.
-#[allow(dead_code)]
 pub(crate) struct AdmittedCompositionPackageV1 {
     pub(crate) role: CompositionRole,
     pub(crate) package_root: Digest,
+    // slice-3: execution configuration and authorized linking retain this
+    // authenticated package semantic-graph identity.
+    #[allow(dead_code)]
     pub(crate) package_graph_digest: Digest,
     pub(crate) producer_id: NonEmptyString,
     pub(crate) producer_binary_digest: Digest,
+    // slice-3: execution configurations are stamped from this attested value.
+    #[allow(dead_code)]
     pub(crate) producer_generation: u64,
     pub(crate) records: BTreeMap<SourceId, AdmittedCompositionPackageRecordV1>,
     pub(crate) principals: Vec<Principal>,
@@ -3723,9 +3715,6 @@ fn admit_package_v1(expectations: PackageAdmissionExpectationsV1<'_>) -> Result<
 
 #[cfg(feature = "dev-committed-embedder")]
 #[allow(clippy::too_many_arguments)]
-// driver-wiring pending the §10 amendment: the step-3 sweep of the blocked
-// admission driver is this function's only intended caller.
-#[allow(dead_code)]
 pub(crate) fn admit_composition_package_v1(
     package_dir: &Path,
     role: CompositionRole,
@@ -7266,16 +7255,12 @@ mod tests {
 
 /// Parse half of LLP 0056 §5 step 0 for the two independent channel records.
 ///
-/// This seam is not wired into any C-ABI entry. Parsed results carry no
-/// authority, and no composition admits until implementation legs 2/3 land as
-/// required by LLP 0056 §11. The seam exists only where the dev embedder
-/// feature provides the armed-context query, so the documented step-0 order
-/// (armed exclusion BEFORE channel parsing) holds unconditionally wherever
-/// this function compiles.
+/// The step-0 composition driver calls this before reading any served bytes.
+/// The seam exists only where the dev embedder feature provides the
+/// armed-context query, so the documented order (armed exclusion BEFORE
+/// channel parsing) holds unconditionally wherever this function compiles.
 // @ref LLP 0056#5-the-nine-steps--the-ibex-half — step 0 excludes armed context before channel parsing.
-// leg-2 wiring point
 #[cfg(feature = "dev-committed-embedder")]
-#[allow(dead_code)]
 pub(crate) fn parse_dev_composition_channel_records_v1(
     commitment_text: &str,
     expectations_text: &str,
@@ -7302,7 +7287,6 @@ pub(crate) fn parse_dev_composition_channel_records_v1(
 /// unconditional armed exclusion FIRST — never call this directly from
 /// admission code.
 #[cfg(feature = "dev-committed-embedder")]
-#[allow(dead_code)]
 pub(crate) fn parse_dev_composition_channel_records_unchecked_v1(
     commitment_text: &str,
     expectations_text: &str,
