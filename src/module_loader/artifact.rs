@@ -637,6 +637,13 @@ impl ModuleArtifactV1 {
         Ok(VerifiedModuleArtifactV1 { artifact: self })
     }
 
+    /// Validate the closed artifact's intrinsic structure before evaluating
+    /// later composition-package admission rows. The package core uses this
+    /// in LLP 0056's ordinal #14 sweep; it conveys no admission authority.
+    pub(crate) fn validate_structure_for_composition(&self) -> Result<()> {
+        self.validate_structure()
+    }
+
     fn validate_structure(&self) -> Result<()> {
         self.validate_structure_with_semantic_hint(None)
     }

@@ -7,7 +7,7 @@ use capsec_semantics::model::{Digest, NonEmptyString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::artifact::{source_integrity, ModuleArtifactV1};
+use super::artifact::{digest_bytes, source_integrity, ModuleArtifactV1};
 use super::identity::{ResolutionKind, SourceId};
 
 pub use super::composition_refusals_generated::{
@@ -610,6 +610,68 @@ impl PreparedPackageV1 {
     }
 }
 
+/// Recompute the provisional LLP 0056 §4.2 package-graph digest.
+///
+/// PROVISIONAL pending the O-1 preimage row: the preimage is one JCS array
+/// `[records, bindings]`. `records` is sorted lexicographically by each
+/// `SourceId`'s own canonical JCS bytes and contains two-element arrays
+/// `[sourceId, semanticDigest]`. `bindings` follows that same source order and
+/// preserves each record's declared binding order; each row is `[sourceId,
+/// specifier, resolutionKind, target]`, where `target` is `["local",
+/// sourceId]` or `["external", sourceId]`. The external target intentionally
+/// contributes only its target `SourceId`: package role and external-reference
+/// legality are separate committed/index predicates. The resulting JCS bytes
+/// are digested under
+/// `ibex:prepared-package-graph:1`.
+// @ref LLP 0056#42-the-package-graph-digest — carriers and artifacts bind a recomputed role-scoped semantic graph facet.
+pub(crate) fn compute_package_graph_digest_v1(
+    records: &[PreparedPackageRecordV1],
+) -> Result<Digest> {
+    let mut ordered = records
+        .iter()
+        .map(|record| {
+            Ok((
+                capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(
+                    &record.source_id,
+                )?)?,
+                record,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ordered.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let record_rows = ordered
+        .iter()
+        .map(|(_, record)| {
+            serde_json::json!([&record.source_id, &record.artifact.semantic_digest,])
+        })
+        .collect::<Vec<_>>();
+    let binding_rows = ordered
+        .iter()
+        .flat_map(|(_, record)| {
+            record.bindings.iter().map(|binding| {
+                let target = match &binding.target {
+                    PreparedPackageBindingTargetV1::Local { source_id } => {
+                        serde_json::json!(["local", source_id])
+                    }
+                    PreparedPackageBindingTargetV1::External { source_id, .. } => {
+                        serde_json::json!(["external", source_id])
+                    }
+                };
+                serde_json::json!([
+                    &record.source_id,
+                    &binding.specifier,
+                    binding.resolution_kind,
+                    target,
+                ])
+            })
+        })
+        .collect::<Vec<_>>();
+    let preimage = serde_json::json!([record_rows, binding_rows]);
+    let canonical = capsec_semantics::canonical::to_jcs_bytes(&preimage)?;
+    digest_bytes(PREPARED_PACKAGE_GRAPH_DOMAIN_V1, &canonical)
+}
+
 /// One source import site contributing to committed alias evidence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -899,6 +961,7 @@ fn enforce_envelope_surface_bounds(value: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use capsec_semantics::model::{PathComponent, Principal};
     use serde_json::json;
 
     fn valid_digest(label: &str) -> String {
@@ -1185,5 +1248,90 @@ mod tests {
 
         let pretty = serde_json::to_vec_pretty(&package).unwrap();
         assert!(PreparedPackageV1::decode_canonical(&pretty).is_err());
+    }
+
+    #[test]
+    fn provisional_package_graph_digest_matches_independent_two_record_jcs_vector() {
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("package-graph-vector").unwrap(),
+        };
+        let source_id = |name: &str| {
+            SourceId::file(owner.clone(), vec![PathComponent::utf8(name).unwrap()]).unwrap()
+        };
+        let source_a = source_id("a.mjs");
+        let source_z = source_id("z.mjs");
+        let external = source_id("external.mjs");
+        let producer = source_integrity(b"package-graph-vector-producer").unwrap();
+        let artifact_a = crate::module_loader::producer_spike::produce_module_artifact_v1(
+            source_a.clone(),
+            "a.mjs",
+            std::path::Path::new("a.mjs"),
+            "import './z.mjs'; export const a = 1;",
+            producer.clone(),
+        )
+        .unwrap();
+        let artifact_z = crate::module_loader::producer_spike::produce_module_artifact_v1(
+            source_z.clone(),
+            "z.mjs",
+            std::path::Path::new("z.mjs"),
+            "export const z = 1;",
+            producer,
+        )
+        .unwrap();
+        let records = vec![
+            PreparedPackageRecordV1 {
+                source_id: source_z.clone(),
+                bindings: vec![PreparedPackageBindingV1 {
+                    specifier: "external-app".into(),
+                    resolution_kind: ResolutionKind::DynamicImport,
+                    target: PreparedPackageBindingTargetV1::External {
+                        role: CompositionRole::App,
+                        source_id: external.clone(),
+                    },
+                }],
+                artifact: artifact_z.clone(),
+                carrier_index: 1,
+                entry_id: NonEmptyString::new("z").unwrap(),
+            },
+            PreparedPackageRecordV1 {
+                source_id: source_a.clone(),
+                bindings: vec![PreparedPackageBindingV1 {
+                    specifier: "./z.mjs".into(),
+                    resolution_kind: ResolutionKind::EsmStatic,
+                    target: PreparedPackageBindingTargetV1::Local {
+                        source_id: source_z.clone(),
+                    },
+                }],
+                artifact: artifact_a.clone(),
+                carrier_index: 0,
+                entry_id: NonEmptyString::new("a").unwrap(),
+            },
+        ];
+
+        // Independent inline spelling of the provisional `[records,
+        // bindings]` JCS preimage. In particular, records are source-sorted
+        // despite the input order and the external target contributes no role.
+        let expected_preimage = json!([
+            [
+                [&source_a, &artifact_a.semantic_digest],
+                [&source_z, &artifact_z.semantic_digest],
+            ],
+            [
+                [&source_a, "./z.mjs", "esm-static", ["local", &source_z]],
+                [
+                    &source_z,
+                    "external-app",
+                    "dynamic-import",
+                    ["external", &external]
+                ],
+            ],
+        ]);
+        let expected_bytes = capsec_semantics::canonical::to_jcs_bytes(&expected_preimage).unwrap();
+        let expected = digest_bytes(PREPARED_PACKAGE_GRAPH_DOMAIN_V1, &expected_bytes).unwrap();
+        assert_eq!(compute_package_graph_digest_v1(&records).unwrap(), expected);
+        assert_eq!(
+            expected.as_str(),
+            "sha256-wWGoLP4Rw5F93Mq9GDNMlf2wkzB9FLsbA84YvBIa9gQ"
+        );
     }
 }

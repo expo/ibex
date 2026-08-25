@@ -503,6 +503,59 @@ impl PreparedModuleCarrierV3 {
             .map_err(|error| anyhow!("cannot canonicalize prepared carrier v3: {error}"))
     }
 
+    /// Decode the carrier manifest with schema-identifier dispatch before the
+    /// v3 closed-shape decode. The composition package core uses this during
+    /// its registry-ordinal #12 schema sweep.
+    pub(crate) fn decode_for_composition_admission(
+        manifest_bytes: &[u8],
+    ) -> std::result::Result<Self, CarrierV3AdmissionError> {
+        let text = std::str::from_utf8(manifest_bytes).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared carrier manifest is not UTF-8: {error}"),
+            )
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared carrier manifest is not strict JSON: {error}"),
+            )
+        })?;
+        let schema = value
+            .get("schema")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                carrier_v3_error(
+                    CompositionRefusalCode::IbexPreparedCommitmentSchema,
+                    "prepared carrier manifest has no schema identifier",
+                )
+            })?;
+        if schema != PREPARED_CARRIER_SCHEMA_V3 {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentSchema,
+                format!("unsupported prepared carrier schema {schema:?}"),
+            ));
+        }
+        let canonical = capsec_semantics::canonical::to_jcs_bytes(&value).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("cannot canonicalize prepared carrier: {error}"),
+            )
+        })?;
+        if canonical != manifest_bytes {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                "prepared carrier manifest bytes are not canonical JCS",
+            ));
+        }
+        serde_json::from_value(value).map_err(|error| {
+            carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                format!("prepared carrier manifest shape is invalid: {error}"),
+            )
+        })
+    }
+
     pub fn prepared_artifact(&self, entry_id: &str) -> Result<ModuleArtifactV1> {
         let entry = self.entry(entry_id)?;
         ModuleArtifactV1::new_carrier(
@@ -535,48 +588,36 @@ impl AdmittedPreparedCarrierV3 {
         carrier_bytes: &[u8],
         admission: &PreparedCarrierAdmissionV3,
     ) -> std::result::Result<Self, CarrierV3AdmissionError> {
-        let text = std::str::from_utf8(manifest_bytes).map_err(|error| {
-            carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                format!("prepared carrier manifest is not UTF-8: {error}"),
-            )
-        })?;
-        let value = capsec_semantics::strict_json::parse_strict(text).map_err(|error| {
-            carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                format!("prepared carrier manifest is not strict JSON: {error}"),
-            )
-        })?;
-        let canonical = capsec_semantics::canonical::to_jcs_bytes(&value).map_err(|error| {
-            carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                format!("cannot canonicalize prepared carrier: {error}"),
-            )
-        })?;
-        if canonical != manifest_bytes {
-            return Err(carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                "prepared carrier manifest bytes are not canonical JCS",
-            ));
-        }
-        let manifest: PreparedModuleCarrierV3 = serde_json::from_value(value).map_err(|error| {
-            carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                format!("prepared carrier manifest shape is invalid: {error}"),
-            )
-        })?;
-        if manifest.schema != PREPARED_CARRIER_SCHEMA_V3 {
-            return Err(carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentSchema,
-                format!("unsupported prepared carrier schema {:?}", manifest.schema),
-            ));
-        }
+        let manifest = PreparedModuleCarrierV3::decode_for_composition_admission(manifest_bytes)?;
+
+        // The remaining checks are deliberately registry-ordinal ordered.
+        // `decode_and_admit` bundles rows #14–#21, so its first error must be
+        // the lowest applicable row, not merely the first convenient check.
         if manifest.entries.is_empty() {
             return Err(carrier_v3_error(
                 CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
                 "prepared carrier requires at least one entry",
             ));
         }
+        let mut previous: Option<&str> = None;
+        for entry in &manifest.entries {
+            if previous.is_some_and(|value| value >= entry.entry_id.as_str()) {
+                return Err(carrier_v3_error(
+                    CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                    "prepared carrier entries must be strictly ordered and unique",
+                ));
+            }
+            previous = Some(entry.entry_id.as_str());
+        }
+        if manifest.producer_id != admission.expected_producer_id
+            || manifest.producer_binary_digest != admission.producer_binary_digest
+        {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
+                "prepared carrier producer identity is stale",
+            ));
+        }
+
         if manifest.carrier_digest
             != digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, carrier_bytes).map_err(|error| {
                 carrier_v3_error(
@@ -590,16 +631,7 @@ impl AdmittedPreparedCarrierV3 {
                 "prepared carrier bytes do not match the manifest digest",
             ));
         }
-
-        let mut previous: Option<&str> = None;
         for entry in &manifest.entries {
-            if previous.is_some_and(|value| value >= entry.entry_id.as_str()) {
-                return Err(carrier_v3_error(
-                    CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                    "prepared carrier entries must be strictly ordered and unique",
-                ));
-            }
-            previous = Some(entry.entry_id.as_str());
             if semantics_digest(&entry.semantics).map_err(|error| {
                 carrier_v3_error(
                     CompositionRefusalCode::CarrierIntegrity,
@@ -612,6 +644,9 @@ impl AdmittedPreparedCarrierV3 {
                     "prepared carrier entry semantic digest is stale",
                 ));
             }
+        }
+
+        for entry in &manifest.entries {
             let owner_agrees = entry.semantics.source_id.0.defining_principal()
                 == Some(&manifest.defining_principal)
                 || (matches!(
@@ -629,26 +664,6 @@ impl AdmittedPreparedCarrierV3 {
             return Err(carrier_v3_error(
                 CompositionRefusalCode::IbexPrincipalGrouping,
                 "prepared carrier defining principal is not authorized",
-            ));
-        }
-        if manifest.producer_id != admission.expected_producer_id
-            || manifest.producer_binary_digest != admission.producer_binary_digest
-        {
-            return Err(carrier_v3_error(
-                CompositionRefusalCode::IbexPreparedCommitmentCorrupt,
-                "prepared carrier producer identity is stale",
-            ));
-        }
-        if manifest.package_graph_digest != admission.package_graph_digest
-            || manifest.entries.iter().any(|entry| {
-                !admission
-                    .authorized_semantic_digests
-                    .contains(&entry.semantic_digest)
-            })
-        {
-            return Err(carrier_v3_error(
-                CompositionRefusalCode::IbexPackageGraphBinding,
-                "prepared carrier is outside the authenticated package graph",
             ));
         }
 
@@ -705,6 +720,19 @@ impl AdmittedPreparedCarrierV3 {
                     ));
                 }
             }
+        }
+
+        if manifest.package_graph_digest != admission.package_graph_digest
+            || manifest.entries.iter().any(|entry| {
+                !admission
+                    .authorized_semantic_digests
+                    .contains(&entry.semantic_digest)
+            })
+        {
+            return Err(carrier_v3_error(
+                CompositionRefusalCode::IbexPackageGraphBinding,
+                "prepared carrier is outside the authenticated package graph",
+            ));
         }
 
         Ok(Self {
