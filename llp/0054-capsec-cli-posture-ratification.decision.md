@@ -1,11 +1,11 @@
 # LLP 0054: CapSec CLI Posture — Enforce-Only Ordinary Execution, Ratified
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** CLI, CapSec, Security, Build, Product
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-23
-**Revised:** 2026-08-23 (r1 — initial draft, authored as the ibex counterpart Exact RFC 0499 C-2 names, on the cross-repo pattern of LLP 0052 ↔ Exact RFC 0476. Nothing here is decided until this corpus decides it.)
+**Revised:** 2026-08-25 (r2 — ACCEPTED by Charlie Cheever, 2026-08-25, decision relayed via orchestrator exact-9e (register batch item 1), together with the Exact capability posture matrix (`docs/capability-posture-matrix.md`, ratified in the same decision). D1–D4 are in force; D3's watch-child residue removal is executed with this acceptance. r1 2026-08-23: initial draft, authored as the ibex counterpart Exact RFC 0499 C-2 names, on the cross-repo pattern of LLP 0052 ↔ Exact RFC 0476.)
 **Related:** LLP 0021 (typed CapSec effect model, armed snapshot — the enforce-only workflow this ratifies), LLP 0038 (unadvertised dev arming — the compile-time dev-arming escape), LLP 0039 (secure and insecure modes — insecure behavior is selected at compile time, never at runtime), LLP 0042 (prepared-graph independent commitment — the commitment machinery behind armed startup), LLP 0052 (durable authority mint/verify — the cross-repo counterpart precedent), LLP 0053 (carrier-bearing ingress coordination — the sibling Exact-carrier ask; deliberately NOT this document), `runtime-surface.json` (the ENG-22429 CLI-surface authority), Exact RFC 0499 §4.3/§5 C-2 (the posture-matrix requirement this answers), Exact LLP 0506 D1(c) (the freeze conjunct the matrix serves), Exact `docs/capability-posture-matrix.md` (row 10 consumes this document's claim)
 
 ## Context
@@ -43,7 +43,7 @@ vocabulary residue. Verified current state (all in `src/bin/ibex/`):
    watch children. Harmless in effect — the child refuses — but our
    own tooling synthesizes a value ordinary execution refuses.
 
-## Decision (proposed)
+## Decision (accepted 2026-08-25)
 
 - **D1 — Ratify the posture.** Ordinary `ibex` execution is
   **enforce-only**: `--capsec` defaults to `auto`, secure builds
