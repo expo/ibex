@@ -1439,17 +1439,20 @@ fn composition_authority_contexts_v1(
 }
 
 #[cfg(feature = "dev-committed-embedder")]
+type NativeCompositionAuthorizationV1 = (
+    Vec<AuthorizedGraphOperation>,
+    BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
+    BTreeMap<SourceId, GraphAuthorityContext>,
+);
+
+#[cfg(feature = "dev-committed-embedder")]
 fn authorize_native_composition_plan_v1(
     plan: &SynchronousGraphPlan<'_>,
     packages: &BTreeMap<CompositionRole, AdmittedCompositionPackageV1>,
     policy_digest: &Digest,
     authority_generation: u64,
     graph_generation: u64,
-) -> Result<(
-    Vec<AuthorizedGraphOperation>,
-    BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
-    BTreeMap<SourceId, GraphAuthorityContext>,
-)> {
+) -> Result<NativeCompositionAuthorizationV1> {
     let generation = Generation::new(authority_generation).map_err(anyhow::Error::msg)?;
     let policy = DevUnarmedCompositionGraphPolicyV1 {
         digest: policy_digest.clone(),
@@ -1482,8 +1485,11 @@ fn authorize_native_composition_plan_v1(
             |requester, binding| {
                 // @ref LLP 0056#75-the-retained-composition-session-aliases-and-dynamic-imports — only declared literal within-package targets enter the native table; computed and cross-package requests remain host-bridged.
                 binding.site.is_none()
-                    && ownership.get(requester).is_some()
-                    && ownership.get(requester) == ownership.get(&binding.target)
+                    && matches!(
+                        (ownership.get(requester), ownership.get(&binding.target)),
+                        (Some(requester_owner), Some(target_owner))
+                            if requester_owner == target_owner
+                    )
             },
         )?;
         for receipt in dynamic.receipts {

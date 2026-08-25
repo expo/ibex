@@ -8263,6 +8263,13 @@ pub mod dev_committed_embedder {
     /// LLP 0056 package-aware dev-unarmed composition startup. Returns 0 only
     /// after all descriptor transitions complete, 1 for step-0–8 refusal, and
     /// 2 for every step-9-or-later startup failure. The tagged report is total.
+    ///
+    /// # Safety
+    ///
+    /// `runtime` must identify the live Hermes runtime named by `runtime_nonce`.
+    /// Each input string must point to a readable NUL-terminated string, and
+    /// each non-null output slot must be writable. Returned strings are owned
+    /// by the caller and must be released with `ibex_dev_string_dispose_v1`.
     // @ref LLP 0056#34-the-c-abi-entry-dev-unarmed-the-only-v1-posture — this entry preserves the landed phase return codes while adding a total report.
     #[no_mangle]
     pub unsafe extern "C" fn ibex_dev_unarmed_composition_prepared_startup_v1(

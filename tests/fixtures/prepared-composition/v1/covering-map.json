@@ -37,6 +37,7 @@
     { "file": "src/module_loader/composition.rs", "tokenOrMessageClass": "CompositionRefusalCode::EntryPlanMismatch", "registryCode": "entry-plan-mismatch" },
     { "file": "src/module_loader/composition.rs", "tokenOrMessageClass": "CompositionRefusalCode::EntryDescriptorInvalid", "registryCode": "entry-descriptor-invalid" },
     { "file": "src/module_loader/composition.rs", "tokenOrMessageClass": "CompositionRefusalCode::CompositionRootUnlinked", "registryCode": "composition-root-unlinked" },
+    { "file": "src/module_loader/composition.rs", "tokenOrMessageClass": "CompositionRefusalCode::LinkFailure", "registryCode": "link-failure" },
 
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::PackageRootMismatch", "registryCode": "package-root-mismatch" },
     { "file": "src/module_loader/runner_pipeline.rs", "tokenOrMessageClass": "CompositionRefusalCode::IbexPreparedCommitmentSchema", "registryCode": "ibex:prepared-commitment-schema" },
