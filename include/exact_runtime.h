@@ -841,6 +841,16 @@ int32_t ex_hermes_module_publish_records(
     const ExactModuleRunnerHandle* handles,
     size_t handles_len);
 
+/// Atomically retarget one pinned generation's stable module slots from fully
+/// prevalidated prior records to their unpublished successor records.
+int32_t ex_hermes_module_commit_hot_revision(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    uint32_t pair_count,
+    const uint64_t* prior_record_ids,
+    const uint64_t* successor_record_ids);
+
 /// Roll back one record that has not been published into a live graph. Unlike
 /// ordinary release, this erases the record even while its generation is
 /// pinned. Evaluating/evaluated records are never admissible rollback targets.

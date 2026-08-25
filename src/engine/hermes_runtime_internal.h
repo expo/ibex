@@ -838,6 +838,8 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, ModuleFactoryEntry> module_factories;
   std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
   std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
+  std::map<std::pair<uint64_t, std::string>, uint64_t> module_source_slots;
+  std::unordered_map<uint64_t, uint64_t> module_record_forwarding;
   std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
   std::map<uint64_t, NativeCommonJsRequireProviderEntry>
       commonjs_require_providers;

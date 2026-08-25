@@ -362,6 +362,7 @@ fn is_module_runner_function(function_name: &str) -> bool {
             | "ex_hermes_graph_context_create"
             | "ex_hermes_graph_context_retain"
             | "ex_hermes_module_compile_factory"
+            | "ex_hermes_module_commit_hot_revision"
             | "ex_hermes_module_create_record"
             | "ex_hermes_module_load_carrier_factory"
             | "ex_hermes_module_pin_generation"
@@ -996,6 +997,15 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         runtime_nonce: u64,
         graph_generation: u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_commit_hot_revision"]
+    fn ex_output_hermes_module_commit_hot_revision(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        pair_count: u32,
+        prior_record_ids: *const u64,
+        successor_record_ids: *const u64,
     ) -> i32;
     #[link_name = "ex_hermes_module_unpin_generation"]
     fn ex_output_hermes_module_unpin_generation(
@@ -4290,6 +4300,16 @@ fn execute_module_runner_output(function_name: &str, selector: &str) -> Result<V
         }
         "ex_hermes_module_pin_generation" => unsafe {
             ex_output_hermes_module_pin_generation(raw, nonce, 1)
+        },
+        "ex_hermes_module_commit_hot_revision" => unsafe {
+            ex_output_hermes_module_commit_hot_revision(
+                raw,
+                nonce,
+                1,
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
         },
         "ex_hermes_module_unpin_generation" => {
             let _ = unsafe { ex_output_hermes_module_pin_generation(raw, nonce, 1) };

@@ -612,6 +612,16 @@ extern "C" {
         runtime_nonce: u64,
         graph_generation: u64,
     ) -> i32;
+    #[cfg(feature = "module-runner")]
+    #[allow(dead_code)]
+    fn ex_hermes_module_commit_hot_revision(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        pair_count: u32,
+        prior_record_ids: *const u64,
+        successor_record_ids: *const u64,
+    ) -> i32;
     #[cfg(all(test, feature = "module-runner"))]
     fn ex_hermes_module_compile_factory(
         runtime: *mut HermesRuntimeOpaque,

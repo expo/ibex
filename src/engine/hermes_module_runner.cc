@@ -269,6 +269,48 @@ NativeModuleRecordEntry* recordFor(
   return &it->second;
 }
 
+struct ResolvedModuleRecord {
+  NativeModuleRecordEntry* record{nullptr};
+  uint64_t record_id{0};
+};
+
+ResolvedModuleRecord resolveLiveModuleRecord(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t recordId) {
+  if (runtime == nullptr) return {};
+  // Cross-module reads resolve one slot-forwarding hop. Writes and completion
+  // callbacks deliberately remain exact-record-bound: erasing a retired entry
+  // fences stale publication instead of redirecting it into the successor.
+  // @ref LLP 0055#23-stable-logical-slots-every-cross-module-use-resolves-through-the-slot
+  auto forwarding = runtime->module_record_forwarding.find(recordId);
+  uint64_t resolvedId = recordId;
+  if (forwarding != runtime->module_record_forwarding.end()) {
+    resolvedId = forwarding->second;
+  }
+  auto record = runtime->module_records.find(resolvedId);
+  if (record == runtime->module_records.end() ||
+      record->second.graph_generation != graphGeneration) {
+    return {};
+  }
+  return {&record->second, resolvedId};
+}
+
+void eraseModuleSourceSlotIfOwned(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    const std::string& sourceId,
+    uint64_t recordId) {
+  for (auto slot = runtime->module_source_slots.begin();
+       slot != runtime->module_source_slots.end(); ++slot) {
+    if (slot->first.first == graphGeneration &&
+        slot->first.second == sourceId && slot->second == recordId) {
+      runtime->module_source_slots.erase(slot);
+      return;
+    }
+  }
+}
+
 NativeCommonJsRecordEntry* commonJsRecordFor(
     ExactHermesRuntime* runtime, ExactModuleRunnerHandle handle) {
   if (runtime == nullptr || handle.opaque[0] != runtime->runtime_nonce ||
@@ -913,14 +955,16 @@ facebook::jsi::Value readBinding(
           rt, "module does not export '" + currentName + "'");
     }
     if (cell->second.alias_record_id != 0) {
-      auto target = runtime->module_records.find(cell->second.alias_record_id);
-      if (target == runtime->module_records.end() ||
-          target->second.graph_generation != current->graph_generation) {
+      auto target = resolveLiveModuleRecord(
+          runtime,
+          current->graph_generation,
+          cell->second.alias_record_id);
+      if (target.record == nullptr) {
         throw facebook::jsi::JSError(rt, "module export alias is stale");
       }
-      currentId = cell->second.alias_record_id;
+      currentId = target.record_id;
       currentName = cell->second.alias_export;
-      current = &target->second;
+      current = target.record;
       continue;
     }
     if (!cell->second.initialized || !cell->second.value) {
@@ -1531,11 +1575,13 @@ facebook::jsi::Object dynamicEvaluationPromise(
     uint64_t targetRecordId) {
   auto promiseConstructor = rt.global().getPropertyAsObject(rt, "Promise");
   auto resolve = promiseConstructor.getPropertyAsFunction(rt, "resolve");
-  auto targetRecord = runtime->module_records.find(targetRecordId);
-  if (targetRecord == runtime->module_records.end() ||
-      targetRecord->second.graph_generation != graphGeneration) {
+  auto targetResolution =
+      resolveLiveModuleRecord(runtime, graphGeneration, targetRecordId);
+  if (targetResolution.record == nullptr) {
     throw facebook::jsi::JSError(rt, "stale dynamic import target");
   }
+  targetRecordId = targetResolution.record_id;
+  auto* targetRecord = targetResolution.record;
   // A link-time dynamic-import binding may target the ESM adapter of a
   // CommonJS record that has never evaluated (a dynamic-only member of a
   // fully-linked prepared graph — the LLP 0413 Phase 2 committed shape).
@@ -1544,7 +1590,7 @@ facebook::jsi::Object dynamicEvaluationPromise(
   // require()-of-ESM-closure path: evaluate the backing CommonJS record
   // lazily through a chained promise step (ordered after the current job),
   // which finalizes the adapter to Evaluated for the namespace step.
-  if (targetRecord->second.state == NativeModuleRecordState::Instantiated) {
+  if (targetRecord->state == NativeModuleRecordState::Instantiated) {
     auto backing = std::find_if(
         runtime->commonjs_records.begin(),
         runtime->commonjs_records.end(),
@@ -1615,8 +1661,18 @@ facebook::jsi::Object dynamicEvaluationPromise(
               const facebook::jsi::Value&,
               const facebook::jsi::Value*,
               size_t) -> facebook::jsi::Value {
-            auto* record = callbackRecordFor(
-                callbackTarget, graphGeneration, targetRecordId);
+            if (!runtimeIsAlive(callbackTarget) ||
+                callbackTarget.runtime->runtime_thread !=
+                    std::this_thread::get_id()) {
+              throw facebook::jsi::JSError(
+                  rt, "stale CommonJS dynamic import namespace");
+            }
+            auto resolved = resolveLiveModuleRecord(
+                callbackTarget.runtime, graphGeneration, targetRecordId);
+            auto* record = resolved.record == nullptr
+                ? nullptr
+                : callbackRecordFor(
+                      callbackTarget, graphGeneration, resolved.record_id);
             if (record == nullptr || !record->namespace_object ||
                 record->state != NativeModuleRecordState::Evaluated) {
               throw facebook::jsi::JSError(
@@ -1629,16 +1685,16 @@ facebook::jsi::Object dynamicEvaluationPromise(
   }
   facebook::jsi::Value initial;
   bool needsEvaluation = false;
-  switch (targetRecord->second.state) {
+  switch (targetRecord->state) {
     case NativeModuleRecordState::Evaluating:
-      if (!targetRecord->second.evaluation_promise) {
+      if (!targetRecord->evaluation_promise) {
         throw facebook::jsi::JSError(
             rt, "async module has no retained evaluation promise");
       }
       initial = resolve.callWithThis(
           rt,
           promiseConstructor,
-          facebook::jsi::Value(rt, *targetRecord->second.evaluation_promise));
+          facebook::jsi::Value(rt, *targetRecord->evaluation_promise));
       break;
     case NativeModuleRecordState::Evaluated:
       initial = resolve.callWithThis(
@@ -1651,9 +1707,9 @@ facebook::jsi::Object dynamicEvaluationPromise(
           promiseConstructor,
           facebook::jsi::JSError(
               rt,
-              targetRecord->second.error_message.empty()
+              targetRecord->error_message.empty()
                   ? "module record is errored"
-                  : targetRecord->second.error_message)
+                  : targetRecord->error_message)
               .value());
       break;
     }
@@ -1776,8 +1832,17 @@ facebook::jsi::Object dynamicEvaluationPromise(
           const facebook::jsi::Value&,
           const facebook::jsi::Value*,
           size_t) -> facebook::jsi::Value {
-        auto* record =
-            callbackRecordFor(target, graphGeneration, targetRecordId);
+        if (!runtimeIsAlive(target) ||
+            target.runtime->runtime_thread != std::this_thread::get_id()) {
+          throw facebook::jsi::JSError(
+              rt, "stale dynamic import namespace");
+        }
+        auto resolved = resolveLiveModuleRecord(
+            target.runtime, graphGeneration, targetRecordId);
+        auto* record = resolved.record == nullptr
+            ? nullptr
+            : callbackRecordFor(
+                  target, graphGeneration, resolved.record_id);
         if (record == nullptr || !record->namespace_object ||
             record->state != NativeModuleRecordState::Evaluated) {
           throw facebook::jsi::JSError(
@@ -2817,6 +2882,24 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
                        requestId) == 0;
           }),
       runtime->module_dynamic_activation_queue.end());
+  for (auto slot = runtime->module_source_slots.begin();
+       slot != runtime->module_source_slots.end();) {
+    if (slot->first.first == graph_generation) {
+      slot = runtime->module_source_slots.erase(slot);
+    } else {
+      ++slot;
+    }
+  }
+  for (auto forwarding = runtime->module_record_forwarding.begin();
+       forwarding != runtime->module_record_forwarding.end();) {
+    auto target = runtime->module_records.find(forwarding->second);
+    if (target == runtime->module_records.end() ||
+        target->second.graph_generation == graph_generation) {
+      forwarding = runtime->module_record_forwarding.erase(forwarding);
+    } else {
+      ++forwarding;
+    }
+  }
   for (auto it = runtime->commonjs_records.begin();
        it != runtime->commonjs_records.end();) {
     if (it->second.graph_generation != graph_generation) {
@@ -2871,6 +2954,11 @@ extern "C" int32_t ex_hermes_module_release_handle(
     }
     eraseDynamicActivationsForRequester(
         runtime, handle.opaque[1], handle.opaque[2], false);
+    eraseModuleSourceSlotIfOwned(
+        runtime,
+        handle.opaque[1],
+        record->second.source_id,
+        handle.opaque[2]);
     releaseContextReference(runtime, record->second.context_handle_id);
     runtime->module_records.erase(record);
     return EXACT_RUNTIME_DRIVE_OK;
@@ -2909,56 +2997,199 @@ extern "C" int32_t ex_hermes_module_publish_records(
   if (handles == nullptr || handles_len == 0) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  std::set<std::pair<bool, uint64_t>> selected;
-  for (size_t index = 0; index < handles_len; ++index) {
-    const auto handle = handles[index];
-    if (handle.opaque[0] != runtime_nonce ||
-        handle.opaque[1] == 0 || handle.opaque[2] == 0) {
-      return EXACT_RUNTIME_DRIVE_STALE;
-    }
-    auto module = runtime->module_records.find(handle.opaque[2]);
-    if (module != runtime->module_records.end() &&
-        module->second.graph_generation == handle.opaque[1]) {
-      if (module->second.published ||
-          module->second.state != NativeModuleRecordState::Declared) {
-        return EXACT_RUNTIME_DRIVE_INVALID;
+  try {
+    std::set<std::pair<bool, uint64_t>> selected;
+    auto sourceSlots = runtime->module_source_slots;
+    for (size_t index = 0; index < handles_len; ++index) {
+      const auto handle = handles[index];
+      if (handle.opaque[0] != runtime_nonce ||
+          handle.opaque[1] == 0 || handle.opaque[2] == 0) {
+        return EXACT_RUNTIME_DRIVE_STALE;
       }
-      for (const auto& [_, commonjs] : runtime->commonjs_records) {
-        if (commonjs.adapter_record_id == handle.opaque[2]) {
+      auto module = runtime->module_records.find(handle.opaque[2]);
+      if (module != runtime->module_records.end() &&
+          module->second.graph_generation == handle.opaque[1]) {
+        if (module->second.published ||
+            module->second.state != NativeModuleRecordState::Declared) {
           return EXACT_RUNTIME_DRIVE_INVALID;
         }
+        for (const auto& [_, commonjs] : runtime->commonjs_records) {
+          if (commonjs.adapter_record_id == handle.opaque[2]) {
+            return EXACT_RUNTIME_DRIVE_INVALID;
+          }
+        }
+        const auto slot =
+            std::make_pair(handle.opaque[1], module->second.source_id);
+        auto occupied = sourceSlots.find(slot);
+        if (occupied != sourceSlots.end() &&
+            occupied->second != handle.opaque[2]) {
+          return EXACT_RUNTIME_DRIVE_INVALID;
+        }
+        sourceSlots[slot] = handle.opaque[2];
+        if (!selected.emplace(false, handle.opaque[2]).second) {
+          return EXACT_RUNTIME_DRIVE_INVALID;
+        }
+        continue;
       }
-      if (!selected.emplace(false, handle.opaque[2]).second) {
+      auto commonjs = runtime->commonjs_records.find(handle.opaque[2]);
+      if (commonjs == runtime->commonjs_records.end() ||
+          commonjs->second.graph_generation != handle.opaque[1]) {
+        return EXACT_RUNTIME_DRIVE_STALE;
+      }
+      auto adapter =
+          runtime->module_records.find(commonjs->second.adapter_record_id);
+      if (commonjs->second.published ||
+          commonjs->second.state != NativeCommonJsRecordState::New ||
+          adapter == runtime->module_records.end() ||
+          adapter->second.published ||
+          adapter->second.graph_generation != handle.opaque[1] ||
+          adapter->second.state != NativeModuleRecordState::Instantiated ||
+          adapter->second.source_id != commonjs->second.source_id ||
+          !selected.emplace(true, handle.opaque[2]).second) {
         return EXACT_RUNTIME_DRIVE_INVALID;
       }
-      continue;
+      const auto slot =
+          std::make_pair(handle.opaque[1], commonjs->second.source_id);
+      auto occupied = sourceSlots.find(slot);
+      if (occupied != sourceSlots.end() &&
+          occupied->second != commonjs->second.adapter_record_id) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      sourceSlots[slot] = commonjs->second.adapter_record_id;
     }
-    auto commonjs = runtime->commonjs_records.find(handle.opaque[2]);
-    if (commonjs == runtime->commonjs_records.end() ||
-        commonjs->second.graph_generation != handle.opaque[1]) {
-      return EXACT_RUNTIME_DRIVE_STALE;
+    for (const auto& [isCommonJs, recordId] : selected) {
+      if (isCommonJs) {
+        auto& commonjs = runtime->commonjs_records.at(recordId);
+        runtime->module_records.at(commonjs.adapter_record_id).published = true;
+        commonjs.published = true;
+      } else {
+        runtime->module_records.at(recordId).published = true;
+      }
     }
-    auto adapter =
-        runtime->module_records.find(commonjs->second.adapter_record_id);
-    if (commonjs->second.published ||
-        commonjs->second.state != NativeCommonJsRecordState::New ||
-        adapter == runtime->module_records.end() ||
-        adapter->second.published ||
-        adapter->second.graph_generation != handle.opaque[1] ||
-        adapter->second.state != NativeModuleRecordState::Instantiated ||
-        adapter->second.source_id != commonjs->second.source_id ||
-        !selected.emplace(true, handle.opaque[2]).second) {
-      return EXACT_RUNTIME_DRIVE_INVALID;
-    }
+    runtime->module_source_slots.swap(sourceSlots);
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
-  for (const auto& [isCommonJs, recordId] : selected) {
-    if (isCommonJs) {
-      auto& commonjs = runtime->commonjs_records.at(recordId);
-      runtime->module_records.at(commonjs.adapter_record_id).published = true;
-      commonjs.published = true;
-    } else {
-      runtime->module_records.at(recordId).published = true;
+}
+
+extern "C" int32_t ex_hermes_module_commit_hot_revision(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    uint32_t pair_count,
+    const uint64_t* prior_record_ids,
+    const uint64_t* successor_record_ids) {
+  observeModuleRunnerAbi(__func__);
+  // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (graph_generation == 0 || pair_count == 0 ||
+      prior_record_ids == nullptr || successor_record_ids == nullptr) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  if (runtime->pinned_module_generations.count(graph_generation) == 0) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+
+  struct HotRevisionCommitPair {
+    uint64_t prior_record_id{0};
+    uint64_t successor_record_id{0};
+    NativeModuleRecordEntry* prior{nullptr};
+    NativeModuleRecordEntry* successor{nullptr};
+    uint64_t* slot_record_id{nullptr};
+  };
+
+  std::vector<HotRevisionCommitPair> pairs;
+  std::unordered_map<uint64_t, uint64_t> forwardingNodes;
+  try {
+    pairs.reserve(pair_count);
+    forwardingNodes.reserve(pair_count);
+    std::set<uint64_t> priorIds;
+    std::set<uint64_t> successorIds;
+    std::set<std::string> sourceIds;
+    for (uint32_t index = 0; index < pair_count; ++index) {
+      const uint64_t priorId = prior_record_ids[index];
+      const uint64_t successorId = successor_record_ids[index];
+      if (priorId == 0 || successorId == 0 || priorId == successorId ||
+          !priorIds.insert(priorId).second ||
+          !successorIds.insert(successorId).second) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      auto prior = runtime->module_records.find(priorId);
+      auto successor = runtime->module_records.find(successorId);
+      if (prior == runtime->module_records.end() ||
+          successor == runtime->module_records.end() ||
+          prior->second.graph_generation != graph_generation ||
+          successor->second.graph_generation != graph_generation) {
+        return EXACT_RUNTIME_DRIVE_STALE;
+      }
+      if (!prior->second.published || successor->second.published ||
+          successor->second.state < NativeModuleRecordState::Instantiated ||
+          prior->second.source_id != successor->second.source_id ||
+          !sourceIds.insert(prior->second.source_id).second ||
+          (prior->second.namespace_object &&
+           successor->second.namespace_object)) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      auto slot = runtime->module_source_slots.find(
+          std::make_pair(graph_generation, prior->second.source_id));
+      if (slot == runtime->module_source_slots.end() ||
+          slot->second != priorId) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      if (runtime->module_record_forwarding.count(priorId) == 0) {
+        forwardingNodes.emplace(priorId, successorId);
+      }
+      pairs.push_back({
+          priorId,
+          successorId,
+          &prior->second,
+          &successor->second,
+          &slot->second});
     }
+    for (const auto& [_, request] :
+         runtime->module_dynamic_activation_requests) {
+      if (request.graph_generation == graph_generation &&
+          priorIds.count(request.requester_record_id) != 0) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+    }
+    if (forwardingNodes.size() >
+        runtime->module_record_forwarding.max_size() -
+            runtime->module_record_forwarding.size()) {
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+    runtime->module_record_forwarding.reserve(
+        runtime->module_record_forwarding.size() + forwardingNodes.size());
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
+  for (const auto& pair : pairs) {
+    pair.successor->published = true;
+    *pair.slot_record_id = pair.successor_record_id;
+    for (auto& [_, targetRecordId] : runtime->module_record_forwarding) {
+      if (targetRecordId == pair.prior_record_id) {
+        targetRecordId = pair.successor_record_id;
+      }
+    }
+    auto forwarding = runtime->module_record_forwarding.find(
+        pair.prior_record_id);
+    if (forwarding != runtime->module_record_forwarding.end()) {
+      forwarding->second = pair.successor_record_id;
+    } else {
+      auto node = forwardingNodes.extract(pair.prior_record_id);
+      runtime->module_record_forwarding.insert(std::move(node));
+    }
+    if (pair.prior->namespace_object) {
+      pair.successor->namespace_object =
+          std::move(pair.prior->namespace_object);
+    }
+    const uint64_t contextId = pair.prior->context_handle_id;
+    releaseContextReference(runtime, contextId);
+    runtime->module_records.erase(pair.prior_record_id);
+    // D2: loader invalidator + carrier occupancy mount here.
   }
   return EXACT_RUNTIME_DRIVE_OK;
 }
@@ -3695,6 +3926,14 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     const auto target = exactRuntimeCallbackTarget(runtime);
     const uint64_t graphGeneration = entry->graph_generation;
     const uint64_t recordId = record.opaque[2];
+    const auto occupiedSlot = runtime->module_source_slots.find(
+        std::make_pair(graphGeneration, entry->source_id));
+    // A staged successor must not retain a second namespace facade. Commit
+    // moves the already-exposed slot-owned object from the prior incarnation.
+    // @ref LLP 0055#23-stable-logical-slots-every-cross-module-use-resolves-through-the-slot
+    const bool retainNamespace =
+        occupiedSlot == runtime->module_source_slots.end() ||
+        occupiedSlot->second == recordId;
 
     for (const auto& exportCell : entry->export_cells) {
       const std::string name = exportCell.first;
@@ -3707,13 +3946,21 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
               const facebook::jsi::Value&,
               const facebook::jsi::Value*,
               size_t) -> facebook::jsi::Value {
-            auto* current =
-                callbackRecordFor(target, graphGeneration, recordId);
+            if (!runtimeIsAlive(target) ||
+                target.runtime->runtime_thread != std::this_thread::get_id()) {
+              throw facebook::jsi::JSError(rt, "stale module namespace");
+            }
+            auto resolved = resolveLiveModuleRecord(
+                target.runtime, graphGeneration, recordId);
+            auto* current = resolved.record == nullptr
+                ? nullptr
+                : callbackRecordFor(
+                      target, graphGeneration, resolved.record_id);
             if (current == nullptr) {
               throw facebook::jsi::JSError(rt, "stale module namespace");
             }
             return readBinding(
-                rt, target.runtime, recordId, *current, name);
+                rt, target.runtime, resolved.record_id, *current, name);
           });
       facebook::jsi::Object descriptor(rt);
       descriptor.setProperty(rt, "enumerable", true);
@@ -3726,8 +3973,10 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
           descriptor);
     }
     preventExtensions.call(rt, namespaceObject);
-    entry->namespace_object =
-        std::make_shared<facebook::jsi::Object>(std::move(namespaceObject));
+    if (retainNamespace) {
+      entry->namespace_object =
+          std::make_shared<facebook::jsi::Object>(std::move(namespaceObject));
+    }
 
     auto exportFunction = facebook::jsi::Function::createFromHostFunction(
         rt,
@@ -3785,17 +4034,18 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
           if (binding == current->import_bindings.end()) {
             throw facebook::jsi::JSError(rt, "module import binding is not linked");
           }
-          auto targetRecord =
-              target.runtime->module_records.find(binding->second.target_record_id);
-          if (targetRecord == target.runtime->module_records.end() ||
-              targetRecord->second.graph_generation != graphGeneration) {
+          auto targetRecord = resolveLiveModuleRecord(
+              target.runtime,
+              graphGeneration,
+              binding->second.target_record_id);
+          if (targetRecord.record == nullptr) {
             throw facebook::jsi::JSError(rt, "module import target is stale");
           }
           return readBinding(
               rt,
               target.runtime,
-              binding->second.target_record_id,
-              targetRecord->second,
+              targetRecord.record_id,
+              *targetRecord.record,
               binding->second.target_export);
         });
     context.setProperty(rt, "importValue", std::move(importValue));
@@ -3905,6 +4155,12 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
               }
               targetRecordId = binding->second;
             }
+            auto resolvedTarget = resolveLiveModuleRecord(
+                target.runtime, graphGeneration, targetRecordId);
+            if (resolvedTarget.record == nullptr) {
+              return rejectedPromise(rt, "stale dynamic import target");
+            }
+            targetRecordId = resolvedTarget.record_id;
             if (targetRecordId == recordId &&
                 current->state != NativeModuleRecordState::Evaluated) {
               return rejectedPromise(

@@ -139,6 +139,14 @@ unsafe extern "C" {
         handles: *const NativeModuleHandle,
         handles_len: usize,
     ) -> i32;
+    fn ex_hermes_module_commit_hot_revision(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        pair_count: u32,
+        prior_record_ids: *const u64,
+        successor_record_ids: *const u64,
+    ) -> i32;
     fn ex_hermes_module_discard_unpublished_record(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -994,6 +1002,34 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             _runtime: PhantomData,
             _owner_thread: PhantomData,
         })
+    }
+
+    /// Commit a prevalidated set of record-id replacements inside one pinned
+    /// execution generation. The ids are the native handle payloads, not
+    /// capabilities, because the caller continues to own the retired handles.
+    // @ref LLP 0055#53-the-commit-bundle-atomic-owner-thread-no-fail
+    pub fn commit_hot_revision(&self, graph_generation: u64, pairs: &[(u64, u64)]) -> Result<()> {
+        if graph_generation == 0 || pairs.is_empty() {
+            bail!("hot-revision commit requires a generation and record pairs");
+        }
+        let pair_count = u32::try_from(pairs.len())
+            .context("hot-revision commit pair count exceeds the native ABI")?;
+        let prior_record_ids = pairs.iter().map(|pair| pair.0).collect::<Vec<_>>();
+        let successor_record_ids = pairs.iter().map(|pair| pair.1).collect::<Vec<_>>();
+        let status = unsafe {
+            ex_hermes_module_commit_hot_revision(
+                self.raw.as_ptr(),
+                self.nonce,
+                graph_generation,
+                pair_count,
+                prior_record_ids.as_ptr(),
+                successor_record_ids.as_ptr(),
+            )
+        };
+        if status != 0 {
+            bail!("native hot-revision commit refused ({status})");
+        }
+        Ok(())
     }
 
     /// Drive the compiled host queue until at least one task has executed or
@@ -5067,6 +5103,84 @@ export const result = JSON.stringify({
             .unwrap()
     }
 
+    fn hot_test_record<'runtime>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        source_id: &SourceId,
+        graph_generation: u64,
+        factory_source: &str,
+        exports: &[&str],
+        label: &str,
+    ) -> (
+        NativeGraphContext<'runtime>,
+        CompiledModuleFactory<'runtime>,
+        NativeModuleRecord<'runtime>,
+    ) {
+        let artifact = test_artifact_with_factory(source_id.clone(), factory_source, exports);
+        let context = runtime
+            .create_graph_context(
+                GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], graph_generation)
+                    .unwrap(),
+            )
+            .unwrap();
+        let factory = runtime
+            .compile_verified_factory(
+                verify_test_artifact(&artifact),
+                0,
+                None,
+                graph_generation,
+                label,
+            )
+            .unwrap();
+        let mut record = factory.create_record(&context, source_id).unwrap();
+        for export in exports {
+            record.declare_export(export).unwrap();
+        }
+        (context, factory, record)
+    }
+
+    fn publish_hot_test_records(
+        runtime: &NativeModuleRuntime<'_>,
+        records: &mut [&mut NativeModuleRecord<'_>],
+    ) {
+        let handles = records
+            .iter()
+            .map(|record| record.live_handle().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unsafe {
+                ex_hermes_module_publish_records(
+                    runtime.raw.as_ptr(),
+                    runtime.nonce,
+                    handles.as_ptr(),
+                    handles.len(),
+                )
+            },
+            0
+        );
+        for record in records {
+            record.published = true;
+        }
+    }
+
+    fn eval_hot_test(raw: *mut c_void, source: &str, label: &str) -> String {
+        let source_url = CString::new(label).unwrap();
+        let mut output = std::ptr::null_mut();
+        assert_eq!(
+            unsafe {
+                ex_hermes_eval(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut output,
+                )
+            },
+            0
+        );
+        take_error(output)
+    }
+
     struct PanicGraphPolicy;
 
     impl GraphImportPolicy for PanicGraphPolicy {
@@ -9113,6 +9227,521 @@ export const result = JSON.stringify({
 
             drop(factory);
             drop(context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    fn run_f5_slot_switch_fixture(refuse: bool) {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 55;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let target_id = SourceId::synthetic("hot-revision-f5", "target").unwrap();
+            let replacement_id = if refuse {
+                SourceId::synthetic("hot-revision-f5", "wrong-target").unwrap()
+            } else {
+                target_id.clone()
+            };
+            let importer_id = SourceId::synthetic("hot-revision-f5", "importer").unwrap();
+            let reexport_id = SourceId::synthetic("hot-revision-f5", "reexport").unwrap();
+
+            let (target_context, target_factory, mut target) = hot_test_record(
+                &runtime,
+                &target_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('named', 1); } }; }",
+                &["named"],
+                "f5-target.mjs",
+            );
+            let (importer_context, importer_factory, mut importer) = hot_test_record(
+                &runtime,
+                &importer_id,
+                graph_generation,
+                "function ($export, context) { function readNamed() { return context.importValue('./target', 'named'); } function dynamicImport() { return context.dynamicImport('./target'); } return { declare: function () {}, execute: function () { globalThis.__f5Namespace = context.importValue('./target', '*'); globalThis.__f5ReadNamed = readNamed; globalThis.__f5DynamicImport = dynamicImport; $export('observed', readNamed()); } }; }",
+                &["observed"],
+                "f5-importer.mjs",
+            );
+            let (reexport_context, reexport_factory, mut reexport) = hot_test_record(
+                &runtime,
+                &reexport_id,
+                graph_generation,
+                "function () { return { declare: function () {}, execute: function () {} }; }",
+                &["named", "star"],
+                "f5-reexport.mjs",
+            );
+            importer
+                .link_import("./target", "named", &target, "named")
+                .unwrap();
+            importer.link_import("./target", "*", &target, "*").unwrap();
+            importer
+                .link_dynamic_import_handle("./target", target.live_handle().unwrap())
+                .unwrap();
+            reexport.link_export("named", &target, "named").unwrap();
+            reexport.link_export("star", &target, "*").unwrap();
+
+            target
+                .instantiate("synthetic:hot-revision-f5/target", false)
+                .unwrap();
+            importer
+                .instantiate("synthetic:hot-revision-f5/importer", true)
+                .unwrap();
+            reexport
+                .instantiate("synthetic:hot-revision-f5/reexport", false)
+                .unwrap();
+            target.run_declare().unwrap();
+            importer.run_declare().unwrap();
+            reexport.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut target, &mut importer, &mut reexport]);
+            assert_eq!(
+                target.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                importer.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                reexport.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                eval_hot_test(
+                    raw,
+                    "String(globalThis.__f5ReadNamed()) + ':' + String(globalThis.__f5Namespace.named)",
+                    "f5-before-static.js",
+                ),
+                "1:1"
+            );
+            assert_eq!(
+                eval_hot_test(
+                    raw,
+                    "globalThis.__f5DynamicImport().then(function (namespace) { globalThis.__f5DynamicBefore = namespace; return String(namespace.named) + ':' + String(namespace === globalThis.__f5Namespace); })",
+                    "f5-before-dynamic.js",
+                ),
+                "1:true"
+            );
+            assert_eq!(
+                reexport.namespace_json().unwrap(),
+                r#"{"named":1,"star":{"named":1}}"#
+            );
+
+            let (replacement_context, replacement_factory, mut replacement) = hot_test_record(
+                &runtime,
+                &replacement_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('named', 2); } }; }",
+                &["named"],
+                "f5-replacement.mjs",
+            );
+            replacement
+                .instantiate("synthetic:hot-revision-f5/replacement", false)
+                .unwrap();
+            replacement.run_declare().unwrap();
+            assert_eq!(
+                replacement.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            let target_record_id = target.live_handle().unwrap().opaque[2];
+            let replacement_record_id = replacement.live_handle().unwrap().opaque[2];
+            let commit = runtime.commit_hot_revision(
+                graph_generation,
+                &[(target_record_id, replacement_record_id)],
+            );
+
+            if refuse {
+                assert!(commit.is_err());
+                assert_eq!(target.namespace_json().unwrap(), r#"{"named":1}"#);
+                assert_eq!(
+                    eval_hot_test(
+                        raw,
+                        "String(globalThis.__f5ReadNamed()) + ':' + String(globalThis.__f5Namespace.named)",
+                        "f5-refused-static.js",
+                    ),
+                    "1:1"
+                );
+                assert_eq!(
+                    eval_hot_test(
+                        raw,
+                        "globalThis.__f5DynamicImport().then(function (namespace) { return String(namespace.named) + ':' + String(namespace === globalThis.__f5Namespace); })",
+                        "f5-refused-dynamic.js",
+                    ),
+                    "1:true"
+                );
+                assert_eq!(
+                    reexport.namespace_json().unwrap(),
+                    r#"{"named":1,"star":{"named":1}}"#
+                );
+            } else {
+                commit.unwrap();
+                let retired_error = target.namespace_json().unwrap_err().to_string();
+                assert!(retired_error.contains("(-2)"), "{retired_error}");
+                assert_eq!(replacement.namespace_json().unwrap(), r#"{"named":2}"#);
+                assert_eq!(
+                    eval_hot_test(
+                        raw,
+                        "String(globalThis.__f5ReadNamed()) + ':' + String(globalThis.__f5Namespace.named)",
+                        "f5-after-static.js",
+                    ),
+                    "2:2"
+                );
+                assert_eq!(
+                    eval_hot_test(
+                        raw,
+                        "globalThis.__f5DynamicImport().then(function (namespace) { return String(namespace.named) + ':' + String(namespace === globalThis.__f5Namespace) + ':' + String(namespace === globalThis.__f5DynamicBefore); })",
+                        "f5-after-dynamic.js",
+                    ),
+                    "2:true:true"
+                );
+                assert_eq!(
+                    reexport.namespace_json().unwrap(),
+                    r#"{"named":2,"star":{"named":2}}"#
+                );
+            }
+
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(replacement);
+            drop(reexport);
+            drop(importer);
+            drop(target);
+            drop(replacement_factory);
+            drop(reexport_factory);
+            drop(importer_factory);
+            drop(target_factory);
+            drop(replacement_context);
+            drop(reexport_context);
+            drop(importer_context);
+            drop(target_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn f5_cross_surface_slot_switch_observes_successor() {
+        run_f5_slot_switch_fixture(false);
+    }
+
+    #[test]
+    fn f5_refused_commit_mutates_nothing() {
+        run_f5_slot_switch_fixture(true);
+    }
+
+    #[test]
+    fn f7_live_discard_leaves_no_reachable_state() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 56;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("hot-revision-f7", "target").unwrap();
+            let (prior_context, prior_factory, mut prior) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+                &["value"],
+                "f7-prior.mjs",
+            );
+            prior
+                .instantiate("synthetic:hot-revision-f7/prior", false)
+                .unwrap();
+            prior.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut prior]);
+            assert_eq!(
+                prior.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+
+            let (discarded_context, discarded_factory, mut discarded) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 2); } }; }",
+                &["value"],
+                "f7-discarded.mjs",
+            );
+            discarded
+                .instantiate("synthetic:hot-revision-f7/discarded", false)
+                .unwrap();
+            discarded.run_declare().unwrap();
+            assert_eq!(
+                ex_hermes_module_discard_unpublished_record(
+                    raw,
+                    nonce,
+                    discarded.live_handle().unwrap(),
+                ),
+                0
+            );
+            assert!(discarded
+                .namespace_json()
+                .unwrap_err()
+                .to_string()
+                .contains("(-2)"));
+            assert_eq!(prior.namespace_json().unwrap(), r#"{"value":1}"#);
+
+            let (successor_context, successor_factory, mut successor) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 3); } }; }",
+                &["value"],
+                "f7-successor.mjs",
+            );
+            successor
+                .instantiate("synthetic:hot-revision-f7/successor", false)
+                .unwrap();
+            successor.run_declare().unwrap();
+            assert_eq!(
+                successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        prior.live_handle().unwrap().opaque[2],
+                        successor.live_handle().unwrap().opaque[2],
+                    )],
+                )
+                .unwrap();
+            assert_eq!(successor.namespace_json().unwrap(), r#"{"value":3}"#);
+
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(successor);
+            drop(discarded);
+            drop(prior);
+            drop(successor_factory);
+            drop(discarded_factory);
+            drop(prior_factory);
+            drop(successor_context);
+            drop(discarded_context);
+            drop(prior_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn fence_stale_write_refuses_after_commit() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 57;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("hot-revision-fence", "target").unwrap();
+            let (prior_context, prior_factory, mut prior) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+                &["value"],
+                "fence-prior.mjs",
+            );
+            prior
+                .instantiate("synthetic:hot-revision-fence/prior", false)
+                .unwrap();
+            prior.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut prior]);
+
+            let (successor_context, successor_factory, mut successor) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 2); } }; }",
+                &["value"],
+                "fence-successor.mjs",
+            );
+            successor
+                .instantiate("synthetic:hot-revision-fence/successor", false)
+                .unwrap();
+            successor.run_declare().unwrap();
+            assert_eq!(
+                successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        prior.live_handle().unwrap().opaque[2],
+                        successor.live_handle().unwrap().opaque[2],
+                    )],
+                )
+                .unwrap();
+            let stale_write = prior.run_execute().unwrap_err().to_string();
+            assert!(stale_write.contains("(-2)"), "{stale_write}");
+            assert_eq!(successor.namespace_json().unwrap(), r#"{"value":2}"#);
+            drop(prior);
+
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(successor);
+            drop(successor_factory);
+            drop(prior_factory);
+            drop(successor_context);
+            drop(prior_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn f5_unpin_generation_clears_hot_revision_slots_and_forwarding() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 58;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("hot-revision-unpin", "target").unwrap();
+            let (prior_context, prior_factory, mut prior) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+                &["value"],
+                "unpin-prior.mjs",
+            );
+            prior
+                .instantiate("synthetic:hot-revision-unpin/prior", false)
+                .unwrap();
+            prior.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut prior]);
+            assert_eq!(
+                prior.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            let (successor_context, successor_factory, mut successor) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 2); } }; }",
+                &["value"],
+                "unpin-successor.mjs",
+            );
+            successor
+                .instantiate("synthetic:hot-revision-unpin/successor", false)
+                .unwrap();
+            successor.run_declare().unwrap();
+            assert_eq!(
+                successor.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        prior.live_handle().unwrap().opaque[2],
+                        successor.live_handle().unwrap().opaque[2],
+                    )],
+                )
+                .unwrap();
+            let (second_context, second_factory, mut second) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 3); } }; }",
+                &["value"],
+                "unpin-second-successor.mjs",
+            );
+            second
+                .instantiate("synthetic:hot-revision-unpin/second", false)
+                .unwrap();
+            second.run_declare().unwrap();
+            assert_eq!(
+                second.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            runtime
+                .commit_hot_revision(
+                    graph_generation,
+                    &[(
+                        successor.live_handle().unwrap().opaque[2],
+                        second.live_handle().unwrap().opaque[2],
+                    )],
+                )
+                .unwrap();
+            assert_eq!(second.namespace_json().unwrap(), r#"{"value":3}"#);
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(second);
+            drop(successor);
+            drop(prior);
+            drop(second_factory);
+            drop(successor_factory);
+            drop(prior_factory);
+            drop(second_context);
+            drop(successor_context);
+            drop(prior_context);
+
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let (fresh_context, fresh_factory, mut fresh) = hot_test_record(
+                &runtime,
+                &source_id,
+                graph_generation,
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 4); } }; }",
+                &["value"],
+                "unpin-fresh.mjs",
+            );
+            fresh
+                .instantiate("synthetic:hot-revision-unpin/fresh", false)
+                .unwrap();
+            fresh.run_declare().unwrap();
+            publish_hot_test_records(&runtime, &mut [&mut fresh]);
+            assert_eq!(
+                fresh.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(fresh.namespace_json().unwrap(), r#"{"value":4}"#);
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0
+            );
+            drop(fresh);
+            drop(fresh_factory);
+            drop(fresh_context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
