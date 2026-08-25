@@ -148,7 +148,7 @@ impl FixturePackageV1 {
                 .source_id
                 .defining_principal()
                 .cloned()
-                .unwrap_or_else(|| fixture_root_principal());
+                .unwrap_or_else(fixture_root_principal);
             carrier.manifest.entries = bound
                 .into_iter()
                 .map(|record| {

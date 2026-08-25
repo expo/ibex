@@ -1,7 +1,8 @@
 //! Package-aware composition wire, admission, and report surfaces.
 
+use std::collections::BTreeMap;
 #[cfg(feature = "dev-committed-embedder")]
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 #[cfg(feature = "dev-committed-embedder")]
 use std::path::Path;
 #[cfg(feature = "dev-committed-embedder")]
