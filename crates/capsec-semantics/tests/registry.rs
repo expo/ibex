@@ -25,6 +25,7 @@ fn escape_and_shared_process_surfaces_remain_deny_only_with_closed_channels() {
         "env:process-write",
         "ffi:load",
         "fs:unbound-mutation",
+        "fs:unbound-read",
         "inspector:activate",
         "ipc:channel",
         "process:identity",
@@ -85,7 +86,7 @@ fn committed_definition_registry_is_complete_and_valid() {
 
     let definitions = DefinitionSet::validate(definitions, &profiles)
         .expect("committed capability definitions satisfy the semantic core");
-    assert_eq!(definitions.len(), 41);
+    assert_eq!(definitions.len(), 42);
     assert!(definitions.contains("fs:unbound-mutation"));
     assert!(definitions.contains("fs:read"));
     assert!(definitions.contains("network:fetch"));
@@ -127,7 +128,7 @@ fn committed_profile_jointly_validates_through_strict_json() {
         )),
     )
     .expect("committed profile satisfies the neutral semantic core");
-    assert_eq!(profile.definitions.len(), 41);
+    assert_eq!(profile.definitions.len(), 42);
     assert_eq!(profile.normalization_profiles.len(), 17);
 }
 
