@@ -2168,8 +2168,12 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     match cli.capsec {
         // Auto is the default — forward nothing so the child also defers to policy.
         cli::CapSecMode::Auto => {}
-        cli::CapSecMode::Permissive => flags.extend(["--capsec".into(), "permissive".into()]),
-        cli::CapSecMode::Audit => flags.extend(["--capsec".into(), "audit".into()]),
+        // LLP 0054 D3 (accepted 2026-08-25): the two refused legacy values
+        // are never manufactured by our own tooling on a shipping path. A
+        // secure-build parent has already refused them before any watch
+        // child exists; an insecure-build parent's child inherits the same
+        // compile-time posture. Forward nothing either way.
+        cli::CapSecMode::Permissive | cli::CapSecMode::Audit => {}
         cli::CapSecMode::Enforce => flags.extend(["--capsec".into(), "enforce".into()]),
     }
     if cli.lockdown {
@@ -2968,10 +2972,10 @@ mod tests {
             "watch must not recurse: {joined}"
         );
 
-        // Audit mode round-trips.
+        // LLP 0054 D3 — refused legacy values are not forwarded to watch children.
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "audit", "app.ts"]);
         let joined = watch_child_args(&cli).join(" ");
-        assert!(joined.contains("--capsec audit"), "flags: {joined}");
+        assert!(!joined.contains("--capsec"), "flags: {joined}");
 
         // ENG-22684 — the env-endowment escape hatch must survive a watch restart,
         // else an enforce reload would silently drop IBEX_ENDOW the parent honored.
@@ -3009,6 +3013,43 @@ mod tests {
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--compat", "bun", "app.ts"]);
         let joined = watch_child_args(&cli).join(" ");
         assert!(joined.contains("--compat bun"), "flags: {joined}");
+    }
+
+    // @ref LLP 0054#decision-accepted-2026-08-25 — D3 conformance: watch_child_args emits no --capsec value outside enforce.
+    #[test]
+    fn watch_child_emits_no_capsec_value_outside_enforce() {
+        for args in [
+            &["ibex", "--watch", "app.ts"][..],
+            &["ibex", "--watch", "--capsec", "permissive", "app.ts"][..],
+            &["ibex", "--watch", "--capsec", "audit", "app.ts"][..],
+        ] {
+            let cli = cli::Cli::parse_from(args);
+            let flags = watch_child_args(&cli);
+            assert!(
+                !flags.iter().any(|flag| flag == "--capsec"),
+                "args: {args:?}; flags: {flags:?}"
+            );
+        }
+
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--watch",
+            "--capsec",
+            "enforce",
+            "app.ts",
+        ]);
+        let flags = watch_child_args(&cli);
+        assert!(
+            flags
+                .windows(2)
+                .any(|pair| pair == ["--capsec", "enforce"]),
+            "flags: {flags:?}"
+        );
+        assert_eq!(
+            flags.iter().filter(|flag| *flag == "--capsec").count(),
+            1,
+            "flags: {flags:?}"
+        );
     }
 
     #[test]
