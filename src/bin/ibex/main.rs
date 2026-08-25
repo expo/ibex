@@ -3031,18 +3031,10 @@ mod tests {
             );
         }
 
-        let cli = cli::Cli::parse_from([
-            "ibex",
-            "--watch",
-            "--capsec",
-            "enforce",
-            "app.ts",
-        ]);
+        let cli = cli::Cli::parse_from(["ibex", "--watch", "--capsec", "enforce", "app.ts"]);
         let flags = watch_child_args(&cli);
         assert!(
-            flags
-                .windows(2)
-                .any(|pair| pair == ["--capsec", "enforce"]),
+            flags.windows(2).any(|pair| pair == ["--capsec", "enforce"]),
             "flags: {flags:?}"
         );
         assert_eq!(
