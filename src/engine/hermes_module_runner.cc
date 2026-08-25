@@ -918,6 +918,10 @@ facebook::jsi::Value evaluateCommonJsRecord(
         runtime, record, "CommonJS record evaluation threw");
     eraseDynamicActivationsForRequester(
         runtime, graphGeneration, recordId, true);
+    // Eviction is an erasure path: retire carrier occupancy exactly like
+    // release/discard/unpin. Failure is unreachable by construction (creation
+    // incremented) and must not mask the app error being rethrown.
+    (void)retirePreparedCarrierRecord(runtime, record.carrier_key);
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
@@ -926,6 +930,7 @@ facebook::jsi::Value evaluateCommonJsRecord(
     rememberCommonJsAdapterError(runtime, record, error.what());
     eraseDynamicActivationsForRequester(
         runtime, graphGeneration, recordId, true);
+    (void)retirePreparedCarrierRecord(runtime, record.carrier_key);
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
@@ -935,6 +940,7 @@ facebook::jsi::Value evaluateCommonJsRecord(
         runtime, record, "unknown CommonJS evaluation failure");
     eraseDynamicActivationsForRequester(
         runtime, graphGeneration, recordId, true);
+    (void)retirePreparedCarrierRecord(runtime, record.carrier_key);
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;

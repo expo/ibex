@@ -10438,6 +10438,95 @@ export const result = JSON.stringify({
     }
 
     #[test]
+    fn f7_throwing_carrier_commonjs_eviction_retires_occupancy() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("hot-revision-throwing-cjs").unwrap(),
+        };
+        let throwing_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("boom.cjs").unwrap()],
+        )
+        .unwrap();
+        let throwing_artifact = test_commonjs_artifact(
+            throwing_id.clone(),
+            "function (require, module, exports) { throw new Error('carrier cjs boom'); }",
+            &[],
+        );
+        let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-test").unwrap(),
+            digest("prepared-producer"),
+            digest("prepared-graph"),
+            [(
+                NonEmptyString::new("boom").unwrap(),
+                verify_test_artifact(&throwing_artifact),
+            )],
+        )
+        .unwrap();
+        let carrier = AdmittedPreparedCarrierV2::decode_and_admit(
+            &manifest.encode_canonical().unwrap(),
+            &bytes,
+            &prepared_admission(owner, &manifest),
+        )
+        .unwrap();
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let graph_generation = 71;
+            assert_eq!(
+                ex_hermes_module_pin_generation(raw, nonce, graph_generation),
+                0
+            );
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(throwing_id.clone(), 0, 0, [0], graph_generation)
+                        .unwrap(),
+                )
+                .unwrap();
+            let prepared = manifest.prepared_artifact("boom").unwrap();
+            let factory = runtime
+                .load_verified_prepared_factory(
+                    verify_prepared_artifact_entry(&prepared, &manifest, "boom"),
+                    carrier.entry("boom").unwrap(),
+                    0,
+                    None,
+                    graph_generation,
+                    "carrier-boom.cjs",
+                )
+                .unwrap();
+            let mut record = factory
+                .create_commonjs_record(&context, &throwing_id, "/boom.cjs", "/")
+                .unwrap();
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (1, true)
+            );
+            let error = record.evaluate().unwrap_err().to_string();
+            assert!(error.contains("carrier cjs boom"), "{error}");
+            assert_eq!(
+                test_carrier_occupancy(raw, nonce, 0, None, &manifest.carrier_digest),
+                (0, false),
+                "a throwing CommonJS eviction must retire carrier occupancy and evict the memo"
+            );
+            assert_eq!(
+                ex_hermes_module_unpin_generation(raw, nonce, graph_generation),
+                0,
+                "the leaked-count class must not poison generation teardown"
+            );
+            drop(record);
+            drop(factory);
+            drop(context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
     fn fence_stale_write_refuses_after_commit() {
         let _host_guard = crate::host::abi::host_test_lock();
         crate::host::abi::install_host(crate::host::Host::strict());
