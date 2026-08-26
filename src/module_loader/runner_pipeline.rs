@@ -3506,6 +3506,12 @@ pub(crate) struct CommittedPublicationAdmissionV1 {
     /// Carriers admitted under `javascript-factory-table`.
     #[cfg_attr(not(feature = "dev-committed-embedder"), allow(dead_code))]
     pub(crate) javascript_carrier_count: usize,
+    /// UTF-8 bytes and JavaScript String.length units carried by admitted
+    /// JavaScript factory tables. Hermes bytecode contributes zero.
+    #[cfg_attr(not(feature = "dev-committed-embedder"), allow(dead_code))]
+    pub(crate) embedded_eager_source_bytes: usize,
+    #[cfg_attr(not(feature = "dev-committed-embedder"), allow(dead_code))]
+    pub(crate) embedded_eager_source_chars: usize,
 }
 
 /// Parameterized commitment facets for one package admission.
@@ -3609,6 +3615,8 @@ pub(crate) struct AdmittedCompositionPackageV1 {
     pub(crate) carrier_count: usize,
     pub(crate) hbc_carrier_count: usize,
     pub(crate) javascript_carrier_count: usize,
+    pub(crate) embedded_eager_source_bytes: usize,
+    pub(crate) embedded_eager_source_chars: usize,
 }
 
 /// The loaded-engine identity a committed-admission caller is willing to
@@ -3671,6 +3679,8 @@ pub fn load_prepared_graph_committed_v1(
         carrier_count,
         hbc_carrier_count: _,
         javascript_carrier_count: _,
+        embedded_eager_source_bytes: _,
+        embedded_eager_source_chars: _,
     } = admitted;
 
     let principal_ids = principals
@@ -4341,6 +4351,8 @@ fn admit_composition_package_core_v1(
     let mut carriers = Vec::with_capacity(package.carriers.len());
     let mut hbc_carrier_count = 0usize;
     let mut javascript_carrier_count = 0usize;
+    let mut embedded_eager_source_bytes = 0usize;
+    let mut embedded_eager_source_chars = 0usize;
     for (carrier_index, ((manifest_bytes, carrier_bytes), manifest)) in carrier_manifest_wires
         .into_iter()
         .zip(carrier_payload_wires)
@@ -4422,6 +4434,12 @@ fn admit_composition_package_core_v1(
             }
             PreparedCarrierEncodingV2::JavascriptFactoryTable => {
                 javascript_carrier_count += 1;
+                if admitted.is_some() {
+                    let source = std::str::from_utf8(&carrier_bytes)
+                        .expect("admitted JavaScript carrier is valid UTF-8");
+                    embedded_eager_source_bytes += carrier_bytes.len();
+                    embedded_eager_source_chars += source.encode_utf16().count();
+                }
             }
         }
         carriers.push(admitted);
@@ -4571,6 +4589,8 @@ fn admit_composition_package_core_v1(
         carrier_count: carriers.len(),
         hbc_carrier_count,
         javascript_carrier_count,
+        embedded_eager_source_bytes,
+        embedded_eager_source_chars,
     })
 }
 
@@ -4711,6 +4731,8 @@ fn admit_single_publication_package_v1(
     let mut carriers = Vec::with_capacity(index.carriers.len());
     let mut hbc_carrier_count = 0usize;
     let mut javascript_carrier_count = 0usize;
+    let mut embedded_eager_source_bytes = 0usize;
+    let mut embedded_eager_source_chars = 0usize;
     for (carrier_index, carrier) in index.carriers.iter().enumerate() {
         let manifest_bytes = read_bounded_prepared_file(
             &cache_dir.join(&carrier.manifest_file),
@@ -4774,7 +4796,13 @@ fn admit_single_publication_package_v1(
         )?);
         match admitted_carrier.manifest().encoding {
             PreparedCarrierEncodingV2::HermesBytecode { .. } => hbc_carrier_count += 1,
-            PreparedCarrierEncodingV2::JavascriptFactoryTable => javascript_carrier_count += 1,
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => {
+                javascript_carrier_count += 1;
+                let source = std::str::from_utf8(&carrier_bytes)
+                    .expect("admitted JavaScript carrier is valid UTF-8");
+                embedded_eager_source_bytes += carrier_bytes.len();
+                embedded_eager_source_chars += source.encode_utf16().count();
+            }
         }
         carriers.push(admitted_carrier);
     }
@@ -4891,6 +4919,8 @@ fn admit_single_publication_package_v1(
         carrier_count: carriers.len(),
         hbc_carrier_count,
         javascript_carrier_count,
+        embedded_eager_source_bytes,
+        embedded_eager_source_chars,
     })
 }
 
@@ -7678,6 +7708,8 @@ pub mod dev_committed_embedder {
         /// report so a parse-free claim names the encoding that actually ran.
         pub hbc_carrier_count: usize,
         pub javascript_carrier_count: usize,
+        pub embedded_eager_source_bytes: usize,
+        pub embedded_eager_source_chars: usize,
         /// The loaded-engine binding this admission was willing to execute
         /// bytecode against (digest prefix only; receipts are logs, not
         /// admission inputs). `None` when the engine identity was
@@ -7796,6 +7828,8 @@ pub mod dev_committed_embedder {
             carrier_count,
             hbc_carrier_count,
             javascript_carrier_count,
+            embedded_eager_source_bytes,
+            embedded_eager_source_chars,
         } = admitted;
         let record_count = records.len();
         let principal_count = principals.len();
@@ -7967,6 +8001,8 @@ pub mod dev_committed_embedder {
             entry_execute_us,
             hbc_carrier_count,
             javascript_carrier_count,
+            embedded_eager_source_bytes,
+            embedded_eager_source_chars,
             engine_binding_digest_prefix,
         };
         eprintln!(

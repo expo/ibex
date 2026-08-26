@@ -456,6 +456,8 @@ pub struct CompositionReportPackageV1 {
     pub carrier_count: u64,
     pub hbc_carrier_count: u64,
     pub javascript_carrier_count: u64,
+    pub embedded_eager_source_bytes: u64,
+    pub embedded_eager_source_chars: u64,
     pub verification_status: CompositionPackageVerificationStatusV1,
 }
 
@@ -956,6 +958,12 @@ fn report_common_v1(
                         .unwrap_or(0),
                     javascript_carrier_count: admitted
                         .map(|package| package.javascript_carrier_count as u64)
+                        .unwrap_or(0),
+                    embedded_eager_source_bytes: admitted
+                        .map(|package| package.embedded_eager_source_bytes as u64)
+                        .unwrap_or(0),
+                    embedded_eager_source_chars: admitted
+                        .map(|package| package.embedded_eager_source_chars as u64)
                         .unwrap_or(0),
                     verification_status: statuses
                         .get(&attestation.role)

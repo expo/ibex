@@ -892,6 +892,26 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
         .unwrap()
         .iter()
         .all(|package| package["verificationStatus"] == "verified"));
+    for package_report in outcome.report["packages"].as_array().unwrap() {
+        let role = match package_report["role"].as_str().unwrap() {
+            "app" => CompositionRole::App,
+            "agent" => CompositionRole::Agent,
+            other => panic!("unexpected composition role {other}"),
+        };
+        let carriers = &fixture.packages[&role].carriers;
+        let expected_bytes: usize = carriers.iter().map(|carrier| carrier.bytes.len()).sum();
+        let expected_chars: usize = carriers
+            .iter()
+            .map(|carrier| {
+                std::str::from_utf8(&carrier.bytes)
+                    .unwrap()
+                    .encode_utf16()
+                    .count()
+            })
+            .sum();
+        assert_eq!(package_report["embeddedEagerSourceBytes"], expected_bytes);
+        assert_eq!(package_report["embeddedEagerSourceChars"], expected_chars);
+    }
     assert_i_json_report_counters(&outcome.report);
     #[cfg(target_vendor = "apple")]
     {
