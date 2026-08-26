@@ -18035,7 +18035,7 @@ module.exports = JSON.stringify({
     /// Completing either phase more than once poisons the call even when the
     /// renderer catches the HostFunction's exception. A previously complete
     /// state cannot be published after an extra phase.
-    /// @ref LLP 0040; LLP 0565.006 §3.2
+    /// @ref LLP 0040; https://github.com/expo/exact/blob/main/llp/0565.006-m0-attribution-instrument.spec.md#32-clock-i
     #[tokio::test(flavor = "current_thread")]
     async fn clock_i_carrier_attestor_repeat_fails_closed_without_receipt() {
         let _guard = hermes_engine_test_lock().lock().await;
@@ -18092,7 +18092,7 @@ module.exports = JSON.stringify({
     /// Enter without a normal handler return is incomplete evidence, while a
     /// thrown dispatcher cannot reach the return phase at all. Both are
     /// receiptless even though the principal was sampled at enter.
-    /// @ref LLP 0013#mechanism-3; LLP 0565.006 §3.2
+    /// @ref LLP 0013#mechanism-3; https://github.com/expo/exact/blob/main/llp/0565.006-m0-attribution-instrument.spec.md#32-clock-i
     #[tokio::test(flavor = "current_thread")]
     async fn clock_i_carrier_attestor_missing_return_and_throw_fail_closed() {
         let _guard = hermes_engine_test_lock().lock().await;
