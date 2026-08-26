@@ -34,9 +34,10 @@ import {
   deriveHostAbiOutputCatalogAccount,
   discoverRepositorySurfaces,
 } from "./capsec-surface-inventory.mjs";
-import { buildCoverageModel } from "./capsec-coverage-model.mjs";
-import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
-import { rootGlobalInstallSurfaces } from "./generate-root-global-dispositions.mjs";
+import {
+  classifyObservedSurface,
+  prepareCoverageContext,
+} from "./capsec-coverage-model.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -206,6 +207,43 @@ async function repositoryCatalogFixture() {
     };
   })();
   return repositoryCatalogPromise;
+}
+
+async function clockICandidateCatalogFixture() {
+  const fixture = await repositoryCatalogFixture();
+  const coverage = structuredClone(fixture.coverage);
+  const implementationRows = structuredClone(fixture.implementationRows);
+  const sourceByObservedKey = new Map(
+    fixture.surfaces.map((surface) => [surface.observedKey, surface]),
+  );
+  const context = prepareCoverageContext({
+    definitions: readRepoJson("capsec/registry/capability-definitions.json"),
+    rules: readRepoJson("capsec/registry/policy-rules.json"),
+  });
+  for (const observedKey of [
+    "host-abi:ex_hermes_dispatch_event_attested_v1",
+    "native-op:__ibexRegisterExactDispatchEvent",
+  ]) {
+    const surface = sourceByObservedKey.get(observedKey);
+    if (!surface) throw new Error(`Clock I candidate lacks ${observedKey}`);
+    const classified = classifyObservedSurface(surface, context);
+    coverage.edges.push(classified.edge);
+    implementationRows.push(...classified.implementationRows);
+  }
+  coverage.edges.sort((left, right) => left.id.localeCompare(right.id));
+  implementationRows.sort((left, right) =>
+    `${left.edgeId}\u0000${left.branchId}`.localeCompare(
+      `${right.edgeId}\u0000${right.branchId}`,
+    ),
+  );
+  const catalog = buildOutputShapeCatalog({
+    coverage,
+    implementationRows,
+    surfaces: fixture.surfaces,
+    repoRoot,
+    liveEvidence: fixture.liveEvidence,
+  });
+  return { catalog, coverage };
 }
 
 function verifiedEvidence(dataset) {
@@ -474,10 +512,10 @@ describe("LLP 0023 output-disposition dataset", () => {
       outputBearingSurfaces: 5_821,
       structuralOnlySurfaces: 1_752,
       unresolvedSurfaces: 7,
-      catalogRows: 6_522,
+      catalogRows: 6_523,
       parameterizedBindings: 1,
       sourceInventoryRows: 6_115,
-      structuredRows: 407,
+      structuredRows: 408,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
     expect(
@@ -499,7 +537,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       catalog.rows.filter(
         (row) => row.discovery.kind === "source-asserted-structured-output",
       ),
-    ).toHaveLength(407);
+    ).toHaveLength(408);
     expect(
       catalog.rows.every(
         (row) =>
@@ -1076,7 +1114,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       rowsById.get(edgeByName.get(surfaceName).id) ?? [];
 
     const deliveryCounts = new Map([
-      ["__exactDispatchEvent", 3],
+      ["__exactDispatchEvent", 4],
       ["__exactModuleEvent", 14],
       ["__exactMotionRatedPublish", 8],
       ["__exactRunOnJS", 6],
@@ -1135,6 +1173,12 @@ describe("LLP 0023 output-disposition dataset", () => {
           alias: "__exactDispatchEvent.payload",
           mode: "empty-payload",
           returnVariant: "undefined",
+        }),
+        expect.objectContaining({
+          output: "callback:dispatch/2",
+          alias: "__exactDispatchEvent.attestClockICarrier",
+          mode: "attested",
+          returnVariant: "call-scoped-host-function",
         }),
       ]),
     );
@@ -1209,6 +1253,167 @@ describe("LLP 0023 output-disposition dataset", () => {
             JSON.stringify(observerSourceRefs),
       ),
     ).toBe(true);
+  }, 120_000);
+
+  test("stages the Clock I catalog delta without self-approving reviewed policy", async () => {
+    const { catalog } = await clockICandidateCatalogFixture();
+    expect(catalog.catalogKeyDigest).toBe(
+      "sha256-FPoNLw09W4SPa_55m4QYxGpE7KJpDH4Sx0qoFPgneRU",
+    );
+    expect(catalog.counts).toEqual({
+      coverageSurfaces: 7_582,
+      outputBearingSurfaces: 5_823,
+      structuralOnlySurfaces: 1_752,
+      unresolvedSurfaces: 7,
+      catalogRows: 6_526,
+      parameterizedBindings: 1,
+      sourceInventoryRows: 6_118,
+      structuredRows: 408,
+    });
+
+    const trackedCatalog = readRepoJson(
+      "capsec/generated/output-shape-catalog.json",
+    );
+    const trackedKeys = new Set(
+      trackedCatalog.rows.map((row) =>
+        canonicalOutputDispositionKey(row.key),
+      ),
+    );
+    const candidateKeys = new Set(
+      catalog.rows.map((row) => canonicalOutputDispositionKey(row.key)),
+    );
+    const addedKeys = catalog.rows
+      .filter(
+        (row) => !trackedKeys.has(canonicalOutputDispositionKey(row.key)),
+      )
+      .map((row) => row.key);
+    const removedKeys = trackedCatalog.rows
+      .filter(
+        (row) => !candidateKeys.has(canonicalOutputDispositionKey(row.key)),
+      )
+      .map((row) => row.key);
+    expect(addedKeys).toHaveLength(5);
+    expect(addedKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          surfaceId:
+            "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+          output: "[[return]]",
+        }),
+        expect.objectContaining({
+          surfaceId:
+            "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+          output: "out:receipt_json",
+        }),
+        expect.objectContaining({
+          surfaceId: "surface.native.op.exactdispatchevent.1158ilx",
+          output: "callback:dispatch/2",
+        }),
+        expect.objectContaining({
+          surfaceId:
+            "surface.native.op.ibexregisterexactdispatchevent.1i6csy6",
+          output: "[[return]]",
+        }),
+        {
+          surfaceId:
+            "surface.native.op.global.exact.invokehostasync.0b92itq",
+          output: "[[value]]",
+          alias: "global:exact.invokeHostAsync",
+          mode: "all",
+          sourceKind: "native-op",
+          returnVariant: "default",
+          contextId: "javascript.package-property-read-loaded",
+        },
+      ]),
+    );
+    expect(removedKeys).toEqual([
+      {
+        surfaceId: "surface.native.op.global.exact.invokehostasync.0b92itq",
+        output: "[[return]]",
+        alias: "global:exact.invokeHostAsync",
+        mode: "all",
+        sourceKind: "native-op",
+        returnVariant: "default",
+        contextId: "runtime.bootstrap-native-call-loaded",
+      },
+    ]);
+
+    const rowsBySurfaceId = Map.groupBy(
+      catalog.rows,
+      (row) => row.key.surfaceId,
+    );
+    expect(
+      rowsBySurfaceId
+        .get(
+          "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+        )
+        .map((row) => row.key),
+    ).toEqual([
+      {
+        surfaceId:
+          "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+        output: "[[return]]",
+        alias: "ex_hermes_dispatch_event_attested_v1",
+        mode: "all",
+        sourceKind: "host-abi",
+        returnVariant: "default",
+        contextId: "host.private-native-call-initialized",
+      },
+      {
+        surfaceId:
+          "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+        output: "out:receipt_json",
+        alias: "ex_hermes_dispatch_event_attested_v1",
+        mode: "all",
+        sourceKind: "host-abi",
+        returnVariant: "default",
+        contextId: "host.private-native-call-initialized",
+      },
+    ]);
+    expect(
+      rowsBySurfaceId
+        .get("surface.native.op.exactdispatchevent.1158ilx")
+        .map((row) => row.key),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          output: "callback:dispatch/2",
+          alias: "__exactDispatchEvent.attestClockICarrier",
+          mode: "attested",
+          returnVariant: "call-scoped-host-function",
+        }),
+      ]),
+    );
+    expect(
+      rowsBySurfaceId.get(
+        "surface.native.op.ibexregisterexactdispatchevent.1i6csy6",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        key: {
+          surfaceId:
+            "surface.native.op.ibexregisterexactdispatchevent.1i6csy6",
+          output: "[[return]]",
+          alias: "__ibexRegisterExactDispatchEvent",
+          mode: "all",
+          sourceKind: "native-op",
+          returnVariant: "default",
+          contextId: "runtime.bootstrap-native-call-loaded",
+        },
+      }),
+    ]);
+
+    const policy = readRepoJson(
+      "capsec/registry/output-disposition-policy.json",
+    );
+    const evidence = readRepoJson(
+      "capsec/registry/output-disposition-evidence.json",
+    );
+    expect(() =>
+      buildOutputDispositionDataset({ catalog, policy, evidence }),
+    ).toThrow(
+      "output disposition policy has unreviewed catalog fields: expected sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU, discovered sha256-FPoNLw09W4SPa_55m4QYxGpE7KJpDH4Sx0qoFPgneRU",
+    );
   }, 120_000);
 
   test("derives every host ABI account and output row only from its signature contract", async () => {
@@ -1447,13 +1652,26 @@ describe("LLP 0023 output-disposition dataset", () => {
     ).toBe("runtime.bootstrap-native-call-loaded");
   });
 
-  test("migrates the reviewed policy to exact v2 keys with deterministic accounting", async () => {
-    const { catalog } = await repositoryCatalogFixture();
+  test("keeps the reviewed policy pinned while source catalog review is pending", async () => {
+    const { catalog: discoveredCatalog } = await repositoryCatalogFixture();
+    const catalog = readRepoJson("capsec/generated/output-shape-catalog.json");
     const policy = readRepoJson(
       "capsec/registry/output-disposition-policy.json",
     );
     const evidence = readRepoJson(
       "capsec/registry/output-disposition-evidence.json",
+    );
+    expect(discoveredCatalog.catalogKeyDigest).toBe(
+      "sha256-2kQloHOzzRZdyFN40Erf8696yjEf6AiM97JMXZ6fCKQ",
+    );
+    expect(() =>
+      buildOutputDispositionDataset({
+        catalog: discoveredCatalog,
+        policy,
+        evidence,
+      }),
+    ).toThrow(
+      "output disposition policy has unreviewed catalog fields: expected sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU, discovered sha256-2kQloHOzzRZdyFN40Erf8696yjEf6AiM97JMXZ6fCKQ",
     );
     const dataset = buildOutputDispositionDataset({
       catalog,
@@ -1687,26 +1905,10 @@ describe("LLP 0023 output-disposition dataset", () => {
   });
 
   test("binds the sealed process IPC bootstrap carrier to exact absent value overrides", async () => {
-    const inventory = await discoverRepositorySurfaces(repoRoot);
-    const model = buildCoverageModel(inventory.surfaces, {
-      definitions: readRepoJson(
-        "capsec/registry/capability-definitions.json",
-      ),
-      rules: readRepoJson("capsec/registry/policy-rules.json"),
-    });
-    const catalog = buildOutputShapeCatalog({
-      coverage: model.coverage,
-      implementationRows: model.implementationRows,
-      surfaces: inventory.surfaces,
-      repoRoot,
-      liveEvidence: readRepoJson(
-        "capsec/registry/output-disposition-evidence.json",
-      ),
-    });
-    const rootManifest = buildRootGlobalDispositionManifest({
-      globals: rootGlobalInstallSurfaces(inventory),
-      coverage: model.coverage,
-    });
+    const { catalog } = await repositoryCatalogFixture();
+    const rootManifest = readRepoJson(
+      "capsec/generated/root-global-disposition-manifest.json",
+    );
     const policy = readRepoJson(
       "capsec/registry/output-disposition-policy.json",
     );

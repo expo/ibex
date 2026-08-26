@@ -81,6 +81,30 @@ test("descriptor export invocation is classified as a closed activation seam", (
   );
 });
 
+test("Clock I dispatcher registration is control-plane and attested delivery stays closed", () => {
+  const registrar = classifyObservedSurface(
+    surface("native-op", "__ibexRegisterExactDispatchEvent"),
+    context,
+  );
+  expect(registrar.edge).toMatchObject({
+    id: "surface.native.op.ibexregisterexactdispatchevent.1i6csy6",
+    classification: "non-capability",
+    rationaleId: "authority-control-plane",
+  });
+  expect(registrar.specification.implementationOwner).toBe("WP7");
+
+  const dispatch = classifyObservedSurface(
+    surface("host-abi", "ex_hermes_dispatch_event_attested_v1"),
+    context,
+  );
+  expect(dispatch.edge).toMatchObject({
+    id: "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+    classification: "closed",
+    cap: "ipc:channel",
+  });
+  expect(dispatch.specification.implementationOwner).toBe("WP7");
+});
+
 test("Lane C A2 exact façades do not assert duplicate effect cells", () => {
   const expected = new Map([
     ["__exactModuleResolve", "trusted-loader-source-acquisition"],

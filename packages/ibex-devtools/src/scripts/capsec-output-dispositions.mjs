@@ -1590,6 +1590,20 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
           "return 0;",
         ],
       },
+      {
+        path: "src/engine/hermes_runtime_ios.cc",
+        region: {
+          start: 'extern "C" int32_t ex_hermes_dispatch_event_attested_v1(',
+          end: "// =============================================================================",
+        },
+        tokens: [
+          "runtime->clock_i_dispatcher->call(",
+          "facebook::jsi::Value(static_cast<double>(handler_id))",
+          "std::move(payload)",
+          "std::move(attestor)",
+          "return EX_HERMES_CLOCK_I_DISPATCH_OK_V1;",
+        ],
+      },
     ],
     shapes: [
       shape("callback:dispatch/0", "__exactDispatchEvent.handlerId", {
@@ -1607,6 +1621,15 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
         sourceKind: "native-op",
         returnVariant: "undefined",
       }),
+      shape(
+        "callback:dispatch/2",
+        "__exactDispatchEvent.attestClockICarrier",
+        {
+          mode: "attested",
+          sourceKind: "native-op",
+          returnVariant: "call-scoped-host-function",
+        },
+      ),
     ],
   }),
   Object.freeze({

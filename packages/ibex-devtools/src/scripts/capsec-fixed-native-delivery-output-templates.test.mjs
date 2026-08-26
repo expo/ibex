@@ -90,11 +90,11 @@ beforeAll(async () => {
 
 describe("fixed native delivery output templates", () => {
   test("authors only the four delivery families with bounded native fixtures", () => {
-    expect(cases).toHaveLength(38);
+    expect(cases).toHaveLength(39);
     const authored = cases.filter(({ invocation }) => invocation !== null);
     const sourceOnly = cases.filter(({ invocation }) => invocation === null);
     expect(authored).toHaveLength(21);
-    expect(sourceOnly).toHaveLength(17);
+    expect(sourceOnly).toHaveLength(18);
     expect(
       Object.fromEntries(
         [...Map.groupBy(authored, ({ edge }) => edge.surface.name)]

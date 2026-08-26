@@ -440,6 +440,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__ibexLockedDown",
   "__ibexNativeLockdown",
   "__ibexRefreshCompartmentBaseline",
+  "__ibexRegisterExactDispatchEvent",
   "__ibexRegisterRuntimeExtensionModule",
   "__ibexTamed",
   "__nativeFetch",
@@ -14650,6 +14651,15 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__ibexRegisterRuntimeExtensionModule") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (surface.name === "__ibexRegisterExactDispatchEvent") {
+      // The sealed, first-party-only registrar retains one dispatcher identity
+      // during bootstrap. It neither dispatches an event nor returns the
+      // retained callable to JavaScript; the separately catalogued attested ABI
+      // owns the closed IPC delivery.
+      // @ref LLP 0013#mechanism-3
+      // @ref LLP 0040#3-fixed-bootstrap-window
+      return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");
