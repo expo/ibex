@@ -1007,11 +1007,19 @@ extern "C" int ex_hermes_dispatch_event(
 namespace {
 
 struct ClockICarrierAttestorState {
+  enum class Phase {
+    AwaitingEnter,
+    AwaitingHandlerReturn,
+    Complete,
+    Invalid,
+  };
+
   bool active{true};
-  bool called{false};
+  Phase phase{Phase::AwaitingEnter};
   uint64_t principal_id{static_cast<uint64_t>(kNoUserPrincipalId)};
   uint64_t runtime_nonce{0};
   uint64_t entry_runtime_monotonic_ms{0};
+  uint64_t handler_returned_runtime_monotonic_ms{0};
 };
 
 bool validClockIUtf8(const uint8_t* bytes, size_t length) {
@@ -1158,6 +1166,9 @@ std::string clockICarrierReceiptJson(
       output, "u64:" + std::to_string(attestation.principal_id));
   output += ",\"entryRuntimeMonotonicMs\":" +
       std::to_string(attestation.entry_runtime_monotonic_ms);
+  output += ",\"handlerOutcome\":\"returned\"";
+  output += ",\"handlerReturnedRuntimeMonotonicMs\":" +
+      std::to_string(attestation.handler_returned_runtime_monotonic_ms);
   output += ",\"entryClockDomain\":\"ibex-steady-monotonic\"}";
   return output;
 }
@@ -1169,7 +1180,8 @@ std::string clockICarrierReceiptJson(
 // byte-for-byte source compatible, while callers opt into the versioned
 // binding and caller-owned result explicitly.
 // @ref LLP 0013#mechanism-3 — sample the engine frame, never a host claim
-// @ref LLP 0040 — the one-shot HostFunction is the complete added endowment
+// @ref LLP 0040 — the two-phase call-scoped HostFunction is the complete
+// added endowment
 // @ref LLP 0051 — clean fresh-host-event admission precedes the frame sample
 // @ref LLP 0565.006 §3.2 — native-attested Clock I carrier receipt
 // @abi-output ex_hermes_dispatch_event_attested_v1 out_receipt_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
@@ -1234,33 +1246,68 @@ extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
     auto attestor = facebook::jsi::Function::createFromHostFunction(
         rt,
         facebook::jsi::PropNameID::forAscii(rt, "clockICarrierAttestor"),
-        0,
+        1,
         [state](facebook::jsi::Runtime& callback_runtime,
                 const facebook::jsi::Value&,
-                const facebook::jsi::Value*,
+                const facebook::jsi::Value* arguments,
                 size_t count) -> facebook::jsi::Value {
-          if (count != 0) {
-            throw facebook::jsi::JSError(
-                callback_runtime,
-                "Clock I carrier attestor takes no arguments");
-          }
           if (!state->active) {
             throw facebook::jsi::JSError(
                 callback_runtime,
                 "Clock I carrier attestor is no longer active");
           }
-          if (state->called) {
+          if (count != 1 || !arguments[0].isString()) {
+            state->phase = ClockICarrierAttestorState::Phase::Invalid;
             throw facebook::jsi::JSError(
                 callback_runtime,
-                "Clock I carrier attestor is single-use");
+                "Clock I carrier attestor requires one string phase");
           }
-          state->called = true;
-          // Capture before returning to JS: this is the only point at which
-          // the receiving first-party frame is live and engine-attributable.
-          state->principal_id = currentPrincipalId();
-          state->runtime_nonce = ex_hermes_current_runtime_nonce();
-          state->entry_runtime_monotonic_ms = ex_hermes_now_ms();
-          return facebook::jsi::Value::undefined();
+          const std::string phase =
+              arguments[0].getString(callback_runtime).utf8(callback_runtime);
+          if (phase == "enter") {
+            if (state->phase !=
+                ClockICarrierAttestorState::Phase::AwaitingEnter) {
+              state->phase = ClockICarrierAttestorState::Phase::Invalid;
+              throw facebook::jsi::JSError(
+                  callback_runtime,
+                  "Clock I carrier attestor enter phase is out of order");
+            }
+            // Capture before returning to JS: this is the only point at which
+            // the receiving first-party frame is live and engine-attributable.
+            state->principal_id = currentPrincipalId();
+            state->runtime_nonce = ex_hermes_current_runtime_nonce();
+            state->entry_runtime_monotonic_ms = ex_hermes_now_ms();
+            state->phase =
+                ClockICarrierAttestorState::Phase::AwaitingHandlerReturn;
+            return facebook::jsi::Value::undefined();
+          }
+          if (phase == "handler-returned") {
+            if (state->phase !=
+                ClockICarrierAttestorState::Phase::AwaitingHandlerReturn) {
+              state->phase = ClockICarrierAttestorState::Phase::Invalid;
+              throw facebook::jsi::JSError(
+                  callback_runtime,
+                  "Clock I carrier attestor handler-returned phase is out of order");
+            }
+            const uint64_t returned_runtime_nonce =
+                ex_hermes_current_runtime_nonce();
+            const uint64_t returned_at_ms = ex_hermes_now_ms();
+            if (returned_runtime_nonce == 0 ||
+                returned_runtime_nonce != state->runtime_nonce ||
+                returned_at_ms < state->entry_runtime_monotonic_ms) {
+              state->phase = ClockICarrierAttestorState::Phase::Invalid;
+              throw facebook::jsi::JSError(
+                  callback_runtime,
+                  "Clock I carrier attestor handler-returned identity changed");
+            }
+            state->handler_returned_runtime_monotonic_ms = returned_at_ms;
+            state->phase = ClockICarrierAttestorState::Phase::Complete;
+            return facebook::jsi::Value::undefined();
+          }
+          state->phase = ClockICarrierAttestorState::Phase::Invalid;
+          throw facebook::jsi::JSError(
+              callback_runtime,
+              "Clock I carrier attestor received an unknown phase");
         });
     handler.call(
         rt,
@@ -1280,8 +1327,11 @@ extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
     return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
   }
 
-  if (!state->called) {
+  if (state->phase == ClockICarrierAttestorState::Phase::AwaitingEnter) {
     return EX_HERMES_CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1;
+  }
+  if (state->phase != ClockICarrierAttestorState::Phase::Complete) {
+    return EX_HERMES_CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1;
   }
   if (state->runtime_nonce != expected_runtime_nonce ||
       state->runtime_nonce != runtime->runtime_nonce) {

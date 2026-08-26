@@ -2239,21 +2239,29 @@ typedef enum ExHermesClockIDispatchStatusV1 {
   /// JavaScript lookup, parsing, execution, or host-task finalization failed.
   EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1 = -101,
   /// The complete receipt existed but its caller-owned copy could not be made.
-  EX_HERMES_CLOCK_I_DISPATCH_RECEIPT_ALLOCATION_FAILED_V1 = -102
+  EX_HERMES_CLOCK_I_DISPATCH_RECEIPT_ALLOCATION_FAILED_V1 = -102,
+  /// The two-phase attestor was called incompletely, out of order, or more than
+  /// once for either phase. No receipt is published.
+  EX_HERMES_CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1 = -103
 } ExHermesClockIDispatchStatusV1;
 
-/// Dispatch a renderer event with a single-use, call-scoped native attestor as
+/// Dispatch a renderer event with a two-phase, call-scoped native attestor as
 /// globalThis.__exactDispatchEvent(handlerId, payload, attestCarrier). The
-/// attestor samples Ibex's actual currentPrincipalId() while the receiving JS
-/// frame is live; no host-supplied principal claim is accepted. A retained or
-/// repeated call fails closed, and a dispatcher that never calls it produces
-/// no receipt.
+/// renderer must call attestCarrier("enter") immediately before invoking the
+/// resolved authored handler, then attestCarrier("handler-returned") only after
+/// that invocation returns normally. The enter phase samples Ibex's actual
+/// currentPrincipalId() while the receiving JS frame is live; no host-supplied
+/// principal claim is accepted. Missing, retained/deferred, repeated, unknown,
+/// or out-of-order phases fail closed, and a thrown handler cannot complete the
+/// protocol or produce a receipt.
 ///
 /// On success, out_receipt_json receives malloc-owned strict JSON using schema
 /// ibex-clock-i-carrier-attestation/1. Free it with ex_hermes_free_string.
 /// The runtimeNonce and principalId fields use the lossless "u64:<decimal>"
-/// spelling. entryRuntimeMonotonicMs uses ex_hermes_now_ms()'s Ibex-local
-/// steady-clock domain; it is not a host-wall or host-monotonic timestamp.
+/// spelling. entryRuntimeMonotonicMs and handlerReturnedRuntimeMonotonicMs use
+/// ex_hermes_now_ms()'s Ibex-local steady-clock domain; handlerOutcome is
+/// "returned" only after both phases complete. These are not host-wall or
+/// host-monotonic timestamps.
 ///
 /// Returns ExactRuntimeDriveStatus for admission refusals, or an
 /// ExHermesClockIDispatchStatusV1 value for dispatch/attestation outcomes.

@@ -470,6 +470,10 @@ struct ExHermesClockIDispatchBindingV1 {
 const CLOCK_I_DISPATCH_BINDING_ABI_VERSION_V1: u32 = 1;
 #[cfg(test)]
 const CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1: i32 = -100;
+#[cfg(test)]
+const CLOCK_I_DISPATCH_FAILED_V1: i32 = -101;
+#[cfg(test)]
+const CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1: i32 = -103;
 
 #[cfg(all(test, feature = "module-runner"))]
 #[repr(C)]
@@ -17823,8 +17827,9 @@ module.exports = JSON.stringify({
         engine
             .eval(
                 r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
-                  attest();
+                  attest('enter');
                   globalThis.__clockIAttestedHandler = { id: id, payload: payload };
+                  attest('handler-returned');
                 }; 'installed'"#,
             )
             .await
@@ -17870,7 +17875,13 @@ module.exports = JSON.stringify({
         assert_eq!(receipt["principalId"], "u64:0");
         assert_eq!(receipt["runtimeNonce"], format!("u64:{runtime_nonce}"));
         assert_eq!(receipt["entryClockDomain"], "ibex-steady-monotonic");
-        assert!(receipt["entryRuntimeMonotonicMs"].as_u64().unwrap_or(0) > 0);
+        let entry_ms = receipt["entryRuntimeMonotonicMs"].as_u64().unwrap_or(0);
+        let returned_ms = receipt["handlerReturnedRuntimeMonotonicMs"]
+            .as_u64()
+            .unwrap_or(0);
+        assert!(entry_ms > 0);
+        assert!(returned_ms >= entry_ms);
+        assert_eq!(receipt["handlerOutcome"], "returned");
         assert_eq!(
             engine
                 .eval_immediate("JSON.stringify(globalThis.__clockIAttestedHandler)")
@@ -17881,22 +17892,18 @@ module.exports = JSON.stringify({
         );
     }
 
-    /// The attestor is exactly once and only during its native dispatch call.
-    /// A second call reports single-use; a retained call after return reports
-    /// inactive, without mutating the first receipt.
+    /// Exactly one enter/return pair completes the call-scoped protocol.
     /// @ref LLP 0040
     #[tokio::test(flavor = "current_thread")]
-    async fn clock_i_carrier_attestor_is_one_shot_and_call_scoped() {
+    async fn clock_i_carrier_attestor_is_two_phase_and_call_scoped() {
         let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().unwrap();
         engine
             .eval(
                 r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
-                  attest();
-                  try { attest(); } catch (error) {
-                    globalThis.__clockISecondCall = String(error && error.message);
-                  }
-                  globalThis.__clockIRetainedAttestor = attest;
+                  attest('enter');
+                  globalThis.__clockIHandlerRan = true;
+                  attest('handler-returned');
                 }; 'installed'"#,
             )
             .await
@@ -17919,24 +17926,169 @@ module.exports = JSON.stringify({
         assert!(receipt.is_some());
         assert_eq!(
             engine
-                .eval_immediate("String(globalThis.__clockISecondCall)")
+                .eval_immediate("String(globalThis.__clockIHandlerRan)")
                 .await
                 .unwrap()
                 .as_deref(),
-            Some("Clock I carrier attestor is single-use")
+            Some("true")
+        );
+    }
+
+    /// Completing either phase more than once poisons the call even when the
+    /// renderer catches the HostFunction's exception. A previously complete
+    /// state cannot be published after an extra phase.
+    /// @ref LLP 0040; LLP 0565.006 §3.2
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_carrier_attestor_repeat_fails_closed_without_receipt() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  attest('enter');
+                  globalThis.__clockIRepeatHandlerRan = true;
+                  attest('handler-returned');
+                  try { attest('handler-returned'); } catch (error) {
+                    globalThis.__clockIRepeatError = String(error && error.message);
+                  }
+                }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    22,
+                    b"clock-i-repeat",
+                    br#""input-repeat""#,
+                    br#"{"compositionGeneration":22}"#,
+                    b"host-input-repeat",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1);
+        assert!(receipt.is_none());
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__clockIRepeatHandlerRan)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("true")
         );
         assert_eq!(
             engine
-                .eval_immediate(
-                    r#"(function() {
-                      try { globalThis.__clockIRetainedAttestor(); return 'admitted'; }
-                      catch (error) { return String(error && error.message); }
-                    })()"#,
-                )
+                .eval_immediate("String(globalThis.__clockIRepeatError)")
                 .await
                 .unwrap()
                 .as_deref(),
-            Some("Clock I carrier attestor is no longer active")
+            Some("Clock I carrier attestor handler-returned phase is out of order")
+        );
+    }
+
+    /// Enter without a normal handler return is incomplete evidence, while a
+    /// thrown dispatcher cannot reach the return phase at all. Both are
+    /// receiptless even though the principal was sampled at enter.
+    /// @ref LLP 0013#mechanism-3; LLP 0565.006 §3.2
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_carrier_attestor_missing_return_and_throw_fail_closed() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  attest('enter');
+                  globalThis.__clockIMissingReturnRan = true;
+                }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (missing_status, missing_receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    23,
+                    b"clock-i-missing-return",
+                    br#""input-missing-return""#,
+                    br#"{"compositionGeneration":23}"#,
+                    b"host-input-missing-return",
+                )
+            })
+            .unwrap();
+        assert_eq!(missing_status, CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1);
+        assert!(missing_receipt.is_none());
+
+        engine
+            .eval(
+                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  attest('enter');
+                  throw new Error('authored handler threw');
+                }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let (throw_status, throw_receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    24,
+                    b"clock-i-handler-throw",
+                    br#""input-handler-throw""#,
+                    br#"{"compositionGeneration":24}"#,
+                    b"host-input-handler-throw",
+                )
+            })
+            .unwrap();
+        assert_eq!(throw_status, CLOCK_I_DISPATCH_FAILED_V1);
+        assert!(throw_receipt.is_none());
+    }
+
+    /// Starting with the return phase is a protocol violation. Catching the JS
+    /// exception cannot repair or restart the poisoned per-call state.
+    /// @ref LLP 0040
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_carrier_attestor_wrong_phase_fails_closed_without_receipt() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  try { attest('handler-returned'); } catch (error) {
+                    globalThis.__clockIWrongPhaseError = String(error && error.message);
+                  }
+                }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    25,
+                    b"clock-i-wrong-phase",
+                    br#""input-wrong-phase""#,
+                    br#"{"compositionGeneration":25}"#,
+                    b"host-input-wrong-phase",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1);
+        assert!(receipt.is_none());
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__clockIWrongPhaseError)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Clock I carrier attestor handler-returned phase is out of order")
         );
     }
 
@@ -17950,8 +18102,9 @@ module.exports = JSON.stringify({
         engine
             .eval(
                 r#"globalThis.__clockINoCallRan = 0;
-                   globalThis.__exactDispatchEvent = function() {
+                   globalThis.__exactDispatchEvent = function(id, payload, attest) {
                      globalThis.__clockINoCallRan += 1;
+                     globalThis.__clockIDeferredAttestor = attest;
                    }; 'installed'"#,
             )
             .await
@@ -17980,6 +18133,19 @@ module.exports = JSON.stringify({
                 .as_deref(),
             Some("1")
         );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    r#"(function() {
+                      try { globalThis.__clockIDeferredAttestor('enter'); return 'admitted'; }
+                      catch (error) { return String(error && error.message); }
+                    })()"#,
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Clock I carrier attestor is no longer active")
+        );
     }
 
     /// The binding's runtime identity is an admission credential, not receipt
@@ -17994,7 +18160,8 @@ module.exports = JSON.stringify({
                 r#"globalThis.__clockIWrongNonceRan = 0;
                    globalThis.__exactDispatchEvent = function(id, payload, attest) {
                      globalThis.__clockIWrongNonceRan += 1;
-                     attest();
+                     attest('enter');
+                     attest('handler-returned');
                    }; 'installed'"#,
             )
             .await

@@ -65,6 +65,9 @@ IBEX_C_ABI_ASSERT(clock_i_dispatch_ok,
                   EX_HERMES_CLOCK_I_DISPATCH_OK_V1 == 0);
 IBEX_C_ABI_ASSERT(clock_i_dispatch_no_call_is_failure,
                   EX_HERMES_CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1 < 0);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_incomplete_is_distinct_failure,
+                  EX_HERMES_CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1 ==
+                      -103);
 IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_version_first,
                   offsetof(ExHermesClockIDispatchBindingV1, abi_version) ==
                       0u);

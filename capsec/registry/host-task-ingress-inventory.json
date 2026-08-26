@@ -2038,14 +2038,14 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 1214,
+          "line": 1227,
           "column": 31,
           "source": "if (runtime->restricted || !exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1264,
+          "line": 1312,
           "column": 12,
           "source": "handler.call("
         }
