@@ -2242,11 +2242,20 @@ typedef enum ExHermesClockIDispatchStatusV1 {
   EX_HERMES_CLOCK_I_DISPATCH_RECEIPT_ALLOCATION_FAILED_V1 = -102,
   /// The two-phase attestor was called incompletely, out of order, or more than
   /// once for either phase. No receipt is published.
-  EX_HERMES_CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1 = -103
+  EX_HERMES_CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1 = -103,
+  /// The public dispatcher alias no longer has strict identity with the
+  /// first-party function retained by Ibex. The replacement is never called.
+  EX_HERMES_CLOCK_I_DISPATCHER_TAMPERED_V1 = -104,
+  /// No first-party renderer dispatcher was registered in this generation.
+  EX_HERMES_CLOCK_I_DISPATCHER_UNREGISTERED_V1 = -105
 } ExHermesClockIDispatchStatusV1;
 
-/// Dispatch a renderer event with a two-phase, call-scoped native attestor as
-/// globalThis.__exactDispatchEvent(handlerId, payload, attestCarrier). The
+/// Dispatch a renderer event through the first-party dispatcher captured once
+/// by Ibex's sealed registrar, with a two-phase, call-scoped native attestor as
+/// retainedDispatcher(handlerId, payload, attestCarrier). The public
+/// globalThis.__exactDispatchEvent alias must still have strict identity with
+/// that retained function; an overwritten alias refuses before any JS call.
+/// The
 /// renderer must call attestCarrier("enter") immediately before invoking the
 /// resolved authored handler, then attestCarrier("handler-returned") only after
 /// that invocation returns normally. The enter phase samples Ibex's actual
@@ -2260,8 +2269,10 @@ typedef enum ExHermesClockIDispatchStatusV1 {
 /// The runtimeNonce and principalId fields use the lossless "u64:<decimal>"
 /// spelling. entryRuntimeMonotonicMs and handlerReturnedRuntimeMonotonicMs use
 /// ex_hermes_now_ms()'s Ibex-local steady-clock domain; handlerOutcome is
-/// "returned" only after both phases complete. These are not host-wall or
-/// host-monotonic timestamps.
+/// "returned" only after both phases complete. dispatcherIdentity is minted
+/// by Ibex for the retained generation, and handlerIdentity combines that
+/// identity with the handler slot whose trusted dispatcher completed both
+/// phases. These are not host-wall or host-monotonic timestamps.
 ///
 /// Returns ExactRuntimeDriveStatus for admission refusals, or an
 /// ExHermesClockIDispatchStatusV1 value for dispatch/attestation outcomes.

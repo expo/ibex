@@ -68,6 +68,10 @@ IBEX_C_ABI_ASSERT(clock_i_dispatch_no_call_is_failure,
 IBEX_C_ABI_ASSERT(clock_i_dispatch_incomplete_is_distinct_failure,
                   EX_HERMES_CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1 ==
                       -103);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_tamper_is_distinct_failure,
+                  EX_HERMES_CLOCK_I_DISPATCHER_TAMPERED_V1 == -104);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_unregistered_is_distinct_failure,
+                  EX_HERMES_CLOCK_I_DISPATCHER_UNREGISTERED_V1 == -105);
 IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_version_first,
                   offsetof(ExHermesClockIDispatchBindingV1, abi_version) ==
                       0u);

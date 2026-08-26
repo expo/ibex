@@ -474,6 +474,10 @@ const CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1: i32 = -100;
 const CLOCK_I_DISPATCH_FAILED_V1: i32 = -101;
 #[cfg(test)]
 const CLOCK_I_DISPATCH_ATTESTATION_INCOMPLETE_V1: i32 = -103;
+#[cfg(test)]
+const CLOCK_I_DISPATCHER_TAMPERED_V1: i32 = -104;
+#[cfg(test)]
+const CLOCK_I_DISPATCHER_UNREGISTERED_V1: i32 = -105;
 
 #[cfg(all(test, feature = "module-runner"))]
 #[repr(C)]
@@ -17830,7 +17834,9 @@ module.exports = JSON.stringify({
                   attest('enter');
                   globalThis.__clockIAttestedHandler = { id: id, payload: payload };
                   attest('handler-returned');
-                }; 'installed'"#,
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                'installed'"#,
             )
             .await
             .unwrap();
@@ -17869,6 +17875,14 @@ module.exports = JSON.stringify({
         );
         assert_eq!(receipt["hostInputReceiptId"], "host-input-1");
         assert_eq!(receipt["handlerId"], 17);
+        assert_eq!(
+            receipt["dispatcherIdentity"],
+            format!("ibex-clock-i-dispatcher-u64:{runtime_nonce}")
+        );
+        assert_eq!(
+            receipt["handlerIdentity"],
+            format!("ibex-clock-i-dispatcher-u64:{runtime_nonce}:handler:17")
+        );
         assert_eq!(receipt["principal"], "root");
         assert_eq!(receipt["principalStatus"], "authenticated");
         assert_eq!(receipt["principalStatusCode"], 1);
@@ -17892,6 +17906,88 @@ module.exports = JSON.stringify({
         );
     }
 
+    /// A same-realm overwrite cannot receive the call-scoped attestor. Ibex
+    /// checks the public alias against its retained first-party Function and
+    /// refuses before calling either the trusted or forged dispatcher.
+    /// @ref LLP 0013#mechanism-3
+    /// @ref LLP 0040#3-fixed-bootstrap-window
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_attested_dispatch_refuses_overwritten_global_dispatcher() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__clockITrustedRan = 0;
+                globalThis.__clockIForgedRan = 0;
+                globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  globalThis.__clockITrustedRan += 1;
+                  attest('enter');
+                  attest('handler-returned');
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  globalThis.__clockIForgedRan += 1;
+                  attest('enter');
+                  attest('handler-returned');
+                };
+                'overwritten'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    18,
+                    b"clock-i-dispatcher-overwrite",
+                    br#""input-overwrite""#,
+                    br#"{"compositionGeneration":18}"#,
+                    b"host-input-overwrite",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, CLOCK_I_DISPATCHER_TAMPERED_V1);
+        assert!(receipt.is_none());
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "String(globalThis.__clockITrustedRan) + ':' + String(globalThis.__clockIForgedRan)",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("0:0")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_attested_dispatch_requires_native_registration() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval("globalThis.__exactDispatchEvent = function() {}; 'unregistered'")
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    19,
+                    b"clock-i-dispatcher-unregistered",
+                    br#""input-unregistered""#,
+                    br#"{"compositionGeneration":19}"#,
+                    b"host-input-unregistered",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, CLOCK_I_DISPATCHER_UNREGISTERED_V1);
+        assert!(receipt.is_none());
+    }
+
     /// Exactly one enter/return pair completes the call-scoped protocol.
     /// @ref LLP 0040
     #[tokio::test(flavor = "current_thread")]
@@ -17904,7 +18000,9 @@ module.exports = JSON.stringify({
                   attest('enter');
                   globalThis.__clockIHandlerRan = true;
                   attest('handler-returned');
-                }; 'installed'"#,
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                'installed'"#,
             )
             .await
             .unwrap();
@@ -17951,7 +18049,9 @@ module.exports = JSON.stringify({
                   try { attest('handler-returned'); } catch (error) {
                     globalThis.__clockIRepeatError = String(error && error.message);
                   }
-                }; 'installed'"#,
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                'installed'"#,
             )
             .await
             .unwrap();
@@ -17999,10 +18099,16 @@ module.exports = JSON.stringify({
         let engine = HermesEngine::new().unwrap();
         engine
             .eval(
-                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                r#"globalThis.__clockIDispatchMode = 'missing-return';
+                globalThis.__exactDispatchEvent = function(id, payload, attest) {
                   attest('enter');
+                  if (globalThis.__clockIDispatchMode === 'throw') {
+                    throw new Error('authored handler threw');
+                  }
                   globalThis.__clockIMissingReturnRan = true;
-                }; 'installed'"#,
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                'installed'"#,
             )
             .await
             .unwrap();
@@ -18024,12 +18130,7 @@ module.exports = JSON.stringify({
         assert!(missing_receipt.is_none());
 
         engine
-            .eval(
-                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
-                  attest('enter');
-                  throw new Error('authored handler threw');
-                }; 'installed'"#,
-            )
+            .eval("globalThis.__clockIDispatchMode = 'throw'; 'armed'")
             .await
             .unwrap();
         let (throw_status, throw_receipt) = runtime
@@ -18062,7 +18163,9 @@ module.exports = JSON.stringify({
                   try { attest('handler-returned'); } catch (error) {
                     globalThis.__clockIWrongPhaseError = String(error && error.message);
                   }
-                }; 'installed'"#,
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                'installed'"#,
             )
             .await
             .unwrap();
@@ -18094,7 +18197,7 @@ module.exports = JSON.stringify({
 
     /// An omitted attestor call cannot turn the native state's fail-closed
     /// no-user initializer into evidence. No receipt is published.
-    /// @ref LLP 0565.006 §3.2
+    /// @ref https://github.com/expo/exact/blob/main/llp/0565.006-m0-attribution-instrument.spec.md#32-clock-i
     #[tokio::test(flavor = "current_thread")]
     async fn clock_i_dispatch_without_attestor_call_publishes_no_no_user_receipt() {
         let _guard = hermes_engine_test_lock().lock().await;
@@ -18105,7 +18208,9 @@ module.exports = JSON.stringify({
                    globalThis.__exactDispatchEvent = function(id, payload, attest) {
                      globalThis.__clockINoCallRan += 1;
                      globalThis.__clockIDeferredAttestor = attest;
-                   }; 'installed'"#,
+                   };
+                   if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                   'installed'"#,
             )
             .await
             .unwrap();
@@ -18162,7 +18267,9 @@ module.exports = JSON.stringify({
                      globalThis.__clockIWrongNonceRan += 1;
                      attest('enter');
                      attest('handler-returned');
-                   }; 'installed'"#,
+                   };
+                   if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('dispatcher registration refused');
+                   'installed'"#,
             )
             .await
             .unwrap();

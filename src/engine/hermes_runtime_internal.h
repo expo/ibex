@@ -469,8 +469,16 @@ struct ExactHermesRuntime {
   // Clock I carrier receipt IDs are generation-local and monotonic. The host
   // joins this Ibex receipt back to its copied host_input_receipt_id; this
   // counter supplies uniqueness without trusting a JS-authored value.
-  // @ref LLP 0565.006 §3.2
+  // @ref https://github.com/expo/exact/blob/main/llp/0565.006-m0-attribution-instrument.spec.md#32-clock-i
   uint64_t next_clock_i_attestation_sequence{1};
+  // Captured once from the first-party renderer while its public dispatcher
+  // alias still has strict object identity. The attested ABI calls this root,
+  // never a mutable global lookup; declaration after `runtime` guarantees the
+  // JSI Function is destroyed before its owning Hermes runtime.
+  // @ref LLP 0013#mechanism-3
+  // @ref LLP 0040#3-fixed-bootstrap-window
+  std::unique_ptr<facebook::jsi::Function> clock_i_dispatcher;
+  std::string clock_i_dispatcher_identity;
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
   // One authenticated lowered-session submission may opt into an additional
   // constrained-principal intersection in observer builds. The private C

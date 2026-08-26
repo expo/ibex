@@ -157,9 +157,9 @@ void removeIOSAnimationFrameCallbacksForRuntime(ExactHermesRuntime* handle) {
 }  // namespace
 
 void installIOSHostFunctions(ExactHermesRuntime* handle) {
-#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   if (!handle || handle->restricted) return;
   auto& rt = *handle->runtime;
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   auto requestAnimationFrameFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactRequestAnimationFrame"),
@@ -193,14 +193,69 @@ void installIOSHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(
       rt, "__exactRequestAnimationFrame", std::move(requestAnimationFrameFn));
-#else
-  (void)handle;
 #endif
+
+  auto registerExactDispatchEvent =
+      facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(
+              rt, "__ibexRegisterExactDispatchEvent"),
+          1,
+          [handle](facebook::jsi::Runtime& callbackRuntime,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value* args,
+                   size_t count) -> facebook::jsi::Value {
+            if (count != 1 || !args[0].isObject() ||
+                !args[0].asObject(callbackRuntime).isFunction(
+                    callbackRuntime) ||
+                currentPrincipalId() !=
+                    static_cast<uint64_t>(kFirstPartyRootPrincipalId)) {
+              return facebook::jsi::Value(false);
+            }
+            auto candidate =
+                args[0].asObject(callbackRuntime).asFunction(callbackRuntime);
+            auto publicValue = callbackRuntime.global().getProperty(
+                callbackRuntime, "__exactDispatchEvent");
+            if (!publicValue.isObject() ||
+                !publicValue.getObject(callbackRuntime).isFunction(
+                    callbackRuntime)) {
+              return facebook::jsi::Value(false);
+            }
+            auto publicDispatcher =
+                publicValue.getObject(callbackRuntime).asFunction(
+                    callbackRuntime);
+            if (!facebook::jsi::Object::strictEquals(
+                    callbackRuntime, candidate, publicDispatcher)) {
+              return facebook::jsi::Value(false);
+            }
+            if (handle->clock_i_dispatcher) {
+              return facebook::jsi::Value(
+                  facebook::jsi::Object::strictEquals(
+                      callbackRuntime,
+                      *handle->clock_i_dispatcher,
+                      candidate));
+            }
+            auto retained = std::make_unique<facebook::jsi::Function>(
+                std::move(candidate));
+            const std::string identity =
+                "ibex-clock-i-dispatcher-u64:" +
+                std::to_string(handle->runtime_nonce);
+            handle->clock_i_dispatcher = std::move(retained);
+            handle->clock_i_dispatcher_identity = identity;
+            return facebook::jsi::Value(true);
+          });
+  rt.global().setProperty(
+      rt,
+      "__ibexRegisterExactDispatchEvent",
+      std::move(registerExactDispatchEvent));
+  sealGlobalHostFunction(rt, "__ibexRegisterExactDispatchEvent");
 }
 
 void unregisterIOSHostFunctions(ExactHermesRuntime* handle) {
-#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   if (!handle) return;
+  handle->clock_i_dispatcher.reset();
+  handle->clock_i_dispatcher_identity.clear();
+#if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   handle->ios_animation_frame_request_callback = nullptr;
   handle->ios_animation_frame_request_context = nullptr;
   removeIOSAnimationFrameCallbacksForRuntime(handle);
@@ -1126,6 +1181,7 @@ const char* clockIPrincipalStatusLabel(uint32_t status) {
 std::string clockICarrierReceiptJson(
     uint64_t sequence,
     uint32_t handler_id,
+    const std::string& dispatcher_identity,
     const std::string& nonce,
     const std::string& input_id_json,
     const std::string& generation_json,
@@ -1152,6 +1208,12 @@ std::string clockICarrierReceiptJson(
   output += ",\"hostInputReceiptId\":";
   appendClockIJsonString(output, host_input_receipt_id);
   output += ",\"handlerId\":" + std::to_string(handler_id);
+  output += ",\"dispatcherIdentity\":";
+  appendClockIJsonString(output, dispatcher_identity);
+  output += ",\"handlerIdentity\":";
+  appendClockIJsonString(
+      output,
+      dispatcher_identity + ":handler:" + std::to_string(handler_id));
   output += ",\"principal\":";
   appendClockIJsonString(output, clockIPrincipalLabel(attestation.principal_id));
   output += ",\"principalStatus\":";
@@ -1183,7 +1245,7 @@ std::string clockICarrierReceiptJson(
 // @ref LLP 0040 — the two-phase call-scoped HostFunction is the complete
 // added endowment
 // @ref LLP 0051 — clean fresh-host-event admission precedes the frame sample
-// @ref LLP 0565.006 §3.2 — native-attested Clock I carrier receipt
+// @ref https://github.com/expo/exact/blob/main/llp/0565.006-m0-attribution-instrument.spec.md#32-clock-i
 // @abi-output ex_hermes_dispatch_event_attested_v1 out_receipt_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
     ExactHermesRuntime* runtime,
@@ -1234,12 +1296,20 @@ extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
   auto state = std::make_shared<ClockICarrierAttestorState>();
 
   try {
-    auto handler_value = rt.global().getProperty(rt, "__exactDispatchEvent");
-    if (!handler_value.isObject() ||
-        !handler_value.getObject(rt).isFunction(rt)) {
-      return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+    if (!runtime->clock_i_dispatcher ||
+        runtime->clock_i_dispatcher_identity.empty()) {
+      return EX_HERMES_CLOCK_I_DISPATCHER_UNREGISTERED_V1;
     }
-    auto handler = handler_value.getObject(rt).asFunction(rt);
+    auto publicDispatcherValue =
+        rt.global().getProperty(rt, "__exactDispatchEvent");
+    if (!publicDispatcherValue.isObject() ||
+        !publicDispatcherValue.getObject(rt).isFunction(rt) ||
+        !facebook::jsi::Object::strictEquals(
+            rt,
+            *runtime->clock_i_dispatcher,
+            publicDispatcherValue.getObject(rt))) {
+      return EX_HERMES_CLOCK_I_DISPATCHER_TAMPERED_V1;
+    }
     auto payload = payload_json && payload_json[0] != '\0'
         ? parseJsonValue(rt, payload_json)
         : facebook::jsi::Value::undefined();
@@ -1309,7 +1379,7 @@ extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
               callback_runtime,
               "Clock I carrier attestor received an unknown phase");
         });
-    handler.call(
+    runtime->clock_i_dispatcher->call(
         rt,
         facebook::jsi::Value(static_cast<double>(handler_id)),
         std::move(payload),
@@ -1346,6 +1416,7 @@ extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
   const std::string receipt = clockICarrierReceiptJson(
       sequence,
       handler_id,
+      runtime->clock_i_dispatcher_identity,
       nonce,
       input_id_json,
       generation_json,
