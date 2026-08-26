@@ -18,9 +18,9 @@
     "trusted-bootstrap-no-app-code": "The named owner transition evaluates fixed native-owned seal bytes before any user-execution ingress; no app-controlled source or callback can run, and any failure quarantines the generation."
   },
   "counts": {
-    "user-execution-gate": 23,
+    "user-execution-gate": 24,
     "engine-eval-or-prepare": 28,
-    "jsi-function-call": 115
+    "jsi-function-call": 116
   },
   "ingressRows": [
     {
@@ -195,6 +195,13 @@
       "id": "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_event",
       "path": "src/engine/hermes_runtime_ios.cc",
       "function": "ex_hermes_dispatch_event",
+      "disposition": "outer-host-task",
+      "discoveredSiteCount": 2
+    },
+    {
+      "id": "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_event_attested_v1",
+      "path": "src/engine/hermes_runtime_ios.cc",
+      "function": "ex_hermes_dispatch_event_attested_v1",
       "disposition": "outer-host-task",
       "discoveredSiteCount": 2
     },
@@ -2017,6 +2024,28 @@
           "kind": "jsi-function-call",
           "operation": "call",
           "line": 991,
+          "column": 12,
+          "source": "handler.call("
+        }
+      ]
+    },
+    {
+      "id": "src/engine/hermes_runtime_ios.cc#ex_hermes_dispatch_event_attested_v1",
+      "path": "src/engine/hermes_runtime_ios.cc",
+      "function": "ex_hermes_dispatch_event_attested_v1",
+      "disposition": "outer-host-task",
+      "sites": [
+        {
+          "kind": "user-execution-gate",
+          "operation": "exactRuntimeEnterUserExecution",
+          "line": 1214,
+          "column": 31,
+          "source": "if (runtime->restricted || !exactRuntimeEnterUserExecution(runtime)) {"
+        },
+        {
+          "kind": "jsi-function-call",
+          "operation": "call",
+          "line": 1264,
           "column": 12,
           "source": "handler.call("
         }

@@ -450,6 +450,27 @@ struct HermesRuntimeOpaque {
     _private: [u8; 0],
 }
 
+#[cfg(test)]
+#[repr(C)]
+struct ExHermesClockIDispatchBindingV1 {
+    abi_version: u32,
+    struct_size: u32,
+    expected_runtime_nonce: u64,
+    nonce: *const u8,
+    nonce_len: usize,
+    input_id_json: *const u8,
+    input_id_json_len: usize,
+    generation_json: *const u8,
+    generation_json_len: usize,
+    host_input_receipt_id: *const u8,
+    host_input_receipt_id_len: usize,
+}
+
+#[cfg(test)]
+const CLOCK_I_DISPATCH_BINDING_ABI_VERSION_V1: u32 = 1;
+#[cfg(test)]
+const CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1: i32 = -100;
+
 #[cfg(all(test, feature = "module-runner"))]
 #[repr(C)]
 #[derive(Default)]
@@ -740,6 +761,14 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         handler_id: u32,
         payload_json: *const std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_dispatch_event_attested_v1(
+        runtime: *mut HermesRuntimeOpaque,
+        handler_id: u32,
+        payload_json: *const std::os::raw::c_char,
+        binding: *const ExHermesClockIDispatchBindingV1,
+        out_receipt_json: *mut *mut std::os::raw::c_char,
     ) -> i32;
     #[cfg(test)]
     fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
@@ -5435,6 +5464,50 @@ async fn compile_source_to_bytecode_with_captured_environment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dispatch_clock_i_attested_for_test(
+        runtime: *mut HermesRuntimeOpaque,
+        expected_runtime_nonce: u64,
+        handler_id: u32,
+        nonce: &[u8],
+        input_id_json: &[u8],
+        generation_json: &[u8],
+        host_input_receipt_id: &[u8],
+    ) -> (i32, Option<String>) {
+        let binding = ExHermesClockIDispatchBindingV1 {
+            abi_version: CLOCK_I_DISPATCH_BINDING_ABI_VERSION_V1,
+            struct_size: std::mem::size_of::<ExHermesClockIDispatchBindingV1>() as u32,
+            expected_runtime_nonce,
+            nonce: nonce.as_ptr(),
+            nonce_len: nonce.len(),
+            input_id_json: input_id_json.as_ptr(),
+            input_id_json_len: input_id_json.len(),
+            generation_json: generation_json.as_ptr(),
+            generation_json_len: generation_json.len(),
+            host_input_receipt_id: host_input_receipt_id.as_ptr(),
+            host_input_receipt_id_len: host_input_receipt_id.len(),
+        };
+        let mut receipt = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_dispatch_event_attested_v1(
+                runtime,
+                handler_id,
+                std::ptr::null(),
+                &binding,
+                &mut receipt,
+            )
+        };
+        let copied = if receipt.is_null() {
+            None
+        } else {
+            let value = unsafe { CStr::from_ptr(receipt) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(receipt) };
+            Some(value)
+        };
+        (status, copied)
+    }
 
     #[cfg(feature = "capsec-conformance-observer")]
     struct CAbiBlockingWorkReleaseGuard(Arc<SharedRuntime>);
@@ -17736,6 +17809,226 @@ module.exports = JSON.stringify({
             Some("ENOENT")
         );
         assert!(!missing.exists());
+    }
+
+    /// The receipt reports engine truth from the live dispatcher frame. A
+    /// first-party dispatcher is root in this fixture; the ABI must not replace
+    /// that actual result with the historical no-user expectation.
+    /// @ref LLP 0013#mechanism-3
+    /// @ref LLP 0051#acceptance-evidence
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_attested_dispatch_records_actual_root_not_no_user() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  attest();
+                  globalThis.__clockIAttestedHandler = { id: id, payload: payload };
+                }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (runtime_nonce, status, receipt) = runtime
+            .with_runtime(|raw| {
+                let runtime_nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+                let (status, receipt) = dispatch_clock_i_attested_for_test(
+                    raw,
+                    runtime_nonce,
+                    17,
+                    b"clock-i-native-root-1",
+                    br#"{"eventKind":"press","nodeId":41}"#,
+                    br#"{"workerInstanceId":"worker-1","compositionGeneration":7}"#,
+                    b"host-input-1",
+                );
+                (runtime_nonce, status, receipt)
+            })
+            .unwrap();
+
+        assert_eq!(status, 0, "attested dispatch failed");
+        let receipt: serde_json::Value =
+            serde_json::from_str(receipt.as_deref().expect("attested receipt")).unwrap();
+        assert_eq!(
+            receipt["schemaVersion"],
+            "ibex-clock-i-carrier-attestation/1"
+        );
+        assert_eq!(receipt["nonce"], "clock-i-native-root-1");
+        assert_eq!(
+            receipt["inputIdJson"],
+            r#"{"eventKind":"press","nodeId":41}"#
+        );
+        assert_eq!(
+            receipt["generationJson"],
+            r#"{"workerInstanceId":"worker-1","compositionGeneration":7}"#
+        );
+        assert_eq!(receipt["hostInputReceiptId"], "host-input-1");
+        assert_eq!(receipt["handlerId"], 17);
+        assert_eq!(receipt["principal"], "root");
+        assert_eq!(receipt["principalStatus"], "authenticated");
+        assert_eq!(receipt["principalStatusCode"], 1);
+        assert_eq!(receipt["principalId"], "u64:0");
+        assert_eq!(receipt["runtimeNonce"], format!("u64:{runtime_nonce}"));
+        assert_eq!(receipt["entryClockDomain"], "ibex-steady-monotonic");
+        assert!(receipt["entryRuntimeMonotonicMs"].as_u64().unwrap_or(0) > 0);
+        assert_eq!(
+            engine
+                .eval_immediate("JSON.stringify(globalThis.__clockIAttestedHandler)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"id":17}"#)
+        );
+    }
+
+    /// The attestor is exactly once and only during its native dispatch call.
+    /// A second call reports single-use; a retained call after return reports
+    /// inactive, without mutating the first receipt.
+    /// @ref LLP 0040
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_carrier_attestor_is_one_shot_and_call_scoped() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  attest();
+                  try { attest(); } catch (error) {
+                    globalThis.__clockISecondCall = String(error && error.message);
+                  }
+                  globalThis.__clockIRetainedAttestor = attest;
+                }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    2,
+                    b"clock-i-one-shot",
+                    br#""input-2""#,
+                    br#"{"compositionGeneration":2}"#,
+                    b"host-input-2",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, 0);
+        assert!(receipt.is_some());
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__clockISecondCall)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Clock I carrier attestor is single-use")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    r#"(function() {
+                      try { globalThis.__clockIRetainedAttestor(); return 'admitted'; }
+                      catch (error) { return String(error && error.message); }
+                    })()"#,
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Clock I carrier attestor is no longer active")
+        );
+    }
+
+    /// An omitted attestor call cannot turn the native state's fail-closed
+    /// no-user initializer into evidence. No receipt is published.
+    /// @ref LLP 0565.006 §3.2
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_dispatch_without_attestor_call_publishes_no_no_user_receipt() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__clockINoCallRan = 0;
+                   globalThis.__exactDispatchEvent = function() {
+                     globalThis.__clockINoCallRan += 1;
+                   }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    3,
+                    b"clock-i-no-call",
+                    br#""input-3""#,
+                    br#"{"compositionGeneration":3}"#,
+                    b"host-input-3",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1);
+        assert!(receipt.is_none());
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__clockINoCallRan)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("1")
+        );
+    }
+
+    /// The binding's runtime identity is an admission credential, not receipt
+    /// decoration: a wrong nonce refuses before the dispatcher is reached.
+    /// @ref LLP 0051#a-runtime-entry-hygiene-at-ex_hermes_dispatch_event-landed-shape
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_attested_dispatch_refuses_wrong_runtime_nonce() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__clockIWrongNonceRan = 0;
+                   globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                     globalThis.__clockIWrongNonceRan += 1;
+                     attest();
+                   }; 'installed'"#,
+            )
+            .await
+            .unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (status, receipt) = runtime
+            .with_runtime(|raw| {
+                let live_nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+                let wrong_nonce = if live_nonce == u64::MAX {
+                    live_nonce - 1
+                } else {
+                    live_nonce + 1
+                };
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    wrong_nonce,
+                    4,
+                    b"clock-i-wrong-nonce",
+                    br#""input-4""#,
+                    br#"{"compositionGeneration":4}"#,
+                    b"host-input-4",
+                )
+            })
+            .unwrap();
+        assert_eq!(status, -2, "wrong generation must return DRIVE_STALE");
+        assert!(receipt.is_none());
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__clockIWrongNonceRan)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("0")
+        );
     }
 
     /// Regression for the Exact-reported real-input carrier defect (Exact

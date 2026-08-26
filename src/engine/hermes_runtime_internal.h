@@ -466,6 +466,11 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
   uint64_t host_context_id{0};
   uint64_t runtime_nonce{0};
+  // Clock I carrier receipt IDs are generation-local and monotonic. The host
+  // joins this Ibex receipt back to its copied host_input_receipt_id; this
+  // counter supplies uniqueness without trusting a JS-authored value.
+  // @ref LLP 0565.006 §3.2
+  uint64_t next_clock_i_attestation_sequence{1};
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
   // One authenticated lowered-session submission may opt into an additional
   // constrained-principal intersection in observer builds. The private C

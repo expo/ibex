@@ -242,7 +242,11 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
     "src/engine/hermes_runtime_ios.cc",
     "outer-host-task",
     RATIONALE.outer,
-    ["emit_module_event_impl", "ex_hermes_dispatch_event"],
+    [
+      "emit_module_event_impl",
+      "ex_hermes_dispatch_event",
+      "ex_hermes_dispatch_event_attested_v1",
+    ],
   ),
   ...classificationsFor(
     "src/engine/hermes_runtime_ios.cc",
@@ -348,6 +352,7 @@ export const REQUIRED_HOST_TASK_INGRESS_ROWS = Object.freeze([
     [
       "emit_module_event_impl",
       "ex_hermes_dispatch_event",
+      "ex_hermes_dispatch_event_attested_v1",
       "ex_hermes_emit_module_event",
       "ex_hermes_emit_module_view_event",
     ],

@@ -5255,6 +5255,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_deliver_animation_frame",
     "ex_hermes_destroy",
     "ex_hermes_dispatch_event",
+    "ex_hermes_dispatch_event_attested_v1",
     "ex_hermes_dispatch_motion_rated_publish",
     "ex_hermes_dispatch_worklet_calls",
     "ex_hermes_dispatch_worklet_json_batch",
@@ -13725,6 +13726,7 @@ function embedderAbiClassification(name) {
     if (
       new Set([
         "exhermesdispatchevent",
+        "exhermesdispatcheventattestedv1",
         "exhermesdispatchmotionratedpublish",
         "exhermesdispatchworkletcalls",
         "exhermesdispatchworkletjsonbatch",

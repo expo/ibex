@@ -23,11 +23,13 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #if defined(__APPLE__)
 #include <time.h>
 #endif
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -1000,6 +1002,313 @@ extern "C" int ex_hermes_dispatch_event(
   } catch (...) {
     return -1;
   }
+}
+
+namespace {
+
+struct ClockICarrierAttestorState {
+  bool active{true};
+  bool called{false};
+  uint64_t principal_id{static_cast<uint64_t>(kNoUserPrincipalId)};
+  uint64_t runtime_nonce{0};
+  uint64_t entry_runtime_monotonic_ms{0};
+};
+
+bool validClockIUtf8(const uint8_t* bytes, size_t length) {
+  size_t index = 0;
+  while (index < length) {
+    const uint8_t first = bytes[index++];
+    if (first <= 0x7Fu) continue;
+    if (first >= 0xC2u && first <= 0xDFu) {
+      if (index >= length || (bytes[index++] & 0xC0u) != 0x80u) return false;
+      continue;
+    }
+    if (first >= 0xE0u && first <= 0xEFu) {
+      if (index + 1 >= length) return false;
+      const uint8_t second = bytes[index++];
+      const uint8_t third = bytes[index++];
+      if ((second & 0xC0u) != 0x80u || (third & 0xC0u) != 0x80u ||
+          (first == 0xE0u && second < 0xA0u) ||
+          (first == 0xEDu && second >= 0xA0u)) {
+        return false;
+      }
+      continue;
+    }
+    if (first >= 0xF0u && first <= 0xF4u) {
+      if (index + 2 >= length) return false;
+      const uint8_t second = bytes[index++];
+      const uint8_t third = bytes[index++];
+      const uint8_t fourth = bytes[index++];
+      if ((second & 0xC0u) != 0x80u || (third & 0xC0u) != 0x80u ||
+          (fourth & 0xC0u) != 0x80u ||
+          (first == 0xF0u && second < 0x90u) ||
+          (first == 0xF4u && second >= 0x90u)) {
+        return false;
+      }
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+bool copyClockIBindingSlice(
+    const uint8_t* bytes,
+    size_t length,
+    std::string& destination) {
+  if (bytes == nullptr || length == 0 ||
+      length > EX_HERMES_CLOCK_I_DISPATCH_BINDING_MAX_BYTES_V1 ||
+      !validClockIUtf8(bytes, length)) {
+    return false;
+  }
+  destination.assign(reinterpret_cast<const char*>(bytes), length);
+  return true;
+}
+
+void appendClockIJsonString(std::string& output, const std::string& value) {
+  constexpr char kHex[] = "0123456789abcdef";
+  output.push_back('"');
+  for (const unsigned char byte : value) {
+    switch (byte) {
+      case '"': output += "\\\""; break;
+      case '\\': output += "\\\\"; break;
+      case '\b': output += "\\b"; break;
+      case '\f': output += "\\f"; break;
+      case '\n': output += "\\n"; break;
+      case '\r': output += "\\r"; break;
+      case '\t': output += "\\t"; break;
+      default:
+        if (byte < 0x20u) {
+          output += "\\u00";
+          output.push_back(kHex[(byte >> 4) & 0x0Fu]);
+          output.push_back(kHex[byte & 0x0Fu]);
+        } else {
+          output.push_back(static_cast<char>(byte));
+        }
+    }
+  }
+  output.push_back('"');
+}
+
+const char* clockIPrincipalLabel(uint64_t principal_id) {
+  if (principal_id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+    return "no-user";
+  }
+  if (principal_id == static_cast<uint64_t>(kFirstPartyRootPrincipalId)) {
+    return "root";
+  }
+  if (principal_id == static_cast<uint64_t>(kRuntimePrincipalId)) {
+    return "runtime";
+  }
+  return "package";
+}
+
+uint32_t clockIPrincipalStatus(uint64_t principal_id) {
+  return principal_id == static_cast<uint64_t>(kNoUserPrincipalId)
+      ? EX_HERMES_ASYNC_FAILURE_PRINCIPAL_UNAVAILABLE
+      : EX_HERMES_ASYNC_FAILURE_PRINCIPAL_AUTHENTICATED;
+}
+
+const char* clockIPrincipalStatusLabel(uint32_t status) {
+  return status == EX_HERMES_ASYNC_FAILURE_PRINCIPAL_UNAVAILABLE
+      ? "unavailable"
+      : "authenticated";
+}
+
+std::string clockICarrierReceiptJson(
+    uint64_t sequence,
+    uint32_t handler_id,
+    const std::string& nonce,
+    const std::string& input_id_json,
+    const std::string& generation_json,
+    const std::string& host_input_receipt_id,
+    const ClockICarrierAttestorState& attestation) {
+  const uint32_t principal_status =
+      clockIPrincipalStatus(attestation.principal_id);
+  std::string output;
+  output.reserve(
+      nonce.size() + input_id_json.size() + generation_json.size() +
+      host_input_receipt_id.size() + 512);
+  output += "{\"schemaVersion\":\"ibex-clock-i-carrier-attestation/1\",";
+  output += "\"receiptId\":";
+  appendClockIJsonString(
+      output,
+      "ibex-clock-i-" + std::to_string(attestation.runtime_nonce) + "-" +
+          std::to_string(sequence));
+  output += ",\"nonce\":";
+  appendClockIJsonString(output, nonce);
+  output += ",\"inputIdJson\":";
+  appendClockIJsonString(output, input_id_json);
+  output += ",\"generationJson\":";
+  appendClockIJsonString(output, generation_json);
+  output += ",\"hostInputReceiptId\":";
+  appendClockIJsonString(output, host_input_receipt_id);
+  output += ",\"handlerId\":" + std::to_string(handler_id);
+  output += ",\"principal\":";
+  appendClockIJsonString(output, clockIPrincipalLabel(attestation.principal_id));
+  output += ",\"principalStatus\":";
+  appendClockIJsonString(
+      output, clockIPrincipalStatusLabel(principal_status));
+  output += ",\"principalStatusCode\":" + std::to_string(principal_status);
+  output += ",\"runtimeNonce\":";
+  appendClockIJsonString(
+      output, "u64:" + std::to_string(attestation.runtime_nonce));
+  output += ",\"principalId\":";
+  appendClockIJsonString(
+      output, "u64:" + std::to_string(attestation.principal_id));
+  output += ",\"entryRuntimeMonotonicMs\":" +
+      std::to_string(attestation.entry_runtime_monotonic_ms);
+  output += ",\"entryClockDomain\":\"ibex-steady-monotonic\"}";
+  return output;
+}
+
+}  // namespace
+
+// This sibling entry is deliberately not factored through the legacy
+// ex_hermes_dispatch_event above: the established two-argument ingress remains
+// byte-for-byte source compatible, while callers opt into the versioned
+// binding and caller-owned result explicitly.
+// @ref LLP 0013#mechanism-3 — sample the engine frame, never a host claim
+// @ref LLP 0040 — the one-shot HostFunction is the complete added endowment
+// @ref LLP 0051 — clean fresh-host-event admission precedes the frame sample
+// @ref LLP 0565.006 §3.2 — native-attested Clock I carrier receipt
+// @abi-output ex_hermes_dispatch_event_attested_v1 out_receipt_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t handler_id,
+    const char* payload_json,
+    const ExHermesClockIDispatchBindingV1* binding,
+    char** out_receipt_json) {
+  if (out_receipt_json == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
+  *out_receipt_json = nullptr;
+  if (runtime == nullptr || binding == nullptr ||
+      binding->abi_version !=
+          EX_HERMES_CLOCK_I_DISPATCH_BINDING_ABI_VERSION_V1 ||
+      binding->struct_size != sizeof(ExHermesClockIDispatchBindingV1) ||
+      binding->expected_runtime_nonce == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const uint64_t expected_runtime_nonce = binding->expected_runtime_nonce;
+
+  std::string nonce;
+  std::string input_id_json;
+  std::string generation_json;
+  std::string host_input_receipt_id;
+  if (!copyClockIBindingSlice(binding->nonce, binding->nonce_len, nonce) ||
+      !copyClockIBindingSlice(
+          binding->input_id_json,
+          binding->input_id_json_len,
+          input_id_json) ||
+      !copyClockIBindingSlice(
+          binding->generation_json,
+          binding->generation_json_len,
+          generation_json) ||
+      !copyClockIBindingSlice(
+          binding->host_input_receipt_id,
+          binding->host_input_receipt_id_len,
+          host_input_receipt_id)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  ExactRuntimeDriveGuard drive(runtime, expected_runtime_nonce);
+  if (!drive) return drive.status();
+  if (runtime->restricted || !exactRuntimeEnterUserExecution(runtime)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  ScopedRuntimeExtensionHostTask host_task(runtime);
+  if (!host_task) return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+  auto& rt = *runtime->runtime;
+  auto state = std::make_shared<ClockICarrierAttestorState>();
+
+  try {
+    auto handler_value = rt.global().getProperty(rt, "__exactDispatchEvent");
+    if (!handler_value.isObject() ||
+        !handler_value.getObject(rt).isFunction(rt)) {
+      return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+    }
+    auto handler = handler_value.getObject(rt).asFunction(rt);
+    auto payload = payload_json && payload_json[0] != '\0'
+        ? parseJsonValue(rt, payload_json)
+        : facebook::jsi::Value::undefined();
+    auto attestor = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "clockICarrierAttestor"),
+        0,
+        [state](facebook::jsi::Runtime& callback_runtime,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value*,
+                size_t count) -> facebook::jsi::Value {
+          if (count != 0) {
+            throw facebook::jsi::JSError(
+                callback_runtime,
+                "Clock I carrier attestor takes no arguments");
+          }
+          if (!state->active) {
+            throw facebook::jsi::JSError(
+                callback_runtime,
+                "Clock I carrier attestor is no longer active");
+          }
+          if (state->called) {
+            throw facebook::jsi::JSError(
+                callback_runtime,
+                "Clock I carrier attestor is single-use");
+          }
+          state->called = true;
+          // Capture before returning to JS: this is the only point at which
+          // the receiving first-party frame is live and engine-attributable.
+          state->principal_id = currentPrincipalId();
+          state->runtime_nonce = ex_hermes_current_runtime_nonce();
+          state->entry_runtime_monotonic_ms = ex_hermes_now_ms();
+          return facebook::jsi::Value::undefined();
+        });
+    handler.call(
+        rt,
+        facebook::jsi::Value(static_cast<double>(handler_id)),
+        std::move(payload),
+        std::move(attestor));
+    state->active = false;
+    if (!host_task.finish()) {
+      return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+    }
+  } catch (const facebook::jsi::JSError& error) {
+    state->active = false;
+    ex_host_console_log(1, error.getMessage().c_str());
+    return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+  } catch (...) {
+    state->active = false;
+    return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+  }
+
+  if (!state->called) {
+    return EX_HERMES_CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1;
+  }
+  if (state->runtime_nonce != expected_runtime_nonce ||
+      state->runtime_nonce != runtime->runtime_nonce) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+
+  const uint64_t sequence = runtime->next_clock_i_attestation_sequence;
+  if (sequence == 0 || sequence == std::numeric_limits<uint64_t>::max()) {
+    return EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1;
+  }
+  runtime->next_clock_i_attestation_sequence = sequence + 1;
+  const std::string receipt = clockICarrierReceiptJson(
+      sequence,
+      handler_id,
+      nonce,
+      input_id_json,
+      generation_json,
+      host_input_receipt_id,
+      *state);
+  char* owned = static_cast<char*>(std::malloc(receipt.size() + 1));
+  if (owned == nullptr) {
+    return EX_HERMES_CLOCK_I_DISPATCH_RECEIPT_ALLOCATION_FAILED_V1;
+  }
+  std::memcpy(owned, receipt.data(), receipt.size());
+  owned[receipt.size()] = '\0';
+  *out_receipt_json = owned;
+  return EX_HERMES_CLOCK_I_DISPATCH_OK_V1;
 }
 
 // =============================================================================

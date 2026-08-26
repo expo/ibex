@@ -2203,6 +2203,68 @@ int ex_hermes_dispatch_event(
     uint32_t handler_id,
     const char* payload_json);
 
+/// Versioned, caller-copied identity binding for one host-origin Clock I input
+/// dispatch. Every byte slice is copied before JavaScript runs and is limited
+/// to EX_HERMES_CLOCK_I_DISPATCH_BINDING_MAX_BYTES_V1 bytes. The expected
+/// runtime nonce is mandatory and closes stale-generation admission before the
+/// runtime is dereferenced.
+///
+/// input_id_json and generation_json are opaque UTF-8 JSON spellings. The
+/// attested receipt returns their exact bytes as JSON strings; the host owns
+/// their schema and may parse them after authenticating the receipt source.
+/// @ref LLP 0013#mechanism-3 — the live frame walk is the authority source
+/// @ref LLP 0040 — a per-call HostFunction is a narrow runtime endowment
+/// @ref LLP 0051 — fresh host events enter a clean runtime boundary
+typedef struct ExHermesClockIDispatchBindingV1 {
+  uint32_t abi_version;
+  uint32_t struct_size;
+  uint64_t expected_runtime_nonce;
+  const uint8_t* nonce;
+  size_t nonce_len;
+  const uint8_t* input_id_json;
+  size_t input_id_json_len;
+  const uint8_t* generation_json;
+  size_t generation_json_len;
+  const uint8_t* host_input_receipt_id;
+  size_t host_input_receipt_id_len;
+} ExHermesClockIDispatchBindingV1;
+
+#define EX_HERMES_CLOCK_I_DISPATCH_BINDING_ABI_VERSION_V1 1u
+#define EX_HERMES_CLOCK_I_DISPATCH_BINDING_MAX_BYTES_V1 16384u
+
+typedef enum ExHermesClockIDispatchStatusV1 {
+  EX_HERMES_CLOCK_I_DISPATCH_OK_V1 = 0,
+  /// The dispatcher returned without invoking its per-call attestor.
+  EX_HERMES_CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1 = -100,
+  /// JavaScript lookup, parsing, execution, or host-task finalization failed.
+  EX_HERMES_CLOCK_I_DISPATCH_FAILED_V1 = -101,
+  /// The complete receipt existed but its caller-owned copy could not be made.
+  EX_HERMES_CLOCK_I_DISPATCH_RECEIPT_ALLOCATION_FAILED_V1 = -102
+} ExHermesClockIDispatchStatusV1;
+
+/// Dispatch a renderer event with a single-use, call-scoped native attestor as
+/// globalThis.__exactDispatchEvent(handlerId, payload, attestCarrier). The
+/// attestor samples Ibex's actual currentPrincipalId() while the receiving JS
+/// frame is live; no host-supplied principal claim is accepted. A retained or
+/// repeated call fails closed, and a dispatcher that never calls it produces
+/// no receipt.
+///
+/// On success, out_receipt_json receives malloc-owned strict JSON using schema
+/// ibex-clock-i-carrier-attestation/1. Free it with ex_hermes_free_string.
+/// The runtimeNonce and principalId fields use the lossless "u64:<decimal>"
+/// spelling. entryRuntimeMonotonicMs uses ex_hermes_now_ms()'s Ibex-local
+/// steady-clock domain; it is not a host-wall or host-monotonic timestamp.
+///
+/// Returns ExactRuntimeDriveStatus for admission refusals, or an
+/// ExHermesClockIDispatchStatusV1 value for dispatch/attestation outcomes.
+/// @abi-output ex_hermes_dispatch_event_attested_v1 out_receipt_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+int32_t ex_hermes_dispatch_event_attested_v1(
+    ExactHermesRuntime* runtime,
+    uint32_t handler_id,
+    const char* payload_json,
+    const ExHermesClockIDispatchBindingV1* binding,
+    char** out_receipt_json);
+
 // =============================================================================
 // Host ABI (called from Rust, used by hermes_runtime.cc)
 // =============================================================================

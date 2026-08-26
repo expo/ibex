@@ -59,6 +59,27 @@ IBEX_C_ABI_ASSERT(cancellation_event_version,
                   EX_HERMES_CANCELLATION_EVENT_ABI_VERSION == 1u);
 IBEX_C_ABI_ASSERT(async_failure_event_version,
                   EX_HERMES_ASYNC_FAILURE_EVENT_ABI_VERSION == 1u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_version,
+                  EX_HERMES_CLOCK_I_DISPATCH_BINDING_ABI_VERSION_V1 == 1u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_ok,
+                  EX_HERMES_CLOCK_I_DISPATCH_OK_V1 == 0);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_no_call_is_failure,
+                  EX_HERMES_CLOCK_I_DISPATCH_ATTESTOR_NOT_CALLED_V1 < 0);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_version_first,
+                  offsetof(ExHermesClockIDispatchBindingV1, abi_version) ==
+                      0u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_size_after_version,
+                  offsetof(ExHermesClockIDispatchBindingV1, struct_size) ==
+                      sizeof(uint32_t));
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_nonce_after_size,
+                  offsetof(ExHermesClockIDispatchBindingV1,
+                           expected_runtime_nonce) >=
+                      2u * sizeof(uint32_t));
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_receipt_length_after_pointer,
+                  offsetof(ExHermesClockIDispatchBindingV1,
+                           host_input_receipt_id_len) >
+                      offsetof(ExHermesClockIDispatchBindingV1,
+                           host_input_receipt_id));
 IBEX_C_ABI_ASSERT(cancellation_accepted_value,
                   EX_HERMES_CANCELLATION_ACCEPTED == 1u);
 IBEX_C_ABI_ASSERT(cancellation_failed_value,
@@ -251,6 +272,22 @@ IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_message_offset_64,
                       24u);
 IBEX_C_ABI_ASSERT(plan_seam_create_diagnostic_size_64,
                   sizeof(ExHermesPlanSeamCreateDiagnosticV1) == 1048u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_expected_nonce_offset_64,
+                  offsetof(ExHermesClockIDispatchBindingV1,
+                           expected_runtime_nonce) == 8u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_nonce_offset_64,
+                  offsetof(ExHermesClockIDispatchBindingV1, nonce) == 16u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_input_offset_64,
+                  offsetof(ExHermesClockIDispatchBindingV1, input_id_json) ==
+                      32u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_generation_offset_64,
+                  offsetof(ExHermesClockIDispatchBindingV1,
+                           generation_json) == 48u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_host_receipt_offset_64,
+                  offsetof(ExHermesClockIDispatchBindingV1,
+                           host_input_receipt_id) == 64u);
+IBEX_C_ABI_ASSERT(clock_i_dispatch_binding_size_64,
+                  sizeof(ExHermesClockIDispatchBindingV1) == 80u);
 IBEX_C_ABI_ASSERT(position_line_offset_64,
                   offsetof(ExHermesSourcePosition, line) == 16u);
 IBEX_C_ABI_ASSERT(position_column_offset_64,
@@ -371,6 +408,12 @@ IBEX_C_ABI_ASSERT(dynamic_activation_specifier_length_after_pointer,
 /* Function-pointer assignments type-check the callable C surface without
  * creating an executable ingress or requiring a link-time call. */
 void ibex_exact_runtime_c_abi_typecheck(void) {
+  int32_t (*dispatch_event_attested)(
+      ExactHermesRuntime*,
+      uint32_t,
+      const char*,
+      const ExHermesClockIDispatchBindingV1*,
+      char**) = ex_hermes_dispatch_event_attested_v1;
   uint32_t (*bind_session)(ExactHermesRuntime*, const uint8_t*, size_t) =
       ex_hermes_structured_session_bind;
   uint32_t (*admit_submission)(ExactHermesRuntime*,
@@ -682,6 +725,7 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_host_terminal_session_stdio_query;
   void (*console_log_bytes)(int32_t, const uint8_t*, size_t) =
       ex_host_console_log_bytes;
+  (void)dispatch_event_attested;
   (void)bind_session;
   (void)admit_submission;
   (void)settle_submission;
