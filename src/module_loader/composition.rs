@@ -546,6 +546,10 @@ pub struct CompositionReportCommonV1 {
     pub composition_root_prefix: Option<String>,
     pub entry_plan: Option<CompositionEntryPlanV1>,
     pub engine_binding_digest_prefix: Option<String>,
+    /// Digest of the resolver/transform/compiler inventory that was both
+    /// committed as the envelope producer identity and independently
+    /// supplied through verifier-held expectations.
+    pub compiler_identity_binding_digest_prefix: Option<String>,
     pub packages: Vec<CompositionReportPackageV1>,
     pub commitment_parse_us: u64,
     pub admission_us: u64,
@@ -973,6 +977,8 @@ fn report_common_v1(
         composition_root_prefix: composition_root.map(digest_prefix),
         entry_plan: envelope.map(|envelope| envelope.entry_plan.clone()),
         engine_binding_digest_prefix,
+        compiler_identity_binding_digest_prefix: envelope
+            .map(|envelope| digest_prefix(&envelope.freshness.producer.binary_digest)),
         packages,
         commitment_parse_us,
         admission_us,
@@ -1849,6 +1855,13 @@ fn admit_prepared_composition_with_probes_v1(
             CompositionRefusalCode::CompositionPolicyStale,
             None,
             "composition policy digest differs from verifier-held policy"
+        );
+    }
+    if envelope.freshness.producer.binary_digest != expectations.resolver_inventory_digest {
+        refuse!(
+            CompositionRefusalCode::CompositionReplayed,
+            None,
+            "composition resolver/compiler inventory differs from verifier-held live state"
         );
     }
     if envelope.freshness.target != expectations.expected_target
@@ -2912,7 +2925,7 @@ mod tests {
             "authorityGeneration": 1,
             "resolverGeneration": 7,
             "policyDigest": valid_digest("policy"),
-            "resolverInventoryDigest": valid_digest("resolver"),
+            "resolverInventoryDigest": valid_digest("composition-fixture-producer"),
             "nowUnixMs": 1_755_990_000_000_u64,
         })
     }

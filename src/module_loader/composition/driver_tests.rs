@@ -330,7 +330,7 @@ impl CompositionFixtureV1 {
                     agent_packing: "boot-core-v1".into(),
                     producer: CompositionProducerV1 {
                         id: NonEmptyString::new("composition-fixture-producer").unwrap(),
-                        binary_digest: producer_binary_digest,
+                        binary_digest: producer_binary_digest.clone(),
                     },
                 },
             },
@@ -351,9 +351,7 @@ impl CompositionFixtureV1 {
                 authority_generation: 1,
                 resolver_generation: GENERATION,
                 policy_digest,
-                // A2 reserves this wire field. Deliberately unrelated bytes
-                // prove that no driver predicate consumes it.
-                resolver_inventory_digest: source_integrity(b"reserved-unused-input").unwrap(),
+                resolver_inventory_digest: producer_binary_digest.clone(),
                 now_unix_ms: 5_000,
             },
             app_root,
@@ -854,15 +852,18 @@ fn configure_hbc_carrier(
 }
 
 #[test]
-fn fixture_rows_b12_b13_admit_both_declarations_and_ignore_reserved_input() {
-    let mut app = CompositionFixtureV1::new(false);
-    app.expectations.resolver_inventory_digest = source_integrity(b"arbitrary-reserved-a").unwrap();
-    assert_admitted(app.run());
+fn fixture_rows_b12_b13_admit_both_declarations_and_bind_live_compiler_inventory() {
+    assert_admitted(CompositionFixtureV1::new(false).run());
+    assert_admitted(CompositionFixtureV1::new(true).run());
 
-    let mut composed = CompositionFixtureV1::new(true);
-    composed.expectations.resolver_inventory_digest =
-        source_integrity(b"arbitrary-reserved-b").unwrap();
-    assert_admitted(composed.run());
+    let mut mismatched = CompositionFixtureV1::new(true);
+    mismatched.expectations.resolver_inventory_digest =
+        source_integrity(b"different-live-resolver-compiler-inventory").unwrap();
+    assert_refusal(
+        mismatched.run(),
+        2,
+        CompositionRefusalCode::CompositionReplayed,
+    );
 }
 
 #[test]
@@ -882,6 +883,10 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
     assert_eq!(outcome.report["appEvaluatedRecordCount"], 1);
     assert_eq!(outcome.report["sharedEvaluatedRecordCount"], 1);
     assert_eq!(outcome.report["agentInvokeReturnedThenable"], false);
+    assert_eq!(
+        outcome.report["compilerIdentityBindingDigestPrefix"],
+        digest_prefix(&fixture.envelope.freshness.producer.binary_digest)
+    );
     assert!(outcome.report["packages"]
         .as_array()
         .unwrap()
@@ -931,6 +936,43 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
     );
     assert_eq!(probe["agentMain"], false);
     assert_eq!(probe["appMain"], true);
+}
+
+#[cfg(target_vendor = "apple")]
+#[test]
+fn agent_on_evaluation_boundary_encloses_agent_shared_invoke_and_app_segments() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    crate::host::abi::install_host(crate::host::Host::strict());
+    let mut fixture = CompositionFixtureV1::new(true);
+    let agent_root = fixture.agent_root.clone().unwrap();
+    fixture.replace_record_source(
+        CompositionRole::Agent,
+        &agent_root,
+        "import { appValue } from 'app-lib'; var a=Date.now(); while(Date.now()-a<15){}; globalThis.__compositionOrder.push('agent'); export function installExactNativeAgentBootstrap() { var i=Date.now(); while(Date.now()-i<15){}; globalThis.__compositionOrder.push('invoke'); return appValue; }",
+    );
+    fixture.normalize();
+    let runtime = CompositionTestRuntimeV1::new();
+    let outcome = run_composition_startup_fixture_v1(&fixture, &runtime);
+    assert_eq!(
+        outcome.status, 0,
+        "composition startup: {:?}",
+        outcome.error
+    );
+    let boundaries = &outcome.report["phaseBoundaries"];
+    let evaluation_ms = boundaries["evaluation"]["endHostMonotonicMs"]
+        .as_f64()
+        .unwrap()
+        - boundaries["evaluation"]["startHostMonotonicMs"]
+            .as_f64()
+            .unwrap();
+    let measured_segments_ms = ["agentEvaluateUs", "agentInvokeUs", "appEvaluateUs"]
+        .into_iter()
+        .map(|field| outcome.report[field].as_u64().unwrap() as f64 / 1_000.0)
+        .sum::<f64>();
+    assert!(
+        evaluation_ms + 0.01 >= measured_segments_ms,
+        "outer evaluation boundary {evaluation_ms}ms must contain all agent/shared/invoke/app measurements totaling {measured_segments_ms}ms"
+    );
 }
 
 #[test]

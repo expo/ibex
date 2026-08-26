@@ -5,9 +5,15 @@
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-26 (observed-boundary report amendment — §8's
+**Revised:** 2026-08-26 (A3 — `resolverInventoryDigest` is now consumed at
+step 2b: Exact commits the same resolver/transform/compiler inventory digest
+as the package/envelope producer identity, the verifier supplies it from live
+toolchain state, mismatch refuses as `composition-replayed`, and the admitted
+report surfaces `compilerIdentityBindingDigestPrefix`; the report's evaluation
+boundary now encloses the complete agent/shared/invoke/app activation set)
+2026-08-26 (observed-boundary report amendment — §8's
 common report gains nullable `phaseBoundaries`: complete Apple
-`mach_absolute_time` admission/link/app-evaluation brackets are authoritative
+`mach_absolute_time` admission/link/activation-set-evaluation brackets are authoritative
 host-monotonic observations; duration counters remain diagnostic-only and
 must never be projected into DAG timestamps) 2026-08-25 (IMPLEMENTED — the three ibex legs of §11 are
 landed on main: leg 1 frozen layer @8db6cedf6; leg 2 admission driver
@@ -393,13 +399,11 @@ O-3 inventory with no input channel — codex/grok convergent):
   "authorityGeneration": <int>,
   "resolverGeneration": <int>,
   "policyDigest": "<digest>",
-  "resolverInventoryDigest": "<digest>",  // the frozen resolver/transform
-                                          // inventory digest. A2: RESERVED —
-                                          // mandatory on the wire (landed O-1
-                                          // schema), consumed by NO v1
-                                          // admission predicate (§4.7's r5
-                                          // alias-input claim was a phantom;
-                                          // consumption arrives with O-4)
+  "resolverInventoryDigest": "<digest>",  // frozen resolver/transform/compiler
+                                          // inventory. Exact also commits
+                                          // this as the envelope/package
+                                          // producer binary digest; step 2b
+                                          // requires exact equality.
   "nowUnixMs": <int>
 }
 ```
@@ -696,9 +700,12 @@ preimage bytes are pinned cross-repo (the 21-vector corpus, its TS
 half, and the `prepared-composition-schema-parity` corpus legs), the
 field is mandatory in the landed §3.3 authority schema so it stays on
 the wire, and inventing a comparison target would be new normative
-surface. `resolverInventoryDigest` is therefore RESERVED: v1 admission
-performs no comparison with it; its consumption arrives with the
-O-4/armed real-policy work.
+surface. A2 remains authoritative for alias verification: the resolver
+inventory is not an alias-preimage input. **Amendment A3 consumes the existing
+field at step 2b instead**: Exact commits that same digest as the
+package/envelope producer identity, including the live compiler binary digest
+for HBC compositions; admission requires equality with the verifier-held
+value and reports the accepted binding. This supplies no new alias input.
 Divergence is `alias-conflict`. At resolution time (steps 6–8 and
 runtime dynamic-import lookups through the composition session, §7.5), a
 target id owned by no package that appears as an `aliasId` resolves
@@ -1367,7 +1374,8 @@ javascriptCarrierCount, verificationStatus}`, timings
 diagnostic (§7.3). `phaseBoundaries` is either null or the complete
 `ibex/prepared-phase-boundaries/1` bracket: observed Apple
 `mach_absolute_time` start/end milliseconds for admission, atomic link,
-and app evaluation, labeled `clockDomain: "host-monotonic"`,
+and activation-set evaluation (agent/shared evaluation, the descriptor invoke,
+and app evaluation), labeled `clockDomain: "host-monotonic"`,
 `clockSource: "mach-absolute-time"`, and
 `timingBasis: "observed-boundary"`. It is null on platforms without that
 clock and whenever all three brackets were not observed; the duration
@@ -1563,6 +1571,14 @@ alone; nothing admits for real until leg 3, which is the moment
   in §8.)*
 
 ## Revision history
+
+- **A3 (2026-08-26):** activated the existing verifier-held
+  `resolverInventoryDigest` as the exact package/envelope producer identity
+  comparison at step 2b. Exact's preimage binds producer source,
+  resolver/transform ABI, carrier encoding, and the live compiler binary
+  digest for HBC; the admitted report exposes the binding prefix. The
+  observed evaluation boundary was widened from app-only to the entire
+  agent/shared/invoke/app activation set.
 
 - **A2 (2026-08-24, post-acceptance amendment):** §10 external-reference
   rule made decidable — v1 DENY-ALL-CROSSING (every external edge whose

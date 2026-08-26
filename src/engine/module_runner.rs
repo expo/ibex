@@ -4557,8 +4557,8 @@ pub(crate) struct CompositionExecutionMetricsV1 {
     pub(crate) app_evaluated_record_count: usize,
     pub(crate) shared_evaluated_record_count: usize,
     pub(crate) agent_invoke_returned_thenable: bool,
-    pub(crate) app_evaluate_start_host_monotonic_ms: Option<f64>,
-    pub(crate) app_evaluate_end_host_monotonic_ms: Option<f64>,
+    pub(crate) evaluation_start_host_monotonic_ms: Option<f64>,
+    pub(crate) evaluation_end_host_monotonic_ms: Option<f64>,
 }
 
 #[cfg(feature = "dev-committed-embedder")]
@@ -4655,6 +4655,13 @@ impl<'runtime> CompositionDescriptorExecutorV1<'runtime> {
         loop {
             match &self.state {
                 CompositionDescriptorStateV1::Pending => {
+                    // LLP 0565.006 §2.2: the observed evaluation node owns
+                    // the ENTIRE activation set. In an agent-on plan that
+                    // includes agent/shared evaluation, the single bootstrap
+                    // invocation, and app evaluation — none may fall into
+                    // unattributed slack before this boundary.
+                    self.metrics.evaluation_start_host_monotonic_ms =
+                        composition_host_monotonic_now_ms_v1();
                     if self.agent.is_some() {
                         let started = std::time::Instant::now();
                         let (outcome, evaluated) = self.graph.evaluate_composition_segment(0);
@@ -4696,13 +4703,11 @@ impl<'runtime> CompositionDescriptorExecutorV1<'runtime> {
                     self.state = CompositionDescriptorStateV1::AgentInvoked;
                 }
                 CompositionDescriptorStateV1::AgentInvoked => {
-                    self.metrics.app_evaluate_start_host_monotonic_ms =
-                        composition_host_monotonic_now_ms_v1();
                     let started = std::time::Instant::now();
                     let (outcome, evaluated) =
                         self.graph.evaluate_composition_segment(self.app_segment);
                     self.metrics.app_evaluate = started.elapsed();
-                    self.metrics.app_evaluate_end_host_monotonic_ms =
+                    self.metrics.evaluation_end_host_monotonic_ms =
                         composition_host_monotonic_now_ms_v1();
                     self.metrics.app_evaluated_record_count = evaluated.len();
                     if let Err(error) = outcome {
