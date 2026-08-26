@@ -7584,7 +7584,8 @@ pub mod dev_committed_embedder {
     };
     use crate::module_loader::composition::{
         admit_prepared_composition_v1, composition_embedder_channel_error_report_v1,
-        CompositionAdmissionOutcomeV1, DevUnarmedCompositionStartupReportV1,
+        composition_host_monotonic_now_ms_v1, CompositionAdmissionOutcomeV1,
+        CompositionHostMonotonicPhaseBoundariesV1, DevUnarmedCompositionStartupReportV1,
     };
 
     const DEV_UNARMED_AUTHORITY: &str = "dev-unarmed-dev-served (non-production)";
@@ -7999,6 +8000,37 @@ pub mod dev_committed_embedder {
         );
     }
 
+    fn apply_composition_phase_boundaries(
+        report: &mut DevUnarmedCompositionStartupReportV1,
+        admission: (Option<f64>, Option<f64>),
+        link: (Option<f64>, Option<f64>),
+        metrics: &crate::engine::module_runner::CompositionExecutionMetricsV1,
+    ) {
+        let phase_boundaries = match (
+            admission.0,
+            admission.1,
+            link.0,
+            link.1,
+            metrics.app_evaluate_start_host_monotonic_ms,
+            metrics.app_evaluate_end_host_monotonic_ms,
+        ) {
+            (
+                Some(admission_start),
+                Some(admission_end),
+                Some(link_start),
+                Some(link_end),
+                Some(evaluation_start),
+                Some(evaluation_end),
+            ) => CompositionHostMonotonicPhaseBoundariesV1::measured(
+                (admission_start, admission_end),
+                (link_start, link_end),
+                (evaluation_start, evaluation_end),
+            ),
+            _ => None,
+        };
+        report.set_phase_boundaries(phase_boundaries);
+    }
+
     /// Admit, atomically link, and execute one package-aware composition.
     /// Success leaks exactly one retained session for process lifetime.
     // @ref LLP 0056#5-the-nine-steps--the-ibex-half — the return-code boundary closes after step 8; every descriptor failure is DuringEvaluation.
@@ -8010,12 +8042,15 @@ pub mod dev_committed_embedder {
         expectations_text: &str,
         project_root: &Path,
     ) -> (i32, DevUnarmedCompositionStartupReportV1, Option<String>) {
-        let admitted = match admit_prepared_composition_v1(
+        let admission_started_host_monotonic_ms = composition_host_monotonic_now_ms_v1();
+        let admission_outcome = admit_prepared_composition_v1(
             composition_dir,
             commitment_text,
             expectations_text,
             project_root,
-        ) {
+        );
+        let admission_ended_host_monotonic_ms = composition_host_monotonic_now_ms_v1();
+        let admitted = match admission_outcome {
             CompositionAdmissionOutcomeV1::ChannelError(report)
             | CompositionAdmissionOutcomeV1::Refused(report) => {
                 let error = serde_json::to_string(&report).err().map(|serialization| {
@@ -8032,6 +8067,7 @@ pub mod dev_committed_embedder {
             mut report,
             ..
         } = *admitted;
+        let link_started_host_monotonic_ms = composition_host_monotonic_now_ms_v1();
         let link_started = std::time::Instant::now();
         let linked = (|| -> Result<(
             NativeSynchronousGraph<'static>,
@@ -8096,6 +8132,7 @@ pub mod dev_committed_embedder {
             }
         })();
         report.set_graph_link_duration(link_started.elapsed());
+        let link_ended_host_monotonic_ms = composition_host_monotonic_now_ms_v1();
         let (linked, runtime_owner) = match linked {
             Ok(linked) => linked,
             Err(error) => {
@@ -8150,7 +8187,17 @@ pub mod dev_committed_embedder {
                 );
             }
         };
-        if let Err(failure) = executor.run() {
+        let execution = executor.run();
+        apply_composition_phase_boundaries(
+            &mut report,
+            (
+                admission_started_host_monotonic_ms,
+                admission_ended_host_monotonic_ms,
+            ),
+            (link_started_host_monotonic_ms, link_ended_host_monotonic_ms),
+            executor.metrics(),
+        );
+        if let Err(failure) = execution {
             apply_composition_execution_metrics(&mut report, executor.metrics());
             let detail = failure.to_string();
             drop(executor);

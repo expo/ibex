@@ -459,6 +459,78 @@ pub struct CompositionReportPackageV1 {
     pub verification_status: CompositionPackageVerificationStatusV1,
 }
 
+/// One phase bracket captured from the Apple host-monotonic authority.
+///
+/// These are observed boundaries, not durations projected onto another
+/// timestamp. The startup evidence assembler may therefore use them as DAG
+/// events without inventing ordering that the runtime did not observe.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionHostMonotonicBoundaryV1 {
+    pub start_host_monotonic_ms: f64,
+    pub end_host_monotonic_ms: f64,
+}
+
+/// Complete measured admission/link/evaluation bracket for one composition.
+///
+/// This value is absent when the platform cannot expose Apple's
+/// `mach_absolute_time` clock or when all three phase boundaries were not
+/// observed. The microsecond duration counters in the surrounding report stay
+/// useful diagnostics, but absence here must never turn them into ledger
+/// timestamps.
+// @ref LLP 0056#8-the-report--tagged-shapes-one-per-outcome — phaseBoundaries is the report's nullable observed-clock authority; duration counters stay diagnostic.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionHostMonotonicPhaseBoundariesV1 {
+    pub schema_version: &'static str,
+    pub clock_domain: &'static str,
+    pub clock_source: &'static str,
+    pub timing_basis: &'static str,
+    pub admission: CompositionHostMonotonicBoundaryV1,
+    pub link: CompositionHostMonotonicBoundaryV1,
+    pub evaluation: CompositionHostMonotonicBoundaryV1,
+}
+
+#[cfg(feature = "dev-committed-embedder")]
+impl CompositionHostMonotonicPhaseBoundariesV1 {
+    pub(crate) fn measured(
+        admission: (f64, f64),
+        link: (f64, f64),
+        evaluation: (f64, f64),
+    ) -> Option<Self> {
+        let ordered = admission.0.is_finite()
+            && admission.1.is_finite()
+            && link.0.is_finite()
+            && link.1.is_finite()
+            && evaluation.0.is_finite()
+            && evaluation.1.is_finite()
+            && admission.0 >= 0.0
+            && admission.1 >= admission.0
+            && link.0 >= admission.1
+            && link.1 >= link.0
+            && evaluation.0 >= link.1
+            && evaluation.1 >= evaluation.0;
+        ordered.then_some(Self {
+            schema_version: "ibex/prepared-phase-boundaries/1",
+            clock_domain: "host-monotonic",
+            clock_source: "mach-absolute-time",
+            timing_basis: "observed-boundary",
+            admission: CompositionHostMonotonicBoundaryV1 {
+                start_host_monotonic_ms: admission.0,
+                end_host_monotonic_ms: admission.1,
+            },
+            link: CompositionHostMonotonicBoundaryV1 {
+                start_host_monotonic_ms: link.0,
+                end_host_monotonic_ms: link.1,
+            },
+            evaluation: CompositionHostMonotonicBoundaryV1 {
+                start_host_monotonic_ms: evaluation.0,
+                end_host_monotonic_ms: evaluation.1,
+            },
+        })
+    }
+}
+
 /// Fields present on every composition startup report.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -484,6 +556,7 @@ pub struct CompositionReportCommonV1 {
     pub agent_evaluated_record_count: u64,
     pub app_evaluated_record_count: u64,
     pub shared_evaluated_record_count: u64,
+    pub phase_boundaries: Option<CompositionHostMonotonicPhaseBoundariesV1>,
 }
 
 /// Total §8 report. Slice 2 serializes `channel-error` and `refused`; the
@@ -555,6 +628,13 @@ impl DevUnarmedCompositionStartupReportV1 {
 
     pub(crate) fn set_graph_link_duration(&mut self, duration: Duration) {
         self.common_mut().graph_link_us = i_json_duration_us(duration);
+    }
+
+    pub(crate) fn set_phase_boundaries(
+        &mut self,
+        phase_boundaries: Option<CompositionHostMonotonicPhaseBoundariesV1>,
+    ) {
+        self.common_mut().phase_boundaries = phase_boundaries;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -760,6 +840,36 @@ fn i_json_duration_us(duration: Duration) -> u64 {
         .min(I_JSON_MAX_SAFE_INTEGER)
 }
 
+/// Read the same host-monotonic authority used by Exact's Swift boot ledger.
+///
+/// `mach_absolute_time` is intentionally used directly instead of Rust's
+/// opaque `Instant`: the numeric endpoints cross the FFI/report boundary and
+/// must be comparable byte-for-byte with host-produced session timestamps.
+#[cfg(all(feature = "dev-committed-embedder", target_vendor = "apple"))]
+#[allow(deprecated)] // libc exposes the exact Darwin clock ABI required here.
+pub(crate) fn composition_host_monotonic_now_ms_v1() -> Option<f64> {
+    static TIMEBASE: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();
+    let &(numer, denom) = TIMEBASE
+        .get_or_init(|| {
+            let mut info = libc::mach_timebase_info_data_t { numer: 0, denom: 0 };
+            // SAFETY: `info` is a valid writable timebase structure for the
+            // duration of this call. Darwin returns zero on success.
+            let status = unsafe { libc::mach_timebase_info(&mut info) };
+            (status == 0 && info.denom != 0).then_some((info.numer, info.denom))
+        })
+        .as_ref()?;
+    // SAFETY: `mach_absolute_time` has no arguments and returns the current
+    // process-independent uptime tick count.
+    let ticks = unsafe { libc::mach_absolute_time() };
+    let milliseconds = (ticks as f64) * (numer as f64) / (denom as f64) / 1_000_000.0;
+    (milliseconds.is_finite() && milliseconds >= 0.0).then_some(milliseconds)
+}
+
+#[cfg(all(feature = "dev-committed-embedder", not(target_vendor = "apple")))]
+pub(crate) fn composition_host_monotonic_now_ms_v1() -> Option<f64> {
+    None
+}
+
 #[cfg(feature = "dev-committed-embedder")]
 fn digest_prefix(digest: &Digest) -> String {
     digest.as_str().chars().take(24).collect()
@@ -873,6 +983,7 @@ fn report_common_v1(
         agent_evaluated_record_count: 0,
         app_evaluated_record_count: 0,
         shared_evaluated_record_count: 0,
+        phase_boundaries: None,
     }
 }
 

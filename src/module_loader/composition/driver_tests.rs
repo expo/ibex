@@ -662,6 +662,36 @@ fn assert_i_json_report_counters(value: &Value) {
     }
 }
 
+#[test]
+fn fixture_measured_phase_boundaries_are_total_ordered_host_monotonic_observations() {
+    let boundaries = CompositionHostMonotonicPhaseBoundariesV1::measured(
+        (100.0, 101.0),
+        (101.25, 103.0),
+        (104.0, 109.5),
+    )
+    .expect("ordered finite phase boundaries admit");
+    let value = serde_json::to_value(boundaries).unwrap();
+    assert_eq!(value["schemaVersion"], "ibex/prepared-phase-boundaries/1");
+    assert_eq!(value["clockDomain"], "host-monotonic");
+    assert_eq!(value["clockSource"], "mach-absolute-time");
+    assert_eq!(value["timingBasis"], "observed-boundary");
+    assert_eq!(value["admission"]["startHostMonotonicMs"], 100.0);
+    assert_eq!(value["evaluation"]["endHostMonotonicMs"], 109.5);
+
+    assert!(CompositionHostMonotonicPhaseBoundariesV1::measured(
+        (100.0, 101.0),
+        (100.5, 103.0),
+        (104.0, 109.5),
+    )
+    .is_none());
+    assert!(CompositionHostMonotonicPhaseBoundariesV1::measured(
+        (100.0, 101.0),
+        (101.0, 103.0),
+        (104.0, f64::NAN),
+    )
+    .is_none());
+}
+
 struct CompositionStartupFixtureOutcomeV1 {
     status: i32,
     report: Value,
@@ -858,6 +888,35 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
         .iter()
         .all(|package| package["verificationStatus"] == "verified"));
     assert_i_json_report_counters(&outcome.report);
+    #[cfg(target_vendor = "apple")]
+    {
+        let boundaries = &outcome.report["phaseBoundaries"];
+        assert_eq!(
+            boundaries["schemaVersion"],
+            "ibex/prepared-phase-boundaries/1"
+        );
+        assert_eq!(boundaries["clockDomain"], "host-monotonic");
+        assert_eq!(boundaries["clockSource"], "mach-absolute-time");
+        assert_eq!(boundaries["timingBasis"], "observed-boundary");
+        let endpoint = |phase: &str, edge: &str| {
+            boundaries[phase][edge]
+                .as_f64()
+                .unwrap_or_else(|| panic!("{phase}.{edge} must be a finite timestamp"))
+        };
+        let admission_start = endpoint("admission", "startHostMonotonicMs");
+        let admission_end = endpoint("admission", "endHostMonotonicMs");
+        let link_start = endpoint("link", "startHostMonotonicMs");
+        let link_end = endpoint("link", "endHostMonotonicMs");
+        let evaluation_start = endpoint("evaluation", "startHostMonotonicMs");
+        let evaluation_end = endpoint("evaluation", "endHostMonotonicMs");
+        assert!(admission_start <= admission_end);
+        assert!(admission_end <= link_start);
+        assert!(link_start <= link_end);
+        assert!(link_end <= evaluation_start);
+        assert!(evaluation_start <= evaluation_end);
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    assert!(outcome.report["phaseBoundaries"].is_null());
 
     let probe = runtime
         .eval_text(

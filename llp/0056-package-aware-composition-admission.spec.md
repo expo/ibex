@@ -5,7 +5,11 @@
 **Systems:** Module Loader, Engine, Host Embedding, Security, Conformance
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-24
-**Revised:** 2026-08-25 (IMPLEMENTED — the three ibex legs of §11 are
+**Revised:** 2026-08-26 (observed-boundary report amendment — §8's
+common report gains nullable `phaseBoundaries`: complete Apple
+`mach_absolute_time` admission/link/app-evaluation brackets are authoritative
+host-monotonic observations; duration counters remain diagnostic-only and
+must never be projected into DAG timestamps) 2026-08-25 (IMPLEMENTED — the three ibex legs of §11 are
 landed on main: leg 1 frozen layer @8db6cedf6; leg 2 admission driver
 steps 0–7 + fixtures B/C/F-i + covering map; leg 3 multi-root
 link/evaluate, invoke ABI, descriptor executor, retained session, the
@@ -1360,7 +1364,15 @@ javascriptCarrierCount, verificationStatus}`, timings
 `sharedEvaluatedRecordCount` — counts only, no source identifiers;
 0413.001 OQ2's lean), and — on the `admitted` /
 `admitted-startup-error` variants — the `agentInvokeReturnedThenable`
-diagnostic (§7.3). All counters are I-JSON safe integers. A report
+diagnostic (§7.3). `phaseBoundaries` is either null or the complete
+`ibex/prepared-phase-boundaries/1` bracket: observed Apple
+`mach_absolute_time` start/end milliseconds for admission, atomic link,
+and app evaluation, labeled `clockDomain: "host-monotonic"`,
+`clockSource: "mach-absolute-time"`, and
+`timingBasis: "observed-boundary"`. It is null on platforms without that
+clock and whenever all three brackets were not observed; the duration
+counters remain diagnostic-only and MUST NOT be projected into authoritative
+boundary timestamps. All counters are I-JSON safe integers. A report
 serialization failure never converts an outcome (the landed rule:
 surface through the error slot alongside the outcome's return code);
 in that one case `out_report_json` is null and the error slot names

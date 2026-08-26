@@ -33,8 +33,8 @@ use crate::module_loader::security::{
 #[cfg(feature = "dev-committed-embedder")]
 use crate::module_loader::{
     composition::{
-        AuthorizedCompositionPlanV1, CompositionAliasTableV1, CompositionStartupPhaseV1,
-        DevUnarmedCompositionStartupReportV1,
+        composition_host_monotonic_now_ms_v1, AuthorizedCompositionPlanV1, CompositionAliasTableV1,
+        CompositionStartupPhaseV1, DevUnarmedCompositionStartupReportV1,
     },
     graph::CompositionRootPlan,
 };
@@ -4557,6 +4557,8 @@ pub(crate) struct CompositionExecutionMetricsV1 {
     pub(crate) app_evaluated_record_count: usize,
     pub(crate) shared_evaluated_record_count: usize,
     pub(crate) agent_invoke_returned_thenable: bool,
+    pub(crate) app_evaluate_start_host_monotonic_ms: Option<f64>,
+    pub(crate) app_evaluate_end_host_monotonic_ms: Option<f64>,
 }
 
 #[cfg(feature = "dev-committed-embedder")]
@@ -4694,10 +4696,14 @@ impl<'runtime> CompositionDescriptorExecutorV1<'runtime> {
                     self.state = CompositionDescriptorStateV1::AgentInvoked;
                 }
                 CompositionDescriptorStateV1::AgentInvoked => {
+                    self.metrics.app_evaluate_start_host_monotonic_ms =
+                        composition_host_monotonic_now_ms_v1();
                     let started = std::time::Instant::now();
                     let (outcome, evaluated) =
                         self.graph.evaluate_composition_segment(self.app_segment);
                     self.metrics.app_evaluate = started.elapsed();
+                    self.metrics.app_evaluate_end_host_monotonic_ms =
+                        composition_host_monotonic_now_ms_v1();
                     self.metrics.app_evaluated_record_count = evaluated.len();
                     if let Err(error) = outcome {
                         return Err(self.fail(CompositionStartupPhaseV1::AppEvaluate, error));
