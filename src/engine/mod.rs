@@ -3636,10 +3636,14 @@ function collect() {
         let guard = public_eval
             .find("ExactRuntimeDriveGuard drive(runtime);")
             .expect("public eval drive guard");
+        let bundle_binding = public_eval
+            .find("beginIOSClockIDispatcherBundleEvaluation(runtime)")
+            .expect("guarded bundle-binding transaction");
         let dispatch = public_eval
-            .find("return evalRuntimeUnchecked(")
+            .find("const int result = evalRuntimeUnchecked(")
             .expect("guarded eval implementation dispatch");
-        assert!(guard < dispatch);
+        assert!(guard < bundle_binding);
+        assert!(bundle_binding < dispatch);
         assert!(
             !public_eval.contains("runtime->"),
             "the public wrapper must not inspect a caller runtime pointer before or after refusal"
