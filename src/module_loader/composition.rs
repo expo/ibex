@@ -196,7 +196,7 @@ pub struct CompositionVerifierExpectationsV1 {
     pub resolver_generation: u64,
     /// Digest of the verifier's effective policy.
     pub policy_digest: Digest,
-    /// Digest of the frozen resolver and transform inventory.
+    /// Reserved v1 wire input. A2 consumes this in no admission predicate.
     pub resolver_inventory_digest: Digest,
     /// Verifier-supplied wall-clock instant for deterministic expiry checks.
     pub now_unix_ms: u64,
@@ -479,8 +479,9 @@ pub struct CompositionHostMonotonicBoundaryV1 {
 /// `mach_absolute_time` clock or when all three phase boundaries were not
 /// observed. The microsecond duration counters in the surrounding report stay
 /// useful diagnostics, but absence here must never turn them into ledger
-/// timestamps.
-// @ref LLP 0056#8-the-report--tagged-shapes-one-per-outcome — phaseBoundaries is the report's nullable observed-clock authority; duration counters stay diagnostic.
+/// timestamps. This type belongs only to the separately versioned,
+/// non-normative diagnostics extension below; it is not part of the LLP 0056
+/// §8 report shape.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompositionHostMonotonicPhaseBoundariesV1 {
@@ -491,6 +492,19 @@ pub struct CompositionHostMonotonicPhaseBoundariesV1 {
     pub admission: CompositionHostMonotonicBoundaryV1,
     pub link: CompositionHostMonotonicBoundaryV1,
     pub evaluation: CompositionHostMonotonicBoundaryV1,
+}
+
+/// Non-normative startup diagnostics carried beside the LLP 0056 §8 report.
+///
+/// Consumers must be able to ignore or omit this extension. In particular,
+/// neither field participates in v1 composition admission, report validity,
+/// or refusal-code selection.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionStartupDiagnosticsV1 {
+    pub schema: &'static str,
+    pub compiler_identity_binding_digest_prefix: Option<String>,
+    pub phase_boundaries: Option<CompositionHostMonotonicPhaseBoundariesV1>,
 }
 
 #[cfg(feature = "dev-committed-embedder")]
@@ -548,10 +562,6 @@ pub struct CompositionReportCommonV1 {
     pub composition_root_prefix: Option<String>,
     pub entry_plan: Option<CompositionEntryPlanV1>,
     pub engine_binding_digest_prefix: Option<String>,
-    /// Digest of the resolver/transform/compiler inventory that was both
-    /// committed as the envelope producer identity and independently
-    /// supplied through verifier-held expectations.
-    pub compiler_identity_binding_digest_prefix: Option<String>,
     pub packages: Vec<CompositionReportPackageV1>,
     pub commitment_parse_us: u64,
     pub admission_us: u64,
@@ -562,7 +572,10 @@ pub struct CompositionReportCommonV1 {
     pub agent_evaluated_record_count: u64,
     pub app_evaluated_record_count: u64,
     pub shared_evaluated_record_count: u64,
-    pub phase_boundaries: Option<CompositionHostMonotonicPhaseBoundariesV1>,
+    /// Optional, separately versioned diagnostics outside the normative §8
+    /// report shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<CompositionStartupDiagnosticsV1>,
 }
 
 /// Total §8 report. Slice 2 serializes `channel-error` and `refused`; the
@@ -640,7 +653,16 @@ impl DevUnarmedCompositionStartupReportV1 {
         &mut self,
         phase_boundaries: Option<CompositionHostMonotonicPhaseBoundariesV1>,
     ) {
-        self.common_mut().phase_boundaries = phase_boundaries;
+        let common = self.common_mut();
+        if let Some(diagnostics) = &mut common.diagnostics {
+            diagnostics.phase_boundaries = phase_boundaries;
+        } else if phase_boundaries.is_some() {
+            common.diagnostics = Some(CompositionStartupDiagnosticsV1 {
+                schema: "ibex/composition-startup-diagnostics/1",
+                compiler_identity_binding_digest_prefix: None,
+                phase_boundaries,
+            });
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -985,8 +1007,6 @@ fn report_common_v1(
         composition_root_prefix: composition_root.map(digest_prefix),
         entry_plan: envelope.map(|envelope| envelope.entry_plan.clone()),
         engine_binding_digest_prefix,
-        compiler_identity_binding_digest_prefix: envelope
-            .map(|envelope| digest_prefix(&envelope.freshness.producer.binary_digest)),
         packages,
         commitment_parse_us,
         admission_us,
@@ -997,7 +1017,13 @@ fn report_common_v1(
         agent_evaluated_record_count: 0,
         app_evaluated_record_count: 0,
         shared_evaluated_record_count: 0,
-        phase_boundaries: None,
+        diagnostics: envelope.map(|envelope| CompositionStartupDiagnosticsV1 {
+            schema: "ibex/composition-startup-diagnostics/1",
+            compiler_identity_binding_digest_prefix: Some(digest_prefix(
+                &envelope.freshness.producer.binary_digest,
+            )),
+            phase_boundaries: None,
+        }),
     }
 }
 
@@ -1863,13 +1889,6 @@ fn admit_prepared_composition_with_probes_v1(
             CompositionRefusalCode::CompositionPolicyStale,
             None,
             "composition policy digest differs from verifier-held policy"
-        );
-    }
-    if envelope.freshness.producer.binary_digest != expectations.resolver_inventory_digest {
-        refuse!(
-            CompositionRefusalCode::CompositionReplayed,
-            None,
-            "composition resolver/compiler inventory differs from verifier-held live state"
         );
     }
     if envelope.freshness.target != expectations.expected_target

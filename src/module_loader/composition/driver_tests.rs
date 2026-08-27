@@ -351,7 +351,9 @@ impl CompositionFixtureV1 {
                 authority_generation: 1,
                 resolver_generation: GENERATION,
                 policy_digest,
-                resolver_inventory_digest: producer_binary_digest.clone(),
+                // Accepted A2 reserves this mandatory wire field. Deliberately
+                // unrelated bytes prove that no v1 predicate consumes it.
+                resolver_inventory_digest: source_integrity(b"reserved-unused-input").unwrap(),
                 now_unix_ms: 5_000,
             },
             app_root,
@@ -852,18 +854,16 @@ fn configure_hbc_carrier(
 }
 
 #[test]
-fn fixture_rows_b12_b13_admit_both_declarations_and_bind_live_compiler_inventory() {
+fn fixture_rows_b12_b13_admit_both_declarations_with_reserved_inventory_input() {
     assert_admitted(CompositionFixtureV1::new(false).run());
     assert_admitted(CompositionFixtureV1::new(true).run());
 
+    // A valid Accepted-v3 composition still admits when the reserved input
+    // differs. It must never be reclassified as composition-replayed.
     let mut mismatched = CompositionFixtureV1::new(true);
     mismatched.expectations.resolver_inventory_digest =
         source_integrity(b"different-live-resolver-compiler-inventory").unwrap();
-    assert_refusal(
-        mismatched.run(),
-        2,
-        CompositionRefusalCode::CompositionReplayed,
-    );
+    assert_admitted(mismatched.run());
 }
 
 #[test]
@@ -884,9 +884,18 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
     assert_eq!(outcome.report["sharedEvaluatedRecordCount"], 1);
     assert_eq!(outcome.report["agentInvokeReturnedThenable"], false);
     assert_eq!(
-        outcome.report["compilerIdentityBindingDigestPrefix"],
+        outcome.report["diagnostics"]["compilerIdentityBindingDigestPrefix"],
         digest_prefix(&fixture.envelope.freshness.producer.binary_digest)
     );
+    assert_eq!(
+        outcome.report["diagnostics"]["schema"],
+        "ibex/composition-startup-diagnostics/1"
+    );
+    assert!(outcome
+        .report
+        .get("compilerIdentityBindingDigestPrefix")
+        .is_none());
+    assert!(outcome.report.get("phaseBoundaries").is_none());
     assert!(outcome.report["packages"]
         .as_array()
         .unwrap()
@@ -915,7 +924,7 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
     assert_i_json_report_counters(&outcome.report);
     #[cfg(target_vendor = "apple")]
     {
-        let boundaries = &outcome.report["phaseBoundaries"];
+        let boundaries = &outcome.report["diagnostics"]["phaseBoundaries"];
         assert_eq!(
             boundaries["schemaVersion"],
             "ibex/prepared-phase-boundaries/1"
@@ -941,7 +950,7 @@ fn fixture_a1_composition_c_entry_runs_shared_agent_segment_then_invoke_then_app
         assert!(evaluation_start <= evaluation_end);
     }
     #[cfg(not(target_vendor = "apple"))]
-    assert!(outcome.report["phaseBoundaries"].is_null());
+    assert!(outcome.report["diagnostics"]["phaseBoundaries"].is_null());
 
     let probe = runtime
         .eval_text(
@@ -978,7 +987,7 @@ fn agent_on_evaluation_boundary_encloses_agent_shared_invoke_and_app_segments() 
         "composition startup: {:?}",
         outcome.error
     );
-    let boundaries = &outcome.report["phaseBoundaries"];
+    let boundaries = &outcome.report["diagnostics"]["phaseBoundaries"];
     let evaluation_ms = boundaries["evaluation"]["endHostMonotonicMs"]
         .as_f64()
         .unwrap()
