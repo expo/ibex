@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-27 (initial draft)
+**Revised:** 2026-08-27 (§6 amended — `fs`, `WebSocket`, `Buffer`, and `crypto.subtle` move into v1 by the author's decision, as APIs he intends to build on. The measurement is unchanged and stands: none are used by Exact's runtime today. LLP 0059.000 specifies them and marks them *author-required*.) 2026-08-27 (initial draft)
 **Related:** LLP 0057 (Ibex 2 — this discharges its OQ1 with measurement), LLP 0058 (the engine seam — the intrinsics tier below), LLP 0004 (module loading and builtins — the surface this replaces)
 
 ## Summary
@@ -19,9 +19,13 @@ the author's estimate.** `node:fs` is never used at runtime. `WebSocket` is
 never used by application code. SQLite is already a thin JavaScript wrapper
 over a native module — the Ibex 2 pattern, already built.
 
-This spec answers LLP 0057 OQ1 — *port Node compatibility or delete it?* — with
-evidence: **delete it.** Nothing in Exact's runtime uses `http`, `net`, `tls`,
-`child_process`, or `fs`.
+This spec answers LLP 0057 OQ1 — *port Node compatibility or delete it?* — in
+two parts. The **measurement** is that nothing in Exact's runtime uses `http`,
+`net`, `tls`, `child_process`, or `fs`. The **decision**, which is the author's
+and not the measurement's, is that a small, promise-only `fs` returns in v1
+along with `WebSocket`, `Buffer`, and `crypto.subtle`, because he intends to
+build on them. Node's server surface — `http`, `net`, `tls`, `child_process`,
+`zlib` — is deleted and does not return. §6 records which is which.
 
 ## 1. Method, and what it does not cover
 
@@ -99,23 +103,35 @@ owns header case-folding, redirect handling, the body state machine, abort, and
 the error taxonomy; the platform owns sockets, TLS, proxy configuration, HTTP/2
 and /3, and pooling.
 
-## 6. Not in v1
+## 6. Measured absent, and what the author put back
 
-Each of these is measured absent from application code, not merely deprioritized.
+Everything below is measured absent from application code today. That finding
+is a fact and does not change. What follows it is a **decision**, which is the
+author's to make against intent rather than usage: four of these return in v1
+because he named them as things to build on. They are specified in
+LLP 0059.000 and marked *author-required* there, so no later reader mistakes
+an intent for a measurement.
 
-- **`node:fs`, `node:path`, `node:os`** — zero runtime uses. Every hit is a
-  build plugin, a generator, or a script.
+**Returning in v1 by decision:** `fs` (promise-only, no sync variants),
+`WebSocket`, `Buffer`, `crypto.subtle`.
+
+**Staying out:**
+
+- **`node:fs`** — zero runtime uses; every hit is a build plugin, a generator,
+  or a script. **Returns in v1 by decision** as a promise-only subset over the
+  virtual filesystem namespace. `node:path` and `node:os` stay out.
 - **`node:http`, `net`, `tls`, `child_process`, `zlib`** — zero uses anywhere in
   Exact's runtime.
 - **`WebSocket`** — two files, one a build script and one a test harness. Ibex
-  uses WebSocket *internally* for the dev connection; that is a runtime-internal
-  transport, not standard-library surface an app calls. Revisit when an
-  application needs it.
-- **`Buffer`** — 36 uses in 16 files, and only two of those reach the native
-  path. Not implemented; the two call sites move to `Uint8Array`.
-- **`crypto.subtle`** — 18 uses in 10 files, all server-side (`exact-server`,
-  `exact-uploads`, response-cache digests) or build-time. Not needed by the app
-  runtime.
+  uses WebSocket *internally* for the dev connection. **Returns in v1 by
+  decision**; the application binding and the internal transport share one Rust
+  implementation rather than growing a second.
+- **`Buffer`** — 36 uses in 16 files, only two on the native path. **Returns in
+  v1 by decision** as a `Uint8Array` subclass, for ergonomics rather than
+  need.
+- **`crypto.subtle`** — 18 uses in 10 files, all server-side or build-time.
+  **Returns in v1 by decision**, scoped to digest, HMAC, ECDSA, Ed25519,
+  AES-GCM, and the two KDFs.
 - **`sessionStorage`, `indexedDB`, `EventSource`, `XMLHttpRequest`,
   `FormData`** — absent or single-use. `XMLHttpRequest` appears only inside
   vendored Rive, which falls back to `fetch` when it is missing.
