@@ -1220,6 +1220,10 @@ std::string clockICarrierReceiptJson(
   appendClockIJsonString(
       output, clockIPrincipalStatusLabel(principal_status));
   output += ",\"authority\":";
+  // V1 preserves the carrier tuple shape but does not sample a second
+  // authority source: authority deliberately duplicates principalStatus.
+  // Exact must describe this as a status-label duplicate, not independent
+  // authority evidence. @ref LLP 0013/0040
   appendClockIJsonString(
       output, clockIPrincipalStatusLabel(principal_status));
   output += ",\"principalStatusCode\":" + std::to_string(principal_status);
