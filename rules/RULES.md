@@ -11,7 +11,10 @@ Each rule is **[check]** (enforced in CI) or **[review]** (enforced by a human).
 ## Budgets — every budget is a trade, not a limit
 
 - **5 blocking checks, 60s total.** A sixth requires deleting one, in the same PR. **[check]**
-- **55 active design docs.** A 56th requires archiving one. **[check]**
+- **15 documents in the working set** (`llp/current/`). A 16th requires archiving one —
+  which is just removing the link. **[check]**
+- **10 documents in the foundation** (`llp/foundation/`). The corpus itself is uncapped:
+  56 documents cost nothing while they bind nothing. **[check]**
 - **This file: 700 words.** If it grows, something becomes a check or stops being a rule. **[check]**
 - **1,500 lines per source file**, baseline 133. Generated files exempt — and generated
   files are built, not committed. **[check]**
