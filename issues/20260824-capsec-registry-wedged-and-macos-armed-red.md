@@ -1,5 +1,6 @@
 # CapSec registry pipeline wedged (plan-seam) + macOS armed engine tests red (RAF disposition drift)
 
+**Status:** Open
 **Date:** 2026-08-24
 **Found by:** the LLP 0053 §I1 carrier-ingress lane, while trying to verify its
 own change. All findings below reproduce byte-for-byte at the pre-change

@@ -1,10 +1,12 @@
 # `ibex compat --probe`: executable three-point fault localization for engine-attributed bugs
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 
 **Filed:** 2026-07-26 (from Exact LLP 0404 N-1; both of that plan's review
 families independently asked for this to be executable rather than
 procedural)
+**Date:** 2026-07-26
 
 Exact LLP 0404 establishes an observation discipline for engine-attributed
 incompatibilities: measure at **raw engine** (pinned `hermes` binary, no

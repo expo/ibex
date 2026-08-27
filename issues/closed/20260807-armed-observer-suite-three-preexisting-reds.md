@@ -1,5 +1,6 @@
 # Armed observer suite: 3 pre-existing reds on main (compatibility window ×2, promise checkpoint)
 
+**Status:** Closed
 **Date:** 2026-08-07
 **Severity:** P2 (suite hygiene; masks real regressions)
 **Found by:** supervised P1 remediation session (evaluator-identity restamp + __exactWhich typed enforcement), while verifying its changes were not the cause.

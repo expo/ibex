@@ -1,6 +1,7 @@
 # Expose the inherited host environment through process.env in insecure mode
 
-**Status:** Closed (2026-07-24)
+**Status:** Closed
+**Resolution:** 2026-07-24
 
 ## Resolution
 

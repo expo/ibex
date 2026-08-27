@@ -1,6 +1,7 @@
 # Repair persistent module-runner and VFS library regression failures
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Severity:** P2
 **Systems:** Module Runner, VFS, CI
 **Author:** Codex, directed by Charlie Cheever

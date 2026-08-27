@@ -1,6 +1,6 @@
 # Static Hermes for the macOS stub (lean vs full by measurement)
 
-**Status:** Open — blocked on the accepted performance budget and measurement
+**Status:** Open
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 2
@@ -25,6 +25,8 @@ ratifies the measurement).
 **Done when:** stub links statically on `aarch64-apple-darwin`
 (`otool -L` shows system libraries only, CI-checked); measured sizes
 recorded; variant decision ratified.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): blocked on the accepted performance budget and measurement
 
 ## Progress — 2026-07-17
 

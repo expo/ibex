@@ -1,6 +1,6 @@
 # Mach-O segment embedding + signing state machine
 
-**Status:** Open — external notarization receipt remains
+**Status:** Open
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -36,6 +36,8 @@ statement (from `compile`) + optional publisher statement
 **Done when:** byte-level signing vectors (ad-hoc + Developer ID,
 minimum macOS, signature replacement, notarization verification) pass;
 two-clean-builder unsigned-core reproducibility holds on both formats.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): external notarization receipt remains
 
 ## Progress — 2026-07-17
 

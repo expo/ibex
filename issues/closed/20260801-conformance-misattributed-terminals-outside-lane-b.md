@@ -1,6 +1,7 @@
 # Conformance route evidence can record the wrong terminal, outside Lane B
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Severity:** P1
 **Systems:** Security, Conformance
 **Author:** Claude (Opus 5), directed by Charlie Cheever

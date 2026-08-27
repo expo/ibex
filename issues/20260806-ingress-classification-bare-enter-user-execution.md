@@ -1,8 +1,10 @@
 # Classify every bare exactRuntimeEnterUserExecution ingress before changing it (LLP 0051 §B)
 
+- **Status:** Open
 - **Filed:** 2026-08-06 by the LLP 0051 lane, per the codex r1 review
   (blocker 1: a blanket guard sweep can launder).
 - **Owner:** capsec / engine embedding ingress.
+- **Date:** 2026-08-06
 
 `emit_module_event_impl` (`ex_hermes_emit_module_event` /
 `ex_hermes_emit_module_view_event`) and the three worklet dispatch entries

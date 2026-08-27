@@ -1,6 +1,6 @@
 # Embedded admission, pinned-fd self-file, disk-free arming
 
-**Status:** Open — deferred to the v1.1 CapSec milestone
+**Status:** Open
 **Impact:** 5
 **Urgency:** 5
 **Ease:** 2
@@ -32,6 +32,8 @@ static-compatibility identities cannot be confused).
 **Done when:** relocation test (incl. carrier bytes) + authority-denial
 + bootstrap/application split + wrong-engine/wrong-version fixtures all
 pass on both v1 tuples with no filesystem or network reads at boot.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): deferred to the v1.1 CapSec milestone
 
 ## Progress — 2026-07-17
 

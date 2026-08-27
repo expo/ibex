@@ -1,6 +1,6 @@
 # ibex/authenticated-graph-snapshot/1 digest domain
 
-**Status:** Open — remaining authority projection is deferred to v1.1 CapSec
+**Status:** Open
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 3
@@ -35,6 +35,8 @@ path-independent end to end.
 policy/carrier/envelope all bind one snapshot; inter-step-mutation and
 divergent-graph fixtures refuse packaging; clean-root HBC byte
 comparison passes.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): remaining authority projection is deferred to v1.1 CapSec
 
 ## Progress — 2026-07-17
 

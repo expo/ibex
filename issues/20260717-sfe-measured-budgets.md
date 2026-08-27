@@ -1,6 +1,6 @@
 # Measured size/startup claims against precommitted budgets
 
-**Status:** Open — blocked on accepted numeric budgets and final measurements
+**Status:** Open
 **Impact:** 3
 **Urgency:** 3
 **Ease:** 4
@@ -26,6 +26,8 @@ item 3) is decided on this evidence.
 
 **Done when:** report archived with pass/fail against the precommitted
 budgets; LLP 0029 Motivation updated; register items 3 and 7 recorded.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): blocked on accepted numeric budgets and final measurements
 
 ## LLP 0047 reconciliation — 2026-08-01
 

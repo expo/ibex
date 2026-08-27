@@ -1,6 +1,7 @@
 # Retirement manifest + cargo-metadata prefix gate
 
-**Status:** Closed (2026-07-31)
+**Status:** Closed
+**Resolution:** 2026-07-31
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 3

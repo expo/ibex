@@ -1,6 +1,7 @@
 # LLP 0056 §10 defect: no dev-unarmed grant authority — #34 unimplementable without inventing security semantics
 
-**Status:** Resolved (2026-08-24 — LLP 0056 Amendment A2)
+**Status:** Closed
+**Resolution:** Resolved (2026-08-24 — LLP 0056 Amendment A2)
 **Severity:** P1 (blocks the LLP 0056 legs 2/3 admission driver — 0413.001 §6 "no composition admits" stays in force)
 **Systems:** Module Loader, Security, Conformance
 **Author:** Claude (Fable 5), verifying the codex gpt-5.6-sol implementation lane's stop-rule report

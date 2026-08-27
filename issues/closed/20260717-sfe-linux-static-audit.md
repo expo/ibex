@@ -1,6 +1,7 @@
 # Linux static-dependency audit (libcurl disposition required)
 
-**Status:** Closed (2026-07-26 — first pinned Ubuntu 22.04 CI execution green)
+**Status:** Closed
+**Resolution:** 2026-07-26 — first pinned Ubuntu 22.04 CI execution green
 **Impact:** 4
 **Urgency:** 4
 **Ease:** 5

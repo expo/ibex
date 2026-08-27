@@ -1,6 +1,7 @@
 # `ibex run` refuses with "legacy v1 target advertisements are diagnostic-only" for a plain script consumer
 
-**Status:** Closed — intentional refusal documented; production enablement remains tracked elsewhere
+**Status:** Closed
+**Resolution:** intentional refusal documented; production enablement remains tracked elsewhere
 **Date:** 2026-08-04
 **Resolved:** 2026-08-04
 **Reporter:** Weird Castle dogfooding (multiplayer sim-core differential gate; Claude on behalf of Charlie)

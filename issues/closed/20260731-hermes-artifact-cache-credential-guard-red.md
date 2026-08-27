@@ -1,6 +1,7 @@
 # Hermes artifact cache workflow red on every run: credential guard trips despite persist-credentials: false
 
-**Status:** Closed (2026-08-05)
+**Status:** Closed
+**Resolution:** 2026-08-05
 **Severity:** P2
 **Systems:** CI, Build, Hermes
 **Author:** Claude Fable 5 (Claude Code), directed by Charlie Cheever

@@ -1,6 +1,7 @@
 # `require('net')` (and almost every builtin) refused at activation
 
-**Status:** Closed — fixed
+**Status:** Closed
+**Resolution:** fixed
 **Severity:** P1 (the whole CommonJS builtin surface was unreachable)
 **Systems:** Module loader, Builtins
 **Author:** Claude (Opus 5), directed by Charlie Cheever

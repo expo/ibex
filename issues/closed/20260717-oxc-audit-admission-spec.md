@@ -1,6 +1,7 @@
 # Draft the audit-admission Spec LLP
 
-**Status:** Closed (2026-07-26 — LLP 0030 accepted)
+**Status:** Closed
+**Resolution:** 2026-07-26 — LLP 0030 accepted
 **Impact:** 4
 **Urgency:** 4
 **Ease:** 4

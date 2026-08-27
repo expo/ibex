@@ -1,5 +1,6 @@
 # Real-input dispatch ingress entered JS without the drive-guard entry boundary — input-seeded chains inherited residual carrier state and failed closed
 
+- **Status:** Open
 - **Filed:** 2026-08-06, migrated from Exact
   `issues/20260805-input-dispatch-no-user-carrier-denies-async-capabilities.md`
   (live A/B evidence lives there: real click → direct capability fetch DENIED
@@ -7,6 +8,7 @@
   agent-path activations always pass).
 - **Owner:** capsec / engine embedding ingress.
 - **Design:** LLP 0051 (runtime entry hygiene at the input dispatch ingress).
+- **Date:** 2026-08-06
 
 `ex_hermes_dispatch_event` entered JS through bare
 `exactRuntimeEnterUserExecution` with no `ExactRuntimeDriveGuard`: no

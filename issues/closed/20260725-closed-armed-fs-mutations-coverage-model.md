@@ -1,6 +1,7 @@
 # Reconcile hard-closed armed filesystem mutations with effect obligations
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Severity:** P1
 **Systems:** Security, Runtime, CapSec Registry, Conformance
 **Author:** Codex, directed by Charlie Cheever

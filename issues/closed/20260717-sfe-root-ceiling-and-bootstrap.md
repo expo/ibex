@@ -1,6 +1,7 @@
 # Root-specific ceiling stratum + sealed bootstrap stage
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Impact:** 5
 **Urgency:** 5
 **Ease:** 2

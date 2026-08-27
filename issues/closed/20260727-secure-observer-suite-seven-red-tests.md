@@ -1,6 +1,7 @@
 # Seven `--bin ibex` observer tests are red on a secure build of main
 
-**Status:** Closed (2026-07-27 — all seven fixed; secure observer suite fully green serially)
+**Status:** Closed
+**Resolution:** 2026-07-27 — all seven fixed; secure observer suite fully green serially
 **Severity:** P2
 **Systems:** Engine, Module Loader, Runtime, Testing
 **Author:** Claude (Fable 5), directed by Charlie Cheever

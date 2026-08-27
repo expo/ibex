@@ -1,10 +1,12 @@
 # Exact LLP 0417 H1: hot-revision surface implementation program (LLP 0055)
 
+**Status:** Closed
 **Opened:** 2026-08-24. **Governing spec:** llp/0055-hot-revision-intra-generation-updates.spec.md
 (opened against Draft r1; **ACCEPTED r10, 2026-08-25** — Charlie Cheever, via orchestration
 session exact-9e; commissioned by Exact LLP 0417 §6 Phase H1 after the H0 spike's stop rule did
 not fire — Exact `docs/reports/0417-h0-spike.md`). Exact-side program tracking stays in the Exact repo; this
 ticket tracks the ibex-side implementation slices.
+**Date:** 2026-08-24
 
 ## Slices
 

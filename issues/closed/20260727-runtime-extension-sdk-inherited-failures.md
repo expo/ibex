@@ -1,6 +1,7 @@
 # Inherited failures on main after the native runtime-extension SDK merge
 
-**Status:** Closed (2026-07-27 — both families fixed; secure suites 612/0 and 659/0)
+**Status:** Closed
+**Resolution:** 2026-07-27 — both families fixed; secure suites 612/0 and 659/0
 **Severity:** P2
 **Systems:** Engine, Host, Testing
 **Author:** Claude (Fable 5), directed by Charlie Cheever

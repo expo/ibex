@@ -1,6 +1,8 @@
 # CapSec inherited-alias Hermes profile digest drift
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
+**Date:** 2026-07-26
 
 The inherited-intrinsic alias account still pinned a profile-review digest from
 before the reviewed 12-patch Hermes profile was composed. Live source

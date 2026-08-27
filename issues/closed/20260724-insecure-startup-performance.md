@@ -1,6 +1,7 @@
 # Restore fast Ibex startup, prioritizing insecure REPL and embedded use
 
-**Status:** Resolved 2026-07-26.
+**Status:** Closed
+**Resolution:** Resolved 2026-07-26.
 **Severity:** P1
 **Systems:** CLI Runtime, REPL, Embedded API, CapSec, Performance
 **Author:** Codex, directed by Charlie Cheever

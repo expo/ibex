@@ -1,8 +1,6 @@
 # Committed-admission cost: blog-scale profile, M2 wave, and held designs
 
-**Status:** Open (tracking held items and follow-ups; the M2 wave landed on
-main — commits `e71cc491`, `ff8fd4e6`, `6616c850`, `6e314bcc` — and the
-`admission-cost-profile` branch is deleted)
+**Status:** Open
 **Systems:** Module Loader, Prepared Publications, CapSec Semantics
 **Author:** Claude Fable 5 (Claude Code)
 **Date:** 2026-07-30
@@ -10,6 +8,8 @@ main — commits `e71cc491`, `ff8fd4e6`, `6616c850`, `6e314bcc` — and the
 prepared-startup phase), Exact
 `issues/20260728-llp0413-phase3-hbc-carriers-and-cache.md` M2/M3 receipts,
 LLP 0042 (committed admission algorithm), LLP 0027 (canonical encoding).
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): tracking held items and follow-ups; the M2 wave landed on main — commits `e71cc491`, `ff8fd4e6`, `6616c850`, `6e314bcc` — and the `admission-cost-profile` branch is deleted
 
 ## M1 profile (measurement harness: `src/module_loader/admission_cost_profile.rs`)
 

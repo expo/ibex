@@ -1,6 +1,8 @@
 # Error subclass `prototype.name` assignment fails under lockdown (override mistake)
 
-**Status:** Closed (2026-07-26)
+**Status:** Closed
+**Resolution:** 2026-07-26
+**Date:** 2026-07-26
 
 ## Symptom
 

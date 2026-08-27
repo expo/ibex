@@ -1,6 +1,6 @@
 # Network terminal-provenance program (LLP 0045 → 0046) — umbrella
 
-**Status:** Open — rescoped
+**Status:** Open
 **Severity:** P2
 **Systems:** Security, Conformance, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -9,6 +9,8 @@
 **Related:** LLP 0046 (what the measurement found — **read this first**);
 LLP 0045 (the superseded plan); LLP 0044 §9 (origin measurement);
 issues/20260728-capsec-public-surface-evidence-backlog.md
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): rescoped
 
 ## Status change
 

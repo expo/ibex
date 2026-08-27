@@ -1,6 +1,7 @@
 # Four pre-existing capsec-evidence JS test failures on main (masked by the fmt gate)
 
-**Status:** Closed (2026-08-05)
+**Status:** Closed
+**Resolution:** 2026-08-05
 **Severity:** P2
 **Systems:** CapSec, Testing, CI
 **Author:** Claude Fable 5 (Claude Code), directed by Charlie Cheever

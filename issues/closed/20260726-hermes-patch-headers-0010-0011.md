@@ -1,10 +1,12 @@
 # Hermes patches 0010/0011 are missing the in-file classification header
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 
 **Filed:** 2026-07-26 (found during Exact LLP 0404 review; verified — 0009
 and 0012 carry `# Class:` header blocks, 0010 and 0011 begin directly with
 `diff --git`)
+**Date:** 2026-07-26
 
 `patches/hermes/README.md` says each patch is classified in its header, and
 the digest-keyed identity machinery treats the patch files as authoritative

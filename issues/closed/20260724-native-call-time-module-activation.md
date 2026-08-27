@@ -1,6 +1,7 @@
 # Native invocation-time module activation
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Severity:** P1
 **Systems:** Module Loader, Engine, Runtime, CapSec
 **Author:** Codex, directed by Charlie Cheever

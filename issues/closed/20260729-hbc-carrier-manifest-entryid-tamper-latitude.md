@@ -1,6 +1,7 @@
 # decode_and_admit does not bind carrier-manifest entryId spellings; the LLP 0413 harness tamper probe is positional
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Systems:** Module loader, Carrier admission, Verification
 **Author:** Claude Fable 5 (Claude Code)
 **Date:** 2026-07-29

@@ -1,6 +1,7 @@
 # Complete CapSec revision 2 and critical security features
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Severity:** P1
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Codex, directed by Charlie Cheever

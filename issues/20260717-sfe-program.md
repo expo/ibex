@@ -1,6 +1,6 @@
 # Single-file executable program (LLP 0029) — umbrella and execution map
 
-**Status:** Open — standalone v1 release closure
+**Status:** Open
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 1
@@ -12,6 +12,8 @@
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-17
 **Related:** LLP 0029 (Accepted); LLP 0014, 0021, 0022, 0023, 0025, 0026, 0027, 0028
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): standalone v1 release closure
 
 Execution map for LLP 0029 as sequenced by LLP 0047: `ibex compile <entry> -o <file>` producing
 a single self-contained executable (stub + envelope: embedded graph,

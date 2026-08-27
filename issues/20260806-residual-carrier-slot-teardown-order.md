@@ -1,8 +1,10 @@
 # Teardown order can strand a stale Hermes embedder carrier slot (LLP 0051 §C)
 
+- **Status:** Open
 - **Filed:** 2026-08-06 by the LLP 0051 lane (confirmed hazard; causal link
   to the live Exact symptom suspected but unproven — codex r1 finding 3).
 - **Owner:** capsec / engine.
+- **Date:** 2026-08-06
 
 `~ScopedRuntimeSecurityContext` and the `ExactRuntimeDriveGuard` destructor
 restore `g_vm_runtime` BEFORE the typed-stack restore performs its Hermes

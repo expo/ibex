@@ -1,6 +1,6 @@
 # Package the SFE producer for checkout-free use
 
-**Status:** Open — publication receipt remains
+**Status:** Open
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 2
@@ -10,6 +10,8 @@
 **Author:** Codex
 **Date:** 2026-08-01
 **Related:** LLP 0047 §8; issues/20260717-sfe-program.md
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): publication receipt remains
 
 The target-specific release kit now contains the catalog-pinned `ibex`, pinned
 catalog installer, addressed catalog archive, and a target-bound,

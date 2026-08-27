@@ -1,6 +1,6 @@
 # Compiled mount contract: /app, /work, unset cwd (LLP 0023 revision)
 
-**Status:** Open — deferred to the v1.1 CapSec milestone
+**Status:** Open
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -30,6 +30,8 @@ resources.
 **Done when:** LLP 0023 revised; denial + relocation fixtures pass;
 phase-3 evidence gathered on whether the unset-cwd sentinel breaks
 real Node-compat libraries (registered open question).
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): deferred to the v1.1 CapSec milestone
 
 ## Progress — 2026-07-17
 

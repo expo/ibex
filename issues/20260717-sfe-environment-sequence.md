@@ -1,6 +1,6 @@
 # Compiled-mode environment: capture, default-deny sanitize, broker
 
-**Status:** Open — deferred to the v1.1 CapSec milestone
+**Status:** Open
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -39,6 +39,8 @@ package principals keep per-principal classification.
 **Done when:** every profiled variable + child-inheritance + inertness
 (via both `process.env` and `__exactHostEnv`) + cross-principal
 isolation fixtures pass; LLP 0022 revision landed.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): deferred to the v1.1 CapSec milestone
 
 ## Progress — 2026-07-17
 

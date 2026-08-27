@@ -6,6 +6,7 @@
 **Found by:** 2026-08-07 two-P1 remediation verification
 **Related:** `issues/closed/20260806-exactwhich-declares-typed-effects-it-never-emits.md`;
 `issues/closed/20260806-llp0050-asyncfunction-root-global-unclassified.md`
+**Date:** 2026-08-07
 
 ## Symptom
 

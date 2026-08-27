@@ -1,6 +1,6 @@
 # ibex compile + inspect-executable (producer pipeline and CLI)
 
-**Status:** Open — release publication/receipt actions remain
+**Status:** Open
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -37,6 +37,8 @@ classification with a dedicated non-inspector class for
 **Done when:** policy-drift and wrong-engine refusal tests pass;
 two-clean-builder reproducibility green; capsec registry checks green
 with the new commands classified.
+
+Status note (moved verbatim off the **Status:** line by `node scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): release publication/receipt actions remain
 
 ## Progress — 2026-07-17
 

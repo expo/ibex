@@ -5,6 +5,7 @@
 **Opened:** 2026-08-06 · **Priority:** P1 · **Owner:** the ENG-25093 / LLP 0050
 workstream (this ticket filed by the LLP 0049 Phase 0 session during
 integration)
+**Date:** 2026-08-06
 
 ## Symptom
 

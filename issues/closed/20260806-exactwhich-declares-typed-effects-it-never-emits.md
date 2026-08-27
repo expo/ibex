@@ -6,6 +6,7 @@
 the CapSec coverage-model / runtime-enforcement workstream (filed by the
 LLP 0049 Phase 2 calibration tranche, which stopped the
 `surface.native.op × [env:read, fs:list]` template class on this finding)
+**Date:** 2026-08-06
 
 ## Symptom
 

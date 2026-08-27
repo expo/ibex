@@ -1,6 +1,7 @@
 # Lockdown's override-mistake repair misses `toString`/`valueOf`, breaking `buffer`, `os`, `string_decoder`
 
-**Status:** Closed (2026-08-05)
+**Status:** Closed
+**Resolution:** 2026-08-05
 **Severity:** P1 — `require('buffer')` is unusable in an armed runtime
 **Systems:** Engine (lockdown), Builtins
 **Author:** Claude (Opus 5), directed by Charlie Cheever

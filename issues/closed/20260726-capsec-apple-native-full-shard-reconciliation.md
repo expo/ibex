@@ -1,6 +1,8 @@
 # Apple complete native shard reconciliation
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
+**Date:** 2026-07-26
 
 After the `process.cwd` install identity was reconciled, the complete physical
 Apple public shards reached several older contradictions hidden by focused

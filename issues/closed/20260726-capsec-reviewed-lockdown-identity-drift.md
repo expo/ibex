@@ -1,6 +1,7 @@
 # CapSec reviewed lockdown/inventory identity has drifted from the live sources
 
-**Status:** Resolved
+**Status:** Closed
+**Resolution:** Resolved
 **Impact:** 5
 **Urgency:** 5
 **Ease:** 4
@@ -13,6 +14,7 @@ resolution below.
 **Filed:** 2026-07-26 (found while landing the 0010/0011 patch-header fix;
 verified against pristine `origin/main` b9558cf3 in a clean worktree — this is
 pre-existing drift, not introduced by that commit)
+**Date:** 2026-07-26
 
 Two committed reviewed-identity assertions no longer match live discovery:
 

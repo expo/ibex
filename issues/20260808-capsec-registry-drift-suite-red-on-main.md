@@ -1,8 +1,10 @@
 # Five capsec suites red on main — obligation counts, canonical examples, contract validation
 
+**Status:** Open
 **Opened:** 2026-08-08 · **Priority:** P2 · **Owner:** the workstream that
 landed the recent `capsec/registry` changes (filed by the LLP 0049 Phase 1
 session during integration, which adjudicated them as not its own)
+**Date:** 2026-08-08
 
 ## Symptom
 

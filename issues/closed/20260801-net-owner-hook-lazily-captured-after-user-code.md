@@ -1,6 +1,7 @@
 # `__exactNetOwner` is captured lazily, after user code — the net/dgram/http owner preflight is app-controllable
 
-**Status:** Closed — resolved 2026-08-05
+**Status:** Closed
+**Resolution:** resolved 2026-08-05
 **Severity:** P2 — integrity/defense-in-depth defect and a false source comment;
 **not** a privilege escalation (see blast radius). Former LLP 0045 step-0
 blocker.

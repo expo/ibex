@@ -1,6 +1,7 @@
 # Armed observer test batches fail confusingly on the default (insecure) build
 
-**Status:** Closed (2026-07-27 — armed observer batches cfg-gated off insecure builds; run-tests.sh gained --secure)
+**Status:** Closed
+**Resolution:** 2026-07-27 — armed observer batches cfg-gated off insecure builds; run-tests.sh gained --secure
 **Severity:** P3
 **Systems:** Engine, Build, Testing
 **Author:** Claude (Fable 5), directed by Charlie Cheever

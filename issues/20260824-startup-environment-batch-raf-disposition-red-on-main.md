@@ -1,6 +1,8 @@
 # capsec_public_startup_environment_batch: RAF root-global disposition red on main
 
+**Status:** Open
 **Opened:** 2026-08-24 (by the LLP 0055 S3 lane, during pre-land gating).
+**Date:** 2026-08-24
 
 `cargo test --bin ibex --features capsec-conformance-observer
 loaded_hermes_isolates_principal_environment_overlays` fails on a clean

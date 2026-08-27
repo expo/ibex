@@ -1,6 +1,7 @@
 # CapSec registry/contract regen chain is broken by unreviewed surface drift
 
-**Status:** Closed (2026-07-27 — all drifted review affirmations discharged; full chain green)
+**Status:** Closed
+**Resolution:** 2026-07-27 — all drifted review affirmations discharged; full chain green
 **Date:** 2026-07-26
 **Priority:** High
 **Related:** [20260726-native-fetch-jsi-last-owner-race](./20260726-native-fetch-jsi-last-owner-race.md)

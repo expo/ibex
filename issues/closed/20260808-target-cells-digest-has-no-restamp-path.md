@@ -1,8 +1,10 @@
 # `targetCellsRawContentDigest` has no non-ceremony restamp path — any coverage-model correction reds `check:capsec-contract`
 
+**Status:** Closed
 **Opened:** 2026-08-08 · **Resolved:** 2026-08-08 · **Priority:** P2 ·
 **Owner:** CapSec conformance / promotion chain (found while landing the
 host-ABI + startup seeding correction for LLP 0049)
+**Date:** 2026-08-08
 
 ## Symptom
 
