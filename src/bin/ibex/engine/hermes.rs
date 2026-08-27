@@ -5517,6 +5517,35 @@ mod tests {
         (status, copied)
     }
 
+    fn eval_with_flags_for_test(
+        runtime: *mut HermesRuntimeOpaque,
+        source: &str,
+        evaluation_flags: i32,
+    ) -> (i32, Option<String>) {
+        let source_url = CString::new("clock-i-dispatcher-bundle-test.js").unwrap();
+        let mut output = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_eval(
+                runtime,
+                source.as_ptr(),
+                source.len(),
+                source_url.as_ptr(),
+                evaluation_flags,
+                &mut output,
+            )
+        };
+        let copied = if output.is_null() {
+            None
+        } else {
+            let value = unsafe { CStr::from_ptr(output) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(output) };
+            Some(value)
+        };
+        (status, copied)
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     struct CAbiBlockingWorkReleaseGuard(Arc<SharedRuntime>);
 
@@ -17817,6 +17846,194 @@ module.exports = JSON.stringify({
             Some("ENOENT")
         );
         assert!(!missing.exists());
+    }
+
+    /// App-bundle evaluation owns one registration slot per generation while
+    /// the public wrapper identity remains native-rooted and stable. A fresh
+    /// target is invisible until successful commit, a source failure rolls it
+    /// back, and a renderer-free bundle leaves the prior target intact.
+    /// @ref LLP 0013#mechanism-3
+    /// @ref LLP 0040#3-fixed-bootstrap-window
+    #[tokio::test(flavor = "current_thread")]
+    async fn clock_i_dispatcher_rebinds_once_per_bundle_generation_without_rotating_identity() {
+        const APP_BUNDLE_EVALUATION_FLAG: i32 = 2;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine
+            .eval(
+                r#"globalThis.__clockIFirstTargetCalls = 0;
+                globalThis.__exactDispatchEvent = function(id, payload, attest) {
+                  globalThis.__clockIFirstTargetCalls += 1;
+                  attest('enter');
+                  attest('handler-returned');
+                };
+                if (!__ibexRegisterExactDispatchEvent(__exactDispatchEvent)) throw new Error('initial dispatcher registration refused');
+                globalThis.__clockIStableDispatcher = __exactDispatchEvent;
+                'installed'"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "String(__ibexRegisterExactDispatchEvent(function() {})) + ':' + \
+                     String(Object.getOwnPropertyDescriptor(globalThis, '__exactDispatchEvent').writable)",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("false:true"),
+            "the slot is one-shot; the public alias stays writable so overwrite attempts remain observable",
+        );
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let (reload_status, reload_output) = runtime
+            .with_runtime(|raw| {
+                eval_with_flags_for_test(
+                    raw,
+                    r#"globalThis.__clockISecondTargetCalls = 0;
+                    globalThis.__clockIIdentityStableBefore =
+                      __exactDispatchEvent === __clockIStableDispatcher;
+                    var secondTarget = function(id, payload, attest) {
+                      globalThis.__clockISecondTargetCalls += 1;
+                      attest('enter');
+                      attest('handler-returned');
+                    };
+                    if (!__ibexRegisterExactDispatchEvent(secondTarget)) throw new Error('reload dispatcher registration refused');
+                    globalThis.__clockIDuplicateRegistration =
+                      __ibexRegisterExactDispatchEvent(function() {});
+                    globalThis.__clockIIdentityStableAfter =
+                      __exactDispatchEvent === __clockIStableDispatcher;
+                    __exactDispatchEvent(91, null, function() {});
+                    'reloaded'"#,
+                    APP_BUNDLE_EVALUATION_FLAG,
+                )
+            })
+            .unwrap();
+        assert_eq!(reload_status, 0, "reload failed: {reload_output:?}");
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "String(__clockIIdentityStableBefore) + ':' + \
+                     String(__clockIIdentityStableAfter) + ':' + \
+                     String(__clockIDuplicateRegistration) + ':' + \
+                     String(__clockIFirstTargetCalls) + ':' + \
+                     String(__clockISecondTargetCalls)",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("true:true:false:1:0"),
+            "the old committed target must remain live until bundle commit",
+        );
+
+        let (runtime_nonce, first_status, first_receipt) = runtime
+            .with_runtime(|raw| {
+                let runtime_nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+                let (status, receipt) = dispatch_clock_i_attested_for_test(
+                    raw,
+                    runtime_nonce,
+                    92,
+                    b"clock-i-reload-success",
+                    br#""reload-success""#,
+                    br#"{"compositionGeneration":92}"#,
+                    b"host-input-reload-success",
+                );
+                (runtime_nonce, status, receipt)
+            })
+            .unwrap();
+        assert_eq!(first_status, 0);
+        let receipt: serde_json::Value =
+            serde_json::from_str(first_receipt.as_deref().expect("reload receipt")).unwrap();
+        assert_eq!(
+            receipt["dispatcherIdentity"],
+            format!("ibex-clock-i-dispatcher-u64:{runtime_nonce}")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "String(__clockIFirstTargetCalls) + ':' + String(__clockISecondTargetCalls)",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("1:1"),
+        );
+
+        let (no_registration_status, no_registration_output) = runtime
+            .with_runtime(|raw| {
+                eval_with_flags_for_test(
+                    raw,
+                    "globalThis.__clockIRendererFreeBundleRan = true; 'no-renderer'",
+                    APP_BUNDLE_EVALUATION_FLAG,
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            no_registration_status, 0,
+            "a renderer-free bundle must preserve the prior binding: {no_registration_output:?}",
+        );
+
+        let (failed_status, failed_output) = runtime
+            .with_runtime(|raw| {
+                eval_with_flags_for_test(
+                    raw,
+                    r#"globalThis.__clockIThirdTargetCalls = 0;
+                    if (!__ibexRegisterExactDispatchEvent(function(id, payload, attest) {
+                      globalThis.__clockIThirdTargetCalls += 1;
+                      attest('enter');
+                      attest('handler-returned');
+                    })) throw new Error('rollback dispatcher registration refused');
+                    __exactDispatchEvent(93, null, function() {});
+                    throw new Error('reload rollback sentinel')"#,
+                    APP_BUNDLE_EVALUATION_FLAG,
+                )
+            })
+            .unwrap();
+        assert_eq!(failed_status, 1);
+        assert!(failed_output
+            .as_deref()
+            .unwrap_or_default()
+            .contains("reload rollback sentinel"));
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "String(__clockISecondTargetCalls) + ':' + String(__clockIThirdTargetCalls) + ':' + \
+                     String(__exactDispatchEvent === __clockIStableDispatcher)",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("2:0:true"),
+            "the failed generation must run and retain only the prior target",
+        );
+
+        let (rollback_status, rollback_receipt) = runtime
+            .with_runtime(|raw| {
+                dispatch_clock_i_attested_for_test(
+                    raw,
+                    unsafe { ex_hermes_runtime_nonce(raw) },
+                    94,
+                    b"clock-i-reload-rollback",
+                    br#""reload-rollback""#,
+                    br#"{"compositionGeneration":94}"#,
+                    b"host-input-reload-rollback",
+                )
+            })
+            .unwrap();
+        assert_eq!(rollback_status, 0);
+        assert!(rollback_receipt.is_some());
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "String(__clockISecondTargetCalls) + ':' + String(__clockIThirdTargetCalls)",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("3:0"),
+        );
     }
 
     /// The receipt reports engine truth from the live dispatcher frame. A

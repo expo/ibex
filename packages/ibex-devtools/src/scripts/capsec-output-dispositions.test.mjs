@@ -607,9 +607,9 @@ describe("LLP 0023 output-disposition dataset", () => {
       outputBearingSurfaces: 5_821,
       structuralOnlySurfaces: 1_752,
       unresolvedSurfaces: 7,
-      catalogRows: 6_523,
+      catalogRows: 6_524,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_115,
+      sourceInventoryRows: 6_116,
       structuredRows: 408,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -1217,15 +1217,30 @@ describe("LLP 0023 output-disposition dataset", () => {
     ]);
     for (const [surfaceName, count] of deliveryCounts) {
       const edge = edgeByName.get(surfaceName);
-      expect(accountById.get(edge.id), surfaceName).toMatchObject({
-        status: "output-bearing",
-        reasonCode: "source-asserted-structured-output",
-        outputKinds: ["structured-output"],
-      });
+      expect(accountById.get(edge.id), surfaceName).toMatchObject(
+        surfaceName === "__exactDispatchEvent"
+          ? {
+              status: "output-bearing",
+              reasonCode: "source-derived-public-output",
+              outputKinds: ["public-property-read", "structured-output"],
+              sourceRefs: [
+                "src/engine/hermes_runtime_ios.cc#__exactDispatchEvent",
+                "src/engine/hermes_runtime_ios.cc#jsi-global:__exactDispatchEvent",
+              ],
+            }
+          : {
+              status: "output-bearing",
+              reasonCode: "source-asserted-structured-output",
+              outputKinds: ["structured-output"],
+            },
+      );
       const rows = rowsFor(surfaceName);
-      expect(rows, surfaceName).toHaveLength(count);
+      const callbackRows = rows.filter((row) =>
+        row.key.output.startsWith("callback:"),
+      );
+      expect(callbackRows, surfaceName).toHaveLength(count);
       expect(
-        rows.every(
+        callbackRows.every(
           (row) =>
             row.key.output.startsWith("callback:") &&
             row.key.sourceKind === "native-op" &&
@@ -1240,7 +1255,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         `${surfaceName} ignored callback return`,
       ).toBe(false);
       expect(
-        rows.every((row) =>
+        callbackRows.every((row) =>
           row.discovery.sourceRefs.some((sourceRef) =>
             sourceRef.includes("#tokens:"),
           ),
@@ -1248,6 +1263,28 @@ describe("LLP 0023 output-disposition dataset", () => {
         surfaceName,
       ).toBe(true);
     }
+    expect(
+      rowsFor("__exactDispatchEvent").filter(
+        (row) => !row.key.output.startsWith("callback:"),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        key: expect.objectContaining({
+          output: "[[value]]",
+          alias: "__exactDispatchEvent",
+          sourceKind: "native-op",
+          contextId: "javascript.package-property-read-loaded",
+        }),
+        discovery: expect.objectContaining({
+          kind: "source-inventory-surface",
+          sourceRefs: expect.arrayContaining([
+            "src/engine/hermes_runtime_ios.cc#__exactDispatchEvent",
+            "src/engine/hermes_runtime_ios.cc#jsi-global:__exactDispatchEvent",
+          ]),
+        }),
+        requiredValueProof: "live-value-observation",
+      }),
+    ]);
 
     expect(rowsFor("__exactDispatchEvent").map((row) => row.key)).toEqual(
       expect.arrayContaining([
@@ -1752,7 +1789,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "capsec/registry/output-disposition-evidence.json",
     );
     expect(discoveredCatalog.catalogKeyDigest).toBe(
-      "sha256-2kQloHOzzRZdyFN40Erf8696yjEf6AiM97JMXZ6fCKQ",
+      "sha256-YWommZ39OVcNKwYRTPWvZJru-31RHNolT-cIu7ShcGs",
     );
     expect(() =>
       buildOutputDispositionDataset({
@@ -1761,7 +1798,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         evidence,
       }),
     ).toThrow(
-      "output disposition policy has unreviewed catalog fields: expected sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU, discovered sha256-2kQloHOzzRZdyFN40Erf8696yjEf6AiM97JMXZ6fCKQ",
+      "output disposition policy has unreviewed catalog fields: expected sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU, discovered sha256-YWommZ39OVcNKwYRTPWvZJru-31RHNolT-cIu7ShcGs",
     );
     const dataset = buildOutputDispositionDataset({
       catalog,

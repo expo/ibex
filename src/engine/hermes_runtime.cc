@@ -15790,7 +15790,7 @@ extern "C" int ex_hermes_eval(
     const uint8_t* data,
     size_t len,
     const char* source_url,
-    int is_bytecode,
+    int evaluation_flags,
     char** out_value) {
   if (out_value != nullptr) *out_value = nullptr;
   ExactRuntimeDriveGuard drive(runtime);
@@ -15799,8 +15799,47 @@ extern "C" int ex_hermes_eval(
         out_value, "Hermes eval refused by the runtime drive gate");
     return drive.status();
   }
-  return evalRuntimeUnchecked(
-      runtime, data, len, source_url, is_bytecode, out_value);
+  constexpr int kKnownEvaluationFlags =
+      EX_HERMES_EVAL_FLAG_BYTECODE_V1 |
+      EX_HERMES_EVAL_FLAG_APP_BUNDLE_V1;
+  if (evaluation_flags < 0 ||
+      (evaluation_flags & ~kKnownEvaluationFlags) != 0) {
+    writeEvalRefusal(out_value, "Hermes eval received invalid flags");
+    return 1;
+  }
+
+  const bool isAppBundle =
+      (evaluation_flags & EX_HERMES_EVAL_FLAG_APP_BUNDLE_V1) != 0;
+  if (isAppBundle &&
+      !beginIOSClockIDispatcherBundleEvaluation(runtime)) {
+    writeEvalRefusal(
+        out_value,
+        "Hermes app-bundle eval could not open its dispatcher binding generation");
+    return 1;
+  }
+
+  const int result = evalRuntimeUnchecked(
+      runtime,
+      data,
+      len,
+      source_url,
+      evaluation_flags & EX_HERMES_EVAL_FLAG_BYTECODE_V1,
+      out_value);
+  if (isAppBundle) {
+    const bool bindingFinished =
+        finishIOSClockIDispatcherBundleEvaluation(runtime, result == 0);
+    if (result == 0 && !bindingFinished) {
+      if (out_value != nullptr && *out_value != nullptr) {
+        free(*out_value);
+        *out_value = nullptr;
+      }
+      writeEvalRefusal(
+          out_value,
+          "Hermes app-bundle eval refused its staged dispatcher binding commit");
+      return 1;
+    }
+  }
+  return result;
 }
 
 int exactHermesBootstrapEval(

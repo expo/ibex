@@ -471,14 +471,29 @@ struct ExactHermesRuntime {
   // counter supplies uniqueness without trusting a JS-authored value.
   // @ref https://github.com/expo/exact/blob/main/llp/0565.006-m0-attribution-instrument.spec.md#32-clock-i
   uint64_t next_clock_i_attestation_sequence{1};
-  // Captured once from the first-party renderer while its public dispatcher
-  // alias still has strict object identity. The attested ABI calls this root,
-  // never a mutable global lookup; declaration after `runtime` guarantees the
-  // JSI Function is destroyed before its owning Hermes runtime.
+  // Runtime-stable, native-retained capability for Exact renderer events.
+  // The writable public alias is only an integrity witness (and preserves the
+  // explicit tamper-refusal sentinel); attested native dispatch never resolves
+  // authority through that alias. It strict-checks the alias against this root,
+  // calls this root, and the wrapper calls only the generation-bound target
+  // below. Both JSI roots are declared after `runtime`, so they are destroyed
+  // before their owning Hermes runtime.
   // @ref LLP 0013#mechanism-3
   // @ref LLP 0040#3-fixed-bootstrap-window
   std::unique_ptr<facebook::jsi::Function> clock_i_dispatcher;
+  std::unique_ptr<facebook::jsi::Function> clock_i_dispatcher_target;
+  // A bundle evaluation stages at most one replacement target. Commit happens
+  // only after the complete source/HBC evaluation succeeds; a failed reload
+  // therefore cannot strand native dispatch on a partially evaluated module.
+  std::unique_ptr<facebook::jsi::Function> clock_i_dispatcher_staged_target;
   std::string clock_i_dispatcher_identity;
+  uint64_t clock_i_dispatcher_binding_generation{1};
+  uint64_t clock_i_dispatcher_registered_generation{0};
+  // Generation one retains the historical implicit bootstrap slot for direct
+  // embedding tests. App-bundle eval flags turn that same slot (and every HMR
+  // successor) into an explicit begin/finish transaction.
+  bool clock_i_dispatcher_binding_pending{true};
+  bool clock_i_dispatcher_binding_evaluation_open{false};
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
   // One authenticated lowered-session submission may opt into an additional
   // constrained-principal intersection in observer builds. The private C
@@ -2592,6 +2607,11 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle);
 void unregisterAndroidHostFunctions(ExactHermesRuntime* handle);
 void installIOSHostFunctions(ExactHermesRuntime* handle);
 void unregisterIOSHostFunctions(ExactHermesRuntime* handle);
+bool beginIOSClockIDispatcherBundleEvaluation(
+    ExactHermesRuntime* handle) noexcept;
+bool finishIOSClockIDispatcherBundleEvaluation(
+    ExactHermesRuntime* handle,
+    bool evaluationSucceeded) noexcept;
 void installIpcListenerPatch(ExactHermesRuntime* handle);
 
 // Process-global registries retain resources by runtime nonce and must be

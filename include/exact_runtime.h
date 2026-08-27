@@ -1122,12 +1122,27 @@ int32_t ex_hermes_module_record_namespace_json(
 // Evaluation
 // =============================================================================
 
+/// `ex_hermes_eval` evaluation flag: `data` is Hermes bytecode rather than
+/// UTF-8 JavaScript source. The historical values 0 (source) and 1 (bytecode)
+/// remain unchanged.
+#define EX_HERMES_EVAL_FLAG_BYTECODE_V1 1
+
+/// `ex_hermes_eval` evaluation flag: this is a complete app-bundle
+/// evaluation. Ibex opens one generation-local Exact dispatcher binding slot
+/// before evaluation and commits its staged target only if evaluation
+/// succeeds. A bundle that does not register a renderer closes the unused slot
+/// and preserves any prior target. Combine with
+/// EX_HERMES_EVAL_FLAG_BYTECODE_V1 for an HBC bundle.
+#define EX_HERMES_EVAL_FLAG_APP_BUNDLE_V1 2
+
 /// Evaluate JavaScript source code or Hermes bytecode.
 /// @param runtime The runtime handle
 /// @param data Source code bytes (UTF-8) or bytecode
 /// @param len Length of data in bytes
 /// @param source_url Source URL for error messages (null-terminated C string)
-/// @param is_bytecode 1 if data is Hermes bytecode, 0 if JavaScript source
+/// @param evaluation_flags Bitwise OR of EX_HERMES_EVAL_FLAG_* values. Use 0
+///                         for ordinary source, 1 for ordinary bytecode, 2 for
+///                         an app source bundle, and 3 for an app HBC bundle.
 /// @param out_value On success, points to malloc'd result string (caller frees
 ///                  with ex_hermes_free_string). NULL if result is undefined.
 /// @return 0 on success; 1 on a program/evaluation error; 2 only when a
@@ -1140,7 +1155,7 @@ int ex_hermes_eval(
     const uint8_t* data,
     size_t len,
     const char* source_url,
-    int is_bytecode,
+    int evaluation_flags,
     char** out_value);
 
 /// Arm Hermes' interruptible-eval time-limit monitor for this runtime.

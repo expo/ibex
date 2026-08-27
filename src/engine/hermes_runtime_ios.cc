@@ -154,7 +154,70 @@ void removeIOSAnimationFrameCallbacksForRuntime(ExactHermesRuntime* handle) {
 }
 #endif
 
+bool clockIPublicDispatcherMatches(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& runtime) {
+  if (!handle || !handle->clock_i_dispatcher) return false;
+  auto publicValue =
+      runtime.global().getProperty(runtime, "__exactDispatchEvent");
+  return publicValue.isObject() &&
+      publicValue.getObject(runtime).isFunction(runtime) &&
+      facebook::jsi::Object::strictEquals(
+          runtime,
+          *handle->clock_i_dispatcher,
+          publicValue.getObject(runtime));
+}
+
 }  // namespace
+
+bool beginIOSClockIDispatcherBundleEvaluation(
+    ExactHermesRuntime* handle) noexcept {
+  if (!handle || handle->restricted ||
+      handle->clock_i_dispatcher_binding_evaluation_open) {
+    return false;
+  }
+  if (!handle->clock_i_dispatcher_binding_pending) {
+    if (handle->clock_i_dispatcher_binding_generation ==
+        std::numeric_limits<uint64_t>::max()) {
+      return false;
+    }
+    ++handle->clock_i_dispatcher_binding_generation;
+    handle->clock_i_dispatcher_binding_pending = true;
+  }
+  handle->clock_i_dispatcher_staged_target.reset();
+  handle->clock_i_dispatcher_binding_evaluation_open = true;
+  return true;
+}
+
+bool finishIOSClockIDispatcherBundleEvaluation(
+    ExactHermesRuntime* handle,
+    bool evaluationSucceeded) noexcept {
+  if (!handle || !handle->clock_i_dispatcher_binding_evaluation_open) {
+    return false;
+  }
+
+  bool bindingIntact = true;
+  try {
+    const bool registeredThisGeneration =
+        handle->clock_i_dispatcher_registered_generation ==
+        handle->clock_i_dispatcher_binding_generation;
+    if (evaluationSucceeded && registeredThisGeneration) {
+      bindingIntact = handle->clock_i_dispatcher_staged_target != nullptr &&
+          clockIPublicDispatcherMatches(handle, *handle->runtime);
+      if (bindingIntact) {
+        handle->clock_i_dispatcher_target =
+            std::move(handle->clock_i_dispatcher_staged_target);
+      }
+    }
+  } catch (...) {
+    bindingIntact = false;
+  }
+
+  handle->clock_i_dispatcher_staged_target.reset();
+  handle->clock_i_dispatcher_binding_pending = false;
+  handle->clock_i_dispatcher_binding_evaluation_open = false;
+  return !evaluationSucceeded || bindingIntact;
+}
 
 void installIOSHostFunctions(ExactHermesRuntime* handle) {
   if (!handle || handle->restricted) return;
@@ -208,6 +271,7 @@ void installIOSHostFunctions(ExactHermesRuntime* handle) {
             if (count != 1 || !args[0].isObject() ||
                 !args[0].asObject(callbackRuntime).isFunction(
                     callbackRuntime) ||
+                !handle->clock_i_dispatcher_binding_pending ||
                 currentPrincipalId() !=
                     static_cast<uint64_t>(kFirstPartyRootPrincipalId)) {
               return facebook::jsi::Value(false);
@@ -216,32 +280,83 @@ void installIOSHostFunctions(ExactHermesRuntime* handle) {
                 args[0].asObject(callbackRuntime).asFunction(callbackRuntime);
             auto publicValue = callbackRuntime.global().getProperty(
                 callbackRuntime, "__exactDispatchEvent");
-            if (!publicValue.isObject() ||
-                !publicValue.getObject(callbackRuntime).isFunction(
-                    callbackRuntime)) {
-              return facebook::jsi::Value(false);
-            }
-            auto publicDispatcher =
-                publicValue.getObject(callbackRuntime).asFunction(
-                    callbackRuntime);
-            if (!facebook::jsi::Object::strictEquals(
-                    callbackRuntime, candidate, publicDispatcher)) {
-              return facebook::jsi::Value(false);
-            }
             if (handle->clock_i_dispatcher) {
-              return facebook::jsi::Value(
+              if (!clockIPublicDispatcherMatches(handle, callbackRuntime) ||
                   facebook::jsi::Object::strictEquals(
                       callbackRuntime,
                       *handle->clock_i_dispatcher,
-                      candidate));
+                      candidate)) {
+                return facebook::jsi::Value(false);
+              }
+            } else if (!publicValue.isUndefined()) {
+              if (!publicValue.isObject() ||
+                  !publicValue.getObject(callbackRuntime).isFunction(
+                      callbackRuntime) ||
+                  !facebook::jsi::Object::strictEquals(
+                      callbackRuntime,
+                      candidate,
+                      publicValue.getObject(callbackRuntime))) {
+                return facebook::jsi::Value(false);
+              }
             }
-            auto retained = std::make_unique<facebook::jsi::Function>(
-                std::move(candidate));
-            const std::string identity =
-                "ibex-clock-i-dispatcher-u64:" +
-                std::to_string(handle->runtime_nonce);
-            handle->clock_i_dispatcher = std::move(retained);
-            handle->clock_i_dispatcher_identity = identity;
+
+            if (!handle->clock_i_dispatcher) {
+              auto stableDispatcher =
+                  facebook::jsi::Function::createFromHostFunction(
+                      callbackRuntime,
+                      facebook::jsi::PropNameID::forAscii(
+                          callbackRuntime, "__exactDispatchEvent"),
+                      3,
+                      [handle](facebook::jsi::Runtime& runtime,
+                               const facebook::jsi::Value&,
+                               const facebook::jsi::Value* arguments,
+                               size_t argumentCount) -> facebook::jsi::Value {
+                        if (!handle->clock_i_dispatcher_target) {
+                          throw facebook::jsi::JSError(
+                              runtime,
+                              "Exact native event dispatcher is not bound");
+                        }
+                        if (argumentCount == 2) {
+                          return handle->clock_i_dispatcher_target->call(
+                              runtime, arguments[0], arguments[1]);
+                        }
+                        if (argumentCount == 3) {
+                          return handle->clock_i_dispatcher_target->call(
+                              runtime,
+                              arguments[0],
+                              arguments[1],
+                              arguments[2]);
+                        }
+                        throw facebook::jsi::JSError(
+                            runtime,
+                            "Exact native event dispatcher requires two or three arguments");
+                      });
+              handle->clock_i_dispatcher =
+                  std::make_unique<facebook::jsi::Function>(
+                      std::move(stableDispatcher));
+              handle->clock_i_dispatcher_identity =
+                  "ibex-clock-i-dispatcher-u64:" +
+                  std::to_string(handle->runtime_nonce);
+              callbackRuntime.global().setProperty(
+                  callbackRuntime,
+                  "__exactDispatchEvent",
+                  facebook::jsi::Value(
+                      callbackRuntime, *handle->clock_i_dispatcher));
+            }
+
+            auto retainedTarget =
+                std::make_unique<facebook::jsi::Function>(
+                    std::move(candidate));
+            if (handle->clock_i_dispatcher_binding_evaluation_open) {
+              handle->clock_i_dispatcher_staged_target =
+                  std::move(retainedTarget);
+            } else {
+              handle->clock_i_dispatcher_target =
+                  std::move(retainedTarget);
+            }
+            handle->clock_i_dispatcher_registered_generation =
+                handle->clock_i_dispatcher_binding_generation;
+            handle->clock_i_dispatcher_binding_pending = false;
             return facebook::jsi::Value(true);
           });
   rt.global().setProperty(
@@ -253,8 +368,14 @@ void installIOSHostFunctions(ExactHermesRuntime* handle) {
 
 void unregisterIOSHostFunctions(ExactHermesRuntime* handle) {
   if (!handle) return;
+  handle->clock_i_dispatcher_staged_target.reset();
+  handle->clock_i_dispatcher_target.reset();
   handle->clock_i_dispatcher.reset();
   handle->clock_i_dispatcher_identity.clear();
+  handle->clock_i_dispatcher_binding_generation = 1;
+  handle->clock_i_dispatcher_registered_generation = 0;
+  handle->clock_i_dispatcher_binding_pending = true;
+  handle->clock_i_dispatcher_binding_evaluation_open = false;
 #if defined(EXACT_APPLE_ANIMATION_FRAME_HOST)
   handle->ios_animation_frame_request_callback = nullptr;
   handle->ios_animation_frame_request_context = nullptr;
@@ -1304,6 +1425,7 @@ extern "C" int32_t ex_hermes_dispatch_event_attested_v1(
 
   try {
     if (!runtime->clock_i_dispatcher ||
+        !runtime->clock_i_dispatcher_target ||
         runtime->clock_i_dispatcher_identity.empty()) {
       return EX_HERMES_CLOCK_I_DISPATCHER_UNREGISTERED_V1;
     }
