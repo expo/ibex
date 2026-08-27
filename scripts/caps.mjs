@@ -16,7 +16,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 
 const RULES_PATH = 'rules/RULES.md';
@@ -101,24 +101,33 @@ export function runCaps(root = process.cwd()) {
     counted.push('product-latency row: filled');
   }
 
-  // ---- active design docs -------------------------------------------------
-  const maxDocs = budget(rules, 'budget:docs', /([\d,]+)\s*active design docs/i, 'active design docs');
+  // ---- the overlays: working set and kernel --------------------------------
+  // The corpus is memory and costs nothing while it binds nothing. The overlays
+  // are what an agent actually reads to orient (foundation -> current -> refs),
+  // so they are what carries a cost and what gets capped. Removing a link is the
+  // whole archive operation; the document stays exactly where it was.
   const files = gitFiles(root);
-  const docFiles = files.filter((f) => f.startsWith('llp/') && f.endsWith('.md') &&
-    !f.split('/').slice(1, -1).some((seg) => NON_DOC_DIRS.has(seg)));
-  if (docFiles.length === 0) {
-    counted.push('design docs: 0 counted (no llp/*.md tracked)');
-  } else {
-    let active = 0;
-    for (const f of docFiles) {
-      const head = readFileSync(resolve(root, f), 'utf8').slice(0, 4096);
-      const status = head.match(/^\*\*Status:\*\*\s*(\w+)/m);
-      if (!status || !DEAD_STATUSES.has(status[1].toLowerCase())) active += 1;
-    }
-    counted.push(`design docs: ${active} active of ${docFiles.length} tracked`);
-    if (maxDocs !== null && active > maxDocs) {
-      fail('cap:docs', `${active} active design docs, over the cap of ${maxDocs}.`,
-        'Archive one before adding another. A corpus nobody retires is what the cap exists to prevent.');
+  const corpus = files.filter((f) => f.startsWith('llp/') && f.endsWith('.md') &&
+    !f.split('/').slice(1, -1).some((seg) => NON_DOC_DIRS.has(seg))).length;
+
+  for (const [dir, code, pattern, label, note] of [
+    ['current', 'cap:current', /([\d,]+)\s*(?:documents|docs)? ?in (?:the )?working set/i, 'working set',
+      'Finish or archive one before starting another. Removing the link is the archive.'],
+    ['foundation', 'cap:foundation', /([\d,]+)\s*(?:documents|docs)? ?in (?:the )?foundation/i, 'foundation',
+      'The kernel is the smallest set the design could be recreated from. A large one means the admission test is not being applied.'],
+  ]) {
+    const max = budget(rules, code.replace('cap:', 'budget:'), pattern, label);
+    const odir = resolve(root, 'llp', dir);
+    const entries = existsSync(odir)
+      ? readdirSync(odir).filter((n) => !n.startsWith('.')).length
+      : 0;
+    // An empty overlay over a real corpus is an unused overlay, not a small one:
+    // the cap would pass while measuring nothing. Say so rather than reporting green.
+    const vacuous = entries === 0 && corpus > 0;
+    counted.push(`${label}: ${entries}${max !== null ? ` of ${max}` : ''}` +
+      (vacuous ? ` — OVERLAY UNUSED, ${corpus} docs tracked and none linked; this cap measures nothing` : ''));
+    if (max !== null && entries > max) {
+      fail(code, `${entries} documents in ${label}, over the cap of ${max}.`, note);
     }
   }
 

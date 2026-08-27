@@ -19,7 +19,8 @@ const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const GOOD_RULES = `# Rules
 
 - **5 blocking checks, 60s total.** **[check]**
-- **20 active design docs.** **[check]**
+- **15 documents in the working set.** **[check]**
+- **10 documents in the foundation.** **[check]**
 - **This file: 700 words.** **[check]**
 - **1,500 lines per source file.** **[check]**
 
@@ -72,13 +73,20 @@ const cases = [
     Object.fromEntries([['rules/RULES.md', GOOD_RULES],
       ...Array.from({ length: 6 }, (_, i) => [`src/g${i}.js`, '// @generated\nconst a = 1;\n'])]),
     'sources:all-skipped'],
-  ['too many active design docs fails',
-    Object.fromEntries([['rules/RULES.md', GOOD_RULES.replace('**20 active design docs', '**2 active design docs')],
-      ...Array.from({ length: 4 }, (_, i) => [`llp/000${i}-d.md`, `# D${i}\n\n**Status:** Accepted\n`])]),
-    'cap:docs'],
-  ['superseded docs do not count',
-    Object.fromEntries([['rules/RULES.md', GOOD_RULES.replace('**20 active design docs', '**2 active design docs')],
-      ...Array.from({ length: 4 }, (_, i) => [`llp/000${i}-d.md`, `# D${i}\n\n**Status:** Superseded\n`])]),
+  ['an over-full working set fails',
+    Object.fromEntries([['rules/RULES.md', GOOD_RULES.replace('**15 documents in the working set.**', '**2 documents in the working set.**')],
+      ...Array.from({ length: 4 }, (_, i) => [`llp/000${i}-d.md`, `# D${i}\n\n**Status:** Accepted\n`]),
+      ...Array.from({ length: 4 }, (_, i) => [`llp/current/000${i}-d.md`, `../000${i}-d.md`])]),
+    'cap:current'],
+  ['an over-full foundation fails',
+    Object.fromEntries([['rules/RULES.md', GOOD_RULES.replace('**10 documents in the foundation.**', '**2 documents in the foundation.**')],
+      ...Array.from({ length: 4 }, (_, i) => [`llp/000${i}-d.md`, `# D${i}\n\n**Status:** Active\n`]),
+      ...Array.from({ length: 4 }, (_, i) => [`llp/foundation/000${i}-d.md`, `../000${i}-d.md`])]),
+    'cap:foundation'],
+  ['a large corpus with a small working set passes',
+    Object.fromEntries([['rules/RULES.md', GOOD_RULES],
+      ...Array.from({ length: 40 }, (_, i) => [`llp/${String(i).padStart(4, '0')}-d.md`, `# D${i}\n\n**Status:** Accepted\n`]),
+      ...Array.from({ length: 3 }, (_, i) => [`llp/current/${String(i).padStart(4, '0')}-d.md`, `../${String(i).padStart(4, '0')}-d.md`])]),
     null],
   ['a baseline tolerates pre-existing oversize files',
     { 'rules/RULES.md': GOOD_RULES.replace('**1,500 lines per source file.**', '**1,500 lines per source file**, baseline 2.'),
