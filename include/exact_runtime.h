@@ -2267,12 +2267,15 @@ typedef enum ExHermesClockIDispatchStatusV1 {
 /// On success, out_receipt_json receives malloc-owned strict JSON using schema
 /// ibex-clock-i-carrier-attestation/1. Free it with ex_hermes_free_string.
 /// The runtimeNonce and principalId fields use the lossless "u64:<decimal>"
-/// spelling. entryRuntimeMonotonicMs and handlerReturnedRuntimeMonotonicMs use
-/// ex_hermes_now_ms()'s Ibex-local steady-clock domain; handlerOutcome is
-/// "returned" only after both phases complete. dispatcherIdentity is minted
-/// by Ibex for the retained generation, and handlerIdentity combines that
-/// identity with the handler slot whose trusted dispatcher completed both
-/// phases. These are not host-wall or host-monotonic timestamps.
+/// spelling. principal, principalStatus, principalStatusCode, and authority
+/// are literal Ibex projections of the sampled engine principal; a host must
+/// not synthesize one tuple member from another. entryRuntimeMonotonicMs and
+/// handlerReturnedRuntimeMonotonicMs use ex_hermes_now_ms()'s Ibex-local
+/// steady-clock domain; handlerOutcome is "returned" only after both phases
+/// complete. dispatcherIdentity is minted by Ibex for the retained generation,
+/// and handlerIdentity combines that identity with the handler slot whose
+/// trusted dispatcher completed both phases. These are not host-wall or
+/// host-monotonic timestamps.
 ///
 /// Returns ExactRuntimeDriveStatus for admission refusals, or an
 /// ExHermesClockIDispatchStatusV1 value for dispatch/attestation outcomes.

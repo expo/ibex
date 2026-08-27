@@ -209,6 +209,100 @@ async function repositoryCatalogFixture() {
   return repositoryCatalogPromise;
 }
 
+const CLOCK_I_CANDIDATE_NEW_SURFACE_IDS = new Set([
+  "surface.host.abi.ex.hermes.dispatch.event.attested.v1.1ba2uy1",
+  "surface.native.op.ibexregisterexactdispatchevent.1i6csy6",
+]);
+
+function isClockICandidateAddedRow(row) {
+  if (CLOCK_I_CANDIDATE_NEW_SURFACE_IDS.has(row.key.surfaceId)) return true;
+  return (
+    row.key.surfaceId === "surface.native.op.exactdispatchevent.1158ilx" &&
+    row.key.output === "callback:dispatch/2" &&
+    row.key.alias === "__exactDispatchEvent.attestClockICarrier" &&
+    row.key.mode === "attested" &&
+    row.key.sourceKind === "native-op" &&
+    row.key.returnVariant === "call-scoped-host-function" &&
+    row.key.contextId === "javascript.package-callback-loaded"
+  );
+}
+
+function stageClockIOnlyCatalogDelta(discoveredCatalog, coverage) {
+  const trackedCatalog = readRepoJson(
+    "capsec/generated/output-shape-catalog.json",
+  );
+  const trackedKeys = new Set(
+    trackedCatalog.rows.map((row) =>
+      canonicalOutputDispositionKey(row.key),
+    ),
+  );
+  const clockIAddedRows = discoveredCatalog.rows.filter(
+    (row) =>
+      !trackedKeys.has(canonicalOutputDispositionKey(row.key)) &&
+      isClockICandidateAddedRow(row),
+  );
+  if (clockIAddedRows.length !== 4) {
+    throw new Error(
+      `Clock I candidate expected four source-derived output rows, found ${clockIAddedRows.length}`,
+    );
+  }
+
+  const rows = [...trackedCatalog.rows, ...clockIAddedRows].sort(
+    (left, right) => {
+      const leftKey = canonicalOutputDispositionKey(left.key);
+      const rightKey = canonicalOutputDispositionKey(right.key);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    },
+  );
+  const trackedAccountIds = new Set(
+    trackedCatalog.surfaceAccounts.map((account) => account.surfaceId),
+  );
+  const clockIAddedAccounts = discoveredCatalog.surfaceAccounts.filter(
+    (account) =>
+      !trackedAccountIds.has(account.surfaceId) &&
+      CLOCK_I_CANDIDATE_NEW_SURFACE_IDS.has(account.surfaceId),
+  );
+  if (clockIAddedAccounts.length !== 2) {
+    throw new Error(
+      `Clock I candidate expected two source-derived surface accounts, found ${clockIAddedAccounts.length}`,
+    );
+  }
+  const surfaceAccounts = [
+    ...trackedCatalog.surfaceAccounts,
+    ...clockIAddedAccounts,
+  ].sort((left, right) => left.surfaceId.localeCompare(right.surfaceId));
+  const accountCounts = validateOutputShapeCatalogAccounts({
+    coverage,
+    surfaceAccounts,
+    rows,
+    parameterizedOutputBindings:
+      discoveredCatalog.parameterizedOutputBindings,
+    promotionStatus: discoveredCatalog.discovery.status,
+  });
+  return {
+    ...discoveredCatalog,
+    contexts: outputExecutionContextsForRows(rows),
+    surfaceAccounts,
+    catalogKeyDigest: outputShapeCatalogKeyDigest(rows),
+    counts: {
+      coverageSurfaces: surfaceAccounts.length,
+      outputBearingSurfaces: accountCounts["output-bearing"],
+      structuralOnlySurfaces: accountCounts["structural-only"],
+      unresolvedSurfaces: accountCounts.unresolved,
+      catalogRows: rows.length,
+      parameterizedBindings:
+        discoveredCatalog.parameterizedOutputBindings.length,
+      sourceInventoryRows: rows.filter(
+        (row) => row.discovery.kind === "source-inventory-surface",
+      ).length,
+      structuredRows: rows.filter(
+        (row) => row.discovery.kind === "source-asserted-structured-output",
+      ).length,
+    },
+    rows,
+  };
+}
+
 async function clockICandidateCatalogFixture() {
   const fixture = await repositoryCatalogFixture();
   const coverage = structuredClone(fixture.coverage);
@@ -236,13 +330,14 @@ async function clockICandidateCatalogFixture() {
       `${right.edgeId}\u0000${right.branchId}`,
     ),
   );
-  const catalog = buildOutputShapeCatalog({
+  const discoveredCatalog = buildOutputShapeCatalog({
     coverage,
     implementationRows,
     surfaces: fixture.surfaces,
     repoRoot,
     liveEvidence: fixture.liveEvidence,
   });
+  const catalog = stageClockIOnlyCatalogDelta(discoveredCatalog, coverage);
   return { catalog, coverage };
 }
 
@@ -1258,7 +1353,7 @@ describe("LLP 0023 output-disposition dataset", () => {
   test("stages the Clock I catalog delta without self-approving reviewed policy", async () => {
     const { catalog } = await clockICandidateCatalogFixture();
     expect(catalog.catalogKeyDigest).toBe(
-      "sha256-FPoNLw09W4SPa_55m4QYxGpE7KJpDH4Sx0qoFPgneRU",
+      "sha256-AqO2vBjPjBsgIJ3CxCj5NwyvrmZ9GEPd5JUw91teNd4",
     );
     expect(catalog.counts).toEqual({
       coverageSurfaces: 7_582,
@@ -1292,7 +1387,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         (row) => !candidateKeys.has(canonicalOutputDispositionKey(row.key)),
       )
       .map((row) => row.key);
-    expect(addedKeys).toHaveLength(5);
+    expect(addedKeys).toHaveLength(4);
     expect(addedKeys).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1314,29 +1409,9 @@ describe("LLP 0023 output-disposition dataset", () => {
             "surface.native.op.ibexregisterexactdispatchevent.1i6csy6",
           output: "[[return]]",
         }),
-        {
-          surfaceId:
-            "surface.native.op.global.exact.invokehostasync.0b92itq",
-          output: "[[value]]",
-          alias: "global:exact.invokeHostAsync",
-          mode: "all",
-          sourceKind: "native-op",
-          returnVariant: "default",
-          contextId: "javascript.package-property-read-loaded",
-        },
       ]),
     );
-    expect(removedKeys).toEqual([
-      {
-        surfaceId: "surface.native.op.global.exact.invokehostasync.0b92itq",
-        output: "[[return]]",
-        alias: "global:exact.invokeHostAsync",
-        mode: "all",
-        sourceKind: "native-op",
-        returnVariant: "default",
-        contextId: "runtime.bootstrap-native-call-loaded",
-      },
-    ]);
+    expect(removedKeys).toEqual([]);
 
     const rowsBySurfaceId = Map.groupBy(
       catalog.rows,
@@ -1402,6 +1477,21 @@ describe("LLP 0023 output-disposition dataset", () => {
         },
       }),
     ]);
+    expect(
+      rowsBySurfaceId
+        .get("surface.native.op.global.exact.invokehostasync.0b92itq")
+        .map((row) => row.key),
+    ).toEqual([
+      {
+        surfaceId: "surface.native.op.global.exact.invokehostasync.0b92itq",
+        output: "[[return]]",
+        alias: "global:exact.invokeHostAsync",
+        mode: "all",
+        sourceKind: "native-op",
+        returnVariant: "default",
+        contextId: "runtime.bootstrap-native-call-loaded",
+      },
+    ]);
 
     const policy = readRepoJson(
       "capsec/registry/output-disposition-policy.json",
@@ -1412,7 +1502,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     expect(() =>
       buildOutputDispositionDataset({ catalog, policy, evidence }),
     ).toThrow(
-      "output disposition policy has unreviewed catalog fields: expected sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU, discovered sha256-FPoNLw09W4SPa_55m4QYxGpE7KJpDH4Sx0qoFPgneRU",
+      "output disposition policy has unreviewed catalog fields: expected sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU, discovered sha256-AqO2vBjPjBsgIJ3CxCj5NwyvrmZ9GEPd5JUw91teNd4",
     );
   }, 120_000);
 

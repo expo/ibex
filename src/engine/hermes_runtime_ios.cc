@@ -1219,6 +1219,9 @@ std::string clockICarrierReceiptJson(
   output += ",\"principalStatus\":";
   appendClockIJsonString(
       output, clockIPrincipalStatusLabel(principal_status));
+  output += ",\"authority\":";
+  appendClockIJsonString(
+      output, clockIPrincipalStatusLabel(principal_status));
   output += ",\"principalStatusCode\":" + std::to_string(principal_status);
   output += ",\"runtimeNonce\":";
   appendClockIJsonString(

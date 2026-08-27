@@ -17885,6 +17885,7 @@ module.exports = JSON.stringify({
         );
         assert_eq!(receipt["principal"], "root");
         assert_eq!(receipt["principalStatus"], "authenticated");
+        assert_eq!(receipt["authority"], "authenticated");
         assert_eq!(receipt["principalStatusCode"], 1);
         assert_eq!(receipt["principalId"], "u64:0");
         assert_eq!(receipt["runtimeNonce"], format!("u64:{runtime_nonce}"));
