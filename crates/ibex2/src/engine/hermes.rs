@@ -408,6 +408,96 @@ mod tests {
         assert_eq!(observed, "4194304:120:120");
     }
 
+    #[test]
+    #[ignore]
+    fn measure_boundary_costs() {
+        use std::time::Instant;
+        let mut rt = with_stdlib();
+        // Warm up.
+        rt.eval("__ibex2_text_encode('x'.repeat(1024))").unwrap();
+
+        let mb = 8;
+        let setup = format!("globalThis.big = 'x'.repeat({} * 1024 * 1024);", mb);
+        rt.eval(&setup).unwrap();
+        rt.eval("globalThis.bigBytes = __ibex2_text_encode(big);")
+            .unwrap();
+
+        let n = 20;
+        // String IN (engine utf8() copy) + bytes OUT (zero-copy).
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_text_encode(big)").unwrap();
+        }
+        let encode = t.elapsed() / n;
+
+        // Bytes IN (zero-copy) + string OUT (engine createFromUtf8 copy).
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_text_decode(bigBytes)").unwrap();
+        }
+        let decode = t.elapsed() / n;
+
+        // String IN + write through into a buffer JS already owns: no output
+        // allocation at all. The delta against encode is the output copy.
+        rt.eval(&format!(
+            "globalThis.dest = new Uint8Array({} * 1024 * 1024).buffer;",
+            mb + 1
+        ))
+        .unwrap();
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_text_encode_into(big, dest)").unwrap();
+        }
+        let encode_into = t.elapsed() / n;
+
+        // Bytes IN (zero-copy) + tiny string OUT: isolates inbound bytes.
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_text_decode(bigBytes.slice(0, 8))")
+                .unwrap();
+        }
+        let bytes_in_only = t.elapsed() / n;
+
+        // Baseline: eval() of a small source, which every row above also pays.
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_search_params_get('a=1', 'a')").unwrap();
+        }
+        let tiny = t.elapsed() / n;
+
+        // Is the inbound cost transcoding or memcpy? Compare an all-ASCII
+        // string against one Hermes must store as UTF-16.
+        rt.eval(&format!(
+            "globalThis.ascii = 'x'.repeat({} * 1024 * 1024);",
+            mb
+        ))
+        .unwrap();
+        rt.eval(&format!(
+            "globalThis.wide = 'é'.repeat({} * 512 * 1024);",
+            mb
+        ))
+        .unwrap();
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_text_encode_into(ascii, dest)").unwrap();
+        }
+        let ascii_in = t.elapsed() / n;
+        let t = Instant::now();
+        for _ in 0..n {
+            rt.eval("__ibex2_text_encode_into(wide, dest)").unwrap();
+        }
+        let wide_in = t.elapsed() / n;
+
+        println!("\n=== {mb} MB payload, mean of {n} ===");
+        println!("ascii string in  ({mb} MB utf8)       : {ascii_in:?}");
+        println!("non-ascii string in ({mb} MB utf8)    : {wide_in:?}");
+        println!("encode      (string in  + bytes out  ): {encode:?}");
+        println!("encodeInto  (string in  + NO alloc   ): {encode_into:?}");
+        println!("decode      (bytes in   + string out ): {decode:?}");
+        println!("bytes in, tiny out (slice of 8)       : {bytes_in_only:?}");
+        println!("baseline    (eval of a small source  ): {tiny:?}");
+    }
+
     /// The assertion that keeps the fork from growing back: a host function
     /// installed for one runtime is not ambient in another. This is the shape
     /// LLP 0060 D2 needs from the engine — per-runtime, not global-by-default.
