@@ -1194,14 +1194,18 @@ fn microtasks_drain_between_timers_not_after_all_of_them() {
              setTimeout(() => { order.push('t2'); Promise.resolve().then(() => order.push('m2')); }, 1);",
         )
         .unwrap();
-    // Both deadlines pass with no pump in between.
+    // Both deadlines pass with no pump in between, so both are admitted
+    // together and the ONE-TASK-PER-CYCLE rule is what separates them.
     std::thread::sleep(std::time::Duration::from_millis(25));
-    assert_eq!(rt.pump(), 2, "both timers must fire in one pump");
+    assert_eq!(rt.pump(), 1, "a drive cycle runs at most one host task");
     assert_eq!(
         rt.eval("order.join(',')").unwrap(),
-        "t1,m1,t2,m2",
-        "batched drain would give t1,t2,m1,m2"
+        "t1,m1",
+        "the first timer's microtasks must drain before the second timer runs"
     );
+    assert_eq!(rt.pump(), 1);
+    assert_eq!(rt.eval("order.join(',')").unwrap(), "t1,m1,t2,m2");
+    assert_eq!(rt.pump(), 0, "nothing left");
 }
 
 /// A throwing timer must not cancel the timers already due behind it,

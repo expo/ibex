@@ -156,18 +156,17 @@ impl Hermes {
         crate::boundary_abi::drain_console()
     }
 
-    /// Deliver every ready completion, then drain microtasks to quiescence.
+    /// Run at most one host task, with a microtask checkpoint either side.
     ///
-    /// Returns how many completions were delivered. This is the embedder's
-    /// step: on a real event loop it runs once per turn.
+    /// One task per cycle, per LLP 0058.000.000 §8 — so this returns 0 or 1 and
+    /// a caller wanting to reach quiescence loops.
     pub fn pump(&mut self) -> i32 {
         // SAFETY: `handle` is non-null for the lifetime of self, and this is
         // the JavaScript thread.
         unsafe { ibex2_hermes_pump(self.handle) }
     }
 
-    /// Pump until `expected` completions have been delivered, or the deadline
-    /// passes.
+    /// Pump until `expected` host tasks have run, or the deadline passes.
     ///
     /// Blocks on the completion signal rather than spinning. The earlier
     /// version looped a fixed number of times yielding, which raced through

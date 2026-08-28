@@ -340,7 +340,11 @@ extern "C" int ibex2_async_begin(const void *queue, const void *grants,
                                  size_t argc, uint64_t task_id);
 extern "C" int ibex2_wait_for_completion(const void *queue,
                                          unsigned long long timeout_ms);
-extern "C" double ibex2_take_due_timer(const void *queue);
+extern "C" int ibex2_take_task(const void *queue, int *kind, unsigned long long *task_id,
+                               Ibex2AbiValue *out, int *is_error);
+extern "C" int ibex2_admit_due_timers(const void *queue);
+extern "C" int ibex2_begin_drive(const void *queue);
+extern "C" void ibex2_end_drive(const void *queue);
 extern "C" int ibex2_loader_load(const void *state, const char *from,
                                  const char *specifier,
                                  Ibex2AbiValue *out_resolved,
@@ -351,8 +355,7 @@ extern "C" double ibex2_millis_until_next_timer(const void *queue);
 extern "C" int ibex2_response_field(const void *queue, double handle,
                                     uint32_t field, const Ibex2AbiValue *name,
                                     Ibex2AbiValue *out);
-extern "C" int ibex2_take_completion(const void *queue, uint64_t *task_id,
-                                     Ibex2AbiValue *out, int *is_error);
+
 
 // ---------------------------------------------------------------------------
 // The job-queue adapter (LLP 0058 §3 / OQ1).
@@ -427,84 +430,94 @@ jsi::Function make_async_binding(jsi::Runtime &runtime, const char *name,
 
 extern "C" {
 
-/// Deliver every ready completion, then drain microtasks. Returns how many
-/// completions were delivered.
+/// Run at most ONE host task, with a microtask checkpoint either side.
 ///
-/// This is the entire adapter. The order of the two steps is the contract:
-/// resolving only ENQUEUES continuations (C1), and draining afterwards runs
-/// them to quiescence before the caller regains control (C2).
+/// The depth-zero drive cycle of LLP 0058.000.000 §8, in order:
+///
+///   1. PreCheckpoint — drain microtasks already queued.
+///   2. Admit timers that have come due into the one host-task FIFO.
+///   3. Reserve at most the oldest ready task.
+///   4. Run it.
+///   5. PostCheckpoint — drain the microtasks it caused, before any next task.
+///
+/// Returns 1 if a task ran and 0 otherwise. **One task per cycle**, so a caller
+/// wanting to run the loop to quiescence calls this in a loop rather than
+/// expecting one call to drain everything. Batching tasks would make the order
+/// an application sees depend on how many happened to be ready at once.
 int ibex2_hermes_pump(void *handle) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr) {
     return -1;
   }
+  // A drive request made while a cycle is running records a wakeup rather than
+  // nesting a second host task inside project JavaScript (§8).
+  if (ibex2_begin_drive(rt->queue) == 0) {
+    return 0;
+  }
   jsi::Runtime &runtime = *rt->runtime;
-  int delivered = 0;
 
-  uint64_t id = 0;
+  // 1. PreCheckpoint.
+  runtime.drainMicrotasks();
+
+  // 2. Admission.
+  ibex2_admit_due_timers(rt->queue);
+
+  // 3. Reserve at most one.
+  int kind = 0;
+  unsigned long long task_id = 0;
   Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
   int is_error = 0;
-  while (ibex2_take_completion(rt->queue, &id, &value, &is_error) != 0) {
-    auto found = rt->pending.find(id);
+  if (ibex2_take_task(rt->queue, &kind, &task_id, &value, &is_error) == 0) {
+    ibex2_end_drive(rt->queue);
+    return 0;
+  }
+
+  // 4. Run it.
+  if (kind == 2) {
+    jsi::Value fire = runtime.global().getProperty(runtime, "__ibex2_fire_timer");
+    if (fire.isObject() && fire.getObject(runtime).isFunction(runtime)) {
+      try {
+        fire.getObject(runtime).getFunction(runtime).call(
+            runtime, static_cast<double>(task_id));
+      } catch (const jsi::JSError &) {
+        // A throwing callback does not stop the tasks behind it, exactly as an
+        // unhandled error in one task does not cancel the next.
+      }
+    }
+  } else {
+    auto found = rt->pending.find(static_cast<uint64_t>(task_id));
     if (found == rt->pending.end()) {
       // Nothing is waiting for it; release the payload rather than leak it.
       ibex2_host_release(&value);
-      continue;
-    }
-    PendingPromise promise = found->second;
-    rt->pending.erase(found);
-
-    jsi::Value payload = from_abi(runtime, value);
-    ibex2_host_release(&value);
-    try {
-      if (is_error != 0) {
-        // Reject with a real Error so `catch (e) { e.message }` works.
-        auto error_ctor = runtime.global().getPropertyAsFunction(runtime, "Error");
-        jsi::Value err = error_ctor.callAsConstructor(runtime, payload);
-        promise.reject->call(runtime, err);
-      } else {
-        promise.resolve->call(runtime, payload);
-      }
-    } catch (const jsi::JSError &) {
-      // A throwing resolve must not abort the pump; the remaining completions
-      // are still owed delivery.
-    }
-    delivered += 1;
-  }
-
-  // C2: drain to quiescence, including microtasks enqueued by the microtasks
-  // we just ran.
-  runtime.drainMicrotasks();
-
-  // Then timers. Each fired timer is a separate TASK, so the microtask queue is
-  // drained after each one rather than once at the end — that is the HTML
-  // microtask checkpoint, and batching it would let a later timer's
-  // continuation run before an earlier timer's.
-  jsi::Value fire = runtime.global().getProperty(runtime, "__ibex2_fire_timer");
-  while (true) {
-    double handle = ibex2_take_due_timer(rt->queue);
-    if (handle == 0.0) {
-      break;
-    }
-    if (fire.isObject() && fire.getObject(runtime).isFunction(runtime)) {
+    } else {
+      PendingPromise promise = found->second;
+      rt->pending.erase(found);
+      jsi::Value payload = from_abi(runtime, value);
+      ibex2_host_release(&value);
       try {
-        fire.getObject(runtime).getFunction(runtime).call(runtime, handle);
+        if (is_error != 0) {
+          auto error_ctor = runtime.global().getPropertyAsFunction(runtime, "Error");
+          jsi::Value err = error_ctor.callAsConstructor(runtime, payload);
+          promise.reject->call(runtime, err);
+        } else {
+          promise.resolve->call(runtime, payload);
+        }
       } catch (const jsi::JSError &) {
-        // A throwing timer callback must not stop the other timers that are
-        // already due, exactly as an unhandled error in one task does not
-        // cancel the next.
+        // A throwing settlement must not abort the cycle.
       }
     }
-    runtime.drainMicrotasks();
-    delivered += 1;
   }
-  return delivered;
+
+  // 5. PostCheckpoint.
+  runtime.drainMicrotasks();
+  ibex2_end_drive(rt->queue);
+  return 1;
 }
 
-/// Block until a completion is ready, or the timeout elapses.
+/// Block until a host task is ready, or the timeout elapses.
 ///
-/// A real embedder calls this instead of spinning: it wakes exactly when there
-/// is work rather than burning a core to discover there is none.
+/// A real embedder calls this instead of spinning: it wakes when there is work
+/// rather than burning a core to discover there is none.
 int ibex2_hermes_wait(void *handle, unsigned long long timeout_ms) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr) {

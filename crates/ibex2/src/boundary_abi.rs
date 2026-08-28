@@ -731,18 +731,6 @@ pub unsafe extern "C" fn ibex2_loader_grants_for(
     std::sync::Arc::into_raw(state.grants_for(&specifier))
 }
 
-/// Take the next timer due now, or 0 when none is.
-///
-/// # Safety
-/// `state` must be a live runtime state.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_take_due_timer(state: *const crate::task::RuntimeState) -> f64 {
-    let Some(state) = crate::task::clone_queue(state) else {
-        return 0.0;
-    };
-    state.take_due_timer().map(|h| h as f64).unwrap_or(0.0)
-}
-
 /// Milliseconds until the next timer, or -1 when none is scheduled.
 ///
 /// # Safety
@@ -844,40 +832,88 @@ fn run_fs(
     })
 }
 
-/// Take one ready completion for the engine to deliver.
+/// Take at most ONE admitted host task for the engine to run.
 ///
-/// Returns 1 when a completion was taken and 0 when the queue is empty.
+/// LLP 0058.000.000 §8: one task per drive cycle, from one FIFO carrying both
+/// timer deliveries and settlements. `kind` is 0 for none, 1 for a settlement,
+/// 2 for a timer; a timer's handle arrives in `task_id`.
 ///
 /// # Safety
-/// All three out pointers must be valid and writable.
+/// All out pointers must be valid and writable.
 #[no_mangle]
-pub unsafe extern "C" fn ibex2_take_completion(
+pub unsafe extern "C" fn ibex2_take_task(
     state: *const crate::task::RuntimeState,
+    kind: *mut c_int,
     task_id: *mut u64,
     out: *mut AbiValue,
     is_error: *mut c_int,
 ) -> c_int {
-    if task_id.is_null() || out.is_null() || is_error.is_null() {
+    if kind.is_null() || task_id.is_null() || out.is_null() || is_error.is_null() {
         return 0;
     }
+    *kind = 0;
     let Some(state) = crate::task::clone_queue(state) else {
         return 0;
     };
-    let Some(completion) = state.queue.take() else {
+    let Some(task) = state.queue.take() else {
         return 0;
     };
-    *task_id = completion.task_id;
-    match completion.result {
-        Ok(value) => {
-            *is_error = 0;
-            *out = leak_value(value);
+    match task {
+        crate::task::HostTask::Timer { handle } => {
+            *kind = 2;
+            *task_id = handle;
+            1
         }
-        Err(err) => {
-            *is_error = 1;
-            *out = leak_value(HostValue::Str(err.to_string()));
+        crate::task::HostTask::Settlement(completion) => {
+            *kind = 1;
+            *task_id = completion.task_id;
+            match completion.result {
+                Ok(value) => {
+                    *is_error = 0;
+                    *out = leak_value(value);
+                }
+                Err(err) => {
+                    *is_error = 1;
+                    *out = leak_value(HostValue::Str(err.to_string()));
+                }
+            }
+            1
         }
     }
-    1
+}
+
+/// Move every timer due now into the host-task FIFO, and report how many.
+///
+/// # Safety
+/// `state` must be a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_admit_due_timers(state: *const crate::task::RuntimeState) -> c_int {
+    let Some(state) = crate::task::clone_queue(state) else {
+        return 0;
+    };
+    state.admit_due_timers() as c_int
+}
+
+/// Claim the driver, so a nested drive records a wakeup instead of starting a
+/// second host task inside project JavaScript.
+///
+/// # Safety
+/// `state` must be a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_begin_drive(state: *const crate::task::RuntimeState) -> c_int {
+    match crate::task::clone_queue(state) {
+        Some(state) => c_int::from(state.begin_drive()),
+        None => 0,
+    }
+}
+
+/// # Safety
+/// `state` must be a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_end_drive(state: *const crate::task::RuntimeState) {
+    if let Some(state) = crate::task::clone_queue(state) {
+        state.end_drive();
+    }
 }
 
 /// Release a value produced by `ibex2_host_call`.
