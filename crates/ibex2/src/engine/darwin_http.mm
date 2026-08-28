@@ -60,14 +60,57 @@ char *dup_utf8(NSString *value) {
 
 extern "C" {
 
-/// Perform one request. Blocking, because it is called on a worker thread that
-/// exists precisely so the JavaScript thread does not have to wait.
+/// Create the session a runtime performs all of its requests through.
+///
+/// **One session per runtime, not one per request.** Ephemeral is deliberate
+/// and stays: no shared cookie jar and no disk cache, because v1 has no
+/// credentials or cache modes (LLP 0059.000 §3.5) and inheriting process-wide
+/// cookie state would be ambient authority arriving through the back door.
+/// Per-*request* was the accident. A session owns the connection pool, so
+/// building a new one each time threw away every pooled connection and paid a
+/// full TLS handshake on every call — ~80ms each, measured.
+///
+/// Scoping it to the runtime rather than the process keeps the isolation the
+/// ephemeral configuration is there for: two runtimes still share no cookie,
+/// cache, or connection state.
+///
+/// @ref LLP 0057#3-the-boundary — pooling is the platform's job, and this is
+/// what lets it do it
+void *ibex2_darwin_session_create(void) {
+  @autoreleasepool {
+    NSURLSessionConfiguration *config =
+        [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    // Stateless, so one instance serves every task on this session.
+    Ibex2NoRedirect *delegate = [[Ibex2NoRedirect alloc] init];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config
+                                                         delegate:delegate
+                                                    delegateQueue:nil];
+    return (__bridge_retained void *)session;
+  }
+}
+
+/// Release a session. `finishTasksAndInvalidate` rather than
+/// `invalidateAndCancel`: a runtime is torn down after its tasks are drained,
+/// and cancelling in-flight work here would race the drive loop's own teardown.
+void ibex2_darwin_session_destroy(void *handle) {
+  if (handle == nullptr) {
+    return;
+  }
+  @autoreleasepool {
+    NSURLSession *session = (__bridge_transfer NSURLSession *)handle;
+    [session finishTasksAndInvalidate];
+  }
+}
+
+/// Perform one request on `session`. Blocking, because it is called on a worker
+/// thread that exists precisely so the JavaScript thread does not have to wait.
 ///
 /// Headers cross as a newline-delimited `name: value` block. That is a
 /// serialization, and it is fine here: LLP 0059.000 §1.1 governs the
 /// JavaScript boundary, not Rust's call into the platform, and a header set is
 /// small metadata rather than a payload. Bodies cross as raw bytes.
-int ibex2_darwin_http_send(const char *method, const char *url,
+int ibex2_darwin_http_send(void *session_handle, const char *method,
+                           const char *url,
                            const char *header_block, const unsigned char *body,
                            size_t body_len, int *out_status,
                            char **out_headers, unsigned char **out_body,
@@ -105,15 +148,12 @@ int ibex2_darwin_http_send(const char *method, const char *url,
       request.HTTPBody = [NSData dataWithBytes:body length:body_len];
     }
 
-    // Ephemeral: no shared cookie jar and no disk cache. v1 has no credentials
-    // or cache modes (LLP 0059.000 §3.5), so inheriting process-wide cookie
-    // state would be ambient authority arriving through the back door.
-    NSURLSessionConfiguration *config =
-        [NSURLSessionConfiguration ephemeralSessionConfiguration];
-    Ibex2NoRedirect *delegate = [[Ibex2NoRedirect alloc] init];
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:config
-                                                         delegate:delegate
-                                                    delegateQueue:nil];
+    // The runtime's session, created once. See ibex2_darwin_session_create.
+    NSURLSession *session = (__bridge NSURLSession *)session_handle;
+    if (session == nil) {
+      *out_error = dup_utf8(@"TypeError: Failed to fetch — no session");
+      return 1;
+    }
 
     __block NSData *resultData = nil;
     __block NSHTTPURLResponse *resultResponse = nil;
@@ -133,7 +173,8 @@ int ibex2_darwin_http_send(const char *method, const char *url,
           }];
     [task resume];
     dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
-    [session finishTasksAndInvalidate];
+    // No finishTasksAndInvalidate here: the session outlives the request and
+    // is released by ibex2_darwin_session_destroy when the runtime goes away.
 
     if (resultError != nil && resultResponse == nil) {
       NSString *message = [NSString
