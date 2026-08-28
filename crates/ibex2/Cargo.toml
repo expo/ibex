@@ -11,5 +11,11 @@ publish = false
 # machine that has not built vanilla Hermes.
 [dependencies]
 
+[build-dependencies]
+cc = "1"
+
 [features]
 default = []
+# Link the spike against vanilla Hermes from ios/Frameworks-vanilla/.
+# Off by default so the workspace builds without an engine present.
+hermes = []
