@@ -18,7 +18,7 @@
 //! `Pump::CONTRACT` rather than left implicit.
 //!
 //! @ref LLP 0058#3-the-part-that-cannot-move — the job queue this interleaves with
-//! @ref LLP 0059.000#1-1-which-ops-are-synchronous — delegating ops are async, without exception
+//! @ref LLP 0059.000#11-which-ops-are-synchronous — delegating ops are async, without exception
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
