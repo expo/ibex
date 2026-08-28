@@ -19,6 +19,7 @@ pub mod bytecode;
 pub mod engine;
 pub mod grant;
 pub mod loader;
+pub mod receipt;
 pub mod stdlib;
 pub mod task;
 pub mod transport;

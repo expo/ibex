@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 /// Bumped when anything about how sources become artifacts changes in a way
 /// the inputs below do not already capture. Changing it invalidates every
 /// cached artifact, which is the point.
-const ARTIFACT_VERSION: u32 = 1;
+const ARTIFACT_VERSION: u32 = 2;
 
 /// Compiles module wrappers to Hermes bytecode, caching by content.
 #[derive(Debug, Clone)]
@@ -34,9 +34,81 @@ pub struct Compiler {
     /// compiler that produced it makes an engine change a cache miss rather
     /// than a runtime failure.
     toolchain: String,
+    /// The engine these artifacts are for, from its HermesInputReceipt.
+    ///
+    /// LLP 0058.000.001 §5: a ModuleReceipt's digest domain includes the
+    /// HermesInputReceipt digest. Folding it into the key is the enforcement —
+    /// bytecode built against one engine cannot be found, let alone loaded,
+    /// under another.
+    engine: Option<String>,
 }
 
 impl Compiler {
+    /// Find `hermesc` beside the vanilla engine, or wherever
+    /// `IBEX2_HERMESC` points, binding artifacts to the engine's receipt when
+    /// one is installed.
+    ///
+    /// `require_receipt` is the shipping posture. Without it a missing receipt
+    /// is tolerated — a machine can compile before its engine has been
+    /// receipted — but the absence is folded into the artifact key, so
+    /// artifacts built without a receipt never masquerade as artifacts built
+    /// with one.
+    ///
+    /// **With it, a missing receipt is refused.** An unreceipted engine is
+    /// indistinguishable from a patched one to a reader that only checks
+    /// receipts it can find, and "no evidence" is not evidence.
+    pub fn discover_for_engine(
+        repo_root: &Path,
+        cache_dir: PathBuf,
+        engine_dir: &Path,
+        require_receipt: bool,
+    ) -> Result<Self, String> {
+        let receipt = crate::receipt::HermesInput::read(engine_dir).ok();
+        if require_receipt && receipt.is_none() {
+            return Err(format!(
+                "the engine at {} has no HermesInputReceipt, so nothing attests it is unpatched\n\
+                 produce one with: node scripts/hermes-input-receipt.mjs {}",
+                engine_dir.display(),
+                engine_dir.display()
+            ));
+        }
+        if let Some(receipt) = &receipt {
+            if !receipt.is_vanilla() {
+                return Err(format!(
+                    "the engine at {} is not vanilla: its receipt records {} applied patches",
+                    engine_dir.display(),
+                    receipt.patches_applied
+                ));
+            }
+            receipt.verify_binary(engine_dir)?;
+        }
+        let hermesc = Self::find_hermesc(repo_root)?;
+        Self::with_engine(hermesc, cache_dir, receipt)
+    }
+
+    fn find_hermesc(repo_root: &Path) -> Result<PathBuf, String> {
+        let hermesc = match std::env::var("IBEX2_HERMESC") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => {
+                let arch = if cfg!(target_arch = "aarch64") {
+                    "arm64"
+                } else {
+                    "x64"
+                };
+                repo_root.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}"))
+            }
+        };
+        if !hermesc.exists() {
+            return Err(format!(
+                "hermesc not found at {}\n\
+                 build it with: ./scripts/build-hermes.sh --vanilla\n\
+                 (or point IBEX2_HERMESC at one)",
+                hermesc.display()
+            ));
+        }
+        Ok(hermesc)
+    }
+
     /// Find `hermesc` beside the vanilla engine, or wherever
     /// `IBEX2_HERMESC` points.
     pub fn discover(repo_root: &Path, cache_dir: PathBuf) -> Result<Self, String> {
@@ -63,6 +135,15 @@ impl Compiler {
     }
 
     pub fn new(hermesc: PathBuf, cache_dir: PathBuf) -> Result<Self, String> {
+        Self::with_engine(hermesc, cache_dir, None)
+    }
+
+    /// Bind this compiler's artifacts to a specific engine receipt.
+    pub fn with_engine(
+        hermesc: PathBuf,
+        cache_dir: PathBuf,
+        engine: Option<crate::receipt::HermesInput>,
+    ) -> Result<Self, String> {
         let bytes = std::fs::read(&hermesc)
             .map_err(|e| format!("cannot read {}: {e}", hermesc.display()))?;
         // Hashed once, not per module: the binary is a few megabytes.
@@ -71,6 +152,7 @@ impl Compiler {
             hermesc,
             cache_dir,
             toolchain,
+            engine: engine.map(|receipt| receipt.binary_digest),
         })
     }
 
@@ -86,6 +168,12 @@ impl Compiler {
         let mut hasher = Sha256::new();
         hasher.update(ARTIFACT_VERSION.to_le_bytes());
         hasher.update(self.toolchain.as_bytes());
+        hasher.update(
+            self.engine
+                .as_deref()
+                .unwrap_or("no-engine-receipt")
+                .as_bytes(),
+        );
         hasher.update((wrapped.len() as u64).to_le_bytes());
         hasher.update(wrapped.as_bytes());
         hex(&hasher.finalize())
@@ -343,6 +431,48 @@ mod tests {
         assert!(c.cached_only(source).is_err(), "must not compile on demand");
         c.compile(source).expect("compile");
         assert!(c.cached_only(source).is_ok());
+        let _ = std::fs::remove_dir_all(cache);
+    }
+
+    /// Artifacts are bound to the engine they were built for, so bytecode from
+    /// one engine cannot be found under another (LLP 0058.000.001 §5).
+    #[test]
+    fn the_artifact_key_binds_the_engine_receipt() {
+        let Some((plain, cache)) = compiler("engine") else {
+            return;
+        };
+        let bound = Compiler::with_engine(
+            plain.hermesc.clone(),
+            cache.clone(),
+            Some(crate::receipt::HermesInput {
+                binary_digest: "sha256-engine-a".into(),
+                variant: "release".into(),
+                patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
+                patches_applied: 0,
+                compiler_digest: None,
+            }),
+        )
+        .expect("compiler");
+        let other = Compiler::with_engine(
+            plain.hermesc.clone(),
+            cache.clone(),
+            Some(crate::receipt::HermesInput {
+                binary_digest: "sha256-engine-b".into(),
+                variant: "release".into(),
+                patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
+                patches_applied: 0,
+                compiler_digest: None,
+            }),
+        )
+        .expect("compiler");
+
+        let source = "(function () { return 1; })";
+        assert_ne!(bound.key(source), other.key(source), "engines share a key");
+        assert_ne!(
+            bound.key(source),
+            plain.key(source),
+            "receipted == unreceipted"
+        );
         let _ = std::fs::remove_dir_all(cache);
     }
 

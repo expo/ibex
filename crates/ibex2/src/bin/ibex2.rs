@@ -96,6 +96,25 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The engine these artifacts are built for.
+fn engine_dir() -> PathBuf {
+    match std::env::var("IBEX2_VANILLA_HERMES_DIR") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => repo_root().join("ios/Frameworks-vanilla"),
+    }
+}
+
+/// A compiler bound to the installed engine's receipt, so artifacts built for
+/// one engine are never found under another (LLP 0058.000.001 §5).
+fn compiler_for(root: &Path, require_receipt: bool) -> Result<ibex2::bytecode::Compiler, String> {
+    ibex2::bytecode::Compiler::discover_for_engine(
+        &repo_root(),
+        cache_dir(root),
+        &engine_dir(),
+        require_receipt,
+    )
+}
+
 /// Compile the whole reachable graph ahead of time.
 fn build(entry: &Path) -> Result<(), String> {
     let entry = entry
@@ -110,7 +129,8 @@ fn build(entry: &Path) -> Result<(), String> {
         .ok_or("entry has no file name")?
         .to_string_lossy()
         .into_owned();
-    let compiler = ibex2::bytecode::Compiler::discover(&repo_root(), cache_dir(&root))?;
+    // A build produces artifacts others will trust, so it requires the receipt.
+    let compiler = compiler_for(&root, true)?;
 
     // Walk from the entry, following require() as the loader would. Compiling
     // every .js under the root instead would build files nothing imports.
@@ -209,7 +229,7 @@ fn run(
     }
     rt.install_bindings().map_err(|e| e.0)?;
     let compiler = if compile || precompiled_only {
-        match ibex2::bytecode::Compiler::discover(&repo_root(), cache_dir(&root)) {
+        match compiler_for(&root, precompiled_only) {
             Ok(compiler) => Some(compiler),
             Err(message) if precompiled_only => return Err(message),
             // Without hermesc the runtime can still load source. That path is
