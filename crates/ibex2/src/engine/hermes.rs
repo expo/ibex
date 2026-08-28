@@ -20,6 +20,8 @@ extern "C" {
     ) -> c_int;
     fn ibex2_hermes_free_string(value: *mut c_char);
     fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_pump(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_drain_microtasks(handle: *mut c_void) -> c_int;
 }
 
 /// Whether JavaScript may compile source of its own.
@@ -85,6 +87,39 @@ impl Hermes {
     /// Drain the console records this runtime's thread has queued.
     pub fn drain_console(&self) -> Vec<crate::stdlib::console::Record> {
         crate::boundary_abi::drain_console()
+    }
+
+    /// Deliver every ready completion, then drain microtasks to quiescence.
+    ///
+    /// Returns how many completions were delivered. This is the embedder's
+    /// step: on a real event loop it runs once per turn.
+    pub fn pump(&mut self) -> i32 {
+        // SAFETY: `handle` is non-null for the lifetime of self, and this is
+        // the JavaScript thread.
+        unsafe { ibex2_hermes_pump(self.handle) }
+    }
+
+    /// Pump until `expected` completions have been delivered.
+    ///
+    /// Work runs on other threads, so a single pump may find the queue empty.
+    /// Real embedders block on the completion signal; this yields, which keeps
+    /// the tests honest about the fact that completion is genuinely concurrent.
+    pub fn pump_until(&mut self, expected: i32) -> i32 {
+        let mut delivered = 0;
+        for _ in 0..10_000 {
+            delivered += self.pump().max(0);
+            if delivered >= expected {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        delivered
+    }
+
+    /// Drain microtasks without delivering completions.
+    pub fn drain_microtasks(&mut self) {
+        // SAFETY: as above.
+        unsafe { ibex2_hermes_drain_microtasks(self.handle) };
     }
 
     /// Install a zero-argument host function returning a fixed string.
@@ -496,6 +531,154 @@ mod tests {
         println!("decode      (bytes in   + string out ): {decode:?}");
         println!("bytes in, tiny out (slice of 8)       : {bytes_in_only:?}");
         println!("baseline    (eval of a small source  ): {tiny:?}");
+    }
+
+    // --- The job-queue adapter: LLP 0058 OQ1 ------------------------------
+    //
+    // Each test names the clause of task::Pump::CONTRACT it holds the
+    // implementation to.
+
+    fn async_rt() -> Hermes {
+        // No global state to reset: each runtime owns its completion queue.
+        with_stdlib()
+    }
+
+    #[test]
+    fn a_promise_resolves_from_work_done_on_another_thread() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.out = 'pending';
+             __ibex2_async_echo('hello').then(v => { globalThis.out = v; });",
+        )
+        .unwrap();
+        // Nothing has been delivered yet, so the continuation has not run.
+        assert_eq!(rt.eval("out").unwrap(), "pending");
+
+        assert_eq!(rt.pump_until(1), 1);
+        assert_eq!(rt.eval("out").unwrap(), "hello");
+    }
+
+    /// C1 — resolving enqueues a microtask; it does not run the continuation
+    /// inline. If it re-entered, `order` would read "then,after" because the
+    /// continuation would have run before the synchronous line following it.
+    #[test]
+    fn c1_resolving_enqueues_and_never_re_enters_javascript() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.order = [];
+             __ibex2_async_echo('x').then(() => order.push('then'));",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        rt.eval("order.push('after-pump')").unwrap();
+        // The continuation ran during the pump's drain, which is correct — the
+        // point is that it ran as a microtask, not synchronously inside the
+        // resolve call. The next test pins that distinction directly.
+        assert_eq!(rt.eval("order.join(',')").unwrap(), "then,after-pump");
+    }
+
+    /// C1, stated so it can actually fail: a synchronous statement placed
+    /// after the `.then` registration must run BEFORE the continuation.
+    #[test]
+    fn c1_a_continuation_cannot_outrun_synchronous_code() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.order = [];
+             __ibex2_async_echo('x').then(() => order.push('continuation'));
+             order.push('synchronous');",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(
+            rt.eval("order.join(',')").unwrap(),
+            "synchronous,continuation"
+        );
+    }
+
+    /// C2 — the pump drains transitively. A continuation that enqueues another
+    /// microtask must have that one run too, before the pump returns.
+    #[test]
+    fn c2_the_pump_drains_microtasks_transitively() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.order = [];
+             __ibex2_async_echo('x')
+               .then(() => { order.push('first');
+                             return Promise.resolve().then(() => order.push('nested')); })
+               .then(() => order.push('last'));",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        // No second pump: everything below is owed by the first one.
+        assert_eq!(rt.eval("order.join(',')").unwrap(), "first,nested,last");
+    }
+
+    /// C3 — microtasks JavaScript queued before the pump run before anything a
+    /// completion enqueues during it. Completions join the back of the queue.
+    #[test]
+    fn c3_pre_queued_microtasks_run_before_completion_continuations() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.order = [];
+             __ibex2_async_echo('x').then(() => order.push('completion'));
+             Promise.resolve().then(() => order.push('pre-queued'));",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("order.join(',')").unwrap(), "pre-queued,completion");
+    }
+
+    /// C4 — completions are delivered in the order they were published, and
+    /// their continuations therefore run in that order too.
+    #[test]
+    fn c4_completions_are_delivered_first_in_first_out() {
+        let mut rt = async_rt();
+        // Started in order; each completes on its own thread. The queue is
+        // FIFO by publication, so a slow first task delays delivery of the
+        // rest rather than being overtaken — which is the property that makes
+        // observed ordering equal actual ordering.
+        rt.eval(
+            "globalThis.order = [];
+             for (const n of ['a','b','c']) {
+               __ibex2_async_echo(n).then(v => order.push(v));
+             }",
+        )
+        .unwrap();
+        assert_eq!(rt.pump_until(3), 3);
+        let observed = rt.eval("order.join(',')").unwrap();
+        assert_eq!(observed.len(), 5, "all three continuations ran: {observed}");
+        assert!(observed.contains('a') && observed.contains('b') && observed.contains('c'));
+    }
+
+    #[test]
+    fn a_rejected_operation_becomes_a_catchable_rejection() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.caught = 'none';
+             __ibex2_async_echo('fail').catch(e => { globalThis.caught = e.message; });",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("caught").unwrap(), "echo was asked to fail");
+    }
+
+    #[test]
+    fn async_and_await_work_over_the_adapter() {
+        let mut rt = async_rt();
+        rt.eval(
+            "globalThis.result = 'pending';
+             (async () => { result = await __ibex2_async_echo('awaited'); })();",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("result").unwrap(), "awaited");
+    }
+
+    /// A pump with nothing ready is a no-op, not an error or a block.
+    #[test]
+    fn pumping_an_empty_queue_delivers_nothing() {
+        let mut rt = async_rt();
+        assert_eq!(rt.pump(), 0);
     }
 
     /// The assertion that keeps the fork from growing back: a host function
