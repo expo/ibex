@@ -290,6 +290,15 @@ impl RuntimeState {
 pub struct LoaderConfig {
     pub root: std::path::PathBuf,
     pub grants: crate::loader::ModuleGrants,
+    /// Compiles module wrappers ahead of time. Absent means source loading,
+    /// which `rules/RULES.md` forbids for anything shippable and which exists
+    /// only so a machine without hermesc can still run something.
+    pub compiler: Option<crate::bytecode::Compiler>,
+    /// Refuse to compile on demand: every module must already be built.
+    pub precompiled_only: bool,
+    /// Resolved specifier to artifact key, written by the build. When present,
+    /// a module is found without reading or hashing its source.
+    pub manifest: Option<crate::bytecode::Manifest>,
 }
 
 impl RuntimeState {
@@ -297,18 +306,53 @@ impl RuntimeState {
         *self.loader.lock().expect("loader poisoned") = Some(config);
     }
 
-    /// Resolve a specifier and read its source.
+    /// Resolve a specifier and produce the module's executable form.
     ///
     /// Resolution refuses anything outside the root before a file is opened, so
-    /// a traversal is a loader error rather than a filesystem question.
-    pub fn load_source(&self, from: &str, specifier: &str) -> Result<(String, String), String> {
+    /// a traversal is a loader error rather than a filesystem question. The
+    /// second element is Hermes bytecode when a compiler is configured and
+    /// wrapped source otherwise; the caller distinguishes them by the HBC
+    /// magic rather than by asking.
+    pub fn load_module(&self, from: &str, specifier: &str) -> Result<(String, Vec<u8>), String> {
         let guard = self.loader.lock().expect("loader poisoned");
         let config = guard.as_ref().ok_or("no loader configured")?;
         let resolved = crate::loader::resolve(&config.root, from, specifier)?;
+
+        // The fast path: the build already said which artifact this is, so the
+        // source file is never opened.
+        if let (Some(compiler), Some(manifest)) = (&config.compiler, &config.manifest) {
+            if let Some(key) = manifest.get(&resolved) {
+                let bytes = compiler
+                    .by_key(key)
+                    .map_err(|e| format!("{resolved}: {e}"))?;
+                return Ok((resolved, bytes));
+            }
+            if config.precompiled_only {
+                return Err(format!("{resolved}: not in the build manifest"));
+            }
+        }
+
         let path = config.root.join(resolved.trim_start_matches("./"));
         let source = std::fs::read_to_string(&path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        Ok((resolved, source))
+
+        // The wrapper is built HERE, once, because it is what gets compiled —
+        // the artifact is the wrapper, so a second definition of it elsewhere
+        // would be a second definition of the thing the cache is keyed on.
+        let wrapped = crate::loader::wrap(&source);
+
+        match &config.compiler {
+            Some(compiler) => {
+                let bytes = if config.precompiled_only {
+                    compiler.cached_only(&wrapped)
+                } else {
+                    compiler.compile(&wrapped)
+                }
+                .map_err(|e| format!("{resolved}: {e}"))?;
+                Ok((resolved, bytes))
+            }
+            None => Ok((resolved, wrapped.into_bytes())),
+        }
     }
 
     /// The authority for one module, as an owned handle the binding keeps.

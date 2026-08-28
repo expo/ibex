@@ -89,11 +89,24 @@ struct Boot {
 }
 
 fn boot(root: &Path) -> Boot {
+    boot_with(root, None, false)
+}
+
+fn compiler_for(root: &Path) -> Option<ibex2::bytecode::Compiler> {
+    let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    ibex2::bytecode::Compiler::discover(&repo, root.join(".ibex2/cache")).ok()
+}
+
+fn boot_with(
+    root: &Path,
+    compiler: Option<ibex2::bytecode::Compiler>,
+    precompiled_only: bool,
+) -> Boot {
     let t = Instant::now();
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(root, ModuleGrants::none());
+    rt.set_loader_with(root, ModuleGrants::none(), compiler, precompiled_only);
     rt.eval(HARDEN).expect("harden");
     let floor = t.elapsed();
 
@@ -132,6 +145,55 @@ fn real_boot_by_graph_size() {
             "  {:>7} {:>8.2}MB {:>9.2}ms {:>10.2}ms {:>10.2}ms {:>8.3}ms",
             count,
             graph.bytes as f64 / 1_048_576.0,
+            ms(floor),
+            ms(modules),
+            ms(floor + modules),
+            ms(modules) / count as f64
+        );
+    }
+
+    // The same graphs, loaded from ahead-of-time bytecode.
+    println!("\n=== the same graphs, from precompiled bytecode ===");
+    println!(
+        "  {:>7} {:>10} {:>11} {:>11} {:>9}",
+        "modules", "floor", "modules", "total", "per-mod"
+    );
+    for count in [1usize, 10, 100, 570] {
+        let graph = Graph::build(count);
+        let Some(compiler) = compiler_for(&graph.dir) else {
+            println!("  (hermesc not found; run ./scripts/build-hermes.sh --vanilla)");
+            break;
+        };
+        // Build first — including the manifest, so the measured runs never
+        // open a source file.
+        let mut manifest = ibex2::bytecode::Manifest::new();
+        for i in 0..count {
+            let specifier = format!("./m{i}.js");
+            let source = std::fs::read_to_string(graph.dir.join(format!("m{i}.js"))).expect("read");
+            let wrapped = ibex2::loader::wrap(&source);
+            compiler.compile(&wrapped).expect("compile");
+            manifest.insert(&specifier, &compiler.key(&wrapped));
+        }
+        let entry = std::fs::read_to_string(graph.dir.join("index.js")).expect("read");
+        let wrapped = ibex2::loader::wrap(&entry);
+        compiler.compile(&wrapped).expect("compile");
+        manifest.insert("./index.js", &compiler.key(&wrapped));
+        manifest
+            .write(&graph.dir.join(".ibex2/cache"))
+            .expect("manifest");
+
+        let runs = 5;
+        let (mut floor, mut modules) = (Duration::ZERO, Duration::ZERO);
+        for _ in 0..runs {
+            let b = boot_with(&graph.dir, Some(compiler.clone()), true);
+            floor += b.floor;
+            modules += b.modules;
+        }
+        let floor = floor / runs;
+        let modules = modules / runs;
+        println!(
+            "  {:>7} {:>9.2}ms {:>10.2}ms {:>10.2}ms {:>8.3}ms",
+            count,
             ms(floor),
             ms(modules),
             ms(floor + modules),

@@ -26,10 +26,30 @@ impl Project {
     }
 
     fn run(&self, entry: &str, manifest: &str) -> (Vec<String>, Option<String>) {
+        self.run_with(entry, manifest, None, false)
+    }
+
+    fn compiler(&self) -> Option<ibex2::bytecode::Compiler> {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        ibex2::bytecode::Compiler::discover(&root, self.0.join(".ibex2/cache")).ok()
+    }
+
+    fn run_with(
+        &self,
+        entry: &str,
+        manifest: &str,
+        compiler: Option<ibex2::bytecode::Compiler>,
+        precompiled_only: bool,
+    ) -> (Vec<String>, Option<String>) {
         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
         assert!(rt.install_stdlib());
         rt.install_bindings().expect("bindings");
-        rt.set_loader(&self.0, ModuleGrants::parse(manifest).expect("manifest"));
+        rt.set_loader_with(
+            &self.0,
+            ModuleGrants::parse(manifest).expect("manifest"),
+            compiler,
+            precompiled_only,
+        );
         let error = rt.run_entry(entry).err().map(|e| e.0);
         rt.run_to_quiescence(std::time::Duration::from_secs(10));
         let output = rt.drain_console().into_iter().map(|r| r.message).collect();
@@ -195,4 +215,114 @@ fn a_module_cannot_borrow_another_modules_binding_by_name() {
     let (out, err) = p.run("./index.js", "[*]\nnet.fetch https://example.com\n");
     assert_eq!(err, None);
     assert_eq!(out, vec!["undefined"]);
+}
+
+// --- Ahead-of-time bytecode -------------------------------------------------
+
+/// The bytecode path must behave exactly as the source path does. If it does
+/// not, everything measured about it is measuring a different program.
+#[test]
+fn bytecode_and_source_produce_identical_behaviour() {
+    let p = Project::new("parity");
+    p.file(
+        "index.js",
+        "const m = require('./m');
+         console.log('sum', m.add(2, 3));
+         console.log('exports replaced', typeof require('./r'));
+         setTimeout(() => console.log('timer'), 5);",
+    )
+    .file("m.js", "exports.add = (a, b) => a + b;")
+    .file("r.js", "module.exports = function () {};");
+
+    let (source_out, source_err) = p.run("./index.js", "");
+    let Some(compiler) = p.compiler() else { return };
+    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false);
+
+    assert_eq!(source_err, None);
+    assert_eq!(hbc_err, None);
+    assert_eq!(
+        hbc_out, source_out,
+        "bytecode diverged from source: {hbc_out:?} vs {source_out:?}"
+    );
+    assert!(source_out.iter().any(|l| l == "sum 5"));
+}
+
+/// The lifetime bug this caught, pinned. Hermes RETAINS a bytecode buffer for
+/// the life of the module, so a borrowed buffer over a local leaves callbacks
+/// executing against freed memory — and the failure is silent, because the
+/// bytecode is gone rather than wrong. The synchronous body still runs, which
+/// is what made it look like an async bug.
+#[test]
+fn a_callback_still_works_after_its_module_has_finished_loading() {
+    let p = Project::new("lifetime");
+    p.file(
+        "index.js",
+        "let done = false;
+         setTimeout(() => { done = true; console.log('callback ran'); }, 5);
+         Promise.resolve().then(() => console.log('microtask ran'));
+         console.log('module body ran');",
+    );
+    let Some(compiler) = p.compiler() else { return };
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), false);
+    assert_eq!(err, None);
+    assert_eq!(
+        out,
+        vec!["module body ran", "microtask ran", "callback ran"],
+        "a callback outliving its module's load lost its bytecode"
+    );
+}
+
+/// `--precompiled` compiles nothing: the shipping posture rules/RULES.md wants.
+#[test]
+fn precompiled_only_refuses_what_was_not_built() {
+    let p = Project::new("strict");
+    p.file("index.js", "console.log('ran');");
+    let Some(compiler) = p.compiler() else { return };
+
+    let (_, err) = p.run_with("./index.js", "", Some(compiler.clone()), true);
+    assert!(
+        err.is_some_and(|e| e.contains("no precompiled artifact")),
+        "strict mode compiled on demand"
+    );
+
+    // Build it, and the same run succeeds without compiling anything.
+    let source = std::fs::read_to_string(p.0.join("index.js")).unwrap();
+    compiler
+        .compile(&ibex2::loader::wrap(&source))
+        .expect("build");
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), true);
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["ran"]);
+}
+
+/// Grants must not be an input to the artifact, or changing policy would mean
+/// recompiling. The same module compiled under different manifests is one file.
+#[test]
+fn the_artifact_does_not_depend_on_the_modules_grants() {
+    let p = Project::new("grantfree");
+    p.file("index.js", "console.log(typeof fetch);");
+    let Some(compiler) = p.compiler() else { return };
+
+    p.run_with("./index.js", "", Some(compiler.clone()), false);
+    let after_empty: Vec<_> = std::fs::read_dir(p.0.join(".ibex2/cache"))
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
+
+    p.run_with(
+        "./index.js",
+        "[*]\nnet.fetch https://example.com\n",
+        Some(compiler),
+        false,
+    );
+    let after_granted: Vec<_> = std::fs::read_dir(p.0.join(".ibex2/cache"))
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
+
+    assert_eq!(
+        after_empty.len(),
+        after_granted.len(),
+        "a grant change produced a new artifact; bytecode depends on policy"
+    );
 }

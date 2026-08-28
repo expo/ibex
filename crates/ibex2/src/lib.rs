@@ -15,6 +15,7 @@
 
 pub mod boundary;
 pub mod boundary_abi;
+pub mod bytecode;
 pub mod engine;
 pub mod grant;
 pub mod loader;
