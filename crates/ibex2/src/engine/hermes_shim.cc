@@ -22,6 +22,7 @@ using namespace facebook;
 
 extern "C" const void *ibex2_queue_create();
 extern "C" void ibex2_queue_destroy(const void *queue);
+extern "C" void ibex2_grants_destroy(const void *grants);
 
 namespace {
 
@@ -40,6 +41,12 @@ struct Ibex2Runtime {
   // This runtime's own completion queue. Per-runtime so two runtimes in one
   // process cannot take each other's completions (task::Pump C5).
   const void *queue = nullptr;
+  // Loaded modules, by resolved specifier. Held here rather than on the global
+  // object: a module registry reachable from JavaScript would let any module
+  // read any other's exports without requiring it (LLP 0062 R1).
+  std::unordered_map<std::string, std::shared_ptr<jsi::Object>> modules;
+  // Grant sets handed to module bindings, released when the runtime is.
+  std::vector<const void *> module_grants;
 };
 
 // Copy a std::string out to a malloc'd C string the Rust side owns and frees
@@ -88,6 +95,9 @@ void ibex2_hermes_destroy(void *handle) {
   if (rt != nullptr) {
     // Workers may still hold the queue; releasing our reference is enough,
     // and the last holder frees it.
+    for (const void *grants : rt->module_grants) {
+      ibex2_grants_destroy(grants);
+    }
     ibex2_queue_destroy(rt->queue);
   }
   delete rt;
@@ -317,6 +327,12 @@ extern "C" int ibex2_async_begin(const void *queue, const void *grants,
 extern "C" int ibex2_wait_for_completion(const void *queue,
                                          unsigned long long timeout_ms);
 extern "C" double ibex2_take_due_timer(const void *queue);
+extern "C" int ibex2_loader_load(const void *state, const char *from,
+                                 const char *specifier,
+                                 Ibex2AbiValue *out_resolved,
+                                 Ibex2AbiValue *out_source);
+extern "C" const void *ibex2_loader_grants_for(const void *state,
+                                               const char *specifier);
 extern "C" double ibex2_millis_until_next_timer(const void *queue);
 extern "C" int ibex2_response_field(const void *queue, double handle,
                                     uint32_t field, const Ibex2AbiValue *name,
@@ -492,6 +508,140 @@ int ibex2_hermes_drain_microtasks(void *handle) {
   }
   rt->runtime->drainMicrotasks();
   return 0;
+}
+
+} // extern "C"
+
+namespace {
+
+std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
+                                         const std::string &from,
+                                         const std::string &specifier);
+
+// `require`, closed over the specifier of the module that holds it — so a
+// relative path resolves against the right file, and a module cannot claim to
+// be somewhere else to change what it can reach.
+jsi::Function make_require(jsi::Runtime &runtime, Ibex2Runtime *owner,
+                           const std::string &self) {
+  return jsi::Function::createFromHostFunction(
+      runtime, jsi::PropNameID::forAscii(runtime, "require"), 1,
+      [owner, self](jsi::Runtime &rt, const jsi::Value &,
+                    const jsi::Value *args, size_t count) -> jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw jsi::JSError(rt, "require expects a specifier");
+        }
+        auto exports =
+            load_module(rt, owner, self, args[0].getString(rt).utf8(rt));
+        return jsi::Value(rt, *exports);
+      });
+}
+
+std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
+                                         const std::string &from,
+                                         const std::string &specifier) {
+  Ibex2AbiValue resolved{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+  Ibex2AbiValue source{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+  int status = ibex2_loader_load(owner->queue, from.c_str(), specifier.c_str(),
+                                 &resolved, &source);
+  std::string resolved_name(reinterpret_cast<const char *>(resolved.data),
+                            resolved.len);
+  if (status != 0) {
+    ibex2_host_release(&resolved);
+    ibex2_host_release(&source);
+    throw jsi::JSError(rt, resolved_name);
+  }
+  std::string source_text(reinterpret_cast<const char *>(source.data),
+                          source.len);
+  ibex2_host_release(&resolved);
+  ibex2_host_release(&source);
+
+  // A cycle returns the partial exports rather than recursing forever, which
+  // is what CommonJS does and what makes mutually-importing modules terminate.
+  auto existing = owner->modules.find(resolved_name);
+  if (existing != owner->modules.end()) {
+    return existing->second;
+  }
+
+  auto module = std::make_shared<jsi::Object>(rt);
+  auto exports = std::make_shared<jsi::Object>(rt);
+  module->setProperty(rt, "exports", jsi::Value(rt, *exports));
+  // Registered BEFORE evaluation, so a cycle finds this entry.
+  owner->modules[resolved_name] = exports;
+
+  // The wrapper is a function EXPRESSION evaluated by the host. new Function
+  // cannot be used — dynamic code is closed at construction (LLP 0060 D4) —
+  // which is precisely why the loader lives here and not in JavaScript.
+  std::string wrapped =
+      "(function (module, exports, require, fetch) {\n" + source_text + "\n})";
+  auto buffer = std::make_shared<jsi::StringBuffer>(wrapped);
+  jsi::Value fn_value = rt.evaluateJavaScript(buffer, resolved_name);
+  if (!fn_value.isObject() || !fn_value.getObject(rt).isFunction(rt)) {
+    owner->modules.erase(resolved_name);
+    throw jsi::JSError(rt, "module wrapper did not evaluate to a function");
+  }
+
+  // This module's own authority, captured now and carried by its binding for
+  // the binding's whole life (LLP 0060 D1). A module granted nothing receives
+  // a fetch that refuses everything — not an absent fetch, so the failure is a
+  // denial rather than a TypeError.
+  const void *grants =
+      ibex2_loader_grants_for(owner->queue, resolved_name.c_str());
+  if (grants != nullptr) {
+    owner->module_grants.push_back(grants);
+  }
+
+  jsi::Value fetch_binding = jsi::Value(
+      rt, make_async_binding(rt, "fetch", 101, owner, grants));
+
+  fn_value.getObject(rt).getFunction(rt).call(
+      rt, jsi::Value(rt, *module), jsi::Value(rt, *exports),
+      jsi::Value(rt, make_require(rt, owner, resolved_name)),
+      std::move(fetch_binding));
+
+  // `module.exports = ...` replaces the object, so re-read it after running.
+  jsi::Value final_exports = module->getProperty(rt, "exports");
+  if (final_exports.isObject()) {
+    auto replaced = std::make_shared<jsi::Object>(final_exports.getObject(rt));
+    owner->modules[resolved_name] = replaced;
+    return replaced;
+  }
+  return exports;
+}
+
+} // namespace
+
+extern "C" {
+
+/// This runtime's Rust-side state, for callers that need it directly.
+const void *ibex2_hermes_state(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  return rt == nullptr ? nullptr : rt->queue;
+}
+
+/// Load and run an entry module. Returns 0 on success.
+///
+/// `out_error` receives the message on failure and is Rust-released.
+int ibex2_hermes_run_entry(void *handle, const char *specifier,
+                           char **out_error) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return -1;
+  }
+  try {
+    load_module(*rt->runtime, rt, "./", specifier);
+    rt->runtime->drainMicrotasks();
+    return 0;
+  } catch (const jsi::JSError &e) {
+    if (out_error != nullptr) {
+      *out_error = dup_c_string(e.getMessage());
+    }
+    return 1;
+  } catch (const std::exception &e) {
+    if (out_error != nullptr) {
+      *out_error = dup_c_string(std::string(e.what()));
+    }
+    return 1;
+  }
 }
 
 } // extern "C"

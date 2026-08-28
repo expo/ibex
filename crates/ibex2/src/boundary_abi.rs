@@ -558,9 +558,13 @@ pub unsafe extern "C" fn ibex2_async_begin(
     // every call. Nothing here consults ambient state.
     let grants = clone_grants(grants).unwrap_or_else(|| std::sync::Arc::new(GrantSet::none()));
 
+    // Counted before the thread starts, so the loop cannot see an idle moment
+    // between "started" and "running".
+    state.task_started();
     std::thread::spawn(move || {
         let result = run_async(op, &owned, &state, &grants);
         state.queue.complete(task_id, result);
+        state.task_finished();
     });
     0
 }
@@ -632,6 +636,71 @@ fn run_async(
             Ok(HostValue::Str(text))
         }
     }
+}
+
+/// Resolve and read a module's source.
+///
+/// Returns 0 on success, writing the resolved specifier and the source into
+/// `out_resolved` and `out_source`; 1 on failure with the message in
+/// `out_resolved`. Both are Rust-owned and released with `ibex2_host_release`.
+///
+/// # Safety
+/// All pointers must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_loader_load(
+    state: *const crate::task::RuntimeState,
+    from: *const c_char,
+    specifier: *const c_char,
+    out_resolved: *mut AbiValue,
+    out_source: *mut AbiValue,
+) -> c_int {
+    if out_resolved.is_null() || out_source.is_null() {
+        return 1;
+    }
+    *out_resolved = AbiValue::undefined();
+    *out_source = AbiValue::undefined();
+
+    let Some(state) = crate::task::clone_queue(state) else {
+        return fail(out_resolved, "no runtime state");
+    };
+    let read = |raw: *const c_char| -> String {
+        if raw.is_null() {
+            String::new()
+        } else {
+            std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned()
+        }
+    };
+
+    match state.load_source(&read(from), &read(specifier)) {
+        Ok((resolved, source)) => {
+            *out_resolved = leak_value(HostValue::Str(resolved));
+            *out_source = leak_value(HostValue::Str(source));
+            0
+        }
+        Err(message) => fail(out_resolved, &message),
+    }
+}
+
+/// The grant set for one module, as an owned pointer.
+///
+/// # Safety
+/// The result must be released with `ibex2_grants_destroy`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_loader_grants_for(
+    state: *const crate::task::RuntimeState,
+    specifier: *const c_char,
+) -> *const GrantSet {
+    let Some(state) = crate::task::clone_queue(state) else {
+        return std::ptr::null();
+    };
+    let specifier = if specifier.is_null() {
+        String::new()
+    } else {
+        std::ffi::CStr::from_ptr(specifier)
+            .to_string_lossy()
+            .into_owned()
+    };
+    std::sync::Arc::into_raw(state.grants_for(&specifier))
 }
 
 /// Take the next timer due now, or 0 when none is.
