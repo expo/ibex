@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
 **Revised:** 2026-08-28 (D4 corrected: `withEnableEval(false)` does not close Hermes's cached `Function("return this")` fast path, so patch 0014 is not retired by it. The decision stands — the model needs an empty global, not an unreachable one — but the claim was wrong and was made untested.) 2026-08-27 (initial draft)
-**Related:** LLP 0057 (Ibex 2 — this discharges its OQ2 and is the precondition for its §4), LLP 0058 (the engine seam — unreachable without this decision), LLP 0059.000 (the six capabilities this decision binds), LLP 0013 (per-package capability compartments — the mechanism this retires), LLP 0039 (secure and insecure modes — the cost record this closes), LLP 0004 (module loading and builtins — the injection site), LLP 0002 (host embedding ABI)
+**Related:** LLP 0062 (reachable authority — the mechanism this decision needs, and where its OQ1 is answered), LLP 0057 (Ibex 2 — this discharges its OQ2 and is the precondition for its §4), LLP 0058 (the engine seam — unreachable without this decision), LLP 0059.000 (the six capabilities this decision binds), LLP 0013 (per-package capability compartments — the mechanism this retires), LLP 0039 (secure and insecure modes — the cost record this closes), LLP 0004 (module loading and builtins — the injection site), LLP 0002 (host embedding ABI)
 
 ## Summary
 
@@ -188,12 +188,12 @@ means an unpatched build is not starting from zero.
 
 ## 7. Open questions
 
-**OQ1 — Intrinsic integrity without compartments.** Freeze intrinsics at boot
-and pay the startup cost of a userland `harden` walk (the native
-`__exactDeepFreeze` primitive goes away with patch 0006), or accept shared
-mutable intrinsics in v1? This is the only security property §3 gives up
-without a replacement, and it should be answered by measuring the walk against
-the 30ms budget in `rules/RULES.md`.
+**OQ1 — Intrinsic integrity without compartments.** **Answered by measurement
+in LLP 0062 §3: freeze at boot, ~2.1 ms for 612 objects on vanilla Hermes,
+verified effective.** That is roughly 7% of the 30 ms budget in
+`rules/RULES.md` — real and affordable — and it means patch 0006's native
+`__exactDeepFreeze` was worth about 2 ms of wall clock rather than being a
+capability requirement.
 
 **OQ2 — The injection mechanism.** Per-module bindings supplied as wrapper
 parameters in the prepared graph at build time, or as a module scope supplied
