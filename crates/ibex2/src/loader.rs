@@ -16,7 +16,7 @@
 //! @ref LLP 0060#1-the-decision — D2: capability-bearing bindings are injected, never ambient
 
 use std::collections::BTreeMap;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use crate::grant::GrantSet;
 
@@ -144,6 +144,58 @@ pub const CONDITIONS: &[&str] = &["import", "require", "default"];
 /// `node_modules` pointing out of the project is refused like any other escape.
 /// A workspace package therefore resolves to its real location and is reachable
 /// only when that location is itself inside the root.
+/// The containment boundary, and — the part that matters — where it came from.
+///
+/// Relative specifiers need only a file's neighbours. **Package resolution
+/// needs a project**: Node resolution walks *up* looking for `node_modules`,
+/// so it is meaningful only against a boundary that someone chose. The entry
+/// file's own directory is not that. It is where a file happens to sit, and in
+/// a monorepo it is one or two levels below where the packages actually live.
+///
+/// Rather than guess — every rule for inferring a project root from
+/// `package.json` or `node_modules` can be induced to widen it further than
+/// the author expected, and a stray `package.json` in a home directory should
+/// not make the home directory reachable — an undeclared root simply refuses
+/// bare specifiers and says so. Relative resolution is unaffected.
+///
+/// @ref LLP 0065#5-the-root-must-be-declared — why this is not inferred
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Root {
+    /// Declared by the author (`--root`). The project is what they said it is,
+    /// so packages resolve and containment is enforced against it.
+    Declared(PathBuf),
+    /// Nothing was declared, so the boundary fell back to the entry's own
+    /// directory. Enough to run a self-contained program; not enough to say
+    /// where a package would come from.
+    EntryDirectory(PathBuf),
+}
+
+impl Root {
+    pub fn path(&self) -> &Path {
+        match self {
+            Root::Declared(path) | Root::EntryDirectory(path) => path,
+        }
+    }
+
+    /// Whether a bare specifier may be resolved against this root.
+    pub fn packages_resolvable(&self) -> bool {
+        matches!(self, Root::Declared(_))
+    }
+}
+
+impl std::ops::Deref for Root {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        self.path()
+    }
+}
+
+impl AsRef<Path> for Root {
+    fn as_ref(&self) -> &Path {
+        self.path()
+    }
+}
+
 /// Reduce a resolved path to the project-relative specifier that identifies it,
 /// refusing anything that does not live inside the root.
 ///
@@ -185,7 +237,7 @@ fn contain(root: &Path, path: &Path, specifier: &str) -> Result<String, String> 
     ))
 }
 
-pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
+pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
         return resolve_bare(root, from, specifier);
     }
@@ -246,7 +298,19 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
 ///
 /// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it — containment
 /// still applies, and matters more here because resolution walks upward
-fn resolve_bare(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
+fn resolve_bare(root: &Root, from: &str, specifier: &str) -> Result<String, String> {
+    // A package name is a question about the project, and without a declared
+    // root there is no project to ask — only the directory this file happens
+    // to sit in. Refuse, and say what would fix it. Guessing here is how a
+    // containment boundary silently becomes the home directory.
+    if !root.packages_resolvable() {
+        return Err(format!(
+            "cannot resolve package {specifier:?}: no project root was declared, so there is \
+             nowhere to look for it. Pass --root <dir> naming the directory that contains both \
+             {from} and node_modules"
+        ));
+    }
+
     // Anything with a scheme is not a package name, and the two kinds fail for
     // different reasons — so they say different things. `node:`/`bun:` name
     // builtin namespaces this runtime does not have; a URL names a module to be
@@ -420,13 +484,19 @@ mod tests {
     #[test]
     fn relative_specifiers_resolve_against_the_importing_module() {
         assert_eq!(
-            resolve(&root(), "./index.js", "./util").unwrap(),
+            resolve(&Root::Declared(root()), "./index.js", "./util").unwrap(),
             "./util.js"
         );
-        assert_eq!(resolve(&root(), "./a/b.js", "./c").unwrap(), "./a/c.js");
-        assert_eq!(resolve(&root(), "./a/b.js", "../top").unwrap(), "./top.js");
         assert_eq!(
-            resolve(&root(), "./a/b/c.js", "../../x.js").unwrap(),
+            resolve(&Root::Declared(root()), "./a/b.js", "./c").unwrap(),
+            "./a/c.js"
+        );
+        assert_eq!(
+            resolve(&Root::Declared(root()), "./a/b.js", "../top").unwrap(),
+            "./top.js"
+        );
+        assert_eq!(
+            resolve(&Root::Declared(root()), "./a/b/c.js", "../../x.js").unwrap(),
             "./x.js"
         );
     }
@@ -436,39 +506,50 @@ mod tests {
     /// "not found in node_modules".
     #[test]
     fn builtin_namespaces_are_refused_by_name() {
-        let err = resolve(&root(), "./index.js", "node:fs").unwrap_err();
+        let err = resolve(&Root::Declared(root()), "./index.js", "node:fs").unwrap_err();
         assert!(err.contains("builtin namespace"), "{err}");
-        assert!(resolve(&root(), "./index.js", "bun:test").is_err());
+        assert!(resolve(&Root::Declared(root()), "./index.js", "bun:test").is_err());
     }
 
     /// A URL is not a package and not a builtin, and saying otherwise sends the
     /// reader to `node_modules` for something that was never going to be there.
     #[test]
     fn a_url_specifier_is_refused_as_a_url() {
-        let err = resolve(&root(), "./index.js", "https://evil.example/m.js").unwrap_err();
+        let err = resolve(
+            &Root::Declared(root()),
+            "./index.js",
+            "https://evil.example/m.js",
+        )
+        .unwrap_err();
         assert!(!err.contains("builtin namespace"), "{err}");
         assert!(err.contains("not over"), "{err}");
     }
 
     #[test]
     fn a_package_that_does_not_exist_is_a_resolution_error() {
-        let err = resolve(&root(), "./index.js", "lodash").unwrap_err();
+        let err = resolve(&Root::Declared(root()), "./index.js", "lodash").unwrap_err();
         assert!(err.contains("cannot resolve"), "{err}");
     }
 
     /// Escaping the root is a resolution failure, not an fs.read question.
     #[test]
     fn escaping_the_project_root_is_refused() {
-        assert!(resolve(&root(), "./index.js", "../secrets").is_err());
-        assert!(resolve(&root(), "./index.js", "../../etc/passwd").is_err());
-        assert!(resolve(&root(), "./a/b.js", "../../../etc/passwd").is_err());
-        assert!(resolve(&root(), "./index.js", "/etc/passwd").is_err());
+        assert!(resolve(&Root::Declared(root()), "./index.js", "../secrets").is_err());
+        assert!(resolve(&Root::Declared(root()), "./index.js", "../../etc/passwd").is_err());
+        assert!(resolve(&Root::Declared(root()), "./a/b.js", "../../../etc/passwd").is_err());
+        assert!(resolve(&Root::Declared(root()), "./index.js", "/etc/passwd").is_err());
     }
 
     #[test]
     fn the_js_extension_is_added_but_not_doubled() {
-        assert_eq!(resolve(&root(), "./index.js", "./a").unwrap(), "./a.js");
-        assert_eq!(resolve(&root(), "./index.js", "./a.js").unwrap(), "./a.js");
+        assert_eq!(
+            resolve(&Root::Declared(root()), "./index.js", "./a").unwrap(),
+            "./a.js"
+        );
+        assert_eq!(
+            resolve(&Root::Declared(root()), "./index.js", "./a.js").unwrap(),
+            "./a.js"
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use ibex2::engine::hermes::{DynamicCode, Hermes};
-use ibex2::loader::ModuleGrants;
+use ibex2::loader::{ModuleGrants, Root};
 
 struct Project(PathBuf);
 
@@ -53,7 +53,7 @@ impl Project {
         assert!(rt.install_stdlib());
         rt.install_bindings().expect("bindings");
         rt.set_loader_with(
-            &self.0,
+            Root::Declared(self.0.clone()),
             ModuleGrants::parse(manifest).expect("manifest"),
             compiler,
             precompiled_only,
@@ -206,7 +206,7 @@ fn no_capability_is_reachable_from_the_global_object() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(&p.0, ModuleGrants::none());
+    rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none());
 
     let globals = rt.global_names();
     for forbidden in ["fetch", "WebSocket", "localStorage", "process"] {
@@ -1012,7 +1012,7 @@ fn a_workspace_symlink_resolves_to_its_real_path() {
     assert_eq!(out, vec!["workspace-ui"]);
     // And the identity is the real path, not the node_modules spelling.
     assert_eq!(
-        ibex2::loader::resolve(&p.0, "./index.js", "@w/ui").unwrap(),
+        ibex2::loader::resolve(&Root::Declared(p.0.clone()), "./index.js", "@w/ui").unwrap(),
         "./packages/ui/index.js"
     );
 }
@@ -1174,7 +1174,7 @@ fn a_package_above_the_project_root_is_refused() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(&root, ModuleGrants::none());
+    rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none());
     let err = rt.run_entry("./index.js").err().map(|e| e.0);
     let _ = std::fs::remove_dir_all(&outer);
     let err = err.expect("a package above the root must not resolve");
@@ -1324,6 +1324,97 @@ fn a_query_string_does_not_survive_into_the_resolved_path() {
             r#"{"name":"q","exports":{".":"./index.js?raw"}}"#,
         )
         .file("node_modules/q/index.js", "exports.x = 1;");
-    let resolved = ibex2::loader::resolve(&p.0, "./index.js", "q").expect("should resolve");
+    let resolved = ibex2::loader::resolve(&Root::Declared(p.0.clone()), "./index.js", "q")
+        .expect("should resolve");
     assert_eq!(resolved, "./node_modules/q/index.js");
+}
+
+// --- The root must be declared ----------------------------------------------
+
+/// Without a declared root there is no project, so a package name has nowhere
+/// to resolve. It is refused rather than guessed at, and the message says what
+/// would fix it — a resolution failure the author can act on beats a boundary
+/// silently widened to wherever a `package.json` happened to sit.
+///
+/// @ref LLP 0065#5-the-root-must-be-declared
+#[test]
+fn a_bare_specifier_is_refused_when_no_root_was_declared() {
+    let p = Project::new("noroot");
+    p.file("index.js", "require('tiny');").file(
+        "node_modules/tiny/package.json",
+        r#"{"name":"tiny","main":"index.js"}"#,
+    );
+    // The package is right there on disk; what is missing is the declaration.
+    std::fs::write(p.0.join("node_modules/tiny/index.js"), "exports.x = 1;").unwrap();
+
+    let err = ibex2::loader::resolve(&Root::EntryDirectory(p.0.clone()), "./index.js", "tiny")
+        .expect_err("a package must not resolve without a declared root");
+    assert!(err.contains("no project root was declared"), "{err}");
+    assert!(
+        err.contains("--root"),
+        "the message must say what fixes it: {err}"
+    );
+}
+
+/// Relative specifiers are unaffected: a self-contained program runs without
+/// anyone declaring anything. Only package resolution needs a project.
+#[test]
+fn relative_specifiers_still_work_without_a_declared_root() {
+    let p = Project::new("noroot-rel");
+    p.file("index.js", "x")
+        .file("lib/helper.js", "exports.x = 1;");
+    let root = Root::EntryDirectory(p.0.clone());
+    assert_eq!(
+        ibex2::loader::resolve(&root, "./index.js", "./lib/helper").unwrap(),
+        "./lib/helper.js"
+    );
+    // ...and containment still applies to them.
+    assert!(ibex2::loader::resolve(&root, "./index.js", "../../../etc/passwd").is_err());
+}
+
+/// The monorepo layout, which is the reason `--root` exists: the entry is in
+/// `apps/mobile`, dependencies are hoisted to the repository root, workspace
+/// packages live in `packages/`. Declaring the root resolves both.
+#[cfg(unix)]
+#[test]
+fn a_declared_root_resolves_a_monorepo() {
+    let repo = std::env::temp_dir().join(format!("ibex2-monorepo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&repo);
+    let w = |path: &str, contents: &str| {
+        let full = repo.join(path);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, contents).unwrap();
+    };
+    w("apps/mobile/index.js", "x");
+    w(
+        "packages/ui/package.json",
+        r#"{"name":"@x/ui","main":"index.js"}"#,
+    );
+    w("packages/ui/index.js", "exports.name = 'workspace';");
+    w(
+        "node_modules/vendor/package.json",
+        r#"{"name":"vendor","main":"index.js"}"#,
+    );
+    w("node_modules/vendor/index.js", "exports.name = 'hoisted';");
+    std::fs::create_dir_all(repo.join("node_modules/@x")).unwrap();
+    std::os::unix::fs::symlink(repo.join("packages/ui"), repo.join("node_modules/@x/ui")).unwrap();
+
+    let entry = "./apps/mobile/index.js";
+
+    // Undeclared, the root is apps/mobile and everything is above it.
+    let narrow = Root::EntryDirectory(repo.join("apps/mobile"));
+    assert!(ibex2::loader::resolve(&narrow, "./index.js", "@x/ui").is_err());
+
+    // Declared at the repository root, both resolve — and the workspace
+    // package resolves to its real path, which is its grant key.
+    let declared = Root::Declared(repo.canonicalize().unwrap());
+    assert_eq!(
+        ibex2::loader::resolve(&declared, entry, "@x/ui").unwrap(),
+        "./packages/ui/index.js"
+    );
+    assert_eq!(
+        ibex2::loader::resolve(&declared, entry, "vendor").unwrap(),
+        "./node_modules/vendor/index.js"
+    );
+    let _ = std::fs::remove_dir_all(&repo);
 }

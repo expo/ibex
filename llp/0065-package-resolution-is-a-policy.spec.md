@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Security, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
+**Revised:** 2026-08-28 (§5 — the project root is declared with `--root` and never inferred, which unblocks monorepos and so unblocks Exact; §3 rewritten after self-review found it documenting a tradeoff that did not exist; §1 and §4.1 corrected after an adversarial review confirmed two capability bypasses. See `llp/reviews/0065-*.grok.md`.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — `oxc_resolver` is the same pin), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why bare specifiers are required), LLP 0059 §6 (Node's server surface is deleted — why the `node` condition is absent), LLP 0060 (authority is carried, not inferred — why a package is granted nothing by arriving), LLP 0064 (ESM lowering — what happens to a module once resolution has found it), LLP 0062 (the reachability frame this containment rule belongs to)
 
 ## Summary
@@ -20,7 +21,11 @@ turning it on. **`oxc_resolver` supplies the mechanism; every question below is
 one it leaves to us.**
 
 The through-line: resolution decides *what code enters the process*, so it is a
-security surface, not a filesystem convenience.
+security surface, not a filesystem convenience. Two corollaries run through the
+whole document, and both were learned by getting them wrong first — containment
+and authority are properties of **files**, not of the strings that name them
+(§4.1), and the boundary they are checked against must be **declared**, never
+inferred from a file that exists for someone else's purposes (§5).
 
 ## 1. Conditions, and the one that is missing
 
@@ -104,9 +109,9 @@ Strict containment plus a root defined as the entry's own directory means
 the repository root are both *above* the root and therefore refused.
 
 That is Exact's shape, and Exact is what Ibex 2 targets (LLP 0057 §5.2), so
-package resolution is not yet usable for its actual target. The mechanism is
-correct and the containment is correct; the **root** is the wrong one. OQ4
-carries this.
+package resolution was not usable for its actual target. The mechanism was
+correct and the containment was correct; the **root** was the wrong one. §5
+resolves it.
 
 ## 4. A package is granted nothing by being a dependency
 
@@ -163,7 +168,54 @@ Note the shape of the test this requires. Every module is handed a `fetch`
 parameter, so `typeof fetch` is `"function"` in every module and proves
 nothing. Authority is only observable by *use*.
 
-## 5. What a missing package says
+## 5. The root must be declared
+
+`--root <dir>` names the project. Package resolution happens **only** when it
+is given; without it, a bare specifier is refused with a message saying so.
+Relative specifiers are unaffected, so a self-contained program still runs with
+no ceremony.
+
+The alternative was to infer the root — the nearest ancestor with a
+`package.json`, or with a `node_modules`, or one declaring `workspaces`. All
+were rejected, for two reasons.
+
+**The weaker reason:** the obvious rule does not even work. In a monorepo
+`apps/mobile/package.json` usually exists, so "nearest `package.json`" stops
+there and the hoisted `node_modules` is still above it.
+
+**The reason that decides it:** every inference rule can be induced to widen
+the boundary further than the author expected. `package.json` and
+`node_modules` exist for npm's purposes and appear in places nobody chose — a
+stray `~/node_modules`, common on development machines, would silently make the
+home directory the containment boundary. *A file that exists for someone else's
+purposes must not be able to move a security boundary.* Refusing is a
+resolution error the author can act on; guessing is a boundary nobody sees.
+
+The root is also part of the **grant manifest's semantics**, not merely a
+filesystem check: grant keys are paths from the root (§4), so moving the root
+silently changes what every section names. That is a second reason it should be
+stated rather than discovered.
+
+### 5.1 What the root does and does not buy
+
+For a monorepo, declaring the repository root makes containment a **weak**
+boundary — the whole repository becomes reachable. That is correct and worth
+saying plainly rather than hiding: containment's job is to stop code escaping
+the project, not to partition within it. The control that partitions is the
+capability model, which is per-module and unaffected by how wide the root is.
+Narrowing within a project is OQ3.
+
+### 5.2 Why not a config file
+
+A project file — `ibex2.toml`, whose *location* defines the root and which
+carries the grants — is the better long-run answer, because it puts the root
+and the grant keys in one versioned artifact, and because it is an Ibex-owned
+file rather than npm's. It is deliberately **not** built yet: `--root` is
+strictly less machinery, and it is worth learning whether passing it is
+actually annoying before adding a discovery rule and a file format. The
+migration is additive — the flag stays as the override.
+
+## 6. What a missing package says
 
 An unresolvable specifier reports the name as written — `cannot resolve
 "lodash" from ./index.js` — rather than the deepest `node_modules` path the
@@ -171,7 +223,7 @@ algorithm reached. `node:` and `bun:` are refused ahead of resolution by their
 scheme, naming the deleted builtin namespace (LLP 0059 §6) instead of reporting
 that a package called `node:fs` is not installed.
 
-## 6. Open questions
+## 7. Open questions
 
 **OQ1 — Should `browser` be honored?** It is not today. Ibex 2 is not a
 browser, but much of npm treats `browser` as "not Node", which is closer to
@@ -189,13 +241,8 @@ Containment is a single directory today. A project that legitimately spans two
 trees has no way to say so except by widening the root, which widens it for
 everything. An explicit allowlist would keep the boundary tight and stated.
 
-**OQ4 — What is the project root?** The blocking question, and §3.1 is why. The
-root is the entry file's own directory, which is right for a single-directory
-program and wrong for every monorepo. Candidates: the nearest ancestor holding
-a `package.json`; the nearest ancestor whose `package.json` declares
-`workspaces`; the nearest ancestor holding a `node_modules`; or an explicit
-`--root`. The tension is that containment is a security boundary, and every
-implicit rule that widens it automatically can be induced to widen it further
-than the author expected — a stray `package.json` in a home directory should
-not silently make the home directory reachable. An explicit `--root` with a
-conservative default is the likely answer, but the default is the decision.
+**OQ4 — What is the project root?** *Resolved by §5:* declared with `--root`,
+never inferred, and bare specifiers refused when it is absent. **OQ5 replaces
+it:** is passing `--root` annoying enough in practice to justify the config
+file §5.2 describes? That is a usage question and wants a few weeks of use
+rather than an argument.

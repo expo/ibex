@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use ibex2::loader::Root;
+
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 use ibex2::loader::ModuleGrants;
 
@@ -14,19 +16,29 @@ use ibex2::loader::ModuleGrants;
 const HARDEN: &str = include_str!("../bindings/harden.js");
 
 fn usage() -> &'static str {
-    "usage: ibex2 run   <entry.js> [--grants <file>] [--budget-ms <n>] [--precompiled] [--no-compile]\n\
-    \x20      ibex2 build <entry.js>\n\
+    "usage: ibex2 run   <entry.js> [--root <dir>] [--grants <file>] [--budget-ms <n>]\n\
+    \x20                        [--precompiled] [--no-compile]\n\
+    \x20      ibex2 build <entry.js> [--root <dir>]\n\
      \n\
-     run    Runs <entry.js>. Modules require() each other by relative path and\n\
-     \x20      cannot escape the entry's directory. Each module receives only the\n\
-     \x20      capabilities its grant manifest names; without --grants, nothing\n\
-     \x20      is granted. Modules are compiled to bytecode and cached under\n\
-     \x20      .ibex2/cache; --precompiled refuses to compile anything on demand,\n\
-     \x20      and --no-compile falls back to loading source.\n\
+     run    Runs <entry.js>. Each module receives only the capabilities its\n\
+     \x20      grant manifest names; without --grants, nothing is granted.\n\
+     \x20      Modules are compiled to bytecode and cached under .ibex2/cache;\n\
+     \x20      --precompiled refuses to compile anything on demand, and\n\
+     \x20      --no-compile falls back to loading source.\n\
      \n\
      build  Compiles the whole graph to bytecode ahead of time, so `run\n\
      \x20      --precompiled` has everything it needs. rules/RULES.md forbids\n\
-     \x20      compiling at runtime what could be built ahead of it."
+     \x20      compiling at runtime what could be built ahead of it.\n\
+     \n\
+     --root <dir>\n\
+     \x20      The project. Modules cannot resolve outside it, and package\n\
+     \x20      (bare) specifiers like `react` or `@scope/pkg` are ONLY resolved\n\
+     \x20      when it is given — there is otherwise no project to look in, and\n\
+     \x20      guessing one from a stray package.json or node_modules is how a\n\
+     \x20      containment boundary quietly becomes your home directory.\n\
+     \x20      Without it the boundary is the entry file's own directory, which\n\
+     \x20      runs a self-contained program fine. Grant manifest keys are paths\n\
+     \x20      from the root, so moving it changes what they name."
 }
 
 fn main() -> ExitCode {
@@ -42,6 +54,7 @@ fn main() -> ExitCode {
     let mut budget_ms: u64 = 30_000;
     let mut precompiled_only = false;
     let mut compile = true;
+    let mut declared_root: Option<PathBuf> = None;
     let mut rest = args[2..].iter();
     while let Some(flag) = rest.next() {
         match flag.as_str() {
@@ -59,6 +72,13 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
+            "--root" => match rest.next() {
+                Some(path) => declared_root = Some(PathBuf::from(path)),
+                None => {
+                    eprintln!("--root needs a directory");
+                    return ExitCode::from(2);
+                }
+            },
             "--precompiled" => precompiled_only = true,
             "--no-compile" => compile = false,
             other => {
@@ -69,9 +89,10 @@ fn main() -> ExitCode {
     }
 
     let outcome = match command {
-        "build" => build(&entry),
+        "build" => build(&entry, declared_root.as_deref()),
         _ => run(
             &entry,
+            declared_root.as_deref(),
             grants_path.as_deref(),
             budget_ms,
             compile,
@@ -83,6 +104,50 @@ fn main() -> ExitCode {
         Err(message) => {
             eprintln!("ibex2: {message}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// Work out the containment boundary and the entry's name within it.
+///
+/// With `--root`, the author has said what the project is: packages resolve,
+/// and the entry is named relative to that root — `./apps/mobile/index.ts`,
+/// not `./index.ts` — because a specifier is a path from the root and grants
+/// are keyed by it.
+///
+/// Without it, the boundary falls back to the entry's own directory, which is
+/// enough to run a self-contained program and not enough to say where a
+/// package would come from. `loader::Root` carries that distinction so bare
+/// specifiers can be refused with an explanation instead of resolved against a
+/// boundary nobody chose.
+///
+/// @ref LLP 0065#5-the-root-must-be-declared
+fn project_root(entry: &Path, declared: Option<&Path>) -> Result<(Root, String), String> {
+    let entry = entry
+        .canonicalize()
+        .map_err(|e| format!("cannot open {}: {e}", entry.display()))?;
+    match declared {
+        Some(dir) => {
+            let dir = dir
+                .canonicalize()
+                .map_err(|e| format!("cannot open --root {}: {e}", dir.display()))?;
+            let relative = entry.strip_prefix(&dir).map_err(|_| {
+                format!("{} is not inside --root {}", entry.display(), dir.display())
+            })?;
+            let name = format!("./{}", relative.to_string_lossy().replace('\\', "/"));
+            Ok((Root::Declared(dir), name))
+        }
+        None => {
+            let dir = entry
+                .parent()
+                .ok_or("entry has no directory")?
+                .to_path_buf();
+            let name = entry
+                .file_name()
+                .ok_or("entry has no file name")?
+                .to_string_lossy()
+                .into_owned();
+            Ok((Root::EntryDirectory(dir), format!("./{name}")))
         }
     }
 }
@@ -116,26 +181,18 @@ fn compiler_for(root: &Path, require_receipt: bool) -> Result<ibex2::bytecode::C
 }
 
 /// Compile the whole reachable graph ahead of time.
-fn build(entry: &Path) -> Result<(), String> {
-    let entry = entry
-        .canonicalize()
-        .map_err(|e| format!("cannot open {}: {e}", entry.display()))?;
-    let root = entry
-        .parent()
-        .ok_or("entry has no directory")?
-        .to_path_buf();
-    let name = entry
-        .file_name()
-        .ok_or("entry has no file name")?
-        .to_string_lossy()
-        .into_owned();
+fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
+    let (root, name) = project_root(entry, declared_root)?;
     // A build produces artifacts others will trust, so it requires the receipt.
     let compiler = compiler_for(&root, true)?;
 
     // Walk from the entry, following require() and import as the loader would.
     // Compiling every .js under the root instead would build files nothing
     // imports.
-    let mut queue = vec![format!("./{name}")];
+    // `name` is already a specifier — `./apps/mobile/index.ts` — because it is
+    // a path from the root, not a bare file name. Prefixing it again produced
+    // `././...`, which the loader then never matched at run time.
+    let mut queue = vec![name.clone()];
     let mut seen = std::collections::BTreeSet::new();
     let mut edges: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -307,23 +364,13 @@ fn requires_in(source: &str) -> Vec<String> {
 
 fn run(
     entry: &Path,
+    declared_root: Option<&Path>,
     grants_path: Option<&Path>,
     budget_ms: u64,
     compile: bool,
     precompiled_only: bool,
 ) -> Result<(), String> {
-    let entry = entry
-        .canonicalize()
-        .map_err(|e| format!("cannot open {}: {e}", entry.display()))?;
-    let root = entry
-        .parent()
-        .ok_or_else(|| format!("{} has no directory", entry.display()))?
-        .to_path_buf();
-    let name = entry
-        .file_name()
-        .ok_or("entry has no file name")?
-        .to_string_lossy()
-        .into_owned();
+    let (root, name) = project_root(entry, declared_root)?;
 
     let grants = match grants_path {
         Some(path) => {
@@ -356,7 +403,7 @@ fn run(
     } else {
         None
     };
-    rt.set_loader_with(&root, grants, compiler, precompiled_only);
+    rt.set_loader_with(root, grants, compiler, precompiled_only);
 
     // R4: intrinsics frozen after the standard library is installed and before
     // any module code runs.
@@ -378,7 +425,7 @@ fn run(
         ));
     }
 
-    rt.run_entry(&format!("./{name}")).map_err(|e| e.0)?;
+    rt.run_entry(&name).map_err(|e| e.0)?;
     rt.run_to_quiescence(std::time::Duration::from_millis(budget_ms));
 
     for record in rt.drain_console() {
@@ -419,4 +466,61 @@ fn is_intrinsic(name: &str) -> bool {
                 | "gc"
                 | "require"
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ibex2-bin-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("apps/mobile")).unwrap();
+        std::fs::write(dir.join("apps/mobile/index.ts"), "").unwrap();
+        dir
+    }
+
+    /// `project_root` returns a *specifier*, already `./`-prefixed — not a bare
+    /// file name. Regression test: `build` prefixed `./` a second time, wrote
+    /// `././apps/mobile/index.ts` into the manifest, and `run --precompiled`
+    /// then failed to find the entry it had just compiled. Only visible with a
+    /// declared root and a nested entry, which is exactly the monorepo case.
+    #[test]
+    fn a_declared_root_names_the_entry_relative_to_it() {
+        let dir = scratch("declared");
+        let (root, name) = project_root(&dir.join("apps/mobile/index.ts"), Some(&dir)).unwrap();
+        assert_eq!(name, "./apps/mobile/index.ts");
+        assert!(root.packages_resolvable());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_undeclared_root_is_the_entry_directory_and_refuses_packages() {
+        let dir = scratch("undeclared");
+        let (root, name) = project_root(&dir.join("apps/mobile/index.ts"), None).unwrap();
+        assert_eq!(name, "./index.ts");
+        assert!(
+            !root.packages_resolvable(),
+            "an inferred root must not resolve packages"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The root is a containment boundary, so an entry outside it is a
+    /// contradiction rather than something to accommodate.
+    #[test]
+    fn an_entry_outside_the_declared_root_is_refused() {
+        let dir = scratch("outside");
+        let entry = dir.join("apps/mobile/index.ts");
+        assert!(
+            project_root(&entry, Some(&dir.join("apps/mobile"))).is_ok(),
+            "the entry is inside this root"
+        );
+
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        let err = project_root(&entry, Some(&dir.join("other")))
+            .expect_err("an entry outside the root must be refused");
+        assert!(err.contains("is not inside --root"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -208,14 +208,14 @@ impl Hermes {
     ///
     /// Without a compiler the loader falls back to source, which
     /// `rules/RULES.md` forbids for anything shippable; see `set_loader_with`.
-    pub fn set_loader(&mut self, root: &std::path::Path, grants: crate::loader::ModuleGrants) {
+    pub fn set_loader(&mut self, root: crate::loader::Root, grants: crate::loader::ModuleGrants) {
         self.set_loader_with(root, grants, None, false)
     }
 
     /// Point the loader at a root, with ahead-of-time compilation.
     pub fn set_loader_with(
         &mut self,
-        root: &std::path::Path,
+        root: crate::loader::Root,
         grants: crate::loader::ModuleGrants,
         compiler: Option<crate::bytecode::Compiler>,
         precompiled_only: bool,
@@ -228,7 +228,7 @@ impl Hermes {
         // SAFETY: the state pointer belongs to this runtime and outlives the call.
         if let Some(state) = unsafe { crate::task::borrow_state(state) } {
             state.set_loader(crate::task::LoaderConfig {
-                root: root.to_path_buf(),
+                root,
                 grants,
                 compiler,
                 precompiled_only,

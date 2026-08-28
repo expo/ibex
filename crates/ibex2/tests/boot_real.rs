@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use ibex2::engine::hermes::{DynamicCode, Hermes};
-use ibex2::loader::ModuleGrants;
+use ibex2::loader::{ModuleGrants, Root};
 
 const HARDEN: &str = include_str!("../src/bindings/harden.js");
 
@@ -106,7 +106,12 @@ fn boot_with(
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader_with(root, ModuleGrants::none(), compiler, precompiled_only);
+    rt.set_loader_with(
+        Root::Declared(root.to_path_buf()),
+        ModuleGrants::none(),
+        compiler,
+        precompiled_only,
+    );
     rt.eval(HARDEN).expect("harden");
     let floor = t.elapsed();
 
