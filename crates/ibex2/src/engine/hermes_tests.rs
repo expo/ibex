@@ -1268,6 +1268,48 @@ fn timers_and_completions_interleave_in_one_pump() {
     assert!(order.contains("completion"), "completion lost: {order}");
 }
 
+/// A typed array is what application code actually passes, and it is not an
+/// ArrayBuffer. Handling only the latter made
+/// `fs.writeFile(p, new TextEncoder().encode(t))` write an empty file, because
+/// the payload stringified instead of crossing as bytes.
+#[test]
+fn a_typed_array_crosses_the_boundary_as_bytes() {
+    let mut rt = with_stdlib();
+    assert_eq!(
+        rt.eval("__ibex2_text_decode(new TextEncoder().encode('hello'))")
+            .unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        rt.eval("__ibex2_text_decode(new Uint8Array([104, 105]))")
+            .unwrap(),
+        "hi"
+    );
+}
+
+/// A view's byteOffset matters: a subarray shares its buffer with the whole,
+/// so reading from the buffer's start sends the wrong bytes.
+#[test]
+fn a_typed_array_view_sends_its_own_window_not_the_whole_buffer() {
+    let mut rt = with_stdlib();
+    assert_eq!(
+        rt.eval(
+            "const all = new TextEncoder().encode('PREFIX:payload');
+             __ibex2_text_decode(all.subarray(7))"
+        )
+        .unwrap(),
+        "payload"
+    );
+    assert_eq!(
+        rt.eval(
+            "const all = new Uint8Array([1, 2, 104, 105, 9]);
+             __ibex2_text_decode(all.subarray(2, 4))"
+        )
+        .unwrap(),
+        "hi"
+    );
+}
+
 /// The assertion that keeps the fork from growing back: a host function
 /// installed for one runtime is not ambient in another. This is the shape
 /// LLP 0060 D2 needs from the engine — per-runtime, not global-by-default.

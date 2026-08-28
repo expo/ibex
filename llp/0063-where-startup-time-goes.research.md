@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (initial draft)
+**Revised:** 2026-08-28 (§5.1 and §5.2 added after building it: the real loader lands at 13ms rather than the isolated 3ms, and getting there needed a build manifest — without one a "precompiled" run still read and hashed every source file, leaving it at 157ms. §5.2 records the buffer-lifetime trap HBC has and source does not.) 2026-08-28 (initial draft)
 **Related:** LLP 0057 (Ibex 2 — whose §7 admits nothing had been measured), LLP 0058 (the engine seam — whose §1 measurement this extends), LLP 0062 (reachable authority — whose R3 this justifies), LLP 0059.000 (the boundary, whose §1.3 holds the crossing costs), `rules/RULES.md` (the 30 ms budget)
 
 ## Summary
@@ -23,7 +23,7 @@ for Exact's real boot:
 | runtime floor, before any module | **4.0 ms** |
 | the graph, loaded from source, one unit per module | **851 ms** |
 | the graph, loaded from source, bundled into one unit | **~150 ms** |
-| **the graph, loaded from ahead-of-time bytecode** | **~3 ms** |
+| **the graph, loaded from ahead-of-time bytecode** | **13 ms** |
 
 The budget is 30 ms. Source loading misses it by 28×; bytecode makes it with
 room to spare, and the reason is not the one that looks obvious.
@@ -130,6 +130,37 @@ files would be no better than 570 `.js` files.
 It was parsing. The per-unit cost falls from ~2 ms to ~9 µs, and **bundling
 stops mattering**: 570 separate bytecode modules load in about 3 ms.
 
+### 5.1 What the real loader gets, and the gap
+
+The 3 ms above is bytecode already in memory. A loader has to find and read it
+too, and the built implementation lands at **13.2 ms** for the same graph —
+2.35 ms of floor and 10.85 ms of modules. Still comfortably inside the budget,
+with about 17 ms left for what an application actually does, but four times the
+isolated figure. The difference is file I/O and module-scope execution, neither
+of which bytecode removes.
+
+**Getting there required a correction worth more than the number.** The first
+implementation derived each module's artifact key by hashing its wrapped
+source — so a "precompiled" run still opened, read, and hashed all 5.28 MB to
+discover artifacts it already had, and the boot sat at **157 ms**. `ibex2 build`
+now emits a manifest of resolved specifier to artifact key, and the runtime
+never touches a source file. That single change was **157 ms to 13 ms**, and it
+is the difference between *precompiled* meaning the compile step ran and
+meaning the runtime does no work.
+
+### 5.2 A trap in HBC that source does not have
+
+Hermes **retains** a bytecode buffer for the life of the module — that is what
+makes HBC mmap-able and copy-free — where it parses and copies source. A buffer
+that borrows memory the caller frees therefore yields a module whose
+synchronous body runs perfectly and whose callbacks later execute against freed
+memory.
+
+The failure is silent, and that is the part worth recording: the bytecode is
+*gone* rather than *wrong*, so a `fetch` never resolves and a timer never fires.
+It presents as an async bug. Anything handing Hermes bytecode must own the bytes
+for at least as long as the runtime does.
+
 This is the same shape LLP 0058 §1 measured from the other direction — bytecode
 evaluation flat in graph size, source parse linear in bytes — and it is the
 property that makes a startup budget survive an application growing, rather
@@ -156,8 +187,11 @@ conclusion.
 
 ## 7. What this means
 
-**AOT bytecode is the next piece of loader work, and nothing else in the
-startup path is close.** Not more APIs, not bundling, not a faster parser.
+**AOT bytecode was the next piece of loader work, and nothing else in the
+startup path was close.** Not more APIs, not bundling, not a faster parser.
+Built since: `ibex2 build` compiles the reachable graph and `ibex2 run
+--precompiled` compiles nothing, from anywhere — which is what
+`rules/RULES.md` has required all along.
 
 **The loader keeps one module per compile unit.** Bundling buys nothing once
 bytecode is in play, and per-module units are what LLP 0062 R2's injection

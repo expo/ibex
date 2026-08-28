@@ -162,7 +162,7 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
 ///
 /// Capability-bearing names are here — as PARAMETERS — and correspondingly not
 /// on the global object. That is R1 and R2 in one list.
-pub const MODULE_PARAMETERS: &[&str] = &["module", "exports", "require", "fetch"];
+pub const MODULE_PARAMETERS: &[&str] = &["module", "exports", "require", "fetch", "fs"];
 
 /// Wrap module source in a function of its injected bindings.
 ///
@@ -246,16 +246,18 @@ mod tests {
     fn a_wrapped_module_ends_cleanly_after_a_trailing_comment() {
         let wrapped = wrap("exports.x = 1; // trailing comment");
         assert!(wrapped.ends_with("\n})"), "{wrapped}");
-        assert!(wrapped.starts_with("(function (module, exports, require, fetch) {"));
+        assert!(wrapped.starts_with("(function (module, exports, require, fetch, fs) {"));
     }
 
     #[test]
     fn capability_names_are_parameters_and_not_globals() {
-        assert!(MODULE_PARAMETERS.contains(&"fetch"));
-        assert!(
-            !ALLOWED_GLOBALS.contains(&"fetch"),
-            "fetch must not be reachable from the global object (LLP 0062 R1)"
-        );
+        for capability in ["fetch", "fs"] {
+            assert!(MODULE_PARAMETERS.contains(&capability));
+            assert!(
+                !ALLOWED_GLOBALS.contains(&capability),
+                "{capability} must not be reachable from the global object (LLP 0062 R1)"
+            );
+        }
     }
 
     #[test]

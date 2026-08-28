@@ -125,6 +125,38 @@ registry in its current shape. And, separately but in the same window, most of
 `src/bin/` — 137K lines of CLI against a 152K-line runtime core, where `run`,
 `build`, and probably `repl` is the whole surface a runtime needs.
 
+## 5.2 What Ibex 2 is for
+
+*(Numbered 5.2, not 5.1: LLP 0058.000.001 §1 cites "LLP 0057 §5.1" as the
+superseded incremental-in-place strategy, and a section carrying two meanings
+is worse than a gap in the numbering.)*
+
+**Decided 2026-08-28: Ibex 2 targets Exact.** It is the runtime Exact moves to,
+not a smaller runtime for new work alongside an ibex 1 that keeps Exact.
+
+This was implicit and is now explicit, because the whole corpus assumed it
+without recording it: LLP 0059 decides the v1 API surface by measuring *Exact's*
+boot graph, and §7 admits its own inventory is a floor derived from that graph.
+A document set that scopes itself by one application's measured usage has
+already answered which application it is for.
+
+Three consequences follow immediately, and the first is expensive:
+
+- **ESM is required.** Exact is 4,350 ESM files against 79 CommonJS ones. The
+  loader built for Ibex 2 is CommonJS, which cannot load a single Exact module.
+  This is the largest remaining piece of work in the program and it precedes
+  anything that depends on the module format's wrapper shape. LLP 0026 and
+  LLP 0027 are the prior art to read rather than reinvent.
+- **The API surface is bounded and already inventoried.** LLP 0059's measurement
+  becomes a specification rather than a survey.
+- **`WebAssembly` and `requestAnimationFrame` are requirements**, not options.
+  Both are somebody else's to provide — Tier E is the engine's and Tier H is the
+  host's (LLP 0059 §2, §4) — but neither may be absent.
+
+What this does not decide is *when* Exact moves, or whether it moves all at
+once. A runtime that can run some of Exact is useful before one that can run all
+of it.
+
 ## 6. Open questions
 
 **OQ1 — Node compatibility.** Port `http`, `net`, `tls`, `fs`, and

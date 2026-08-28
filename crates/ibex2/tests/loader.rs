@@ -326,3 +326,98 @@ fn the_artifact_does_not_depend_on_the_modules_grants() {
         "a grant change produced a new artifact; bytecode depends on policy"
     );
 }
+
+// --- fs: the second real capability ------------------------------------------
+
+/// Per-path-prefix grants, which per-origin cannot express: two modules in one
+/// runtime, one able to reach a directory and one able to reach nothing.
+#[test]
+fn fs_authority_is_per_module_and_per_prefix() {
+    let p = Project::new("fs");
+    let data = p.0.join("data");
+    std::fs::create_dir_all(&data).expect("data dir");
+    let dir = data.to_string_lossy().into_owned();
+
+    p.file(
+        "index.js",
+        "(async () => {
+           try { await fs.readFile('/etc/hosts'); console.log('index: LEAKED'); }
+           catch (e) { console.log('index: ' + e.message); }
+           await require('./worker').run();
+         })();",
+    )
+    .file(
+        "worker.js",
+        &format!(
+            "exports.run = async () => {{
+               const dir = '{dir}';
+               await fs.writeFile(dir + '/note.txt', new TextEncoder().encode('payload'));
+               const back = await fs.readFile(dir + '/note.txt');
+               console.log('worker: ' + new TextDecoder().decode(back));
+               console.log('worker: ls ' + (await fs.readdir(dir)));
+               try {{ await fs.readFile('/etc/hosts'); console.log('worker: LEAKED'); }}
+               catch (e) {{ console.log('worker: ' + e.message); }}
+             }};"
+        ),
+    );
+
+    let manifest = format!("[*]\n[./worker.js]\nfs.read {dir}\nfs.write {dir}\n");
+    let (out, err) = p.run("./index.js", &manifest);
+    assert_eq!(err, None);
+    assert!(out.iter().any(|l| l == "index: denied: fs.read"), "{out:?}");
+    assert!(out.iter().any(|l| l == "worker: payload"), "{out:?}");
+    assert!(out.iter().any(|l| l == "worker: ls note.txt"), "{out:?}");
+    assert!(
+        out.iter().any(|l| l == "worker: denied: fs.read"),
+        "a prefix grant leaked outside its prefix: {out:?}"
+    );
+}
+
+/// A traversal inside a granted prefix must not escape it. The path is
+/// normalized BEFORE the grant is checked, or `/data/../etc` passes a `/data`
+/// grant.
+#[test]
+fn fs_paths_are_normalized_before_they_are_admitted() {
+    let p = Project::new("fstraversal");
+    let data = p.0.join("data");
+    std::fs::create_dir_all(&data).expect("data dir");
+    let dir = data.to_string_lossy().into_owned();
+    p.file(
+        "index.js",
+        &format!(
+            "(async () => {{
+               try {{ await fs.readFile('{dir}' + '/../../../../etc/hosts'); console.log('LEAKED'); }}
+               catch (e) {{ console.log(e.message); }}
+             }})();"
+        ),
+    );
+    let manifest = format!("[*]\nfs.read {dir}\nfs.write {dir}\n");
+    let (out, err) = p.run("./index.js", &manifest);
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["denied: fs.read"]);
+}
+
+/// Write authority does not imply read authority.
+#[test]
+fn fs_read_and_write_are_separate_grants() {
+    let p = Project::new("fssplit");
+    let data = p.0.join("data");
+    std::fs::create_dir_all(&data).expect("data dir");
+    let dir = data.to_string_lossy().into_owned();
+    p.file(
+        "index.js",
+        &format!(
+            "(async () => {{
+               const dir = '{dir}';
+               await fs.writeFile(dir + '/x.txt', new TextEncoder().encode('ok'));
+               console.log('wrote');
+               try {{ await fs.readFile(dir + '/x.txt'); console.log('LEAKED'); }}
+               catch (e) {{ console.log(e.message); }}
+             }})();"
+        ),
+    );
+    let manifest = format!("[*]\nfs.write {dir}\n");
+    let (out, err) = p.run("./index.js", &manifest);
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["wrote", "denied: fs.read"]);
+}
