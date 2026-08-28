@@ -145,17 +145,77 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
         }
     }
 
-    let mut relative = parts.join("/");
-    if !relative.ends_with(".js") {
-        relative.push_str(".js");
-    }
+    let relative = parts.join("/");
     // Belt and braces: the lexical walk above already refuses escapes, and this
     // catches anything a future change to it might miss.
-    let full = root.join(&relative);
-    if !full.starts_with(root) {
+    if !root.join(&relative).starts_with(root) {
         return Err(format!("{specifier:?} escapes the project root"));
     }
-    Ok(format!("./{relative}"))
+
+    // An extension may be omitted, and TypeScript's is not the one on disk:
+    // `import './x'` in a TypeScript project means `x.ts`, and `import './x.js'`
+    // conventionally means `x.ts` too, because TypeScript makes you write the
+    // OUTPUT extension in the source. Both have to resolve or a TypeScript
+    // codebase cannot import anything.
+    if let Some(resolved) = probe_extensions(root, &relative) {
+        return Ok(format!("./{resolved}"));
+    }
+
+    // Nothing on disk. Return the specifier as written so the error names what
+    // the author asked for rather than the last candidate tried.
+    let fallback = if EXTENSIONS.iter().any(|ext| relative.ends_with(ext)) {
+        relative
+    } else {
+        format!("{relative}.js")
+    };
+    Ok(format!("./{fallback}"))
+}
+
+/// Extensions tried, in order. TypeScript first: in a project that has both,
+/// the `.ts` is the source and the `.js` is build output.
+pub const EXTENSIONS: &[&str] = &[".ts", ".tsx", ".mts", ".js", ".mjs", ".jsx", ".cjs"];
+
+/// Find the file a specifier names, allowing for an omitted or rewritten
+/// extension.
+fn probe_extensions(root: &Path, relative: &str) -> Option<String> {
+    let exists = |candidate: &str| {
+        root.join(candidate)
+            .is_file()
+            .then(|| candidate.to_string())
+    };
+
+    // Exactly as written.
+    if let Some(found) = exists(relative) {
+        return Some(found);
+    }
+
+    // `./x.js` where the source is `./x.ts` — TypeScript's own convention of
+    // writing the emitted extension in the import.
+    for js in [".js", ".mjs", ".jsx"] {
+        if let Some(stem) = relative.strip_suffix(js) {
+            for ts in [".ts", ".tsx", ".mts"] {
+                if let Some(found) = exists(&format!("{stem}{ts}")) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
+    // No extension at all.
+    if !EXTENSIONS.iter().any(|ext| relative.ends_with(ext)) {
+        for ext in EXTENSIONS {
+            if let Some(found) = exists(&format!("{relative}{ext}")) {
+                return Some(found);
+            }
+        }
+        // A directory's index file.
+        for ext in EXTENSIONS {
+            if let Some(found) = exists(&format!("{relative}/index{ext}")) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 /// The names every module receives, in a fixed order.
@@ -193,8 +253,16 @@ pub fn wrap(source: &str) -> String {
 /// One function, because the artifact key is computed over the wrapper text and
 /// the wrapper must therefore be the LOWERED form. Two call sites producing the
 /// wrapper differently would produce two keys for one module.
-pub fn lower_and_wrap(source: &str) -> Result<String, String> {
-    Ok(wrap(&crate::esm::lower(source)?))
+pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
+    // TypeScript first: the ESM lowering parses JavaScript, and a `.ts` module
+    // is not JavaScript. Type stripping deliberately leaves module syntax
+    // alone, so `esm::lower` still sees the imports and exports.
+    let javascript = if crate::typescript::needs_stripping(specifier) {
+        crate::typescript::strip(source, specifier)?
+    } else {
+        source.to_string()
+    };
+    Ok(wrap(&crate::esm::lower(&javascript)?))
 }
 
 /// The global names a module may see. Anything outside this list on
