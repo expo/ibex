@@ -29,6 +29,12 @@ extern "C" {
     fn ibex2_hermes_wait(handle: *mut c_void, timeout_ms: u64) -> c_int;
     fn ibex2_hermes_install_fetch(handle: *mut c_void, grants: *const c_void) -> c_int;
     fn ibex2_hermes_state(handle: *mut c_void) -> *const crate::task::RuntimeState;
+    fn ibex2_hermes_eval_bytes(
+        handle: *mut c_void,
+        data: *const u8,
+        len: usize,
+        out: *mut *mut c_char,
+    ) -> c_int;
     fn ibex2_hermes_run_entry(
         handle: *mut c_void,
         specifier: *const c_char,
@@ -178,6 +184,23 @@ impl Hermes {
             }
             // SAFETY: `handle` is non-null for the lifetime of self.
             unsafe { ibex2_hermes_wait(self.handle, 100) };
+        }
+    }
+
+    /// Evaluate a buffer, which may be Hermes bytecode.
+    ///
+    /// Hermes detects the HBC magic, so this is the same entry point as source
+    /// with a different payload.
+    pub fn eval_bytes(&mut self, bytes: &[u8]) -> Result<String, JsError> {
+        let mut out: *mut c_char = std::ptr::null_mut();
+        // SAFETY: the slice outlives the call; `out` receives an owned string.
+        let status =
+            unsafe { ibex2_hermes_eval_bytes(self.handle, bytes.as_ptr(), bytes.len(), &mut out) };
+        let text = take_c_string(out).unwrap_or_default();
+        if status == 0 {
+            Ok(text)
+        } else {
+            Err(JsError(text))
         }
     }
 
