@@ -20,18 +20,29 @@ pub fn encode(input: &str) -> Vec<u8> {
 /// handles are in the boundary contract at all: the buffer is the caller's, and
 /// Rust writes into it rather than allocating and copying back.
 pub fn encode_into(input: &str, destination: &mut [u8]) -> (usize, usize) {
-    let mut read = 0;
-    let mut written = 0;
-    for ch in input.chars() {
-        let width = ch.len_utf8();
-        if written + width > destination.len() {
-            break;
-        }
-        ch.encode_utf8(&mut destination[written..written + width]);
-        written += width;
-        read += ch.len_utf16();
+    // Take the longest prefix that fits, backing up to a character boundary so
+    // a partial code point is never written, then copy it in one go.
+    //
+    // The obvious implementation — walk chars() and encode_utf8 each one — is
+    // correct but roughly 3x slower than a memcpy on a large input, which made
+    // encodeInto slower than the encode it exists to be faster than. Measured
+    // before believing it.
+    let mut end = input.len().min(destination.len());
+    while end > 0 && !input.is_char_boundary(end) {
+        end -= 1;
     }
-    (read, written)
+    let prefix = &input[..end];
+    destination[..end].copy_from_slice(prefix.as_bytes());
+
+    // `read` counts UTF-16 units, because that is what a JavaScript caller
+    // counts. ASCII is one unit per byte, and checking for it is vectorized —
+    // so the per-character walk only happens when the text is not ASCII.
+    let read = if prefix.is_ascii() {
+        end
+    } else {
+        prefix.chars().map(char::len_utf16).sum()
+    };
+    (read, end)
 }
 
 /// How a decoder handles bytes that are not valid UTF-8.
