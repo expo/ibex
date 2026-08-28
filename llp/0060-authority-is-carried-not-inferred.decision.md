@@ -1,12 +1,29 @@
 # LLP 0060: Authority is carried, not inferred
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Superseded by [LLP 0058.000](./0058.000-vanilla-hermes-and-rust-capability-boundary.rfc.md)
 **Systems:** CapSec, Engine, Runtime, Module Loader, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
 **Revised:** 2026-08-28 (D4 corrected: `withEnableEval(false)` does not close Hermes's cached `Function("return this")` fast path, so patch 0014 is not retired by it. The decision stands — the model needs an empty global, not an unreachable one — but the claim was wrong and was made untested.) 2026-08-27 (initial draft)
 **Related:** LLP 0062 (reachable authority — the mechanism this decision needs, and where its OQ1 is answered), LLP 0057 (Ibex 2 — this discharges its OQ2 and is the precondition for its §4), LLP 0058 (the engine seam — unreachable without this decision), LLP 0059.000 (the six capabilities this decision binds), LLP 0013 (per-package capability compartments — the mechanism this retires), LLP 0039 (secure and insecure modes — the cost record this closes), LLP 0004 (module loading and builtins — the injection site), LLP 0002 (host embedding ABI)
+
+> **Superseded 2026-08-28.** LLP 0058.000 reaches the same conclusions from a
+> dual-model review and develops them further: its D3 is this document's D1, its
+> D4 is D2, its D5 is §3's handoff limit, and its §5 gives every carried patch a
+> named retirement route rather than a leaning. Where the two differ, 0058.000
+> governs.
+>
+> This document is kept rather than deleted because it was written independently
+> and converged, which is evidence about the conclusion rather than about either
+> author. Its one finding that outlived it — that `withEnableEval(false)` does
+> **not** close Hermes's cached `Function("return this")` path, which 0058.000 §5
+> and §8.1 state as a conditional — is measured in
+> [LLP 0062](./0062-vanilla-hermes-as-a-capability-substrate.research.md) §2 and confirmed on the current
+> pin.
+>
+> Its D4 was also **wrong as first written** and corrected in place below; that
+> correction is the reason the finding exists.
 
 ## Summary
 

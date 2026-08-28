@@ -11,7 +11,7 @@
 //! the parameter list and every artifact is stale, correctly.
 //!
 //! @ref LLP 0063#5-bytecode — the measurement this implements
-//! @ref LLP 0062#1-requirements — R3: wrappers compiled ahead of time
+//! @ref LLP 0058.000.000#6-module-binding-globals-and-bootstrap — the module surface this builds artifacts for
 
 use std::path::{Path, PathBuf};
 

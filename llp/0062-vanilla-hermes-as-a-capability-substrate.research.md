@@ -1,65 +1,57 @@
-# LLP 0062: Reachable authority — what a capability model needs from the engine
+# LLP 0062: Vanilla Hermes as a capability substrate, measured
 
-**Type:** Spec
+**Type:** Research
 **Status:** Draft
 **Systems:** CapSec, Runtime, Engine, Module Loader
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (initial draft)
-**Related:** LLP 0060 (authority is carried — the decision this specifies the mechanism for), LLP 0057 (Ibex 2 §4 — where capsec moves), LLP 0059.000 (the host-call boundary this sits above), LLP 0058 (the engine seam), LLP 0013 (per-package compartments — the retired mechanism this replaces), LLP 0023 (the virtual filesystem namespace the loader addresses)
+**Revised:** 2026-08-28 (rescoped from Spec to Research after LLP 0058.000 and 0058.000.000 landed from a dual-model review: they own the requirements normatively, and this measures the engine facts they state as conditionals. §1 now points at them rather than competing.) 2026-08-28 (initial draft)
+**Related:** LLP 0058.000 (vanilla Hermes and the Rust capability boundary — **normative**; this measures what it assumes), LLP 0058.000.000 (capability-context and adapter protocol — normative for §1's requirements), LLP 0060 (superseded; the independently-derived decision), LLP 0057 (Ibex 2 §4 — where capsec moves), LLP 0059.000 (the host-call boundary this sits above), LLP 0013 (per-package compartments — the retired mechanism), LLP 0023 (the virtual filesystem namespace the loader addresses)
 
 ## Summary
 
-LLP 0060 decided that authority is carried by a binding rather than inferred
-from a stack. That decision is about **permission**. It leaves a second
-question untouched, and the second question is the one the retired fork
-answered:
+**Normative authority for everything here is LLP 0058.000 and LLP 0058.000.000.**
+This document measures. Those documents state, correctly and conservatively,
+several things about stock Hermes as conditionals — *if* the selected pin
+retains a behaviour, *if* an escape is closed — and a capability argument that
+rests on a conditional is only as good as whether anyone checked. This is the
+check, run against the pinned commit with a build carrying zero Ibex patches.
 
-- **Permission** — may *this authority* perform *this operation*? Answered at
-  the host-call boundary (LLP 0059.000 §1), in a few lines.
-- **Reachability** — what authority can *this code* obtain at all? Answered by
-  the shape of the scope it runs in, and by nothing else.
+Three findings, in descending order of how much they matter:
 
-A chokepoint with no reachability story is a lock on a door in an open field.
-The fork's compartment patches (0004–0006) existed to give each package its own
-global object, because the standard library was reachable *through* globals.
-This document states what replaces them, and records what was measured against
-vanilla Hermes rather than assumed.
+1. **Every escape that compiles source is closed by construction-time
+   configuration — except one.** Hermes serves the exact literal
+   `Function("return this")` from a cached fast path that compiles nothing, so
+   `withEnableEval(false)` does not gate it. LLP 0058.000 §5 and §8.1 treat that
+   as a conditional; on the current pin it is a fact. §2.
+2. **It does not matter, and why is the whole argument.** The model never
+   required the global object to be *unreachable*, only *empty of authority* —
+   LLP 0058.000 D4. Reaching `globalThis` buys nothing when nothing
+   capability-bearing is on it, which is a far weaker property and one vanilla
+   Hermes can hold.
+3. **Intrinsic integrity costs about 2 ms.** A userland freeze of the whole
+   global graph is 612 objects and ~2.1 ms, verified effective. That prices
+   LLP 0058.000 D8's integrity contract on the one-trust-domain tier, and it
+   means retired patch 0006's native deep-freeze was worth roughly 2 ms of wall
+   clock rather than a capability property. §3.
 
-**The finding that shapes everything here: the model does not require the global
-object to be unreachable. It requires the global object to be empty of
-authority.** That is a far weaker property, it is achievable without patching an
-engine, and it survives an escape that the stronger property would not.
+## 1. What the measurements are against
 
-## 1. Requirements
+The requirements are **LLP 0058.000.000's**, not this document's: §6 owns module
+binding, globals, and bootstrap; §8 owns tasks, microtasks, timers, and
+callbacks; §11 owns the conformance suite. An earlier revision of this document
+stated its own R1–R5, written before that spec existed and independently
+convergent with it. They are removed rather than restated, because two documents
+stating the same requirement in different words is how a corpus starts
+contradicting itself.
 
-An implementation satisfies this document when all five hold.
+What the measurements below bear on, in that spec's terms:
 
-**R1 — No capability-bearing binding is reachable from the global object.**
-`globalThis` carries the ungated surface only: `console`, timers, `URL`,
-`TextEncoder`, `atob`/`btoa`, `structuredClone`, `Blob`, `EventTarget`,
-`crypto`, `Buffer`. The six capability-bearing surfaces of LLP 0059.000 §4
-reach a module by injection or not at all.
-
-R1 is the load-bearing requirement. Every other line in this document assumes
-it, and no other mechanism compensates if it fails.
-
-**R2 — Each module receives its bindings as parameters of its own scope.**
-A module is compiled as a function of its injected bindings and invoked with
-them. Two modules granted differently receive two distinct binding objects,
-each closed over its own grant set. Verified: two modules in one runtime, each
-reaching its own origin and denied the other's.
-
-**R3 — Module wrappers are compiled ahead of time.** LLP 0060 D4 closes `eval`
-and the Function family at construction, so the wrapper cannot be built with
-`new Function(body)` at load time. It is produced by the build, which is the
-same artifact the startup budget already requires (LLP 0058 §1.1).
-
-**R4 — Intrinsics are frozen before any module code runs.** See §3.
-
-**R5 — The set of names on the global object is fixed before any module code
-runs, and is asserted.** R1 is a property of a list, and a list that nothing
-checks drifts. The check belongs next to the boot path, not in a document.
+- **§2** tests the escape surface that D4's "shared global carries no authority"
+  has to survive, and prices the one escape that remains open.
+- **§3** prices D8's integrity contract on the one-trust-domain tier.
+- **§4** restates the adversary limits so a reader of the numbers does not
+  over-read them; D8 and §3.2 of LLP 0058.000 are the normative statement.
 
 ## 2. The escape inventory
 
@@ -145,25 +137,22 @@ sandbox.**
 
 ## 5. What this asks of the module loader
 
-The loader is where R1, R2, R3, and R5 are actually enforced, and it does not
-exist yet. When it is written it must:
+Nothing, now. LLP 0058.000 §6 (M0–M6) owns the migration plan and
+LLP 0058.000.001 owns the greenfield topology. An earlier revision listed five
+loader obligations here; they are covered by those documents and are removed
+rather than duplicated.
 
-1. Compile each module as a function of its injected bindings, at build time.
-2. Resolve each module's grant set before instantiation, from a declared source.
-3. Instantiate with distinct binding objects per module — never a shared one.
-4. Publish nothing capability-bearing on the global object, and assert the
-   global name list after boot.
-5. Run the intrinsic freeze after the standard library is installed and before
-   the first module executes.
-
-Nothing above requires an engine patch.
+The one measured input the loader should carry forward: the freeze in §3 must
+run **after** the standard library is installed and **before** the first module
+executes, and it costs ~2 ms wherever it is placed.
 
 ## 6. Open questions
 
-**OQ1 — Where do grants come from?** §5.2 says "a declared source" because the
-answer is not decided. A manifest per package, a field in the build graph, or
-an import-site declaration (LLP 0014 answered a version of this for Ibex 1).
-This is the largest open design question in the capability model.
+**OQ1 — Where do grants come from?** Not decided. A manifest per package, a
+field in the build graph, or an import-site declaration (LLP 0014 answered a
+version of this for Ibex 1). The implementation in `crates/ibex2` uses a
+per-module manifest provisionally. This remains the largest open design question
+in the capability model and is not answered by the 0058.000 family.
 
 **OQ2 — Does the freeze belong in Rust?** ~2 ms is affordable but not free, and
 a native freeze over the same graph would likely be faster. It is not needed for
