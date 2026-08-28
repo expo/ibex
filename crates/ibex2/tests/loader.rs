@@ -1069,3 +1069,93 @@ fn a_package_can_be_granted_authority_under_its_resolved_specifier() {
         "expected a transport failure, got: {out:?}"
     );
 }
+
+// --- Containment, probed adversarially -------------------------------------
+//
+// Resolution decides what code enters the process, so these are the tests that
+// matter most. Each states the attack it represents, not just the API it calls.
+// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it
+
+/// A package whose `exports` target climbs out of the package. Refused by
+/// Node's own rule that an exports target may not escape — so this asserts
+/// oxc_resolver enforces it, rather than trusting that it does.
+#[test]
+fn an_exports_target_cannot_escape_its_package() {
+    let p = Project::new("atk-exports-escape");
+    p.file("index.js", "require('evil');").file(
+        "node_modules/evil/package.json",
+        r#"{"name":"evil","exports":{".":"../../../../../../etc/passwd"}}"#,
+    );
+    let (_, err) = p.run("./index.js", "");
+    let err = err.expect("an escaping exports target must not resolve");
+    assert!(err.contains("Invalid \"exports\" target"), "{err}");
+}
+
+/// An absolute specifier is neither relative nor a package name, and must not
+/// become a way to name any file on the machine.
+#[test]
+fn an_absolute_specifier_is_refused() {
+    let p = Project::new("atk-abs");
+    p.file("index.js", "require('/etc/passwd');");
+    let (_, err) = p.run("./index.js", "");
+    let err = err.expect("an absolute specifier must not resolve");
+    assert!(err.contains("outside the project root"), "{err}");
+}
+
+/// The attack containment exists for: Node resolution walks UP, so a package
+/// installed above the project would otherwise be loaded without the author
+/// ever having seen it.
+#[test]
+fn a_package_above_the_project_root_is_refused() {
+    let outer = std::env::temp_dir().join(format!("ibex2-atk-outer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outer);
+    std::fs::create_dir_all(outer.join("node_modules/sneaky")).unwrap();
+    std::fs::write(
+        outer.join("node_modules/sneaky/package.json"),
+        r#"{"name":"sneaky","main":"index.js"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        outer.join("node_modules/sneaky/index.js"),
+        "exports.x = 'LOADED FROM ABOVE THE ROOT';",
+    )
+    .unwrap();
+    let root = outer.join("project");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("index.js"), "require('sneaky');").unwrap();
+
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    assert!(rt.install_stdlib());
+    rt.install_bindings().expect("bindings");
+    rt.set_loader(&root, ModuleGrants::none());
+    let err = rt.run_entry("./index.js").err().map(|e| e.0);
+    let _ = std::fs::remove_dir_all(&outer);
+    let err = err.expect("a package above the root must not resolve");
+    assert!(err.contains("outside the project root"), "{err}");
+}
+
+/// A symlink out of the project is refused, because containment is checked
+/// against the *canonical* path. Worth asserting explicitly: `oxc_resolver` is
+/// configured not to follow symlinks, so this protection comes from the
+/// canonicalize below it and would be lost if that were relaxed.
+#[cfg(unix)]
+#[test]
+fn a_symlink_out_of_the_project_is_refused() {
+    let p = Project::new("atk-symlink");
+    p.file("index.js", "require('esc');");
+    let outside = std::env::temp_dir().join(format!("ibex2-atk-outside-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("package.json"),
+        r#"{"name":"esc","main":"index.js"}"#,
+    )
+    .unwrap();
+    std::fs::write(outside.join("index.js"), "exports.x = 'ESCAPED';").unwrap();
+    std::fs::create_dir_all(p.0.join("node_modules")).unwrap();
+    std::os::unix::fs::symlink(&outside, p.0.join("node_modules/esc")).unwrap();
+    let (_, err) = p.run("./index.js", "");
+    let _ = std::fs::remove_dir_all(&outside);
+    let err = err.expect("a symlink out of the project must not resolve");
+    assert!(err.contains("outside the project root"), "{err}");
+}
