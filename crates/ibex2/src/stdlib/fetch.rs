@@ -294,14 +294,11 @@ pub fn fetch(
 
     loop {
         let origin = origin_of(&current.url)?;
-        let operation = Operation::Fetch {
-            origin: origin.clone(),
-        };
-        if !grants.permits(&operation) {
-            return Err(HostError::Denied {
-                capability: "net.fetch",
-            });
-        }
+        // Through boundary::admit, not an inline permits() check: the
+        // capability name and the shape of a denial belong in one place, or
+        // "one chokepoint" is a claim about the design rather than a fact
+        // about the code.
+        crate::boundary::admit(grants, &Operation::Fetch { origin })?;
 
         // The request guard applies here, where a header list becomes a
         // request — not in Headers::set, where the guard is "none".
