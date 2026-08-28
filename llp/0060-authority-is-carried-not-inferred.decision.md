@@ -5,7 +5,7 @@
 **Systems:** CapSec, Engine, Runtime, Module Loader, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-27 (initial draft)
+**Revised:** 2026-08-28 (D4 corrected: `withEnableEval(false)` does not close Hermes's cached `Function("return this")` fast path, so patch 0014 is not retired by it. The decision stands — the model needs an empty global, not an unreachable one — but the claim was wrong and was made untested.) 2026-08-27 (initial draft)
 **Related:** LLP 0057 (Ibex 2 — this discharges its OQ2 and is the precondition for its §4), LLP 0058 (the engine seam — unreachable without this decision), LLP 0059.000 (the six capabilities this decision binds), LLP 0013 (per-package capability compartments — the mechanism this retires), LLP 0039 (secure and insecure modes — the cost record this closes), LLP 0004 (module loading and builtins — the injection site), LLP 0002 (host embedding ABI)
 
 ## Summary
@@ -52,11 +52,31 @@ Hermes source with no patch series applied (§6).
 <!-- @ref patches/hermes — the carried series this decision retires most of -->
 
 **D4 — Dynamic code is closed at construction, not latched after boot.**
-`EnableEval` is a stock Hermes `RuntimeConfig` knob. Patch 0014 exists only
-because today's boot path itself needs `eval` — the loader calls
-`new Function(body)` per module. A Rust standard library over an
-ahead-of-time bytecode graph compiles no source at runtime, so
-`withEnableEval(false)` at construction replaces the one-way latch.
+`EnableEval` is a stock Hermes `RuntimeConfig` knob, and a Rust standard
+library over an ahead-of-time bytecode graph compiles no source at runtime, so
+`withEnableEval(false)` at construction closes `eval` and the Function family.
+Verified: every escape that compiles source is refused.
+
+**Correction (2026-08-28).** An earlier revision of this clause said the flag
+therefore retires carried patch 0014. **It does not**, and the claim was made
+without testing the case the patch is actually about. Hermes serves the exact
+literal `Function("return this")` from a cached fast path that compiles
+nothing, so the eval flag does not gate it:
+`({}).constructor.constructor('return this')()` returns the global object on a
+runtime built with `withEnableEval(false)`. Everything that genuinely compiles
+— `eval`, `new Function('return 1')`, parameterized forms — is blocked.
+
+The correction does not change the decision, and the reason is the whole
+argument for this document: **the model never depended on making the global
+object unreachable.** It depends on the global object being *empty of
+authority* (D2), which is a far weaker property and survives this hole
+completely. Reaching `globalThis` buys nothing when nothing capability-bearing
+is on it.
+
+So patch 0014 moves from "retired by D4" to **§5's open list**: carry it, or
+accept a reachable-but-empty global. The default is to accept, and D5 requires
+that choice be recorded rather than defaulted into. `crates/ibex2` pins both
+halves in a test — the hole is open, and it yields nothing.
 
 <!-- @ref ios/Frameworks/hermes-headers/hermes/Public/RuntimeConfig.h — EnableEval is stock; the latch is not needed once boot compiles nothing -->
 
@@ -141,7 +161,7 @@ D3 covers the first row. The rest are open, with a stated leaning:
 | Patch | Disposition |
 |---|---|
 | 0001–0008, 0013 | **Retired by D3.** No replacement. |
-| 0014 | **Retired by D4.** Construction-time `withEnableEval(false)`. |
+| 0014 | **Open, was wrongly listed as retired.** `withEnableEval(false)` blocks every escape that compiles, but not Hermes's cached `Function("return this")` fast path — which is what this patch is for. Harmless under D2, so the leaning is to accept a reachable-but-empty global rather than carry it. Recorded per D5. |
 | 0009 raw-throw capture | Renegotiate in userland. The structured evaluator can catch into a slot and return the raw value without asking the engine to coerce it. Fidelity cost to be measured, not assumed. |
 | 0010 completion discriminator | Renegotiate. Distinguishing an empty completion from `undefined` falls back to a syntactic heuristic in the REPL — the fidelity loss LLP 0022 accepted before the patch existed. |
 | 0011 async failure provenance | The largest genuinely open one at 795 lines. Serves REPL and session diagnostics, not capsec. Candidate for upstream, and for scoping down once most of `src/bin` is gone (LLP 0057 §5). |
