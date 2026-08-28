@@ -54,6 +54,29 @@ through to anything — it fails to resolve, with an error naming the conditions
 tried. `a_package_exporting_only_node_does_not_resolve` pins that, so the cost
 is visible rather than discovered later.
 
+### 1.1 Omitting `node` does not keep Node builds out
+
+Measured against React 19.2.8, and worth recording because it undercuts the
+obvious reading of §1. `react-dom` exports `./server` under nine conditions:
+
+```
+react-server, workerd, bun, deno, worker, node, edge-light, browser, default
+```
+
+Our set matches none of the first eight — and lands on `default`, which **is**
+`./server.node.js`. Requiring `react-dom/server` therefore fails on `util`, a
+Node builtin LLP 0059 §6 deleted, exactly as if we had selected `node`.
+
+So omitting `node` prevents *selecting* the Node build; it does not prevent
+*receiving* one, because a package is free to make the Node build its default.
+The working entry is `react-dom/server.browser`, chosen by explicit subpath.
+
+That is the concrete case behind OQ1: `browser` is the condition that would
+have selected correctly here, and much of npm uses it to mean "not Node" —
+which is closer to true for this runtime than `default` is. Still wants
+measurement against Exact's dependencies before being added, since `browser`
+also implies a DOM that does not exist.
+
 `main_fields` is `["module", "main"]` for packages predating `exports`. Unlike
 conditions this *is* an order, and it is a bundler's policy rather than Node's:
 Node reads `main`. Choosing `module` first prefers a package's ESM entry, whose

@@ -207,6 +207,11 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
         let path = root.join(specifier.trim_start_matches("./"));
         let source = std::fs::read_to_string(&path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        // Scan the JavaScript this module *becomes*, not the source as written:
+        // the JSX transform injects an import of `react/jsx-runtime` that
+        // appears nowhere in the .tsx. Scanning the original silently produced
+        // an incomplete graph that only failed later, at `run --precompiled`.
+        let javascript = ibex2::loader::to_javascript(&source, &specifier)?;
         let wrapped = ibex2::loader::lower_and_wrap(&source, &specifier)?;
         compiler
             .compile(&wrapped)
@@ -230,12 +235,13 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
         // Both module systems: import/export-from come from the parser,
         // require from a scan, because a require's specifier is an ordinary
         // call argument no module-syntax parse reports.
-        let mut dependencies: Vec<(String, bool)> = ibex2::esm::dependencies(&source, &specifier)
-            .into_iter()
-            .map(|dependency| (dependency, true))
-            .collect();
+        let mut dependencies: Vec<(String, bool)> =
+            ibex2::esm::dependencies(&javascript, &specifier)
+                .into_iter()
+                .map(|dependency| (dependency, true))
+                .collect();
         dependencies.extend(
-            requires_in(&source)
+            requires_in(&javascript)
                 .into_iter()
                 .map(|dependency| (dependency, true)),
         );
@@ -245,7 +251,7 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
         // exist is a warning rather than a build failure. Code that guards an
         // optional import is correct.
         dependencies.extend(
-            ibex2::esm::dynamic_dependencies(&source, &specifier)
+            ibex2::esm::dynamic_dependencies(&javascript, &specifier)
                 .into_iter()
                 .map(|dependency| (dependency, false)),
         );

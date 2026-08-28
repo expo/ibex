@@ -72,6 +72,7 @@ The v1 surface. Everything here is measured in the boot graph.
 | `structuredClone` | 1 / 1 | |
 | `CustomEvent` `EventTarget` | 2 / 2 | |
 | `Blob` | vendored only | required by Rive and Lottie |
+| `MessageChannel` | React's renderer | §6 — a scheduling primitive, not messaging |
 
 Per LLP 0057 §3, each is Rust-owned semantics over a platform-owned transport
 where a transport exists. `URL`, `TextEncoder`, `atob`, and `structuredClone`
@@ -135,8 +136,14 @@ an intent for a measurement.
 - **`sessionStorage`, `indexedDB`, `EventSource`, `XMLHttpRequest`,
   `FormData`** — absent or single-use. `XMLHttpRequest` appears only inside
   vendored Rive, which falls back to `fetch` when it is missing.
-- **`Worker`, `MessageChannel`** — vendored only, one use each. Deferred until
-  an application needs them.
+- **`Worker`** — vendored only, one use. Deferred until an application needs it.
+- **`MessageChannel`** — was here as "vendored only, one use, deferred until an
+  application needs it." **An application needs it** (2026-08-28). React's
+  server renderer builds one at module scope and uses it as its task-scheduling
+  primitive, so nothing that renders React runs without it. Added to Tier I by
+  the evidence standard §7 sets — a measured call site, not an anticipated one.
+  `Worker` stays out; the two were only ever grouped by being adjacent in the
+  spec, not by being needed together.
 
 ## 7. How this list grows
 
