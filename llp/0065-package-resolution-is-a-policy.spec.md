@@ -26,20 +26,33 @@ security surface, not a filesystem convenience.
 
 Resolution matches `exports` against `["import", "require", "default"]`.
 
-`import` leads because the loader is ESM-first and a package's ESM entry is the
-one whose live bindings and static shape the transform understands (LLP 0064).
-`require` follows it because most of npm still ships CommonJS and the loader
-handles both.
+**It is a set, not a ranking**, and an earlier version of this section got that
+wrong. It said `import` "leads" because the loader is ESM-first. Nothing leads:
+`oxc_resolver` walks the *package's* `exports` keys in their own order and takes
+the first one this set contains. A package that writes `require` before `import`
+gets CommonJS, and reordering our list changes nothing. Verified by test — a
+require-first package resolves to its CommonJS entry.
+
+The real content of the choice is therefore only **which conditions are in the
+set**, and the interesting one is the one that is not.
 
 **`node` is deliberately absent.** LLP 0059 §6 deleted Node's server surface —
 `http`, `net`, `tls`, `child_process`, `zlib`. A package that offers a Node
-build and gets it here would receive one written against modules that do not
-exist, and would fail at a confusing distance from the cause. Not selecting it
-means such a package falls through to `default`, which is the branch its author
-wrote for runtimes like this one.
+build and got it here would receive one written against modules that do not
+exist, failing at a confusing distance from the cause.
 
-`main_fields` is `["module", "main"]`, same ordering and same reason, for the
-packages that predate `exports`.
+That choice has a cost, and the earlier version of this section understated it
+by claiming such a package "falls through to `default`, which is the branch its
+author wrote for runtimes like this one." That is true only when the package
+*has* a `default`. A package exporting **only** a `node` condition does not fall
+through to anything — it fails to resolve, with an error naming the conditions
+tried. `a_package_exporting_only_node_does_not_resolve` pins that, so the cost
+is visible rather than discovered later.
+
+`main_fields` is `["module", "main"]` for packages predating `exports`. Unlike
+conditions this *is* an order, and it is a bundler's policy rather than Node's:
+Node reads `main`. Choosing `module` first prefers a package's ESM entry, whose
+live bindings and static shape the transform understands (LLP 0064).
 
 ## 2. `node_modules` is inside the project, not a hole in it
 
@@ -101,10 +114,47 @@ This is the part that resolution must not quietly undo, and the reason it was
 not simply switched on.
 
 A package is a module like any other (LLP 0060 D1). It receives the authority
-the grant manifest names under its **resolved specifier** —
-`./node_modules/needy/index.js` — and nothing by virtue of having been
-imported. A third-party package that reaches for `fetch` gets a binding that
-carries no origins and is refused at the boundary.
+the grant manifest names under its **resolved specifier**, and nothing by virtue
+of having been imported. A third-party package that reaches for `fetch` gets a
+binding that carries no origins and is refused at the boundary.
+
+The resolved specifier is the **canonical path from the project root**, which is
+not always the spelling the author typed. A classic dependency is
+`./node_modules/needy/index.js`; a *workspace* package, being a symlink, is
+`./packages/ui/index.js`, and a pnpm install is somewhere under
+`./node_modules/.pnpm/`. Grant manifests must name what the module resolved to,
+and `ibex2 build` prints it.
+
+That single identity is load-bearing, not a convenience. §4.1 is why.
+
+### 4.1 One file, one name
+
+Grants are keyed by specifier, so **if a file has two names it has two grant
+sets** — and a module locked down under one name holds the default's authority
+under the other:
+
+```
+[*]
+net.fetch https://api.example.com
+[./packages/ui/index.js]          # deliberately empty: this module gets nothing
+```
+
+Reached as `@w/ui` that module is denied. Reached as
+`./node_modules/@w/ui/index.js` — the same bytes, the same inode — it used to
+match no section, inherit `[*]`, and get the network. The same held for
+`./LOCKED.js` against `./locked.js` on a case-insensitive filesystem.
+
+Both were confirmed and are fixed: `loader::contain` is the single point where a
+path becomes an identity, both resolver arms go through it, and it canonicalizes
+— which resolves symlinks and settles case. `contain` also fails closed, refusing
+a path it cannot canonicalize rather than falling back to the spelling.
+
+The general statement, because it outlives these two instances: **containment
+and authority are properties of files, and a specifier is only a name for one.**
+Any future code path that produces a specifier without going through `contain`
+reintroduces both bugs at once.
+
+
 
 So packages are *addressable* without being *ambient*: a manifest can grant one
 exactly what it needs, and silence grants nothing.
