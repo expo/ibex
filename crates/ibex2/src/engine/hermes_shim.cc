@@ -219,6 +219,20 @@ Ibex2AbiValue to_abi(jsi::Runtime &rt, const jsi::Value &value,
     out.len = buffer.size(rt);
     return out;
   }
+  // A TYPED ARRAY, which is what application code actually passes: a Uint8Array
+  // is not an ArrayBuffer, and handling only the latter made
+  // `fs.writeFile(path, new TextEncoder().encode(text))` stringify its payload
+  // and write an empty file. The view's offset matters — a subarray shares its
+  // buffer with the whole, so reading from the buffer's start would send the
+  // wrong bytes.
+  if (value.isObject() && value.getObject(rt).isTypedArray(rt)) {
+    auto view = value.getObject(rt).getTypedArray(rt);
+    auto buffer = view.buffer(rt);
+    out.tag = IBEX2_TAG_BYTES;
+    out.data = buffer.data(rt) + view.byteOffset(rt);
+    out.len = view.byteLength(rt);
+    return out;
+  }
   // Everything else stringifies, which is what console does with its arguments.
   owned.push_back(value.toString(rt).utf8(rt));
   const std::string &text = owned.back();
@@ -629,10 +643,30 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
   jsi::Value fetch_binding = jsi::Value(
       rt, make_async_binding(rt, "fetch", 101, owner, grants));
 
+  // The fs object, every method carrying the SAME grants as this module's
+  // fetch — one module, one authority. Built here rather than in JavaScript
+  // because each method is a distinct host op and the grants are captured in
+  // the closure, not passed by the caller.
+  jsi::Object fs(rt);
+  struct FsMethod {
+    const char *name;
+    uint32_t op;
+  };
+  static const FsMethod kFsMethods[] = {
+      {"readFile", 110},  {"writeFile", 111}, {"appendFile", 112},
+      {"readdir", 113},   {"mkdir", 114},     {"rm", 115},
+      {"stat", 116},      {"rename", 117},    {"copyFile", 118},
+      {"realpath", 119},
+  };
+  for (const auto &method : kFsMethods) {
+    fs.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(method.name)),
+                   make_async_binding(rt, method.name, method.op, owner, grants));
+  }
+
   fn_value.getObject(rt).getFunction(rt).call(
       rt, jsi::Value(rt, *module), jsi::Value(rt, *exports),
       jsi::Value(rt, make_require(rt, owner, resolved_name)),
-      std::move(fetch_binding));
+      std::move(fetch_binding), std::move(fs));
 
   // `module.exports = ...` replaces the object, so re-read it after running.
   jsi::Value final_exports = module->getProperty(rt, "exports");

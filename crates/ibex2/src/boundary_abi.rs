@@ -578,6 +578,19 @@ enum AsyncOp {
     Echo = 100,
     /// `fetch`. Resolves with a response handle, never with a serialized body.
     Fetch = 101,
+    /// `fs`, one op per method. Delegating and capability-bearing, so it leaves
+    /// the JavaScript thread like fetch does — LLP 0059.000 §3.11 has no
+    /// synchronous variants on purpose.
+    FsReadFile = 110,
+    FsWriteFile = 111,
+    FsAppendFile = 112,
+    FsReadDir = 113,
+    FsMkdir = 114,
+    FsRemove = 115,
+    FsStat = 116,
+    FsRename = 117,
+    FsCopyFile = 118,
+    FsRealpath = 119,
 }
 
 impl AsyncOp {
@@ -585,6 +598,16 @@ impl AsyncOp {
         match value {
             100 => Some(AsyncOp::Echo),
             101 => Some(AsyncOp::Fetch),
+            110 => Some(AsyncOp::FsReadFile),
+            111 => Some(AsyncOp::FsWriteFile),
+            112 => Some(AsyncOp::FsAppendFile),
+            113 => Some(AsyncOp::FsReadDir),
+            114 => Some(AsyncOp::FsMkdir),
+            115 => Some(AsyncOp::FsRemove),
+            116 => Some(AsyncOp::FsStat),
+            117 => Some(AsyncOp::FsRename),
+            118 => Some(AsyncOp::FsCopyFile),
+            119 => Some(AsyncOp::FsRealpath),
             _ => None,
         }
     }
@@ -596,6 +619,9 @@ fn run_async(
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
 ) -> Result<HostValue, HostError> {
+    if let Some(fs_op) = fs_op_for(op) {
+        return run_fs(fs_op, args, grants);
+    }
     match op {
         AsyncOp::Fetch => {
             use crate::stdlib::fetch::{RedirectMode, Request};
@@ -635,6 +661,7 @@ fn run_async(
             }
             Ok(HostValue::Str(text))
         }
+        _ => unreachable!("fs ops returned above, via fs_op_for"),
     }
 }
 
@@ -747,6 +774,74 @@ pub unsafe extern "C" fn ibex2_wait_for_completion(
             .queue
             .wait(std::time::Duration::from_millis(timeout_ms)),
     )
+}
+
+fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
+    use crate::stdlib::fs::FsOp;
+    Some(match op {
+        AsyncOp::FsReadFile => FsOp::ReadFile,
+        AsyncOp::FsWriteFile => FsOp::WriteFile,
+        AsyncOp::FsAppendFile => FsOp::AppendFile,
+        AsyncOp::FsReadDir => FsOp::ReadDir,
+        AsyncOp::FsMkdir => FsOp::Mkdir,
+        AsyncOp::FsRemove => FsOp::Remove,
+        AsyncOp::FsStat => FsOp::Stat,
+        AsyncOp::FsRename => FsOp::Rename,
+        AsyncOp::FsCopyFile => FsOp::CopyFile,
+        AsyncOp::FsRealpath => FsOp::Realpath,
+        _ => return None,
+    })
+}
+
+/// Normalize, admit, then act — in that order, always.
+///
+/// Normalizing after the check would let `/data/../etc/passwd` pass a `/data`
+/// grant, which is the whole reason the order is stated rather than implied.
+fn run_fs(
+    op: crate::stdlib::fs::FsOp,
+    args: &[HostValue],
+    grants: &GrantSet,
+) -> Result<HostValue, HostError> {
+    use crate::stdlib::fs::{admit, normalize, perform, FsResult};
+
+    let path_arg = |index: usize| -> Result<&str, HostError> {
+        match args.get(index) {
+            Some(HostValue::Str(text)) => Ok(text),
+            _ => Err(HostError::InvalidArgument("fs expects a path".into())),
+        }
+    };
+
+    let path = normalize(path_arg(0)?)?;
+    let destination = if op.takes_second_path() {
+        Some(normalize(path_arg(1)?)?)
+    } else {
+        None
+    };
+    admit(grants, op, &path, destination.as_deref())?;
+
+    // Data is the second argument for single-path writes.
+    let data = match args.get(1) {
+        Some(HostValue::Bytes(bytes)) => Some(bytes.as_slice()),
+        _ => None,
+    };
+
+    Ok(match perform(op, &path, destination.as_deref(), data)? {
+        FsResult::Done => HostValue::Undefined,
+        FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
+        FsResult::Text(text) => HostValue::Str(text),
+        // A directory listing and a stat are small records. They cross as text
+        // the binding splits, rather than as a serialized object: §1.1 forbids
+        // JSON at the boundary, and a newline-joined list is not a document
+        // format that could grow into one.
+        FsResult::Names(names) => HostValue::Str(names.join("\n")),
+        FsResult::Stat(stat) => HostValue::Str(format!(
+            "{}\t{}\t{}\t{}",
+            stat.size,
+            u8::from(stat.is_file),
+            u8::from(stat.is_directory),
+            stat.modified_ms
+        )),
+    })
 }
 
 /// Take one ready completion for the engine to deliver.
