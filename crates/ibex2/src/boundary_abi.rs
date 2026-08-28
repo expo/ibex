@@ -13,6 +13,7 @@
 use std::ffi::{c_char, c_int, c_uchar};
 
 use crate::boundary::{HostArg, HostError, HostValue};
+use crate::grant::GrantSet;
 use crate::stdlib::{base64, console, text, url};
 
 pub const TAG_UNDEFINED: i32 = 0;
@@ -334,6 +335,115 @@ fn leak_value(value: HostValue) -> AbiValue {
     }
 }
 
+/// Build a grant set from a spec and hand ownership to the caller.
+///
+/// This is how authority becomes *carried* (LLP 0060 D1): the caller binds the
+/// result to a binding at install time, and the binding passes it back on every
+/// call. There is no way to ask for "the current grants" — no ambient lookup
+/// exists, by construction.
+///
+/// # Safety
+/// `spec` must be a NUL-terminated UTF-8 string. Release with
+/// `ibex2_grants_destroy`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_grants_create(spec: *const c_char) -> *const GrantSet {
+    let spec = if spec.is_null() {
+        ""
+    } else {
+        match std::ffi::CStr::from_ptr(spec).to_str() {
+            Ok(text) => text,
+            Err(_) => return std::ptr::null(),
+        }
+    };
+    match GrantSet::parse(spec) {
+        Ok(set) => std::sync::Arc::into_raw(std::sync::Arc::new(set)),
+        Err(_) => std::ptr::null(),
+    }
+}
+
+/// # Safety
+/// `grants` must come from `ibex2_grants_create`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_grants_destroy(grants: *const GrantSet) {
+    if !grants.is_null() {
+        drop(std::sync::Arc::from_raw(grants));
+    }
+}
+
+unsafe fn clone_grants(grants: *const GrantSet) -> Option<std::sync::Arc<GrantSet>> {
+    if grants.is_null() {
+        return None;
+    }
+    std::sync::Arc::increment_strong_count(grants);
+    Some(std::sync::Arc::from_raw(grants))
+}
+
+/// Read a field from a stored response.
+///
+/// A `Response` crosses as a **handle**, not a value: §1.1 forbids serializing
+/// at the boundary, and a response is a status plus headers plus a body. These
+/// are the accessors the binding layer turns back into a `Response` object.
+///
+/// # Safety
+/// `state` must be live; `out` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_response_field(
+    state: *const crate::task::RuntimeState,
+    handle: f64,
+    field: u32,
+    name: *const AbiValue,
+    out: *mut AbiValue,
+) -> c_int {
+    if out.is_null() {
+        return -1;
+    }
+    *out = AbiValue::undefined();
+    let Some(state) = crate::task::clone_queue(state) else {
+        return fail(out, "no runtime state");
+    };
+    let handle = handle as u64;
+
+    // Field 4 consumes the response, moving the body out rather than copying.
+    if field == 4 {
+        return match state.take_response(handle) {
+            Some(response) => {
+                *out = leak_value(HostValue::Bytes(response.body));
+                0
+            }
+            None => fail(out, "TypeError: body already consumed or unknown response"),
+        };
+    }
+
+    let result = state.with_response(handle, |response| match field {
+        0 => Ok(HostValue::Number(f64::from(response.status))),
+        1 => Ok(HostValue::Bool(response.ok())),
+        2 => Ok(HostValue::Str(response.url.clone())),
+        3 => {
+            let wanted = match name.as_ref().and_then(|v| v.borrow().ok()) {
+                Some(HostArg::Str(text)) => text.to_string(),
+                _ => return Err(HostError::InvalidArgument("header name expected".into())),
+            };
+            Ok(match response.headers.get(&wanted) {
+                Some(value) => HostValue::Str(value.to_string()),
+                None => HostValue::Null,
+            })
+        }
+        5 => Ok(HostValue::Bool(response.redirected)),
+        other => Err(HostError::InvalidArgument(format!(
+            "unknown response field {other}"
+        ))),
+    });
+
+    match result {
+        Some(Ok(value)) => {
+            *out = leak_value(value);
+            0
+        }
+        Some(Err(err)) => fail(out, &err.to_string()),
+        None => fail(out, "TypeError: unknown response handle"),
+    }
+}
+
 /// Start a delegating op on another thread.
 ///
 /// Returns immediately. The op is **not** run on the JavaScript thread — that
@@ -348,13 +458,14 @@ fn leak_value(value: HostValue) -> AbiValue {
 /// cannot apply.
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_async_begin(
-    queue: *const crate::task::CompletionQueue,
+    state: *const crate::task::RuntimeState,
+    grants: *const GrantSet,
     op: u32,
     argv: *const AbiValue,
     argc: usize,
     task_id: u64,
 ) -> c_int {
-    let Some(queue) = crate::task::clone_queue(queue) else {
+    let Some(state) = crate::task::clone_queue(state) else {
         return 1;
     };
     let raw = if argv.is_null() || argc == 0 {
@@ -381,9 +492,13 @@ pub unsafe extern "C" fn ibex2_async_begin(
         return 1;
     };
 
+    // The binding's own grants, captured at install time and handed back on
+    // every call. Nothing here consults ambient state.
+    let grants = clone_grants(grants).unwrap_or_else(|| std::sync::Arc::new(GrantSet::none()));
+
     std::thread::spawn(move || {
-        let result = run_async(op, &owned);
-        queue.complete(task_id, result);
+        let result = run_async(op, &owned, &state, &grants);
+        state.queue.complete(task_id, result);
     });
     0
 }
@@ -395,19 +510,53 @@ enum AsyncOp {
     /// Echo the first argument back after leaving the thread. Exists so the
     /// ordering contract can be tested without a network in the way.
     Echo = 100,
+    /// `fetch`. Resolves with a response handle, never with a serialized body.
+    Fetch = 101,
 }
 
 impl AsyncOp {
     fn from_u32(value: u32) -> Option<Self> {
         match value {
             100 => Some(AsyncOp::Echo),
+            101 => Some(AsyncOp::Fetch),
             _ => None,
         }
     }
 }
 
-fn run_async(op: AsyncOp, args: &[HostValue]) -> Result<HostValue, HostError> {
+fn run_async(
+    op: AsyncOp,
+    args: &[HostValue],
+    state: &crate::task::RuntimeState,
+    grants: &GrantSet,
+) -> Result<HostValue, HostError> {
     match op {
+        AsyncOp::Fetch => {
+            use crate::stdlib::fetch::{RedirectMode, Request};
+            let url = match args.first() {
+                Some(HostValue::Str(url)) => url.clone(),
+                _ => return Err(HostError::InvalidArgument("fetch expects a URL".into())),
+            };
+            let mut request = Request::get(&url);
+            if let Some(HostValue::Str(method)) = args.get(1) {
+                if !method.is_empty() {
+                    request.method = method.to_ascii_uppercase();
+                }
+            }
+            if let Some(HostValue::Bytes(body)) = args.get(2) {
+                request.body = Some(body.clone());
+            }
+            if let Some(HostValue::Str(mode)) = args.get(3) {
+                request.redirect = match mode.as_str() {
+                    "manual" => RedirectMode::Manual,
+                    "error" => RedirectMode::Error,
+                    _ => RedirectMode::Follow,
+                };
+            }
+            let response = crate::stdlib::fetch::fetch(state.transport(), grants, request)?;
+            // The handle, not the response. §1.1.
+            Ok(HostValue::Number(state.store_response(response) as f64))
+        }
         AsyncOp::Echo => {
             let text = match args.first() {
                 Some(HostValue::Str(text)) => text.clone(),
@@ -431,7 +580,7 @@ fn run_async(op: AsyncOp, args: &[HostValue]) -> Result<HostValue, HostError> {
 /// All three out pointers must be valid and writable.
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_take_completion(
-    queue: *const crate::task::CompletionQueue,
+    state: *const crate::task::RuntimeState,
     task_id: *mut u64,
     out: *mut AbiValue,
     is_error: *mut c_int,
@@ -439,10 +588,10 @@ pub unsafe extern "C" fn ibex2_take_completion(
     if task_id.is_null() || out.is_null() || is_error.is_null() {
         return 0;
     }
-    let Some(queue) = crate::task::clone_queue(queue) else {
+    let Some(state) = crate::task::clone_queue(state) else {
         return 0;
     };
-    let Some(completion) = queue.take() else {
+    let Some(completion) = state.queue.take() else {
         return 0;
     };
     *task_id = completion.task_id;

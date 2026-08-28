@@ -22,6 +22,32 @@ extern "C" {
     fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_pump(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_drain_microtasks(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_install_fetch(handle: *mut c_void, grants: *const c_void) -> c_int;
+    fn ibex2_grants_create(spec: *const c_char) -> *const c_void;
+    fn ibex2_grants_destroy(grants: *const c_void);
+}
+
+/// A grant set, owned for as long as the bindings that carry it.
+pub struct Grants(*const c_void);
+
+impl Grants {
+    /// Parse a grant spec. See `GrantSet::parse`.
+    pub fn parse(spec: &str) -> Option<Self> {
+        let spec = CString::new(spec).ok()?;
+        // SAFETY: the pointer is either null or an owned grant set.
+        let raw = unsafe { ibex2_grants_create(spec.as_ptr()) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(Self(raw))
+    }
+}
+
+impl Drop for Grants {
+    fn drop(&mut self) {
+        // SAFETY: created here, released exactly once.
+        unsafe { ibex2_grants_destroy(self.0) };
+    }
 }
 
 /// Whether JavaScript may compile source of its own.
@@ -114,6 +140,13 @@ impl Hermes {
             std::thread::yield_now();
         }
         delivered
+    }
+
+    /// Install `fetch`, carrying `grants` for the lifetime of the binding.
+    pub fn install_fetch(&mut self, grants: &Grants) -> bool {
+        // SAFETY: both pointers outlive the call; the binding keeps its own
+        // reference to the grants.
+        unsafe { ibex2_hermes_install_fetch(self.handle, grants.0) == 0 }
     }
 
     /// Drain microtasks without delivering completions.
@@ -679,6 +712,256 @@ mod tests {
     fn pumping_an_empty_queue_delivers_nothing() {
         let mut rt = async_rt();
         assert_eq!(rt.pump(), 0);
+    }
+
+    // --- fetch, end to end -------------------------------------------------
+
+    /// A real HTTP server on a real socket. Records what it was asked for, so a
+    /// denial can be shown to have never reached the network at all.
+    struct TestServer {
+        port: u16,
+        hits: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl TestServer {
+        fn start(reply: &'static str) -> Self {
+            use std::io::{Read, Write};
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            let port = listener.local_addr().unwrap().port();
+            let hits = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let recorded = std::sync::Arc::clone(&hits);
+
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { break };
+                    // Read the WHOLE request. A single read() is a race: the
+                    // head and body of a POST routinely arrive in separate TCP
+                    // segments, and reading once sees an empty body roughly
+                    // half the time. Read to the header terminator, then read
+                    // exactly Content-Length more.
+                    let mut raw: Vec<u8> = Vec::new();
+                    let mut buffer = [0u8; 4096];
+                    let head_end = loop {
+                        if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break at + 4;
+                        }
+                        match stream.read(&mut buffer) {
+                            Ok(0) => break raw.len(),
+                            Ok(n) => raw.extend_from_slice(&buffer[..n]),
+                            Err(_) => break raw.len(),
+                        }
+                    };
+                    let head = String::from_utf8_lossy(&raw[..head_end]).to_string();
+                    let want: usize = head
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.trim()
+                                .eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0);
+                    while raw.len() < head_end + want {
+                        match stream.read(&mut buffer) {
+                            Ok(0) => break,
+                            Ok(n) => raw.extend_from_slice(&buffer[..n]),
+                            Err(_) => break,
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&raw).to_string();
+                    let first = request.lines().next().unwrap_or("").to_string();
+                    recorded.lock().unwrap().push(first);
+
+                    let body = if request.starts_with("POST") {
+                        // Echo the body back so the request payload is observable.
+                        request.split("\r\n\r\n").nth(1).unwrap_or("").to_string()
+                    } else {
+                        reply.to_string()
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Ibex: yes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                }
+            });
+
+            Self { port, hits }
+        }
+
+        fn origin(&self) -> String {
+            format!("http://127.0.0.1:{}", self.port)
+        }
+
+        fn hits(&self) -> Vec<String> {
+            self.hits.lock().unwrap().clone()
+        }
+    }
+
+    fn fetch_rt(grant_spec: &str) -> (Hermes, Grants) {
+        let mut rt = with_stdlib();
+        let grants = Grants::parse(grant_spec).expect("grant spec parses");
+        assert!(rt.install_fetch(&grants), "fetch install failed");
+        (rt, grants)
+    }
+
+    #[test]
+    fn fetch_reaches_a_real_server_and_returns_a_response_handle() {
+        let server = TestServer::start("hello from the server");
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", server.origin()));
+
+        rt.eval(&format!(
+            "globalThis.status = 0; globalThis.body = '';
+             __ibex2_fetch('{}/thing').then(h => {{
+               status = __ibex2_response_field(h, 0);
+               globalThis.okFlag = __ibex2_response_field(h, 1);
+               globalThis.ct = __ibex2_response_field(h, 3, 'content-type');
+               globalThis.custom = __ibex2_response_field(h, 3, 'X-IBEX');
+               body = __ibex2_text_decode(__ibex2_response_field(h, 4));
+             }});",
+            server.origin()
+        ))
+        .unwrap();
+        assert_eq!(rt.pump_until(1), 1);
+
+        assert_eq!(rt.eval("status").unwrap(), "200");
+        assert_eq!(rt.eval("String(okFlag)").unwrap(), "true");
+        assert_eq!(rt.eval("body").unwrap(), "hello from the server");
+        assert_eq!(rt.eval("ct").unwrap(), "text/plain");
+        // Header lookup is case-insensitive, which Rust owns.
+        assert_eq!(rt.eval("custom").unwrap(), "yes");
+        assert_eq!(server.hits().len(), 1);
+    }
+
+    /// The capability is real: an ungranted origin is refused, and the refusal
+    /// happens before anything touches the network.
+    #[test]
+    fn an_ungranted_origin_is_refused_and_never_reaches_the_network() {
+        let server = TestServer::start("secret");
+        // Granted a DIFFERENT origin than the one it will try.
+        let (mut rt, _grants) = fetch_rt("net.fetch http://127.0.0.1:1");
+
+        rt.eval(&format!(
+            "globalThis.err = 'none';
+             __ibex2_fetch('{}/secret').catch(e => {{ err = e.message; }});",
+            server.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+
+        assert_eq!(rt.eval("err").unwrap(), "denied: net.fetch");
+        assert!(
+            server.hits().is_empty(),
+            "a denied fetch must not open a socket: {:?}",
+            server.hits()
+        );
+    }
+
+    /// LLP 0060 D1, demonstrated: identical JavaScript, two runtimes, different
+    /// injected authority, different outcomes. Neither can reach the other's.
+    #[test]
+    fn authority_is_carried_by_the_binding_not_by_the_code() {
+        let server = TestServer::start("payload");
+        let program = format!(
+            "globalThis.result = 'pending';
+             __ibex2_fetch('{}/x')
+               .then(h => {{ result = 'ok:' + __ibex2_response_field(h, 0); }})
+               .catch(e => {{ result = 'denied:' + e.message; }});",
+            server.origin()
+        );
+
+        let (mut granted, _g1) = fetch_rt(&format!("net.fetch {}", server.origin()));
+        granted.eval(&program).unwrap();
+        granted.pump_until(1);
+
+        let (mut ungranted, _g2) = fetch_rt("net.fetch http://example.invalid");
+        ungranted.eval(&program).unwrap();
+        ungranted.pump_until(1);
+
+        assert_eq!(granted.eval("result").unwrap(), "ok:200");
+        assert_eq!(
+            ungranted.eval("result").unwrap(),
+            "denied:denied: net.fetch"
+        );
+        assert_eq!(
+            server.hits().len(),
+            1,
+            "only the granted runtime reached the server"
+        );
+    }
+
+    #[test]
+    fn a_post_body_crosses_to_the_server() {
+        let server = TestServer::start("unused");
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", server.origin()));
+
+        rt.eval(&format!(
+            "globalThis.echoed = '';
+             __ibex2_fetch('{}/submit', 'POST', __ibex2_text_encode('name=ibex'))
+               .then(h => {{ echoed = __ibex2_text_decode(__ibex2_response_field(h, 4)); }});",
+            server.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+
+        assert_eq!(rt.eval("echoed").unwrap(), "name=ibex");
+        assert!(server.hits()[0].starts_with("POST /submit"));
+    }
+
+    #[test]
+    fn a_body_can_only_be_consumed_once() {
+        let server = TestServer::start("once");
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", server.origin()));
+
+        rt.eval(&format!(
+            "globalThis.second = 'not-run';
+             __ibex2_fetch('{}/x').then(h => {{
+               __ibex2_response_field(h, 4);
+               try {{ __ibex2_response_field(h, 4); second = 'no throw'; }}
+               catch (e) {{ second = 'threw'; }}
+             }});",
+            server.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("second").unwrap(), "threw");
+    }
+
+    #[test]
+    fn fetch_works_under_async_await() {
+        let server = TestServer::start("awaited body");
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", server.origin()));
+
+        rt.eval(&format!(
+            "globalThis.out = 'pending';
+             (async () => {{
+               const h = await __ibex2_fetch('{}/x');
+               out = __ibex2_text_decode(__ibex2_response_field(h, 4));
+             }})();",
+            server.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("out").unwrap(), "awaited body");
+    }
+
+    #[test]
+    fn a_connection_failure_is_a_catchable_type_error() {
+        // Port 1 on loopback: granted, so the refusal is the network's, not
+        // the capability system's. The two must be distinguishable.
+        let (mut rt, _grants) = fetch_rt("net.fetch http://127.0.0.1:1");
+        rt.eval(
+            "globalThis.err = 'none';
+             __ibex2_fetch('http://127.0.0.1:1/x').catch(e => { err = e.message; });",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        let err = rt.eval("err").unwrap();
+        assert!(err.contains("Failed to fetch"), "unexpected: {err}");
+        assert!(!err.contains("denied"), "a network error is not a denial");
     }
 
     /// The assertion that keeps the fork from growing back: a host function
