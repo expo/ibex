@@ -121,7 +121,7 @@ impl Transport for DevTcpTransport {
     }
 }
 
-fn parse_response(raw: &[u8], url: &str) -> Result<Response, HostError> {
+pub(crate) fn parse_response(raw: &[u8], url: &str) -> Result<Response, HostError> {
     let split = raw
         .windows(4)
         .position(|w| w == b"\r\n\r\n")

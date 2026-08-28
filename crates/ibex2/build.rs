@@ -52,6 +52,21 @@ fn main() {
         .flag("-stdlib=libc++")
         .compile("ibex2_hermes_shim");
 
+    // The Apple platform transport (LLP 0057 §3). Objective-C++ with ARC, so
+    // NSURLSession manages its own object graph and this file does not.
+    if std::env::var("CARGO_CFG_TARGET_VENDOR").as_deref() == Ok("apple") {
+        println!("cargo:rerun-if-changed=src/engine/darwin_http.mm");
+        cc::Build::new()
+            .cpp(true)
+            .file("src/engine/darwin_http.mm")
+            .flag("-std=c++17")
+            .flag("-stdlib=libc++")
+            .flag("-fobjc-arc")
+            .flag("-x")
+            .flag("objective-c++")
+            .compile("ibex2_darwin_http");
+    }
+
     println!("cargo:rustc-link-search=native={}", static_dir.display());
     println!("cargo:rustc-link-lib=static=hermesvm_a");
     println!("cargo:rustc-link-lib=static=jsi");
