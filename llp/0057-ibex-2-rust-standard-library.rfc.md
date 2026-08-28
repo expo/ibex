@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
 **Revised:** 2026-08-27 (initial draft)
-**Related:** LLP 0000 (Ibex — the root this amends), LLP 0002 (host embedding ABI — the boundary this generalizes), LLP 0004 (module loading and builtins — the JS standard library this inverts), LLP 0013 (per-package capability compartments — the enforcement point this relocates), LLP 0039 (secure and insecure modes — the cost record this cites), LLP 0058 (the engine seam)
+**Related:** LLP 0063 (where startup time goes — the measurement §7 said had not been taken), LLP 0000 (Ibex — the root this amends), LLP 0002 (host embedding ABI — the boundary this generalizes), LLP 0004 (module loading and builtins — the JS standard library this inverts), LLP 0013 (per-package capability compartments — the enforcement point this relocates), LLP 0039 (secure and insecure modes — the cost record this cites), LLP 0058 (the engine seam)
 
 ## Summary
 
@@ -149,5 +149,12 @@ resulting runtime is faster by construction. The startup numbers in §1 are
 measurements of today's boot path; they establish that the current design pays
 a large avoidable cost, not that the proposed one hits any particular budget.
 `rules/RULES.md` sets that budget at 30ms to app entry, derived from Exact's
-100ms first-frame budget. Nothing here has been measured against it, because
-nothing here is built.
+100ms first-frame budget.
+
+**Measured since, in LLP 0063.** The runtime floor is 4ms of the 30. The same
+570-module graph loads in ~851ms from source and ~3ms from ahead-of-time
+bytecode, and the reason is not the parser — Hermes parses at the same
+throughput this document's 155ms figure implies. What costs is roughly 2ms of
+fixed price per compile unit, paid once per module, which bytecode removes
+almost entirely. The proposal's premise survives contact with a measurement;
+its loader has to compile ahead of time for that to be true.
