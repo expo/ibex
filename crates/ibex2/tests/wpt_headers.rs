@@ -18,6 +18,7 @@ fn run_file(name: &str) -> Vec<(String, bool, String)> {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib(), "stdlib");
     rt.install_bindings().expect("bindings");
+    rt.install_test_harness().expect("test harness");
     rt.eval("__ibex2_reset_results()").expect("reset");
 
     // The file itself, unmodified. A syntax or top-level error is a failure of

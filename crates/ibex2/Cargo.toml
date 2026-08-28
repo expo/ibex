@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 publish = false
 
+[[bin]]
+name = "ibex2"
+path = "src/bin/ibex2.rs"
+required-features = ["hermes"]
+
 # Deliberately dependency-free, and deliberately not linked to an engine yet.
 # The grant model below is pure Rust and testable today; the engine adapter
 # arrives with the spike, behind a feature, so the workspace stays green on a

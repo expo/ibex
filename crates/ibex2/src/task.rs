@@ -119,6 +119,15 @@ pub struct RuntimeState {
     /// The runtime's monotonic origin, so `now()` is milliseconds since boot —
     /// the same base `performance.now` will read (§2).
     started: std::time::Instant,
+    /// Where modules are loaded from, and what each one may reach.
+    loader: Mutex<Option<LoaderConfig>>,
+    /// Work started on another thread and not yet delivered.
+    ///
+    /// Without this, "is the loop idle?" is answered by looking at the
+    /// completion queue — which is empty both when there is nothing to do and
+    /// when everything is still in flight. A program whose last act is a fetch
+    /// would exit before its response arrived.
+    in_flight: std::sync::atomic::AtomicUsize,
     next_handle: std::sync::atomic::AtomicU64,
     transport: Box<dyn crate::stdlib::fetch::Transport>,
 }
@@ -131,6 +140,8 @@ impl RuntimeState {
             headers: Mutex::new(std::collections::HashMap::new()),
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
+            loader: Mutex::new(None),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
             transport,
         }
@@ -214,6 +225,23 @@ impl RuntimeState {
             .remove(&handle);
     }
 
+    pub fn task_started(&self) {
+        self.in_flight
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn task_finished(&self) {
+        self.in_flight
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Nothing queued, nothing in flight, no timer pending.
+    pub fn is_idle(&self) -> bool {
+        self.queue.is_empty()
+            && self.in_flight.load(std::sync::atomic::Ordering::SeqCst) == 0
+            && self.millis_until_next_timer().is_none()
+    }
+
     /// Milliseconds since this runtime started.
     pub fn now(&self) -> f64 {
         self.started.elapsed().as_secs_f64() * 1000.0
@@ -257,6 +285,42 @@ impl RuntimeState {
     }
 }
 
+/// Where the loader reads from, and the authority it hands each module.
+#[derive(Debug)]
+pub struct LoaderConfig {
+    pub root: std::path::PathBuf,
+    pub grants: crate::loader::ModuleGrants,
+}
+
+impl RuntimeState {
+    pub fn set_loader(&self, config: LoaderConfig) {
+        *self.loader.lock().expect("loader poisoned") = Some(config);
+    }
+
+    /// Resolve a specifier and read its source.
+    ///
+    /// Resolution refuses anything outside the root before a file is opened, so
+    /// a traversal is a loader error rather than a filesystem question.
+    pub fn load_source(&self, from: &str, specifier: &str) -> Result<(String, String), String> {
+        let guard = self.loader.lock().expect("loader poisoned");
+        let config = guard.as_ref().ok_or("no loader configured")?;
+        let resolved = crate::loader::resolve(&config.root, from, specifier)?;
+        let path = config.root.join(resolved.trim_start_matches("./"));
+        let source = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        Ok((resolved, source))
+    }
+
+    /// The authority for one module, as an owned handle the binding keeps.
+    pub fn grants_for(&self, specifier: &str) -> Arc<crate::grant::GrantSet> {
+        let guard = self.loader.lock().expect("loader poisoned");
+        match guard.as_ref() {
+            Some(config) => Arc::new(config.grants.for_module(specifier).clone()),
+            None => Arc::new(crate::grant::GrantSet::none()),
+        }
+    }
+}
+
 /// Create a queue and hand ownership to the caller as a raw pointer.
 ///
 /// # Safety
@@ -274,6 +338,18 @@ pub extern "C" fn ibex2_queue_create() -> *const RuntimeState {
 pub unsafe extern "C" fn ibex2_queue_destroy(queue: *const RuntimeState) {
     if !queue.is_null() {
         drop(Arc::from_raw(queue));
+    }
+}
+
+/// Borrow the runtime state without taking ownership.
+///
+/// # Safety
+/// `state` must be a live pointer from `ibex2_queue_create`.
+pub unsafe fn borrow_state<'a>(state: *const RuntimeState) -> Option<&'a RuntimeState> {
+    if state.is_null() {
+        None
+    } else {
+        Some(&*state)
     }
 }
 

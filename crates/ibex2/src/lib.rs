@@ -17,6 +17,7 @@ pub mod boundary;
 pub mod boundary_abi;
 pub mod engine;
 pub mod grant;
+pub mod loader;
 pub mod stdlib;
 pub mod task;
 pub mod transport;
