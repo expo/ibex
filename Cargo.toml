@@ -7,7 +7,7 @@ authors = ["Ibex Runtime Team"]
 license = "MIT"
 
 [workspace]
-members = ["crates/capsec-semantics", "crates/compiled-stub", "crates/sfe-catalog", "crates/sfe-format", "crates/windows-dll-staging"]
+members = ["crates/capsec-semantics", "crates/compiled-stub", "crates/ibex2", "crates/sfe-catalog", "crates/sfe-format", "crates/windows-dll-staging"]
 exclude = ["tools/oxc-latest-canary"]
 resolver = "2"
 
