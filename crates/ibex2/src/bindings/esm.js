@@ -39,3 +39,36 @@
     });
   };
 })(globalThis);
+
+// Dynamic import(). The module is already compiled and local, so there is no
+// I/O to wait for — but the contract is a promise, and callers rely on the
+// continuation running in a microtask rather than synchronously.
+//
+// It takes the importing module's own `require`, so a relative specifier
+// resolves against the right file and the imported module is looked up under
+// its own resolved name for grants. A failure rejects rather than throwing
+// synchronously, which is what `import()` promises.
+(function (global) {
+  "use strict";
+  global.__ibex2_dynamic_import = function (req, specifier) {
+    try {
+      const exported = req(String(specifier));
+      // The namespace of a CommonJS module has its module.exports as default,
+      // matching the static-import interop above.
+      if (exported && exported.__esModule) return Promise.resolve(exported);
+      const namespace = Object.create(null);
+      Object.getOwnPropertyNames(exported || {}).forEach(function (name) {
+        Object.defineProperty(namespace, name, {
+          get: function () {
+            return exported[name];
+          },
+          enumerable: true,
+        });
+      });
+      if (!("default" in namespace)) namespace.default = exported;
+      return Promise.resolve(namespace);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
+})(globalThis);

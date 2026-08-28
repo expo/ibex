@@ -1166,6 +1166,7 @@ dependencies = [
  "form_urlencoded",
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
  "serde_json",

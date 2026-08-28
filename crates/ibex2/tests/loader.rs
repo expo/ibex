@@ -613,3 +613,92 @@ fn es_modules_behave_identically_from_bytecode() {
     assert_eq!(hbc_out, source_out);
     assert_eq!(source_out, vec!["value is 7"]);
 }
+
+// --- import.meta and dynamic import() ---------------------------------------
+
+/// Hermes parses neither form. Oxc does, and the transform stands between them.
+#[test]
+fn import_meta_is_per_module() {
+    let p = Project::new("meta");
+    p.file(
+        "index.js",
+        "import './dep.js';\nconsole.log('entry', import.meta.url);",
+    )
+    .file("dep.js", "console.log('dep', import.meta.url);");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(
+        out,
+        vec![
+            "dep file:///project/dep.js",
+            "entry file:///project/index.js"
+        ],
+        "each module must see its OWN url"
+    );
+}
+
+#[test]
+fn a_dynamic_import_resolves_to_a_namespace() {
+    let p = Project::new("dyn");
+    p.file(
+        "index.js",
+        "import('./lazy.js').then(m => console.log(m.name, m.default));",
+    )
+    .file("lazy.js", "export const name = 'lazy'; export default 7;");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["lazy 7"]);
+}
+
+/// A computed specifier cannot be resolved by the build, but it resolves at run
+/// time as long as the target was reached some other way.
+#[test]
+fn a_computed_dynamic_import_works_at_run_time() {
+    let p = Project::new("dyncomputed");
+    p.file(
+        "index.js",
+        "const which = 'lazy';
+         import('./lazy.js').then(() => import('./' + which + '.js'))
+           .then(m => console.log('computed', m.name));",
+    )
+    .file("lazy.js", "export const name = 'ok';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["computed ok"]);
+}
+
+/// `import()` returns a promise, so a missing module rejects rather than
+/// throwing synchronously.
+#[test]
+fn a_missing_dynamic_import_rejects() {
+    let p = Project::new("dynmissing");
+    p.file(
+        "index.js",
+        "let reached = false;
+         import('./nope.js').then(() => console.log('LEAKED'), () => console.log('rejected'));
+         reached = true;
+         console.log('sync continued', reached);",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(
+        out,
+        vec!["sync continued true", "rejected"],
+        "a failure must reject, not throw synchronously"
+    );
+}
+
+/// A CommonJS module imported dynamically gets a namespace with its
+/// module.exports as default, matching the static-import interop.
+#[test]
+fn a_dynamically_imported_commonjs_module_gets_a_namespace() {
+    let p = Project::new("dyncjs");
+    p.file(
+        "index.js",
+        "import('./legacy.js').then(m => console.log(m.value, typeof m.default));",
+    )
+    .file("legacy.js", "exports.value = 'cjs';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["cjs object"]);
+}
