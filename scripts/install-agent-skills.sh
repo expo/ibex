@@ -78,11 +78,40 @@ link_skill_into_root() {
   ln -s "$target" "$dest"
 }
 
+# Remove links this script previously installed whose skill no longer exists —
+# e.g. after an upstream source is dropped from sync-agent-skills.sh. Without
+# this, install_root only ever adds, so a removed skill stays behind in every
+# agent directory as a dangling link and the removal never reaches the machine.
+# Deliberately narrow: only symlinks pointing into $skills_root, and only ones
+# that no longer resolve. Anything else in these shared directories belongs to
+# another project and is not ours to delete.
+prune_root() {
+  local root="$1"
+  local dest target
+
+  [ -d "$root" ] || return 0
+
+  for dest in "$root"/*; do
+    [ -L "$dest" ] || continue
+    target="$(readlink "$dest")"
+    case "$target" in
+      "$skills_root"/*)
+        if [ ! -e "$dest" ]; then
+          rm "$dest"
+          log "Removed stale skill link $dest (target $target no longer exists)"
+        fi
+        ;;
+    esac
+  done
+}
+
 install_root() {
   local label="$1"
   local root="$2"
   local skill_md
   local skill_name
+
+  prune_root "$root"
 
   for skill_md in "$skills_root"/*/SKILL.md; do
     [ -e "$skill_md" ] || continue

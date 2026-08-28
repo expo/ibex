@@ -21,8 +21,8 @@ while [ "$#" -gt 0 ]; do
       cat <<'USAGE'
 Usage: scripts/sync-agent-skills.sh [--quiet] [--no-fetch]
 
-Clone or update the upstream skill repos and rebuild this repo's skills/
-directory as symlinks to those managed clones.
+Clone or update the upstream skill repos (ccheever/llp, ccheever/cdcstack)
+and rebuild this repo's skills/ directory as symlinks to those managed clones.
 USAGE
       exit 0
       ;;
@@ -210,7 +210,7 @@ contains_name() {
 }
 
 ensure_repo "llp" "https://github.com/ccheever/llp.git" "main"
-ensure_repo "skills" "https://github.com/ccheever/skills.git" "main"
+ensure_repo "cdcstack" "https://github.com/ccheever/cdcstack.git" "main"
 
 mkdir -p "$skills_root"
 
@@ -223,6 +223,17 @@ link_skill_dir() {
   name="$(basename "$source_dir")"
 
   if [ ! -f "$source_dir/SKILL.md" ]; then
+    return
+  fi
+
+  # Two managed sources shipping the same skill name is upstream drift, not a
+  # choice this repo gets to make silently. Precedence is first-wins in the
+  # order the ensure_repo calls run (llp, cdcstack), which keeps the
+  # owning upstream's copy; the loser is announced rather than swallowed.
+  # A hard failure here would wedge every sync on the state of a repo ibex
+  # does not control, so this warns and stays deterministic.
+  if contains_name "$name" "${managed_names[@]+"${managed_names[@]}"}"; then
+    log "warning: skill '$name' also present in $source_dir; keeping the earlier source (first-wins)"
     return
   fi
 
@@ -251,7 +262,9 @@ for source_dir in "$sources_root/llp/skills"/*; do
   link_skill_dir "$source_dir"
 done
 
-for source_dir in "$sources_root/skills"/*; do
+# cdcstack owns the working-posture skills (orchestrate). Managed here rather
+# than committed so it cannot silently drift from upstream the way a copy does.
+for source_dir in "$sources_root/cdcstack/skills"/*; do
   [ -d "$source_dir" ] || continue
   link_skill_dir "$source_dir"
 done

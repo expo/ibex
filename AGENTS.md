@@ -30,10 +30,24 @@ snapshots. Run `scripts/install-agent-skills.sh` to clone/update the upstream
 skill sources, rebuild `skills/`, and link the skills into Claude, Codex,
 Cursor Agent, Pi Agent, and OpenCode-compatible locations.
 
-The managed upstream sources are:
+The managed upstream sources are, in precedence order:
 
 - `ccheever/llp` — LLP workflow skills under its `skills/` directory.
-- `ccheever/skills` — additional top-level skills such as `cdc-linear-do`.
+- `ccheever/cdcstack` — the working-posture skills (`orchestrate`) under its
+  `skills/` directory. cdcstack also owns `scripts/caps.mjs`,
+  `scripts/issue.mjs`, and `docs/issues.md`, which are adopted by copy rather
+  than linked; `rules/RULES.md` and `rules/NOT-DOING.md` are this project's own
+  instantiation of its templates and are expected to differ.
+
+`ccheever/skills` was dropped as a source on 2026-08-27. A project shares a few
+prebaked lanes, not a general skill library: it shipped `cdc-linear-do`, which
+this repo no longer wants now that filesystem issues are preferred over Linear,
+and a superseded copy of `llp-super-refine` that `ccheever/llp` owns. Adding a
+fourth source is a decision, not a default.
+
+When two sources ship the same skill name the earlier source wins and the sync
+warns; it does not fail. Do not resolve such a collision by reordering the
+sources — fix it upstream.
 
 Do not edit generated files under `skills/` directly; update the upstream repo,
 then run `scripts/sync-agent-skills.sh` or let the installed Git hooks refresh
