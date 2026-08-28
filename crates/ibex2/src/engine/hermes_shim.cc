@@ -612,6 +612,53 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
 
 extern "C" {
 
+/// Evaluate a buffer that may contain Hermes bytecode.
+///
+/// Hermes detects the HBC magic and takes the bytecode path, so this is the
+/// same entry point as source with a different payload — which is exactly what
+/// makes the comparison between them fair.
+int ibex2_hermes_eval_bytes(void *handle, const unsigned char *data, size_t len,
+                            char **out) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || data == nullptr) {
+    return -1;
+  }
+
+  // A Buffer over bytes the caller owns for the duration of the call.
+  class BorrowedBuffer : public jsi::Buffer {
+  public:
+    BorrowedBuffer(const unsigned char *data, size_t len)
+        : data_(data), len_(len) {}
+    size_t size() const override { return len_; }
+    const uint8_t *data() const override { return data_; }
+
+  private:
+    const unsigned char *data_;
+    size_t len_;
+  };
+
+  try {
+    auto buffer = std::make_shared<BorrowedBuffer>(data, len);
+    jsi::Value value = rt->runtime->evaluateJavaScript(buffer, "<hbc>");
+    if (out != nullptr) {
+      *out = dup_c_string(value.isUndefined()
+                              ? std::string("undefined")
+                              : value.toString(*rt->runtime).utf8(*rt->runtime));
+    }
+    return 0;
+  } catch (const jsi::JSError &err) {
+    if (out != nullptr) {
+      *out = dup_c_string(err.getMessage());
+    }
+    return 1;
+  } catch (const std::exception &err) {
+    if (out != nullptr) {
+      *out = dup_c_string(std::string(err.what()));
+    }
+    return 1;
+  }
+}
+
 /// This runtime's Rust-side state, for callers that need it directly.
 const void *ibex2_hermes_state(void *handle) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
