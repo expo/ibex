@@ -66,7 +66,7 @@ pure data, no browser, no server, no harness. Vendored at
 
 | category | count | disposition |
 |---|---|---|
-| `file:` scheme | 40 | **Accepted.** Windows drive letters and `file:` hosts. Ibex resolves paths through the virtual filesystem namespace (LLP 0023), not `file:` URLs, and the measured surface contains none. |
+| `file:` scheme | 40 | **Accepted**, but not for the reason it first appeared. Ibex *does* use `file:` URLs — LLP 0023 gives `import.meta.url` the form `file:///project/…`. Every divergence is host-bearing (`file://host/…`) or a Windows drive letter; the empty-host POSIX form Ibex actually carries is correct on all ten shapes tested, including relative resolution, which is what module resolution needs. |
 | other | 13 | **Mixed** — see §3. |
 | IDNA / punycode | 7 | **Accepted.** Invalid punycode labels such as `xn--pokxncvks`, which the spec passes through and the `idna` crate refuses. Refusing is the safer direction. |
 | non-special scheme | 5 | **Accepted.** Percent-encoding inside opaque paths for schemes no measured code uses. |
@@ -75,16 +75,35 @@ Sixty-two percent of the gap is `file:` URL handling in a runtime that does not
 address files by URL. That is the shape a good divergence list has: a
 disposition, not a backlog.
 
-## 3. The one divergence worth scheduling
+## 3. The `///` divergence, and why it stays
 
 `///test` against an `http://example.org/` base should resolve to
-`http://test/`; we report *empty host*. This is the `http` scheme, which is the
-measured surface, so unlike the rest it is not academic. Three cases in the
-suite. Ticketed rather than accepted.
+`http://test/`; we report *empty host*. Three cases, and on the `http` scheme,
+so this one was initially scheduled rather than accepted.
+
+**It is now accepted, because the divergence fails closed.** Note what the
+spec's behaviour actually is: for special schemes, leading slashes are skipped,
+so `///evil.example/steal` is not a path — it is **a change of origin**. A
+`Location: ///evil.example/steal` on a redirect resolves, per spec, to a
+different host entirely. We refuse to parse it and the fetch errors.
+
+Both outcomes are safe here — resolving it would be caught by the per-hop grant
+check of LLP 0060 §4 — but refusing is the safer of the two, and matching the
+spec would mean adopting a surprising origin-changing behaviour in exchange for
+three test cases no application writes. `fetch.rs` pins this with a test so a
+future URL change cannot quietly turn the refusal into a redirect to an
+ungranted origin without failing there first.
 
 The remaining "other" rows are `^` percent-encoding in non-special and `wss`
 paths, and drive-letter logic leaking into an `abc://` base — same disposition
 as their categories above.
+
+**The general lesson, which is why this section is longer than the divergence
+deserves:** a WPT failure is not automatically a bug to fix. Three of the four
+divergence classes here are cases where we are *more* conservative than the
+spec, and a runtime whose whole premise is a capability model should be slow to
+trade that away for a conformance number. D1 says WPT does not define scope;
+this says it does not define correctness either, only difference.
 
 ## 4. What WPT cannot yet check
 

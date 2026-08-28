@@ -596,6 +596,34 @@ mod tests {
         );
     }
 
+    /// A `Location` of `///evil.example/steal` is, per WHATWG, a way to change
+    /// the ORIGIN — special schemes skip leading slashes, so it resolves to
+    /// `http://evil.example/steal` rather than to a path on the current host.
+    ///
+    /// Our URL layer refuses that form outright (a known WPT divergence, three
+    /// cases). Either behaviour is safe here — refusing produces a fetch error,
+    /// and resolving would be caught by the per-hop grant check — but this test
+    /// pins the outcome so a future URL change cannot quietly turn a refusal
+    /// into a redirect to an ungranted origin without failing here first.
+    #[test]
+    fn an_origin_changing_triple_slash_redirect_does_not_reach_another_origin() {
+        let transport = StubTransport::new(vec![
+            response(302, Some("///evil.example/steal")),
+            response(200, None),
+        ]);
+        let result = fetch(
+            &transport,
+            &granted("example.com"),
+            Request::get("https://example.com/"),
+        );
+        assert!(result.is_err(), "must not deliver a cross-origin body");
+        assert_eq!(
+            transport.seen().len(),
+            1,
+            "the second hop must never be sent"
+        );
+    }
+
     #[test]
     fn a_redirect_within_a_granted_origin_is_followed() {
         let transport =

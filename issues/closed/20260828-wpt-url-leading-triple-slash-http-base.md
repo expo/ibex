@@ -1,6 +1,7 @@
 # WPT URL: `///path` against an http base reports empty host
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Accepted as a deliberate divergence: the spec resolves ///host as an origin CHANGE for special schemes, and refusing to parse it fails closed. A test in fetch.rs pins that a ///-bearing Location cannot reach another origin. LLP 0061 §3 records the reasoning; the 828 baseline stands.
 **Systems:** Runtime, Standard Library
 **Severity:** P3
 **Author:** Charlie Cheever
