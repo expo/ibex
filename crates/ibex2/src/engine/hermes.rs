@@ -1044,6 +1044,27 @@ mod tests {
         );
     }
 
+    /// A visible demonstration of the whole stack, for a human to read.
+    #[test]
+    #[ignore]
+    fn demo_real_https_fetch() {
+        let (mut rt, _grants) = fetch_rt("net.fetch https://example.com");
+        rt.eval(
+            "globalThis.out = 'pending';
+             (async () => {
+               const h = await __ibex2_fetch('https://example.com/');
+               const status = __ibex2_response_field(h, 0);
+               const server = __ibex2_response_field(h, 3, 'Content-Type');
+               const body = __ibex2_text_decode(__ibex2_response_field(h, 4));
+               out = status + ' | ' + server + ' | ' + body.length + ' bytes | '
+                   + body.slice(body.indexOf('<title>'), body.indexOf('</title>') + 8);
+             })().catch(e => { out = 'ERROR ' + e.message; });",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        println!("\n  JS said: {}\n", rt.eval("out").unwrap());
+    }
+
     /// TLS against the real internet, through the system certificate store.
     /// Ignored by default: it needs a network, and a test that fails on a plane
     /// is a test people learn to skip. Run with `--ignored` to confirm the
