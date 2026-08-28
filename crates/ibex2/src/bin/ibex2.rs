@@ -132,12 +132,17 @@ fn build(entry: &Path) -> Result<(), String> {
     // A build produces artifacts others will trust, so it requires the receipt.
     let compiler = compiler_for(&root, true)?;
 
-    // Walk from the entry, following require() as the loader would. Compiling
-    // every .js under the root instead would build files nothing imports.
+    // Walk from the entry, following require() and import as the loader would.
+    // Compiling every .js under the root instead would build files nothing
+    // imports.
     let mut queue = vec![format!("./{name}")];
     let mut seen = std::collections::BTreeSet::new();
+    let mut edges: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
     let mut manifest = ibex2::bytecode::Manifest::new();
+    let mut warnings: Vec<String> = Vec::new();
     let mut built = 0usize;
+
     while let Some(specifier) = queue.pop() {
         if !seen.insert(specifier.clone()) {
             continue;
@@ -154,14 +159,31 @@ fn build(entry: &Path) -> Result<(), String> {
         manifest.insert(&specifier, &compiler.key(&wrapped));
         built += 1;
 
-        // Both module systems: `import`/`export from` come from the parser,
-        // `require` from a scan, because a require's specifier is an ordinary
-        // call argument that no module-syntax parse reports.
+        // LLP 0064 §3.1: an importer writing `import { n }` snapshots, so a
+        // reassignment of `n` is invisible to it. The divergence is silent;
+        // this is where it stops being.
+        for binding in ibex2::esm::mutable_exports(&source) {
+            warnings.push(format!(
+                "{specifier} exports `{binding}` and reassigns it. An importer writing \
+                 `import {{ {binding} }}` will see a stale value; `import * as ns` reads \
+                 through and is live (LLP 0064 §3.1)."
+            ));
+        }
+
+        // Both module systems: import/export-from come from the parser,
+        // require from a scan, because a require's specifier is an ordinary
+        // call argument no module-syntax parse reports.
         let mut dependencies = ibex2::esm::dependencies(&source);
         dependencies.extend(requires_in(&source));
         for dependency in dependencies {
             match ibex2::loader::resolve(&root, &specifier, &dependency) {
-                Ok(resolved) => queue.push(resolved),
+                Ok(resolved) => {
+                    edges
+                        .entry(specifier.clone())
+                        .or_default()
+                        .push(resolved.clone());
+                    queue.push(resolved);
+                }
                 // A require() this scan cannot resolve is not a build failure:
                 // it may be inside a branch that never runs, and the loader
                 // will report it properly if it is ever reached.
@@ -169,9 +191,69 @@ fn build(entry: &Path) -> Result<(), String> {
             }
         }
     }
+
+    // LLP 0064 §3.2: a cycle observes partial exports rather than raising a
+    // ReferenceError, so one that works today can start returning undefined
+    // after an unrelated reordering. Reported here because the graph is already
+    // in hand and nothing else in the system will ever mention it.
+    for cycle in find_cycles(&edges) {
+        warnings.push(format!(
+            "import cycle: {}. Cycles resolve to partial exports rather than failing, \
+             so this will not error if the order changes (LLP 0064 §3.2).",
+            cycle.join(" -> ")
+        ));
+    }
+
+    for warning in &warnings {
+        eprintln!("ibex2: warning: {warning}");
+    }
+
     manifest.write(&cache_dir(&root))?;
     println!("built {built} modules into {}", cache_dir(&root).display());
     Ok(())
+}
+
+/// Every import cycle in the graph, each reported once from its entry point.
+fn find_cycles(edges: &std::collections::BTreeMap<String, Vec<String>>) -> Vec<Vec<String>> {
+    let mut found = Vec::new();
+    let mut reported = std::collections::BTreeSet::new();
+    let mut visited = std::collections::BTreeSet::new();
+
+    // Iterative depth-first search carrying its own path, so a deep graph
+    // cannot overflow the stack and the cycle can be named rather than merely
+    // detected.
+    for start in edges.keys() {
+        if visited.contains(start) {
+            continue;
+        }
+        let mut stack = vec![(start.clone(), 0usize)];
+        let mut path = vec![start.clone()];
+        while let Some((node, index)) = stack.pop() {
+            let children = edges.get(&node).map(Vec::as_slice).unwrap_or(&[]);
+            if index < children.len() {
+                stack.push((node.clone(), index + 1));
+                let child = &children[index];
+                if let Some(at) = path.iter().position(|seen| seen == child) {
+                    let mut cycle: Vec<String> = path[at..].to_vec();
+                    cycle.push(child.clone());
+                    // Normalize so the same cycle found from two entry points
+                    // is reported once.
+                    let mut key: Vec<String> = cycle[..cycle.len() - 1].to_vec();
+                    key.sort();
+                    if reported.insert(key) {
+                        found.push(cycle);
+                    }
+                    continue;
+                }
+                path.push(child.clone());
+                stack.push((child.clone(), 0));
+            } else {
+                visited.insert(node);
+                path.pop();
+            }
+        }
+    }
+    found
 }
 
 /// Find `require('...')` specifiers by scanning.

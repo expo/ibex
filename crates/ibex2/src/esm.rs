@@ -98,6 +98,95 @@ pub fn dependencies(source: &str) -> Vec<String> {
     found
 }
 
+/// Exported bindings this module both declares mutable and assigns to.
+///
+/// These are the only bindings LLP 0064 §3.1 can get wrong: an importer writing
+/// `import { n }` snapshots, so a later reassignment is invisible to it. The
+/// divergence is silent, and this makes it loud — a build can name the module
+/// and the binding and point at `import * as`, which reads through and is live.
+///
+/// Measured on Exact: 3 `export let` against 12,677 immutable exports. That is
+/// why this reports rather than rewrites — the fix that would close §3.1
+/// rewrites every usage site in the module, and the payoff is three
+/// declarations.
+///
+/// Approximate on purpose. A shadowed inner `n` counts as an assignment, so
+/// this can warn where the export is in fact never reassigned. For a warning
+/// that is the right direction to err, and a precise answer needs the scope
+/// analysis §5 defers.
+pub fn mutable_exports(source: &str) -> Vec<String> {
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+
+    let mut exported_mutable: Vec<String> = Vec::new();
+    for statement in &parsed.program.body {
+        let Some(ModuleDeclaration::ExportNamedDeclaration(declaration)) =
+            as_module_declaration(statement)
+        else {
+            continue;
+        };
+        let Some(Declaration::VariableDeclaration(variable)) = &declaration.declaration else {
+            continue;
+        };
+        if variable.kind.is_const() {
+            continue;
+        }
+        for declarator in &variable.declarations {
+            collect_pattern_names(&declarator.id, &mut exported_mutable);
+        }
+    }
+    if exported_mutable.is_empty() {
+        return Vec::new();
+    }
+
+    // Assignment is detected textually over the source, which is enough to
+    // separate "declared mutable" from "actually reassigned" without a full
+    // semantic pass.
+    exported_mutable
+        .into_iter()
+        .filter(|name| assigns_to(source, name))
+        .collect()
+}
+
+fn assigns_to(source: &str, name: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut from = 0usize;
+    while let Some(at) = source[from..].find(name) {
+        let start = from + at;
+        let end = start + name.len();
+        from = end;
+        let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
+        let after = source[end..].trim_start();
+        if !before_ok || end < bytes.len() && is_ident_byte(bytes[end]) {
+            continue;
+        }
+        // `n = `, `n += `, `n++`, `n--` — but not `n ==` or `n =>`.
+        let assignment =
+            (after.starts_with('=') && !after.starts_with("==") && !after.starts_with("=>"))
+                || after.starts_with("+=")
+                || after.starts_with("-=")
+                || after.starts_with("*=")
+                || after.starts_with("/=")
+                || after.starts_with("++")
+                || after.starts_with("--");
+        if assignment {
+            // A declaration is not a reassignment.
+            let preceding = source[..start].trim_end();
+            let declares = preceding.ends_with("let")
+                || preceding.ends_with("var")
+                || preceding.ends_with("const");
+            if !declares {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+
 /// Lower ES module syntax to the CommonJS-shaped factory body the loader runs.
 ///
 /// Returns the source unchanged when it uses no module syntax, so a CommonJS
@@ -556,6 +645,30 @@ mod tests {
     fn dynamic_import_is_not_a_static_dependency() {
         assert!(dependencies("const m = import('./' + name);").is_empty());
         assert!(dependencies("const s = 'import x from y';").is_empty());
+    }
+
+    #[test]
+    fn mutable_exports_finds_only_bindings_that_are_reassigned() {
+        // Declared mutable AND reassigned — the case §3.1 gets wrong.
+        assert_eq!(
+            mutable_exports("export let n = 0;\nexport function bump() { n += 1; }"),
+            vec!["n"]
+        );
+        assert_eq!(mutable_exports("export let n = 0;\nn = 5;"), vec!["n"]);
+
+        // Declared mutable but never reassigned: indistinguishable from const
+        // to an importer, so not worth a warning.
+        assert!(mutable_exports("export let n = 0;\nconsole.log(n);").is_empty());
+
+        // const cannot be reassigned at all.
+        assert!(mutable_exports("export const n = 0;").is_empty());
+
+        // Comparisons and arrows are not assignments.
+        assert!(mutable_exports("export let n = 0;\nif (n == 1) {}").is_empty());
+        assert!(mutable_exports("export let n = 0;\nconst f = n => n;").is_empty());
+
+        // A name that merely contains the export's name is a different name.
+        assert!(mutable_exports("export let n = 0;\nlet number = 1; number = 2;").is_empty());
     }
 
     #[test]
