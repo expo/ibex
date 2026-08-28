@@ -20,7 +20,9 @@ fn wpt_url_report() {
     let mut failures: Vec<String> = Vec::new();
 
     for entry in &entries {
-        let Some(case) = entry.as_object() else { continue };
+        let Some(case) = entry.as_object() else {
+            continue;
+        };
         let Some(input) = case.get("input").and_then(|v| v.as_str()) else {
             continue;
         };
@@ -33,14 +35,15 @@ fn wpt_url_report() {
         let got = ibex2::stdlib::url::parse(input, base);
 
         if expects_failure {
-            if got.is_err() {
-                pass += 1;
-            } else {
-                fail += 1;
-                failures.push(format!(
-                    "should have failed: {input:?} base={base:?} -> {:?}",
-                    got.unwrap().href
-                ));
+            match got {
+                Err(_) => pass += 1,
+                Ok(url) => {
+                    fail += 1;
+                    failures.push(format!(
+                        "should have failed: {input:?} base={base:?} -> {:?}",
+                        url.href
+                    ));
+                }
             }
             continue;
         }
@@ -57,7 +60,9 @@ fn wpt_url_report() {
             }
             Err(e) => {
                 fail += 1;
-                failures.push(format!("error: {input:?} base={base:?} -> {e} want {want_href:?}"));
+                failures.push(format!(
+                    "error: {input:?} base={base:?} -> {e} want {want_href:?}"
+                ));
             }
         }
     }
@@ -107,7 +112,9 @@ fn wpt_url_baseline_holds() {
     let mut total = 0usize;
 
     for entry in &entries {
-        let Some(case) = entry.as_object() else { continue };
+        let Some(case) = entry.as_object() else {
+            continue;
+        };
         let Some(input) = case.get("input").and_then(|v| v.as_str()) else {
             continue;
         };
@@ -130,7 +137,10 @@ fn wpt_url_baseline_holds() {
     }
 
     const BASELINE: usize = 828;
-    assert_eq!(total, 893, "the vendored suite changed size; re-baseline deliberately");
+    assert_eq!(
+        total, 893,
+        "the vendored suite changed size; re-baseline deliberately"
+    );
     assert!(
         pass >= BASELINE,
         "WPT URL pass count fell to {pass}, below the {BASELINE} baseline"

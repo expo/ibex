@@ -1164,6 +1164,8 @@ dependencies = [
  "base64",
  "cc",
  "form_urlencoded",
+ "serde_json",
+ "sha2",
  "url",
 ]
 

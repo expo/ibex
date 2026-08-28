@@ -93,20 +93,41 @@ heavily on CORS, credentials, cache modes, streaming, and service workers —
 all explicitly out of v1 (LLP 0059.000 §3.5, §5). Adopting `fetch/` wholesale
 would be red on arrival for surface we have decided not to build.
 
-What *is* reachable without a server is the object surface:
-`fetch/api/headers/*` and the `Response` constructor tests run entirely
-in-process. They are gated not by the transport but by the **binding layer** —
-today a `Response` reaches JavaScript as a numeric handle with accessor
-functions, and WPT expects `Response`, `Headers`, and `Request` objects. That
-binding layer is the next piece of work, and these tests are the reason to
-build it correctly rather than approximately.
+What *is* reachable without a server is the object surface. `fetch/api/headers/*`
+is now adopted and **passes 48/48**, running the upstream files unmodified
+against a `Headers` class whose shape is JavaScript and whose semantics are
+Rust.
+
+It found four real bugs, which is the argument for D1 in miniature — none of
+these would have been caught by tests we wrote ourselves, because each one is a
+place where the obvious implementation is wrong:
+
+1. **`new Headers()` must not filter forbidden headers.** Filtering is a
+   property of the header list's *guard*, and a standalone list has guard
+   "none". The forbidden list applies where a list becomes a request. We
+   filtered in `set`, so `new Headers({Host: ...})` silently dropped it.
+2. **Normalization happens before validation, not after.** `"\r\n newLine"` is
+   a legal way to write `"newLine"`; `"bad\r\ninjection"` is header injection.
+   Validating first rejects both.
+3. **A header value is a byte sequence.** Code points above U+00FF must throw,
+   which is why `"invalidValueĀ"` is a `TypeError` and `"newLine\u{a0}"` is not.
+4. **Header iterators need a real prototype chain.** WPT checks that
+   `Object.getPrototypeOf(Object.getPrototypeOf(iterator))` is
+   `%IteratorPrototype%` and that `next` is configurable, enumerable, and
+   writable. An object literal satisfies none of that while iterating perfectly.
+
+`Response` and `Request` constructor tests remain reachable and unadopted: a
+`Response` still crosses to JavaScript as a numeric handle with accessor
+functions, and WPT expects an object. That binding is the next piece of work.
 
 ## 5. Open questions
 
-**OQ1 — The testharness subset.** `.any.js` WPT tests need `testharness.js`
-(`test`, `promise_test`, `assert_equals`, `assert_throws_js`). The subset those
-files actually use is small. Implement that subset, or vendor upstream
-`testharness.js` and run it on the runtime?
+**OQ1 — The testharness subset.** *Provisionally answered by implementation.*
+`crates/ibex2/src/bindings/testharness.js` implements the subset these files
+call — `test`, `promise_test`, and eight assertions — which was enough to run
+four upstream files unmodified. Whether that scales or should be replaced by
+vendored upstream `testharness.js` is open, and the answer will come from the
+first suite it cannot run.
 
 **OQ2 — Where the engine's Test262 run lives.** It is slow and belongs to the
 per-commit fleet lane rather than the 60-second blocking gate

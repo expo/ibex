@@ -110,6 +110,9 @@ impl CompletionQueue {
 pub struct RuntimeState {
     pub queue: CompletionQueue,
     responses: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Response>>,
+    /// Header lists JavaScript holds by handle, for the same reason responses
+    /// are: a header list is not a primitive and §1.1 forbids serializing.
+    headers: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Headers>>,
     next_handle: std::sync::atomic::AtomicU64,
     transport: Box<dyn crate::stdlib::fetch::Transport>,
 }
@@ -119,6 +122,7 @@ impl RuntimeState {
         Self {
             queue: CompletionQueue::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
+            headers: Mutex::new(std::collections::HashMap::new()),
             next_handle: std::sync::atomic::AtomicU64::new(1),
             transport,
         }
@@ -158,6 +162,48 @@ impl RuntimeState {
             .lock()
             .expect("response registry poisoned")
             .remove(&handle)
+    }
+
+    pub fn store_headers(&self, headers: crate::stdlib::fetch::Headers) -> u64 {
+        let handle = self
+            .next_handle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.headers
+            .lock()
+            .expect("header registry poisoned")
+            .insert(handle, headers);
+        handle
+    }
+
+    pub fn with_headers<T>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&crate::stdlib::fetch::Headers) -> T,
+    ) -> Option<T> {
+        self.headers
+            .lock()
+            .expect("header registry poisoned")
+            .get(&handle)
+            .map(f)
+    }
+
+    pub fn with_headers_mut<T>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&mut crate::stdlib::fetch::Headers) -> T,
+    ) -> Option<T> {
+        self.headers
+            .lock()
+            .expect("header registry poisoned")
+            .get_mut(&handle)
+            .map(f)
+    }
+
+    pub fn drop_headers(&self, handle: u64) {
+        self.headers
+            .lock()
+            .expect("header registry poisoned")
+            .remove(&handle);
     }
 
     pub fn live_responses(&self) -> usize {

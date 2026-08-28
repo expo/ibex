@@ -48,22 +48,77 @@ const FORBIDDEN_REQUEST_HEADERS: &[&str] = &[
     "trailer",
 ];
 
+/// Is this a valid header name? The spec's token production: one or more of
+/// the allowed ASCII characters, and nothing else.
+pub fn is_valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || matches!(
+                    b,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+}
+
+/// Is this a valid header value?
+///
+/// Two rules, and the ORDER matters. The value is normalized first — leading
+/// and trailing HTTP whitespace stripped — and only then checked, because
+/// `"\r\n newLine"` is a legal way to write `"newLine"` while
+/// `"bad\r\ninjection"` is header injection. Validating before normalizing
+/// rejects both, which is wrong for the first.
+///
+/// Then: no NUL, CR, or LF anywhere in what remains, and no code point above
+/// U+00FF. A header value is a byte sequence, so WebIDL's ByteString
+/// conversion throws on anything wider — which is why `"invalidValueĀ"` is a
+/// TypeError and `"newLine\u{a0}"` is not.
+pub fn is_valid_value(value: &str) -> bool {
+    let normalized = normalize_value(value);
+    !normalized
+        .chars()
+        .any(|c| matches!(c, '\0' | '\r' | '\n') || (c as u32) > 0xFF)
+}
+
+/// Strip leading and trailing HTTP whitespace, which is what "normalize" means
+/// for a header value. Interior whitespace is preserved.
+pub fn normalize_value(value: &str) -> &str {
+    value.trim_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+}
+
 impl Headers {
     pub fn new() -> Self {
         Self::default()
     }
 
     fn fold(name: &str) -> String {
-        name.trim().to_ascii_lowercase()
+        name.to_ascii_lowercase()
     }
 
-    /// Set a header, replacing any existing value. Forbidden names are ignored.
+    /// Set a header, replacing any existing value.
+    ///
+    /// **No forbidden-header filtering happens here**, and that is the spec's
+    /// design, not an omission: filtering is a property of the header list's
+    /// *guard*, and a standalone `new Headers()` has guard "none". A bare
+    /// Headers object may hold `Host` quite legitimately. The request guard is
+    /// applied where a header list actually becomes a request — see
+    /// `for_request`.
     pub fn set(&mut self, name: &str, value: &str) {
         let folded = Self::fold(name);
-        if FORBIDDEN_REQUEST_HEADERS.contains(&folded.as_str()) {
-            return;
-        }
-        let value = value.trim().to_string();
+        let value = normalize_value(value).to_string();
         match self.entries.iter_mut().find(|(k, _)| *k == folded) {
             Some(entry) => entry.1 = value,
             None => self.entries.push((folded, value)),
@@ -73,10 +128,7 @@ impl Headers {
     /// Append, combining with any existing value as `a, b` per the spec.
     pub fn append(&mut self, name: &str, value: &str) {
         let folded = Self::fold(name);
-        if FORBIDDEN_REQUEST_HEADERS.contains(&folded.as_str()) {
-            return;
-        }
-        let value = value.trim().to_string();
+        let value = normalize_value(value).to_string();
         match self.entries.iter_mut().find(|(k, _)| *k == folded) {
             Some(entry) => {
                 entry.1.push_str(", ");
@@ -86,16 +138,35 @@ impl Headers {
         }
     }
 
-    /// Set without the forbidden-header filter, for headers a *response*
-    /// carries. A response's `content-length` is information, not an attempt
-    /// to control the transport.
+    /// A response's headers. Identical to `set` now that the guard lives at the
+    /// request boundary; kept as a name so call sites still say which side they
+    /// are on.
     pub fn set_response(&mut self, name: &str, value: &str) {
-        let folded = Self::fold(name);
-        let value = value.trim().to_string();
-        match self.entries.iter_mut().find(|(k, _)| *k == folded) {
-            Some(entry) => entry.1 = value,
-            None => self.entries.push((folded, value)),
+        self.set(name, value);
+    }
+
+    /// Apply the request guard: drop the headers the transport owns.
+    ///
+    /// Called when a header list becomes an actual request, which is the point
+    /// at which the forbidden list means anything.
+    pub fn for_request(&self) -> Self {
+        Self {
+            entries: self
+                .entries
+                .iter()
+                .filter(|(name, _)| !FORBIDDEN_REQUEST_HEADERS.contains(&name.as_str()))
+                .cloned()
+                .collect(),
         }
+    }
+
+    /// Entries in the order the iterator must yield them: sorted by name.
+    ///
+    /// The spec sorts; insertion order is not observable through `Headers`.
+    pub fn sorted_entries(&self) -> Vec<(String, String)> {
+        let mut sorted = self.entries.clone();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        sorted
     }
 
     pub fn get(&self, name: &str) -> Option<&str> {
@@ -232,7 +303,11 @@ pub fn fetch(
             });
         }
 
-        let mut response = transport.send(&current)?;
+        // The request guard applies here, where a header list becomes a
+        // request — not in Headers::set, where the guard is "none".
+        let mut guarded = current.clone();
+        guarded.headers = current.headers.for_request();
+        let mut response = transport.send(&guarded)?;
         response.redirected = redirected;
 
         let is_redirect = matches!(response.status, 301 | 302 | 303 | 307 | 308);
@@ -362,17 +437,80 @@ mod tests {
         assert_eq!(headers.get("accept"), Some("text/html, application/json"));
     }
 
+    /// A standalone Headers has guard "none" and holds anything. This is what
+    /// `new Headers({Host: ...})` must do, and filtering here was a bug WPT
+    /// found.
     #[test]
-    fn forbidden_request_headers_are_ignored() {
+    fn a_standalone_header_list_holds_forbidden_names() {
+        let mut headers = Headers::new();
+        headers.set("Host", "example.com");
+        headers.set("Content-Length", "0");
+        assert_eq!(headers.get("host"), Some("example.com"));
+        assert_eq!(headers.get("content-length"), Some("0"));
+    }
+
+    /// ...but the request guard drops them where it matters.
+    #[test]
+    fn the_request_guard_drops_transport_owned_headers() {
         let mut headers = Headers::new();
         headers.set("Host", "evil.example");
         headers.set("Content-Length", "0");
         headers.set("Connection", "close");
         headers.set("X-Fine", "yes");
-        assert!(!headers.has("host"));
-        assert!(!headers.has("content-length"));
-        assert!(!headers.has("connection"));
-        assert_eq!(headers.get("x-fine"), Some("yes"));
+
+        let guarded = headers.for_request();
+        assert!(!guarded.has("host"));
+        assert!(!guarded.has("content-length"));
+        assert!(!guarded.has("connection"));
+        assert_eq!(guarded.get("x-fine"), Some("yes"));
+    }
+
+    #[test]
+    fn names_and_values_are_validated_the_way_the_spec_says() {
+        assert!(is_valid_name("Content-Type"));
+        assert!(is_valid_name("X_custom"));
+        assert!(!is_valid_name(""));
+        assert!(!is_valid_name("has space"));
+        assert!(!is_valid_name("(paren)"));
+        assert!(!is_valid_name("colon:"));
+
+        assert!(is_valid_value("fine"));
+        assert!(is_valid_value("has spaces inside"));
+        assert!(!is_valid_value("bad\r\ninjection"));
+        assert!(!is_valid_value("nul\0byte"));
+
+        // Normalization happens before validation, so surrounding CRLF is a
+        // way of writing the trimmed value rather than an injection.
+        assert!(is_valid_value("\r\n newLine"));
+        assert!(is_valid_value("newLine\r\n "));
+        assert_eq!(normalize_value("\r\n newLine"), "newLine");
+        // ...but form feed is not HTTP whitespace and survives.
+        assert_eq!(normalize_value("\t\u{c}\tnewLine\n"), "\u{c}\tnewLine");
+
+        // A header value is a byte sequence: U+00A0 fits, U+0100 does not.
+        assert!(is_valid_value("newLine\u{a0}"));
+        assert!(!is_valid_value("invalidValue\u{100}"));
+    }
+
+    #[test]
+    fn values_are_normalized_but_interior_space_survives() {
+        let mut headers = Headers::new();
+        headers.set("X", "  padded value  ");
+        assert_eq!(headers.get("x"), Some("padded value"));
+    }
+
+    #[test]
+    fn iteration_order_is_sorted_by_name_not_insertion() {
+        let mut headers = Headers::new();
+        headers.set("zebra", "1");
+        headers.set("alpha", "2");
+        headers.set("Mike", "3");
+        let names: Vec<_> = headers
+            .sorted_entries()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, vec!["alpha", "mike", "zebra"]);
     }
 
     #[test]
