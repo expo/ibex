@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (initial draft)
+**Revised:** 2026-08-28 (§4.1: both remaining divergences are now reported by `ibex2 build` rather than left silent. Measurement added — Exact has 3 `export let` against 12,677 immutable exports and 112 barrel files, which is why §3.1 gets a warning and not the §5 fix.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — the parser this uses), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why ESM is required), LLP 0026 (ESM module runner — Ibex 1's prior art), LLP 0058.000.001 (greenfield kernel — the loader this sits in), LLP 0062 (measured engine facts, §3.1 — the `for-of` bug found here), LLP 0058 (the engine seam, OQ3 — the conformance floor this argues for)
 
 ## Summary
@@ -108,6 +108,32 @@ two are the engine's refusal, not this transform's — Hermes reports
 - **Do not add a second place that produces the module wrapper.** The artifact
   key is computed over the wrapper text, so a second producer means two keys for
   one module. `loader::lower_and_wrap` is the only one.
+
+## 4.1 Both divergences are reported, not left silent
+
+`ibex2 build` warns on each. The danger in §3 was never the wrong answer; it was
+that the wrong answer arrives quietly.
+
+```
+ibex2: warning: ./counter.js exports `n` and reassigns it. An importer writing
+       `import { n }` will see a stale value; `import * as ns` reads through
+       and is live (LLP 0064 §3.1).
+ibex2: warning: import cycle: ./a.js -> ./b.js -> ./a.js. Cycles resolve to
+       partial exports rather than failing, so this will not error if the order
+       changes (LLP 0064 §3.2).
+```
+
+Warnings rather than errors, and reporting rather than fixing, because the
+measurement says so. Exact has **3** `export let` against **12,677**
+`export const`/`function`/`class`, so §3.1 is close to unreachable in practice —
+and §5's fix rewrites every usage site in every module to reach three
+declarations. It has **112** `export *` barrel files, which is why cycles get a
+detector rather than a shrug.
+
+The mutable-export check is deliberately approximate: a shadowed inner binding
+counts as an assignment, so it can warn where the export is never actually
+reassigned. For a warning that is the right direction to err, and a precise
+answer needs the same scope analysis §5 defers.
 
 ## 5. Closing the gap
 
