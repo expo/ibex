@@ -12,7 +12,7 @@
 //! and because the boot measurement it enables is what motivates the AOT step.
 //! ESM waits on a parser; see LLP 0026.
 //!
-//! @ref LLP 0062#1-requirements — R1, R2, R3, R5 live here
+//! @ref LLP 0058.000.000#6-module-binding-globals-and-bootstrap — module binding, globals, and bootstrap
 //! @ref LLP 0060#1-the-decision — D2: capability-bearing bindings are injected, never ambient
 
 use std::collections::BTreeMap;
