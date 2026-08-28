@@ -1,11 +1,11 @@
 # LLP 0058: The engine seam — Hermes by default, swappable
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Review
 **Systems:** Engine, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-27 (initial draft)
+**Revised:** 2026-08-27 (super-refine round 1)
 **Related:** LLP 0057 (Ibex 2 — the inversion this completes), LLP 0003 (Hermes engine bridge — the current single-engine binding), LLP 0002 (host embedding ABI)
 
 ## Summary
@@ -42,7 +42,10 @@ measured in tens of milliseconds, whatever else it offers.
 **2. Host functions over primitives and handles.** The whole standard library
 reaches JavaScript through this. If the engine's embedding API forces
 serialization at the boundary, LLP 0057's boundary rule is unimplementable on
-it.
+it. The secure per-module profile additionally requires a receipt-bound module
+factory ABI: prepared bytecode must evaluate to a factory that accepts the
+module's bound stdlib namespace. A direct-eval artifact whose bytecode performs
+authority-global lookups is unsupported rather than silently root-bound.
 
 **3. A job queue we can interleave with.** See §3.
 
@@ -85,15 +88,21 @@ LLP 0057 §2 names the engine-intrinsic category. This is where it gets
 specified, and it is the hardest open problem in either document.
 
 `Promise`, the microtask queue, `async`/`await`, module resolution semantics,
-GC interaction, error stacks, and `WeakRef` belong to the engine. A Rust
-standard library returning futures must resolve them into the engine's job
-queue with correct ordering: a microtask enqueued by a host call must drain
-before the next macrotask, and a Rust task completing off-thread must not
-reorder relative to JavaScript-enqueued jobs.
+GC interaction, error stacks, and `WeakRef` belong to the engine. The outer
+drive contract is nevertheless engine-neutral: at drive depth zero, drain
+already-queued engine microtasks; reserve the next task from one Rust FIFO of
+admitted timers and completions; commit it only when owner-thread execution is
+guaranteed; run at most that task; then drain its microtasks before another
+Rust task. A failed handoff rolls back or reaches a terminal refusal rather
+than losing work. Nested drives do not take Rust tasks. Once closing wins, no
+new project callback or engine job begins.
 
+LLP 0058.000.000 §8 owns the exact state machine, fairness, transactional
+handoff, and teardown races. An adapter must expose the public operations that
+contract needs — including a microtask checkpoint and factory invocation — and
+the selected engine pin must pass a feasibility probe before acceptance.
 **Every engine solves this differently, and this is where a swap actually
-costs.** The seam's job is to make that cost visible and bounded — one adapter
-per engine implementing a stated contract — rather than diffuse.
+costs.**
 
 ## 4. What swapping costs, honestly
 
@@ -114,10 +123,9 @@ and this document should not be cited as though it does.
 
 ## 5. Open questions
 
-**OQ1 — The job-queue contract.** What exactly must an engine adapter
-guarantee about ordering between host-completed futures and engine-enqueued
-jobs? This is the gating design work and it should be answered before any
-second engine is attempted.
+**RQ1 — The job-queue contract.** Resolved at RFC altitude by §3 and owned
+normatively by LLP 0058.000.000 §8. The first stock-Hermes feasibility probe
+remains an acceptance gate, not an open semantic choice.
 
 **OQ2 — Does QuickJS's bytecode hold at scale?** The measurement in §1 has only
 been run against Hermes. Running it against QuickJS at 500/1,000/2,000 modules
