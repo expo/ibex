@@ -45,9 +45,48 @@ char *dup_utf8(NSString *value) {
 /// check. Nothing else is overridden — the rest of NSURLSession's behaviour is
 /// exactly what we want from the platform.
 @interface Ibex2NoRedirect : NSObject <NSURLSessionTaskDelegate>
+/// taskIdentifier -> whether that task rode an already-open connection.
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSNumber *> *reused;
+@property(nonatomic, strong) NSLock *lock;
 @end
 
 @implementation Ibex2NoRedirect
+- (instancetype)init {
+  if ((self = [super init])) {
+    _reused = [NSMutableDictionary dictionary];
+    _lock = [[NSLock alloc] init];
+  }
+  return self;
+}
+
+/// Records whether the connection was reused, so "the pool works" can be
+/// asserted directly instead of inferred from a latency threshold. Timing
+/// cannot tell a pooled request from a fast handshake, and picking a
+/// millisecond number to separate them makes the test fail when the network
+/// is slow rather than when the pool is broken.
+- (void)URLSession:(NSURLSession *)session
+                          task:(NSURLSessionTask *)task
+    didFinishCollectingMetrics:(NSURLSessionTaskMetrics *)metrics {
+  NSURLSessionTaskTransactionMetrics *last = metrics.transactionMetrics.lastObject;
+  if (last == nil) {
+    return;
+  }
+  [self.lock lock];
+  self.reused[@(task.taskIdentifier)] = @(last.reusedConnection);
+  [self.lock unlock];
+}
+
+/// Take the recorded flag, or -1 if metrics never arrived.
+- (int)takeReusedFor:(NSUInteger)identifier {
+  [self.lock lock];
+  NSNumber *value = self.reused[@(identifier)];
+  [self.reused removeObjectForKey:@(identifier)];
+  [self.lock unlock];
+  if (value == nil) {
+    return -1;
+  }
+  return [value boolValue] ? 1 : 0;
+}
 - (void)URLSession:(NSURLSession *)session
                           task:(NSURLSessionTask *)task
     willPerformHTTPRedirection:(NSHTTPURLResponse *)response
@@ -80,12 +119,64 @@ void *ibex2_darwin_session_create(void) {
   @autoreleasepool {
     NSURLSessionConfiguration *config =
         [NSURLSessionConfiguration ephemeralSessionConfiguration];
+
+    // Ephemeral means "not on disk", NOT "no state". Apple still gives the
+    // session a private in-memory cookie jar and URL cache, and sharing one
+    // session across a runtime is exactly what makes them live long enough to
+    // matter — with a session per request they were destroyed each time.
+    //
+    // Cookies are ambient authority the grant check cannot see: `net.fetch` is
+    // granted per *origin*, while cookies are RFC 6265 *domain*-scoped, so a
+    // module granted evil.example.com could set a cookie for example.com that
+    // the platform then attaches to another module's request to
+    // app.example.com. v1 has no credentials mode (LLP 0059.000 §3.5), so the
+    // correct number of cookies is zero. Ibex 1 already did this
+    // (src/engine/native_fetch_macos.mm).
+    config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
+    config.HTTPCookieStorage = nil;
+    config.HTTPShouldSetCookies = NO;
+
+    // The response cache goes for the same reason and one more: v1 has no
+    // cache mode either, so a cached response is a result Rust's semantics
+    // layer never decided to serve. It also keeps "did the connection get
+    // reused" answerable — a URL cache answers a repeat request without any
+    // connection at all, which would make the transport look fast for the
+    // wrong reason.
+    config.URLCache = nil;
+    config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+
     // Stateless, so one instance serves every task on this session.
     Ibex2NoRedirect *delegate = [[Ibex2NoRedirect alloc] init];
     NSURLSession *session = [NSURLSession sessionWithConfiguration:config
                                                          delegate:delegate
                                                     delegateQueue:nil];
     return (__bridge_retained void *)session;
+  }
+}
+
+/// Report whether a session kept a cookie jar or a response cache.
+///
+/// Exists so `the_session_keeps_no_cookies_and_no_cache` can assert the
+/// property instead of trusting the comment above it — the previous version of
+/// that comment claimed "no cookie jar, no disk cache" while the session had
+/// both in memory.
+void ibex2_darwin_session_has_state(void *handle, int *out_cookies,
+                                    int *out_cache) {
+  *out_cookies = 0;
+  *out_cache = 0;
+  if (handle == nullptr) {
+    return;
+  }
+  @autoreleasepool {
+    NSURLSession *session = (__bridge NSURLSession *)handle;
+    NSURLSessionConfiguration *config = session.configuration;
+    *out_cookies = (config.HTTPCookieStorage != nil ||
+                    config.HTTPShouldSetCookies ||
+                    config.HTTPCookieAcceptPolicy !=
+                        NSHTTPCookieAcceptPolicyNever)
+                       ? 1
+                       : 0;
+    *out_cache = (config.URLCache != nil) ? 1 : 0;
   }
 }
 
@@ -114,7 +205,8 @@ int ibex2_darwin_http_send(void *session_handle, const char *method,
                            const char *header_block, const unsigned char *body,
                            size_t body_len, int *out_status,
                            char **out_headers, unsigned char **out_body,
-                           size_t *out_body_len, char **out_error) {
+                           size_t *out_body_len, char **out_error,
+                           int *out_reused) {
   @autoreleasepool {
     *out_status = 0;
     *out_headers = nullptr;
@@ -148,6 +240,9 @@ int ibex2_darwin_http_send(void *session_handle, const char *method,
       request.HTTPBody = [NSData dataWithBytes:body length:body_len];
     }
 
+    if (out_reused != nullptr) {
+      *out_reused = -1;
+    }
     // The runtime's session, created once. See ibex2_darwin_session_create.
     NSURLSession *session = (__bridge NSURLSession *)session_handle;
     if (session == nil) {
@@ -173,6 +268,9 @@ int ibex2_darwin_http_send(void *session_handle, const char *method,
           }];
     [task resume];
     dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    if (out_reused != nullptr && [session.delegate isKindOfClass:[Ibex2NoRedirect class]]) {
+      *out_reused = [(Ibex2NoRedirect *)session.delegate takeReusedFor:task.taskIdentifier];
+    }
     // No finishTasksAndInvalidate here: the session outlives the request and
     // is released by ibex2_darwin_session_destroy when the runtime goes away.
 

@@ -53,18 +53,48 @@ Measured, release build, five sequential requests to the same origin:
 | | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|
 | before | 144ms | 79ms | 76ms | ~80ms | ~80ms |
-| after | 133ms | 3ms | 2ms | 4ms | 1ms |
+| after | 105ms | 30ms | 26ms | 29ms | 32ms |
+
+**An earlier version of this ticket claimed ~1ms**, which was wrong and
+flattering. Those numbers were `NSURLCache` answering from memory without any
+connection at all — the session inherited an in-memory response cache along
+with the cookie jar (see the follow-up below). With the cache disabled, the
+honest win is a full TLS handshake avoided: ~80ms to ~30ms.
 
 Two tests, in `crates/ibex2/src/transport/darwin.rs`:
 
 - `each_transport_owns_its_own_session` — two transports get distinct sessions,
   which is the isolation half and needs no network.
-- `a_second_request_to_one_origin_reuses_the_connection` — a repeat request
-  must land under 40ms, a threshold well below handshake cost and well above
-  reuse cost. It skips rather than fails without a network, since there is
-  nothing to say about reuse then.
+- `a_second_request_to_one_origin_reuses_the_connection` — asserts
+  `NSURLSessionTaskMetrics.reusedConnection` directly. It does **not** time
+  anything: the first version required a repeat under 40ms and passed because
+  the URL cache was answering it, then failed on a working pool whenever the
+  network was slow (64ms observed). Latency cannot separate a pooled request
+  from a fast handshake; the platform will simply say which happened.
 
-The reuse test was mutation-tested: restoring a session per request fails it.
+Both were mutation-tested: restoring a session per request fails the reuse
+test, and removing the cookie configuration fails the state test.
+
+## Follow-up found during review (fixed here)
+
+A shared session is what makes the platform's **in-memory cookie jar and URL
+cache** live — with a session per request they were destroyed each time, so
+this change created the exposure. `ephemeralSessionConfiguration` means "not on
+disk", not "no state".
+
+Cookies are ambient authority the grant check cannot see: `net.fetch` is
+per-origin, cookies are RFC 6265 domain-scoped, so a module granted
+`evil.example.com` could set a cookie for `example.com` that the platform then
+attaches to another module's request to `app.example.com`. v1 has no
+credentials mode (LLP 0059.000 §3.5), so the correct number of cookies is zero.
+Ibex 1 already did this (`src/engine/native_fetch_macos.mm`); Ibex 2 did not.
+
+Now set: `HTTPCookieAcceptPolicy = Never`, `HTTPCookieStorage = nil`,
+`HTTPShouldSetCookies = NO`, `URLCache = nil`, and
+`requestCachePolicy = ReloadIgnoringLocalCacheData`.
+`the_session_keeps_no_cookies_and_no_cache` asserts it against the live session
+configuration rather than trusting the comment — the previous comment claimed
+"no cookie jar, no disk cache" while the session had both in memory.
 
 LLP 0059.000 §3.5 now records the scoping decision (runtime, not process or
 request) rather than leaving it implicit in the code.

@@ -108,13 +108,20 @@ impl ModuleGrants {
 
 /// The conditions honored when resolving a package's `exports`.
 ///
-/// A policy choice, not a mechanism. `import` first because Ibex 2's loader is
-/// ESM-first and a package's ESM entry is the one whose live bindings and
-/// static shape the transform understands; `require` after it, because most of
-/// npm still ships CommonJS and the loader handles both. **`node` is
-/// deliberately absent** — this is not Node, and LLP 0059 §6 deleted Node's
-/// server surface, so a package selecting a Node build would get one whose
-/// dependencies do not exist here.
+/// A policy choice, not a mechanism.
+///
+/// **This is a set, not a preference order.** Matching walks the *package's*
+/// `exports` keys and takes the first one this set contains, so listing
+/// `import` before `require` here expresses nothing — a package that writes
+/// `require` first gets CommonJS either way. The order is kept only because it
+/// reads as intent to a human; `a_packages_own_key_order_decides_between_import_and_require`
+/// pins the real behaviour.
+///
+/// **`node` is deliberately absent.** LLP 0059 §6 deleted Node's server
+/// surface, so a package selecting a Node build would get one written against
+/// modules that do not exist here. The cost is real and not a fallback: a
+/// package exporting *only* a `node` condition does not quietly resolve to
+/// `default`, it fails to resolve at all.
 ///
 /// @ref LLP 0065#1-conditions-and-the-one-that-is-missing — why `node` is omitted
 pub const CONDITIONS: &[&str] = &["import", "require", "default"];
@@ -137,6 +144,47 @@ pub const CONDITIONS: &[&str] = &["import", "require", "default"];
 /// `node_modules` pointing out of the project is refused like any other escape.
 /// A workspace package therefore resolves to its real location and is reachable
 /// only when that location is itself inside the root.
+/// Reduce a resolved path to the project-relative specifier that identifies it,
+/// refusing anything that does not live inside the root.
+///
+/// **This is the one place a path becomes a module identity**, and both arms of
+/// `resolve` go through it, because two things depend on a file having exactly
+/// one name:
+///
+/// - *Containment.* Comparing canonical paths is what makes a symlink out of
+///   the project an escape. A lexical check compares the *spelling*, and a
+///   spelling can stay inside the root while the bytes come from outside it.
+/// - *Authority.* Grants are keyed by specifier (LLP 0060 D1). If one file has
+///   two names it has two grant sets, and a module locked down under one name
+///   holds the default's authority under the other. That is a capability
+///   bypass, not a cosmetic inconsistency.
+///
+/// Canonicalizing also settles case on a case-insensitive filesystem, so
+/// `./LOCKED.js` and `./locked.js` are one module rather than two.
+///
+/// Fails closed: a path that cannot be canonicalized is refused rather than
+/// falling back to its spelling.
+///
+/// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it
+fn contain(root: &Path, path: &Path, specifier: &str) -> Result<String, String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| format!("project root {} cannot be resolved: {e}", root.display()))?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve {specifier:?}: {e}"))?;
+    let relative = canonical.strip_prefix(&canonical_root).map_err(|_| {
+        format!(
+            "{specifier:?} resolves outside the project root: {}",
+            canonical.display()
+        )
+    })?;
+    Ok(format!(
+        "./{}",
+        relative.to_string_lossy().replace('\\', "/")
+    ))
+}
+
 pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
         return resolve_bare(root, from, specifier);
@@ -176,7 +224,12 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
     // OUTPUT extension in the source. Both have to resolve or a TypeScript
     // codebase cannot import anything.
     if let Some(resolved) = probe_extensions(root, &relative) {
-        return Ok(format!("./{resolved}"));
+        // Through `contain`, not straight out: the lexical walk above proves
+        // the *spelling* stays inside the root, which says nothing about where
+        // a symlink at that spelling points. Returning here directly is how a
+        // package could `require('./payload')` and execute bytes from outside
+        // the project under an inside name.
+        return contain(root, &root.join(&resolved), specifier);
     }
 
     // Nothing on disk. Return the specifier as written so the error names what
@@ -229,23 +282,16 @@ fn resolve_bare(root: &Path, from: &str, specifier: &str) -> Result<String, Stri
         .resolve(&from_dir, specifier)
         .map_err(|e| format!("cannot resolve {specifier:?} from {from}: {e}"))?;
 
-    let path = resolved.full_path();
-    // Containment again, and it matters more here: Node resolution walks UP the
-    // directory tree, so without this a package could resolve to a
+    // `path()`, not `full_path()`: the latter appends `?query` and `#fragment`
+    // to the filesystem path, so a package whose exports target is
+    // `./index.js?raw` — a real bundler convention — would "resolve" to a name
+    // no file has, pass containment on the laundered string, and only fail
+    // later at the read.
+    //
+    // Containment matters more on this arm than the other: Node resolution
+    // walks UP the directory tree, so without it a package could resolve to a
     // node_modules outside the project entirely.
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
-    let relative = canonical.strip_prefix(&canonical_root).map_err(|_| {
-        format!(
-            "{specifier:?} resolves outside the project root: {}",
-            path.display()
-        )
-    })?;
-
-    Ok(format!(
-        "./{}",
-        relative.to_string_lossy().replace('\\', "/")
-    ))
+    contain(root, resolved.path(), specifier)
 }
 
 /// Extensions tried, in order. TypeScript first: in a project that has both,

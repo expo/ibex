@@ -14,6 +14,15 @@ use crate::stdlib::fetch::{Headers, Request, Response, Transport};
 extern "C" {
     fn ibex2_darwin_session_create() -> *mut std::ffi::c_void;
     fn ibex2_darwin_session_destroy(handle: *mut std::ffi::c_void);
+    /// Reports whether the session kept a cookie jar / URL cache, so the
+    /// claim can be tested rather than asserted in a comment. Test-only: the
+    /// runtime never needs to ask.
+    #[cfg(test)]
+    fn ibex2_darwin_session_has_state(
+        handle: *mut std::ffi::c_void,
+        out_cookies: *mut c_int,
+        out_cache: *mut c_int,
+    );
     fn ibex2_darwin_http_send(
         session: *mut std::ffi::c_void,
         method: *const c_char,
@@ -26,6 +35,10 @@ extern "C" {
         out_body: *mut *mut c_uchar,
         out_body_len: *mut usize,
         out_error: *mut *mut c_char,
+        // 1 if the request rode an already-open connection, 0 if it opened
+        // one, -1 if the platform did not report. Lets the pool be asserted
+        // directly rather than inferred from latency.
+        out_reused: *mut c_int,
     ) -> c_int;
     fn ibex2_darwin_free(value: *mut std::ffi::c_void);
 }
@@ -57,11 +70,24 @@ pub struct DarwinTransport {
     /// and `Sync` without an `unsafe impl` asserting it. `NSURLSession` is
     /// itself thread-safe, and this is written once and only read after.
     session: std::sync::OnceLock<usize>,
+    /// Whether the most recent request reused a connection: 1 yes, 0 no, -1
+    /// not reported. Test-facing; nothing in the runtime reads it.
+    last_reused: std::sync::atomic::AtomicIsize,
 }
 
 impl DarwinTransport {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether the last request rode an already-open connection.
+    /// `Some(true)`/`Some(false)`, or `None` when the platform did not report.
+    pub fn last_connection_was_reused(&self) -> Option<bool> {
+        match self.last_reused.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => Some(true),
+            0 => Some(false),
+            _ => None,
+        }
     }
 
     /// The runtime's session, built on the first call.
@@ -134,6 +160,7 @@ impl Transport for DarwinTransport {
         let mut body_raw: *mut c_uchar = std::ptr::null_mut();
         let mut body_out_len: usize = 0;
         let mut error_raw: *mut c_char = std::ptr::null_mut();
+        let mut reused: c_int = -1;
 
         // SAFETY: every pointer is valid for the call; all four out-params are
         // released below regardless of outcome.
@@ -150,8 +177,11 @@ impl Transport for DarwinTransport {
                 &mut body_raw,
                 &mut body_out_len,
                 &mut error_raw,
+                &mut reused,
             )
         };
+        self.last_reused
+            .store(reused as isize, std::sync::atomic::Ordering::Relaxed);
 
         let header_text = unsafe { take_string(headers_raw) };
         let error_text = unsafe { take_string(error_raw) };
@@ -216,48 +246,61 @@ mod tests {
         );
     }
 
-    /// The reuse claim, asserted rather than asserted-about.
+    /// The reuse claim, asserted directly.
     ///
     /// A session owns the connection pool. With one session per request every
-    /// call paid a full TLS handshake — ~80ms measured. Reusing the runtime's
-    /// session drops that to ~2ms. The threshold sits far below the handshake
-    /// cost and far above the reuse cost, so it distinguishes the two
-    /// implementations without pretending to measure the network precisely.
+    /// call opened a new connection and paid a full TLS handshake.
     ///
-    /// Skips rather than fails when the first request does not succeed: with
-    /// no network there is nothing to say about connection reuse, and a
-    /// failure here would report the wrong thing.
+    /// **This does not time anything.** An earlier version required a repeat
+    /// request under 40ms, which was wrong twice over: it passed because
+    /// `NSURLCache` was answering from memory without any connection at all,
+    /// and once the cache was disabled it failed whenever the network was
+    /// merely slow — 64ms on a working pool. Latency cannot distinguish a
+    /// pooled request from a fast handshake. `NSURLSessionTaskMetrics` says
+    /// outright whether the connection was reused, so that is what is asserted.
     #[test]
     fn a_second_request_to_one_origin_reuses_the_connection() {
         let transport = DarwinTransport::new();
-        let warm = std::time::Instant::now();
         if transport
             .send(&Request::get("https://example.com/"))
             .is_err()
         {
             return; // no network; nothing to measure
         }
-        let first = warm.elapsed();
+        // The first request may or may not have opened a connection; only the
+        // repeats carry the claim.
+        let Some(false) = transport.last_connection_was_reused() else {
+            return; // platform did not report metrics; nothing to assert on
+        };
 
-        let mut reused = Vec::new();
-        for _ in 0..3 {
-            let started = std::time::Instant::now();
-            if transport
-                .send(&Request::get("https://example.com/"))
-                .is_err()
-            {
-                return;
-            }
-            reused.push(started.elapsed());
+        for attempt in 0..3 {
+            assert!(
+                transport
+                    .send(&Request::get("https://example.com/"))
+                    .is_ok(),
+                "request {attempt} failed after the first one succeeded"
+            );
+            assert_eq!(
+                transport.last_connection_was_reused(),
+                Some(true),
+                "request {attempt} opened a new connection; the session is not being reused"
+            );
         }
-        reused.sort();
-        let median = reused[1];
+    }
 
-        assert!(
-            median < std::time::Duration::from_millis(40),
-            "a repeat request took {median:?}, which is handshake territory — \
-             the session is not being reused (first request was {first:?})"
-        );
+    /// Cookies are ambient authority the grant check cannot see, so the
+    /// session must not keep any. Asserted on the configuration rather than by
+    /// round-tripping a `Set-Cookie`, which would need a server that sets one.
+    #[test]
+    fn the_session_keeps_no_cookies_and_no_cache() {
+        let transport = DarwinTransport::new();
+        let session = transport.session();
+        assert!(!session.is_null(), "session was not created");
+        // SAFETY: `session` is this transport's live session.
+        let (mut cookies, mut cache) = (0, 0);
+        unsafe { ibex2_darwin_session_has_state(session, &mut cookies, &mut cache) };
+        assert_eq!(cookies, 0, "the session has a cookie jar");
+        assert_eq!(cache, 0, "the session has a URL cache");
     }
 }
 
@@ -265,9 +308,11 @@ mod tests {
 mod session_cost {
     use super::*;
 
-    /// The session is created eagerly in `ibex2_queue_create`, so every
-    /// runtime pays for it whether or not it ever fetches. LLP 0063 puts the
-    /// boot floor at ~4ms, so this needs to stay small enough not to matter.
+    /// What the first session in a process costs, which is why it is built on
+    /// first use rather than at construction: on the runtime construction path
+    /// this would land on the boot floor of every program, against LLP 0063's
+    /// ~4ms. `constructing_a_transport_does_not_build_a_session` is the guard;
+    /// this is the number behind it.
     #[test]
     #[ignore = "measurement, not an assertion"]
     fn report_session_construction_cost() {

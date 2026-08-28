@@ -854,12 +854,12 @@ fn a_package_without_a_main_field_falls_back_to_index() {
     assert_eq!(out, vec!["found"]);
 }
 
-/// `exports` maps are the modern surface, and the conditions we select are a
-/// policy (loader::CONDITIONS). `import` is preferred over `require`, and
-/// `node` is not in the list at all — a package offering a Node build must not
-/// win, because Node's server surface does not exist here (LLP 0059 §6).
+/// `exports` maps are the modern surface, and `node` must never be selected:
+/// LLP 0059 §6 deleted Node's server surface, so a Node build would be written
+/// against modules that do not exist here. Listed FIRST in the package, so this
+/// fails if `node` is ever added to `CONDITIONS`.
 #[test]
-fn an_exports_map_selects_the_import_condition_and_never_node() {
+fn the_node_condition_is_never_selected() {
     let p = Project::new("pkg-exports");
     p.file("index.js", "console.log(require('conditional').which);")
         .file(
@@ -867,7 +867,10 @@ fn an_exports_map_selects_the_import_condition_and_never_node() {
             r#"{"name":"conditional","exports":{".":{"node":"./node.js","import":"./esm.js","require":"./cjs.js","default":"./default.js"}}}"#,
         )
         .file("node_modules/conditional/node.js", "exports.which = 'node';")
-        .file("node_modules/conditional/esm.js", "export const which = 'esm';")
+        .file(
+            "node_modules/conditional/esm.js",
+            "export const which = 'esm';",
+        )
         .file("node_modules/conditional/cjs.js", "exports.which = 'cjs';")
         .file(
             "node_modules/conditional/default.js",
@@ -876,6 +879,44 @@ fn an_exports_map_selects_the_import_condition_and_never_node() {
     let (out, err) = p.run("./index.js", "");
     assert_eq!(err, None);
     assert_eq!(out, vec!["esm"]);
+}
+
+/// **`CONDITIONS` is a set, not a preference order.** Matching walks the
+/// package's own `exports` keys, so a package listing `require` before
+/// `import` gets CommonJS regardless of the order in our list. Worth pinning,
+/// because the natural reading of `["import","require","default"]` is a
+/// ranking and it is not one — reordering it changes nothing.
+#[test]
+fn a_packages_own_key_order_decides_between_import_and_require() {
+    let p = Project::new("pkg-order");
+    p.file("index.js", "console.log(require('pkg').which);")
+        .file(
+            "node_modules/pkg/package.json",
+            r#"{"name":"pkg","exports":{".":{"require":"./cjs.js","import":"./esm.js"}}}"#,
+        )
+        .file("node_modules/pkg/cjs.js", "exports.which = 'cjs';")
+        .file("node_modules/pkg/esm.js", "export const which = 'esm';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["cjs"], "the package's key order should decide");
+}
+
+/// The cost of omitting `node`, as a test rather than something to be
+/// discovered later: a package exporting **only** a `node` build does not fall
+/// through to anything. It fails to resolve, and the error names the
+/// conditions so a reader can see why.
+#[test]
+fn a_package_exporting_only_node_does_not_resolve() {
+    let p = Project::new("pkg-onlynode");
+    p.file("index.js", "require('o');")
+        .file(
+            "node_modules/o/package.json",
+            r#"{"name":"o","exports":{".":{"node":"./node.js"}}}"#,
+        )
+        .file("node_modules/o/node.js", "exports.w = 'node';");
+    let (_, err) = p.run("./index.js", "");
+    let err = err.expect("a node-only package must not resolve");
+    assert!(err.contains("not exported under the conditions"), "{err}");
 }
 
 /// Subpath exports, and the fact that a package can hide files: a subpath not
@@ -949,12 +990,13 @@ fn a_package_resolves_its_own_dependencies_from_its_own_directory() {
 }
 
 /// Workspace packages are symlinks into the monorepo, and `@exact/*` — the
-/// dominant case in the real graph — are exactly that. Resolution deliberately
-/// does **not** follow the symlink to its real path: the logical path stays
-/// inside `node_modules`, and therefore inside the project.
+/// dominant case in the real graph — are exactly that. The link is followed and
+/// the module's identity is its real path, so the same file has one name however
+/// it is reached (see `two_spellings_of_one_file_are_one_module_with_one_grant_set`).
+/// It resolves only because the target is inside the root.
 #[cfg(unix)]
 #[test]
-fn a_workspace_symlink_resolves_through_its_logical_path() {
+fn a_workspace_symlink_resolves_to_its_real_path() {
     let p = Project::new("pkg-workspace");
     p.file("index.js", "console.log(require('@w/ui').name);")
         .file(
@@ -968,6 +1010,11 @@ fn a_workspace_symlink_resolves_through_its_logical_path() {
     let (out, err) = p.run("./index.js", "");
     assert_eq!(err, None);
     assert_eq!(out, vec!["workspace-ui"]);
+    // And the identity is the real path, not the node_modules spelling.
+    assert_eq!(
+        ibex2::loader::resolve(&p.0, "./index.js", "@w/ui").unwrap(),
+        "./packages/ui/index.js"
+    );
 }
 
 /// ES modules, TypeScript, and packages are one system, not three. A package
@@ -1135,9 +1182,9 @@ fn a_package_above_the_project_root_is_refused() {
 }
 
 /// A symlink out of the project is refused, because containment is checked
-/// against the *canonical* path. Worth asserting explicitly: `oxc_resolver` is
-/// configured not to follow symlinks, so this protection comes from the
-/// canonicalize below it and would be lost if that were relaxed.
+/// against the *canonical* path in `loader::contain`. Worth asserting
+/// explicitly: the protection is the canonicalize, not the resolver, and would
+/// be lost if identity ever went back to being the requested spelling.
 #[cfg(unix)]
 #[test]
 fn a_symlink_out_of_the_project_is_refused() {
@@ -1158,4 +1205,125 @@ fn a_symlink_out_of_the_project_is_refused() {
     let _ = std::fs::remove_dir_all(&outside);
     let err = err.expect("a symlink out of the project must not resolve");
     assert!(err.contains("outside the project root"), "{err}");
+}
+/// A symlink *inside* a package, pointing outside the project. The package
+/// itself is legitimately inside, so only the nested relative load can catch
+/// this — and it did not, until both resolver arms shared one containment step.
+///
+/// Regression test for a confirmed escape: `require('./payload')` returned a
+/// spelling inside the root while `read_to_string` followed the link and ran
+/// bytes from outside it.
+#[cfg(unix)]
+#[test]
+fn a_relative_symlink_inside_a_package_cannot_escape() {
+    let p = Project::new("atk-relsym");
+    p.file("index.js", "console.log(require('innocent').x);")
+        .file(
+            "node_modules/innocent/package.json",
+            r#"{"name":"innocent","main":"index.js"}"#,
+        )
+        .file(
+            "node_modules/innocent/index.js",
+            "exports.x = require('./payload').x;",
+        );
+    let outside = std::env::temp_dir().join(format!("ibex2-atk-evil-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("payload.js"), "exports.x = 'ESCAPED';").unwrap();
+    std::os::unix::fs::symlink(
+        outside.join("payload.js"),
+        p.0.join("node_modules/innocent/payload.js"),
+    )
+    .unwrap();
+
+    let (out, err) = p.run("./index.js", "");
+    let _ = std::fs::remove_dir_all(&outside);
+    assert!(!out.iter().any(|l| l.contains("ESCAPED")), "{out:?}");
+    let err = err.expect("a symlink out of the project must not resolve");
+    assert!(err.contains("outside the project root"), "{err}");
+}
+
+/// One file, one identity — the property grants depend on.
+///
+/// A workspace package is reachable as `@w/ui` and as the literal path through
+/// `node_modules`. If those are two specifiers they are two grant sets, and a
+/// module locked down under one name silently inherits `[*]` under the other.
+/// Regression test for a confirmed capability bypass.
+#[cfg(unix)]
+#[test]
+fn two_spellings_of_one_file_are_one_module_with_one_grant_set() {
+    let p = Project::new("atk-identity");
+    p.file(
+        "index.js",
+        "const a = require('@w/ui');
+         const b = require('./node_modules/@w/ui/index.js');
+         a.probe('via-package'); b.probe('via-path');",
+    )
+    .file(
+        "packages/ui/package.json",
+        r#"{"name":"@w/ui","main":"index.js"}"#,
+    )
+    .file(
+        "packages/ui/index.js",
+        "exports.probe = (tag) => fetch('https://127.0.0.1:1/').then(
+           () => console.log(tag + ': REACHED'), e => console.log(tag + ': ' + e.message));",
+    );
+    std::fs::create_dir_all(p.0.join("node_modules/@w")).unwrap();
+    std::os::unix::fs::symlink(p.0.join("packages/ui"), p.0.join("node_modules/@w/ui")).unwrap();
+
+    // Everything is granted by default; this one module is locked down.
+    let (out, err) = p.run(
+        "./index.js",
+        "[*]\nnet.fetch https://127.0.0.1:1\n[./packages/ui/index.js]\n",
+    );
+    assert_eq!(err, None);
+    assert_eq!(out.len(), 2, "{out:?}");
+    assert!(
+        out.iter().all(|l| l.contains("denied: net.fetch")),
+        "the lockdown was bypassed by spelling: {out:?}"
+    );
+}
+
+/// Case is not identity either. macOS filesystems are case-insensitive by
+/// default, so `./LOCKED.js` and `./locked.js` are the same file — and must be
+/// the same module, or the lockdown above is bypassable by shifting a letter.
+#[test]
+fn case_variants_of_one_file_are_one_module() {
+    let p = Project::new("atk-case");
+    p.file(
+        "index.js",
+        "require('./locked.js').probe('lower'); require('./LOCKED.js').probe('upper');",
+    )
+    .file(
+        "locked.js",
+        "exports.probe = (tag) => fetch('https://127.0.0.1:1/').then(
+           () => console.log(tag + ': REACHED'), e => console.log(tag + ': ' + e.message));",
+    );
+    let (out, err) = p.run(
+        "./index.js",
+        "[*]\nnet.fetch https://127.0.0.1:1\n[./locked.js]\n",
+    );
+    assert_eq!(err, None);
+    assert_eq!(out.len(), 2, "{out:?}");
+    assert!(
+        out.iter().all(|l| l.contains("denied: net.fetch")),
+        "the lockdown was bypassed by case: {out:?}"
+    );
+}
+
+/// `exports` targets carrying `?query` are a real bundler convention. The
+/// resolver must hand back a path that names a file, not one with the query
+/// concatenated onto it — that laundered string passes containment and then
+/// fails at the read, far from the cause.
+#[test]
+fn a_query_string_does_not_survive_into_the_resolved_path() {
+    let p = Project::new("atk-query");
+    p.file("index.js", "x")
+        .file(
+            "node_modules/q/package.json",
+            r#"{"name":"q","exports":{".":"./index.js?raw"}}"#,
+        )
+        .file("node_modules/q/index.js", "exports.x = 1;");
+    let resolved = ibex2::loader::resolve(&p.0, "./index.js", "q").expect("should resolve");
+    assert_eq!(resolved, "./node_modules/q/index.js");
 }
