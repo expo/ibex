@@ -24,6 +24,17 @@ IBEX_HERMES_SOURCE_COMMIT="${IBEX_HERMES_SOURCE_COMMIT:-e639a7bad8bfca844d982afa
 # the branch name kept as a fallback if the commit pin is explicitly unset.
 IBEX_HERMES_BUILD_REF="${IBEX_HERMES_BUILD_REF:-${IBEX_HERMES_SOURCE_COMMIT:-$IBEX_HERMES_SOURCE_REF}}"
 
+# Ibex 2 vanilla (unpatched) pin. Independent of the patched stack so a
+# vanilla bump does not require re-deriving patches/hermes/. Same release
+# train; currently 260318099.0.0-stable HEAD as of 2026-08-26 (IdentifierHashTable
+# growth fix, TextDecoder OOB/UAF, VariableScope rescan, HostObject finalizer
+# thread). These assignments sit above ibex_sha256() so they do not move the
+# reviewed patch-identity authority digest.
+# @ref LLP 0058.000#d1-vanilla-means-zero-ibex-source-patches
+# @ref LLP 0058.000.001#11-remaining-choices — G0 pin selection
+IBEX_HERMES_VANILLA_SOURCE_COMMIT="${IBEX_HERMES_VANILLA_SOURCE_COMMIT:-6badada762121682b5481b6124e6c3a991ae6046}"
+IBEX_HERMES_VANILLA_BUILD_REF="${IBEX_HERMES_VANILLA_BUILD_REF:-${IBEX_HERMES_VANILLA_SOURCE_COMMIT:-$IBEX_HERMES_SOURCE_REF}}"
+
 IBEX_HERMES_ANDROID_VERSION="${IBEX_HERMES_ANDROID_VERSION:-250829098.0.14}"
 IBEX_REACT_ANDROID_VERSION="${IBEX_REACT_ANDROID_VERSION:-0.86.0}"
 

@@ -786,36 +786,6 @@ int ibex2_hermes_install_fetch(void *handle, const void *grants) {
         runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_fetch"),
         make_async_binding(runtime, "__ibex2_fetch", 101, rt, grants));
 
-    // Response accessors. A response crosses as a handle; these read it.
-    auto field_fn = jsi::Function::createFromHostFunction(
-        runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_response_field"), 3,
-        [rt](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
-             size_t count) -> jsi::Value {
-          if (count < 2) {
-            throw jsi::JSError(r, "response field needs a handle and a field id");
-          }
-          std::vector<std::string> owned;
-          Ibex2AbiValue name{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-          if (count >= 3) {
-            name = to_abi(r, args[2], owned);
-          }
-          Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-          int status = ibex2_response_field(
-              rt->queue, args[0].asNumber(),
-              static_cast<uint32_t>(args[1].asNumber()),
-              count >= 3 ? &name : nullptr, &out);
-          jsi::Value result = from_abi(r, out);
-          ibex2_host_release(&out);
-          if (status != 0) {
-            throw jsi::JSError(r, result.isString()
-                                      ? result.getString(r).utf8(r)
-                                      : std::string("response read failed"));
-          }
-          return result;
-        });
-    global.setProperty(runtime,
-                       jsi::PropNameID::forAscii(runtime, "__ibex2_response_field"),
-                       std::move(field_fn));
     return 0;
   } catch (const std::exception &) {
     return 1;
@@ -868,6 +838,40 @@ int ibex2_hermes_install_stdlib(void *handle) {
                        jsi::PropNameID::forAscii(runtime, "__ibex2_headers"),
                        std::move(headers));
 
+    // Response accessors, in the UNGATED tier: a response crosses as a handle,
+    // and the handle is the authority. Reading a status off one you already
+    // hold conveys nothing further, and handles only come from a granted fetch.
+    // They were installed by install_fetch, which the per-module loader never
+    // calls — so a module with a granted fetch could not read its response.
+    auto field_fn = jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_response_field"), 3,
+        [rt](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+             size_t count) -> jsi::Value {
+          if (count < 2) {
+            throw jsi::JSError(r, "response field needs a handle and a field id");
+          }
+          std::vector<std::string> owned;
+          Ibex2AbiValue name{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+          if (count >= 3) {
+            name = to_abi(r, args[2], owned);
+          }
+          Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+          int status = ibex2_response_field(
+              rt->queue, args[0].asNumber(),
+              static_cast<uint32_t>(args[1].asNumber()),
+              count >= 3 ? &name : nullptr, &out);
+          jsi::Value result = from_abi(r, out);
+          ibex2_host_release(&out);
+          if (status != 0) {
+            throw jsi::JSError(r, result.isString()
+                                      ? result.getString(r).utf8(r)
+                                      : std::string("response read failed"));
+          }
+          return result;
+        });
+    global.setProperty(runtime,
+                       jsi::PropNameID::forAscii(runtime, "__ibex2_response_field"),
+                       std::move(field_fn));
     set_binding(runtime, global, "__ibex2_timer_set", 60, rt->queue);
     set_binding(runtime, global, "__ibex2_timer_set_repeating", 61, rt->queue);
     set_binding(runtime, global, "__ibex2_timer_clear", 62, rt->queue);

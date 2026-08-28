@@ -7,6 +7,10 @@ Electron model at small scale. There is no separate long-lived fork repository.
 every `build-hermes*.sh`; it is idempotent and fails loudly if a patch stops
 applying (the drift signal).
 
+Ibex 2 does not use this stack. Its unpatched engine is pinned separately as
+`IBEX_HERMES_VANILLA_SOURCE_COMMIT` and built with `./scripts/build-hermes.sh
+--vanilla`. Bumping that pin does not re-derive these patches.
+
 ## Patch identity discipline
 
 Every `diff --git` section carries exactly one authoritative `index` line with

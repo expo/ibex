@@ -12,7 +12,8 @@
 #   ./scripts/build-hermes.sh --release            # Build without debugger
 #   ./scripts/build-hermes.sh --debug              # Force debugger on
 #   ./scripts/build-hermes.sh --clean              # Clean cache and rebuild
-#   ./scripts/build-hermes.sh --vanilla            # Build UNPATCHED upstream Hermes
+#   ./scripts/build-hermes.sh --vanilla            # Unpatched pin → ios/Frameworks-vanilla
+#   ./scripts/build-hermes.sh --vanilla --release  # Unpatched, no debugger → ios/Frameworks-vanilla-nodebug
 #   ./scripts/build-hermes.sh --normalize-static-archive <path>
 #                                                   # Normalize one Apple archive in place
 #
@@ -34,7 +35,9 @@ source "$SCRIPT_DIR/hermes-version.sh"
 # branch name moves under cold clones (ENG-23092). Use --latest only when you
 # explicitly want the moving static_h development head.
 DEFAULT_HERMES_REF="$IBEX_HERMES_BUILD_REF"
+HERMES_VERSION_FROM_ENV="${HERMES_VERSION:-}"
 HERMES_VERSION="${HERMES_VERSION:-$DEFAULT_HERMES_REF}"
+HERMES_CLI_REF=false
 CACHE_DIR="$HOME/.cache/exact/hermes"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
@@ -118,6 +121,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --latest)
             HERMES_VERSION="static_h"
+            HERMES_CLI_REF=true
             shift
             ;;
         --clean)
@@ -138,6 +142,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             HERMES_VERSION="$1"
+            HERMES_CLI_REF=true
             shift
             ;;
     esac
@@ -151,11 +156,21 @@ fi
 # artifacts under ios/Frameworks/ and tools/hermes/ are never touched, so the
 # two engines coexist and build.rs's existing lookup cannot pick the unpatched
 # one up by accident. A vanilla build is opt-in at every layer: this flag, a
-# separate cache key space, a separate install root, and no receipt.
+# separate cache key space, a separate install root, and no source-patched
+# receipt. Debugger and release installs also stay apart so a --release rebuild
+# cannot clobber the default ibex2 link.
+# @ref LLP 0058.000#d1-vanilla-means-zero-ibex-source-patches
 case "$HERMES_VANILLA" in
     1|true|TRUE|yes|YES|on|ON)
         HERMES_VANILLA=true
-        FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks-vanilla"
+        if [ "$HERMES_CLI_REF" != true ] && [ -z "$HERMES_VERSION_FROM_ENV" ]; then
+            HERMES_VERSION="$IBEX_HERMES_VANILLA_SOURCE_COMMIT"
+        fi
+        if [ -n "$DEBUG_SUFFIX" ]; then
+            FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks-vanilla"
+        else
+            FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks-vanilla-nodebug"
+        fi
         HERMES_TOOLS_DIR="$PROJECT_ROOT/tools/hermes-vanilla"
         HERMESC_DEST="$HERMES_TOOLS_DIR/hermesc-macos-$HOST_ARCH"
         MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
@@ -361,6 +376,10 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ] && [ -d "$VERSION_CACHE/macos-st
     fi
 
     echo "[✓] Installed to $FRAMEWORKS_DIR"
+    if [ "$HERMES_VANILLA" = true ]; then
+        echo "Write a HermesInputReceipt with:"
+        echo "  node \"$SCRIPT_DIR/hermes-input-receipt.mjs\" \"$FRAMEWORKS_DIR\""
+    fi
     exit 0
 fi
 if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
@@ -651,4 +670,9 @@ echo "Cached at: $VERSION_CACHE"
 echo ""
 echo "Note: The framework is named 'hermesvm' internally but installed as 'hermes'"
 echo "      for compatibility with the existing project structure."
+if [ "$HERMES_VANILLA" = true ]; then
+    echo ""
+    echo "Write a HermesInputReceipt with:"
+    echo "  node \"$SCRIPT_DIR/hermes-input-receipt.mjs\" \"$FRAMEWORKS_DIR\""
+fi
 echo ""

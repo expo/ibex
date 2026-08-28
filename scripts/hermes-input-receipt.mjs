@@ -12,7 +12,7 @@
  * from THIS upstream commit with an EMPTY Ibex patch set. "Vanilla" stops being
  * a build flag someone remembered to pass and becomes a property of an artifact.
  *
- *   node scripts/hermes-input-receipt.mjs <engine-dir> [--out <path>]
+ *   node scripts/hermes-input-receipt.mjs <engine-dir> [--out <path>] [--commit <sha>]
  *
  * Exits non-zero if the engine carries patched symbols, which is the one thing
  * a receipt claiming an empty patch set must never be written over.
@@ -45,14 +45,25 @@ function die(message) {
   process.exit(1);
 }
 
+function flagValue(argv, name) {
+  const index = argv.indexOf(name);
+  if (index === -1) {
+    return undefined;
+  }
+  const value = argv[index + 1];
+  if (!value || value.startsWith('--')) {
+    die(`${name} requires a value`);
+  }
+  return value;
+}
+
 const args = process.argv.slice(2);
-if (args.length < 1) {
-  die('usage: hermes-input-receipt.mjs <engine-dir> [--out <path>]');
+if (args.length < 1 || args[0].startsWith('--')) {
+  die('usage: hermes-input-receipt.mjs <engine-dir> [--out <path>] [--commit <sha>]');
 }
 const engineDir = resolve(args[0]);
-const outIndex = args.indexOf('--out');
-const outPath =
-  outIndex === -1 ? join(engineDir, 'hermes-input-receipt.json') : resolve(args[outIndex + 1]);
+const outPath = flagValue(args, '--out') ?? join(engineDir, 'hermes-input-receipt.json');
+const commitOverride = flagValue(args, '--commit');
 
 const framework = join(engineDir, 'hermesvm.framework/Versions/1/hermesvm');
 if (!existsSync(framework)) {
@@ -91,9 +102,40 @@ const hermesc = existsSync(hermescDir)
       .map((name) => join(hermescDir, name))[0]
   : undefined;
 
+let sourceCommit = commitOverride;
+let sourceRef = '';
+let sourceVersion = '';
+try {
+  const pin = execFileSync(
+    'bash',
+    [
+      '-c',
+      'source "$1" && printf "%s\\t%s\\t%s" "$IBEX_HERMES_VANILLA_SOURCE_COMMIT" "$IBEX_HERMES_SOURCE_REF" "$IBEX_HERMES_VERSION"',
+      'hermes-input-receipt',
+      join(repoRoot, 'scripts/hermes-version.sh'),
+    ],
+    { encoding: 'utf8' }
+  ).trim();
+  const [commit, ref, version] = pin.split('\t');
+  sourceCommit = sourceCommit || commit;
+  sourceRef = ref;
+  sourceVersion = version;
+} catch (error) {
+  die(`cannot read vanilla Hermes pin: ${error.message}`);
+}
+if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
+  die(`vanilla Hermes pin is not a 40-hex commit: ${sourceCommit}`);
+}
+
 const receipt = {
   schema: SCHEMA,
   producedOn: new Date().toISOString().slice(0, 10),
+  upstream: {
+    artifact: 'facebook/hermes',
+    sourceCommit,
+    sourceRef,
+    sourceVersion,
+  },
   engine: {
     binary: basename(framework),
     binaryDigest: `sha256-${sha256File(framework)}`,
@@ -116,6 +158,7 @@ const receipt = {
 
 writeFileSync(outPath, `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(`wrote ${outPath}`);
+console.log(`  upstream      ${receipt.upstream.sourceCommit}`);
 console.log(`  variant       ${receipt.engine.variant}`);
 console.log(`  patch set     empty (${patchesPresent.length} patches present in tree, 0 applied)`);
 console.log(`  hermesc       ${receipt.compiler ? receipt.compiler.binary : '(absent)'}`);

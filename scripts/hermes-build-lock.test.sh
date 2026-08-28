@@ -194,6 +194,21 @@ EXPECTED_AUTHORITY_KEY="p${PATCH_PREFIX}-ba${APPLE_BUILD_HEX:0:12}-bl${LINUX_BUI
 [[ "$LINUX_KEY" == "${IBEX_HERMES_SOURCE_COMMIT:0:12}-${EXPECTED_AUTHORITY_KEY}-olinux" ]] \
     || fail "Linux source cache key has the wrong complete-authority shape"
 
+[[ "$IBEX_HERMES_VANILLA_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "vanilla Hermes pin must be a 40-hex Git object ID"
+VANILLA_DEBUG_KEY="$(ibex_hermes_apple_vanilla_cache_key "${IBEX_HERMES_VANILLA_SOURCE_COMMIT:0:12}" "-debug")"
+VANILLA_RELEASE_KEY="$(ibex_hermes_apple_vanilla_cache_key "${IBEX_HERMES_VANILLA_SOURCE_COMMIT:0:12}" "")"
+[[ "$VANILLA_DEBUG_KEY" == "${IBEX_HERMES_VANILLA_SOURCE_COMMIT:0:12}-debug-vanilla-ba${APPLE_BUILD_HEX:0:12}-oapple" ]] \
+    || fail "Apple vanilla debugger cache key has the wrong shape"
+[[ "$VANILLA_RELEASE_KEY" == "${IBEX_HERMES_VANILLA_SOURCE_COMMIT:0:12}-vanilla-ba${APPLE_BUILD_HEX:0:12}-oapple" ]] \
+    || fail "Apple vanilla release cache key has the wrong shape"
+[[ "$VANILLA_DEBUG_KEY" != "$APPLE_KEY" ]] \
+    || fail "vanilla and reviewed Apple cache keys collided"
+grep -q 'IBEX_HERMES_VANILLA_SOURCE_COMMIT' "$SCRIPT_DIR/build-hermes.sh" \
+    || fail "build-hermes.sh does not select the vanilla pin"
+grep -q 'Frameworks-vanilla-nodebug' "$SCRIPT_DIR/build-hermes.sh" \
+    || fail "vanilla --release must install beside the debugger engine, not over it"
+
 assert_pristine_before_patch_replay() {
     local script="$1"
     local apply_line clean_line reset_line lock_line

@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-28 (Ibex 2 vanilla Hermes is a second pin, `IBEX_HERMES_VANILLA_SOURCE_COMMIT`, independent of the patched `IBEX_HERMES_SOURCE_COMMIT`)
 **Revised:** 2026-08-03 (CapSec loaded-engine attestation recognizes the digest-identical Windows DLL staged beside Cargo test executables while still binding the mapped canonical path/object and rejecting staging on other targets)
 **Revised:** 2026-08-03 (the Windows source-header path segments the structural-lockdown script into byte-identical raw-string chunks below MSVC's per-literal size limit)
 **Revised:** 2026-07-27 (source-built Hermes platforms move to the post-260318099.0.1 stable commit carrying the WeakRef read-barrier fix; Android remains on its older unaffected reviewed AAR until Maven publishes a fixed build)
@@ -290,7 +291,11 @@ which pins an exact commit (`IBEX_HERMES_SOURCE_COMMIT`) because the upstream
 no prebuilt Darwin runtime/CLI tarballs for this release train. The selected
 commit is `e639a7bad8bfca844d982afa54fac786c65a8856`, after the
 `260318099.0.1` tag, and includes upstream's WeakRef read-barrier correction
-`[observed]`.
+`[observed]`. Ibex 2's unpatched engine is a second pin,
+`IBEX_HERMES_VANILLA_SOURCE_COMMIT` (`6badada762121682b5481b6124e6c3a991ae6046`
+on the same train as of 2026-08-26), so a vanilla bump does not move the
+patched fork `[observed]` (`scripts/hermes-version.sh`;
+`scripts/build-hermes.sh --vanilla`).
 `scripts/download-hermes.sh` is the installer entry point; the from-source
 builders are `scripts/build-hermes.sh` (Darwin: host `hermesc`/`hermes`, iOS
 device/simulator frameworks, a macOS `hermesvm.framework`, headers) and
