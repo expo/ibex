@@ -1,0 +1,15 @@
+[package]
+name = "ibex2"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# Deliberately dependency-free, and deliberately not linked to an engine yet.
+# The grant model below is pure Rust and testable today; the engine adapter
+# arrives with the spike, behind a feature, so the workspace stays green on a
+# machine that has not built vanilla Hermes.
+[dependencies]
+
+[features]
+default = []
