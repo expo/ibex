@@ -113,6 +113,7 @@ impl Hermes {
     pub fn install_bindings(&mut self) -> Result<(), JsError> {
         self.eval(include_str!("../bindings/testharness.js"))?;
         self.eval(include_str!("../bindings/headers.js"))?;
+        self.eval(include_str!("../bindings/timers.js"))?;
         Ok(())
     }
 
@@ -1291,6 +1292,183 @@ mod tests {
             "ok:200",
             "handoff is expected to work; capability systems bound reach, not trust"
         );
+    }
+
+    // --- Timers: the macrotask side of the loop -----------------------------
+
+    fn timer_rt() -> Hermes {
+        let mut rt = with_stdlib();
+        rt.install_bindings().expect("bindings");
+        rt
+    }
+
+    /// Pump until `js` reports done or the deadline passes. Timers are real
+    /// elapsed time, so this waits rather than spins.
+    fn pump_for(rt: &mut Hermes, millis: u64) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(millis);
+        while std::time::Instant::now() < deadline {
+            rt.pump();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        rt.pump();
+    }
+
+    #[test]
+    fn a_timeout_fires_after_its_delay_and_not_before() {
+        let mut rt = timer_rt();
+        rt.eval("globalThis.fired = false; setTimeout(() => { fired = true }, 20);")
+            .unwrap();
+        rt.pump();
+        assert_eq!(rt.eval("String(fired)").unwrap(), "false", "fired early");
+        pump_for(&mut rt, 60);
+        assert_eq!(rt.eval("String(fired)").unwrap(), "true");
+    }
+
+    #[test]
+    fn timers_fire_in_delay_order_then_insertion_order() {
+        let mut rt = timer_rt();
+        rt.eval(
+            "globalThis.order = [];
+             setTimeout(() => order.push('c'), 30);
+             setTimeout(() => order.push('a1'), 5);
+             setTimeout(() => order.push('a2'), 5);
+             setTimeout(() => order.push('b'), 15);",
+        )
+        .unwrap();
+        pump_for(&mut rt, 80);
+        assert_eq!(rt.eval("order.join(',')").unwrap(), "a1,a2,b,c");
+    }
+
+    #[test]
+    fn clear_timeout_prevents_a_pending_timer() {
+        let mut rt = timer_rt();
+        rt.eval(
+            "globalThis.fired = [];
+             const keep = setTimeout(() => fired.push('keep'), 10);
+             const drop = setTimeout(() => fired.push('drop'), 10);
+             clearTimeout(drop);
+             clearTimeout(undefined);
+             clearTimeout(0);",
+        )
+        .unwrap();
+        pump_for(&mut rt, 60);
+        assert_eq!(rt.eval("fired.join(',')").unwrap(), "keep");
+    }
+
+    #[test]
+    fn an_interval_repeats_until_cleared() {
+        let mut rt = timer_rt();
+        rt.eval(
+            "globalThis.ticks = 0;
+             globalThis.h = setInterval(() => {
+               ticks += 1;
+               if (ticks === 3) clearInterval(h);
+             }, 5);",
+        )
+        .unwrap();
+        pump_for(&mut rt, 120);
+        assert_eq!(rt.eval("String(ticks)").unwrap(), "3");
+    }
+
+    #[test]
+    fn extra_arguments_reach_the_callback() {
+        let mut rt = timer_rt();
+        rt.eval("globalThis.got = ''; setTimeout((a, b) => { got = a + ':' + b }, 1, 'x', 7);")
+            .unwrap();
+        pump_for(&mut rt, 40);
+        assert_eq!(rt.eval("got").unwrap(), "x:7");
+    }
+
+    /// The HTML microtask checkpoint: a timer is a TASK, so microtasks it
+    /// enqueues drain before the NEXT timer runs.
+    ///
+    /// Both timers share a deadline and the pump is called ONCE after both are
+    /// due, so they fire in the same pump and the placement of the drain is
+    /// observable. An earlier version of this test polled while the timers came
+    /// due at different times — so each got its own drain regardless, and the
+    /// test passed with the checkpoint batched to the end of the pump. It could
+    /// not fail, which is worse than not existing.
+    #[test]
+    fn microtasks_drain_between_timers_not_after_all_of_them() {
+        let mut rt = timer_rt();
+        rt.eval(
+            "globalThis.order = [];
+             setTimeout(() => { order.push('t1'); Promise.resolve().then(() => order.push('m1')); }, 1);
+             setTimeout(() => { order.push('t2'); Promise.resolve().then(() => order.push('m2')); }, 1);",
+        )
+        .unwrap();
+        // Both deadlines pass with no pump in between.
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        assert_eq!(rt.pump(), 2, "both timers must fire in one pump");
+        assert_eq!(
+            rt.eval("order.join(',')").unwrap(),
+            "t1,m1,t2,m2",
+            "batched drain would give t1,t2,m1,m2"
+        );
+    }
+
+    /// A throwing timer must not cancel the timers already due behind it,
+    /// exactly as an unhandled error in one task does not stop the next.
+    #[test]
+    fn a_throwing_timer_does_not_stop_the_others() {
+        let mut rt = timer_rt();
+        rt.eval(
+            "globalThis.order = [];
+             setTimeout(() => { order.push('before'); throw new Error('boom'); }, 5);
+             setTimeout(() => order.push('after'), 10);",
+        )
+        .unwrap();
+        pump_for(&mut rt, 80);
+        assert_eq!(rt.eval("order.join(',')").unwrap(), "before,after");
+    }
+
+    /// The string form of setTimeout compiles source, which D4 closed. It
+    /// refuses with a message that says why rather than surfacing a parser
+    /// error from three frames down.
+    #[test]
+    fn the_string_form_of_set_timeout_is_refused_clearly() {
+        let mut rt = timer_rt();
+        let caught = rt
+            .eval("try { setTimeout('globalThis.x = 1', 0); 'no throw' } catch (e) { e.message }")
+            .unwrap();
+        assert!(caught.contains("disabled"), "unexpected: {caught}");
+    }
+
+    #[test]
+    fn performance_now_advances_and_shares_the_runtime_origin() {
+        let mut rt = timer_rt();
+        let first: f64 = rt
+            .eval("String(performance.now())")
+            .unwrap()
+            .parse()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let second: f64 = rt
+            .eval("String(performance.now())")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(second > first, "{second} !> {first}");
+        assert!(second - first >= 15.0, "advanced only {}ms", second - first);
+        // Milliseconds since the runtime started, not since the epoch.
+        assert!(first < 60_000.0, "not a runtime-relative clock: {first}");
+    }
+
+    /// Timers and off-thread completions share one pump and both make
+    /// progress — the loop is one loop, not two.
+    #[test]
+    fn timers_and_completions_interleave_in_one_pump() {
+        let mut rt = timer_rt();
+        rt.eval(
+            "globalThis.order = [];
+             setTimeout(() => order.push('timer'), 5);
+             __ibex2_async_echo('completion').then(v => order.push(v));",
+        )
+        .unwrap();
+        pump_for(&mut rt, 80);
+        let order = rt.eval("order.join(',')").unwrap();
+        assert!(order.contains("timer"), "timer did not fire: {order}");
+        assert!(order.contains("completion"), "completion lost: {order}");
     }
 
     /// The assertion that keeps the fork from growing back: a host function

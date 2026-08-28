@@ -9,4 +9,5 @@ pub mod console;
 pub mod fetch;
 pub mod headers_ops;
 pub mod text;
+pub mod timers;
 pub mod url;
