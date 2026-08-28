@@ -1097,6 +1097,202 @@ mod tests {
         assert_eq!(rt.eval("status").unwrap(), "200");
     }
 
+    // --- Can a capability system stand up without patching the engine? ------
+    //
+    // The boundary answers "is this operation permitted for the authority
+    // presented". It does not answer "what authority does this code have" —
+    // that is reachability, and reachability is what the fork's compartment
+    // patches used to enforce. These tests check that vanilla Hermes can
+    // enforce it instead.
+
+    /// The shape LLP 0060 D2 requires, built with nothing but a function
+    /// parameter: a module receives its capability as an argument, and a module
+    /// that was not handed one cannot reach it.
+    ///
+    /// `deleteGlobal` stands in for a loader that never publishes the binding
+    /// globally in the first place.
+    #[test]
+    fn a_module_not_handed_a_capability_cannot_reach_one() {
+        let server = TestServer::start("payload");
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", server.origin()));
+
+        rt.eval(
+            "globalThis.__moduleA = (function (fetchBinding) {
+               return { call: function (url) { return fetchBinding(url); } };
+             })(__ibex2_fetch);
+             // The loader's job: nothing capability-bearing stays ambient.
+             delete globalThis.__ibex2_fetch;",
+        )
+        .unwrap();
+
+        // Module A holds it and works.
+        rt.eval(&format!(
+            "globalThis.aResult = 'pending';
+             __moduleA.call('{}/x').then(h => {{ aResult = 'ok:' + __ibex2_response_field(h, 0); }});",
+            server.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("aResult").unwrap(), "ok:200");
+
+        // Module B, given nothing, has nothing.
+        assert_eq!(
+            rt.eval("typeof __ibex2_fetch").unwrap(),
+            "undefined",
+            "the capability is still ambient"
+        );
+    }
+
+    /// Every escape that requires COMPILING source is closed by
+    /// `EnableEval(false)` at construction. No patch involved.
+    #[test]
+    fn escapes_that_compile_source_are_closed() {
+        let (mut rt, _grants) = fetch_rt("net.fetch http://127.0.0.1:1");
+        rt.eval("delete globalThis.__ibex2_fetch;").unwrap();
+
+        let escapes = [
+            "eval('globalThis')",
+            "(0, eval)('globalThis')",
+            "new Function('return globalThis')()",
+            // The Function constructor reached the long way round, through an
+            // ordinary object's constructor — the classic sandbox escape.
+            "({}).constructor.constructor('return globalThis')()",
+            "[].constructor.constructor('return 1')()",
+            "(function(){}).constructor('x', 'return x')(1)",
+        ];
+        for escape in escapes {
+            let program = format!("try {{ {escape}; 'ESCAPED' }} catch (e) {{ 'blocked' }}");
+            assert_eq!(
+                rt.eval(&program).unwrap(),
+                "blocked",
+                "escape succeeded: {escape}"
+            );
+        }
+    }
+
+    /// **`Function("return this")` is NOT closed, and the model survives it.**
+    ///
+    /// Hermes serves that exact literal from a cached fast path that compiles
+    /// nothing, so `EnableEval(false)` does not gate it — which is precisely
+    /// what carried patch 0014 exists to fix. LLP 0060 D4 claimed
+    /// construction-time configuration retired that patch; it does not.
+    ///
+    /// It is nevertheless harmless here, and the reason is the whole argument
+    /// for the design: **the capability model never depended on making the
+    /// global object unreachable.** It depends on the global object being
+    /// EMPTY OF AUTHORITY, which is a far weaker property and survives this
+    /// hole completely. Reaching `globalThis` buys nothing when nothing
+    /// capability-bearing is on it.
+    ///
+    /// This test asserts both halves: the hole is open, and it yields nothing.
+    #[test]
+    fn the_return_this_fast_path_is_open_and_yields_no_authority() {
+        let (mut rt, _grants) = fetch_rt("net.fetch http://127.0.0.1:1");
+        rt.eval("delete globalThis.__ibex2_fetch;").unwrap();
+
+        // Open — and if a future engine or config closes it, this line fails
+        // and the comment above needs revisiting rather than silently rotting.
+        assert_eq!(
+            rt.eval("String(({}).constructor.constructor('return this')())")
+                .unwrap(),
+            "[object global]",
+            "the return-this fast path closed; LLP 0060 D4 may now be true"
+        );
+
+        // ...and worth nothing, which is the property that actually matters.
+        assert_eq!(
+            rt.eval(
+                "const g = ({}).constructor.constructor('return this')();
+                 String(typeof g.__ibex2_fetch)"
+            )
+            .unwrap(),
+            "undefined"
+        );
+        assert_eq!(
+            rt.eval(
+                "const g = ({}).constructor.constructor('return this')();
+                 Object.getOwnPropertyNames(g).filter(n => n.indexOf('fetch') !== -1).length"
+            )
+            .unwrap(),
+            "0"
+        );
+    }
+
+    /// Two modules, two grants, one runtime — and neither can reach the
+    /// other's binding. This is D2's property, demonstrated without a module
+    /// loader and without a patched engine.
+    #[test]
+    fn two_modules_in_one_runtime_hold_different_authority() {
+        let allowed = TestServer::start("allowed payload");
+        let forbidden = TestServer::start("forbidden payload");
+
+        // One runtime, but two bindings built from two different grant sets.
+        let mut rt = with_stdlib();
+        let grants_a = Grants::parse(&format!("net.fetch {}", allowed.origin())).unwrap();
+        assert!(rt.install_fetch(&grants_a));
+        rt.eval("globalThis.__a = __ibex2_fetch; delete globalThis.__ibex2_fetch;")
+            .unwrap();
+
+        let grants_b = Grants::parse(&format!("net.fetch {}", forbidden.origin())).unwrap();
+        assert!(rt.install_fetch(&grants_b));
+        rt.eval("globalThis.__b = __ibex2_fetch; delete globalThis.__ibex2_fetch;")
+            .unwrap();
+
+        // A may reach `allowed` and not `forbidden`; B is the mirror image.
+        rt.eval(&format!(
+            "globalThis.r = {{}};
+             __a('{a}/x').then(() => r.aa = 'ok', e => r.aa = e.message);
+             __a('{f}/x').then(() => r.af = 'ok', e => r.af = e.message);
+             __b('{f}/x').then(() => r.bf = 'ok', e => r.bf = e.message);
+             __b('{a}/x').then(() => r.ba = 'ok', e => r.ba = e.message);",
+            a = allowed.origin(),
+            f = forbidden.origin()
+        ))
+        .unwrap();
+        rt.pump_until(4);
+
+        assert_eq!(rt.eval("r.aa").unwrap(), "ok");
+        assert_eq!(rt.eval("r.bf").unwrap(), "ok");
+        assert_eq!(rt.eval("r.af").unwrap(), "denied: net.fetch");
+        assert_eq!(rt.eval("r.ba").unwrap(), "denied: net.fetch");
+    }
+
+    /// The honest limit, pinned so nobody mistakes the above for a sandbox.
+    ///
+    /// A module that HOLDS a capability can hand it to anyone — that is the
+    /// explicit-handoff class, out of scope in LLP 0013, LLP 0057 §4, and
+    /// LLP 0060 §3. It is not defended, and this test exists so that stays a
+    /// documented property rather than a discovered surprise.
+    #[test]
+    fn voluntary_handoff_is_not_defended_and_this_is_by_design() {
+        let server = TestServer::start("payload");
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", server.origin()));
+
+        rt.eval(
+            "globalThis.__holder = (function (f) {
+               // A module that leaks its own binding. Nothing stops it.
+               globalThis.__leaked = f;
+               return {};
+             })(__ibex2_fetch);
+             delete globalThis.__ibex2_fetch;",
+        )
+        .unwrap();
+
+        rt.eval(&format!(
+            "globalThis.stolen = 'pending';
+             __leaked('{}/x').then(h => {{ stolen = 'ok:' + __ibex2_response_field(h, 0); }});",
+            server.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+
+        assert_eq!(
+            rt.eval("stolen").unwrap(),
+            "ok:200",
+            "handoff is expected to work; capability systems bound reach, not trust"
+        );
+    }
+
     /// The assertion that keeps the fork from growing back: a host function
     /// installed for one runtime is not ambient in another. This is the shape
     /// LLP 0060 D2 needs from the engine — per-runtime, not global-by-default.
