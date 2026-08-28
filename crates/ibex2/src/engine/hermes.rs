@@ -22,6 +22,7 @@ extern "C" {
     fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_pump(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_drain_microtasks(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_wait(handle: *mut c_void, timeout_ms: u64) -> c_int;
     fn ibex2_hermes_install_fetch(handle: *mut c_void, grants: *const c_void) -> c_int;
     fn ibex2_grants_create(spec: *const c_char) -> *const c_void;
     fn ibex2_grants_destroy(grants: *const c_void);
@@ -125,21 +126,25 @@ impl Hermes {
         unsafe { ibex2_hermes_pump(self.handle) }
     }
 
-    /// Pump until `expected` completions have been delivered.
+    /// Pump until `expected` completions have been delivered, or the deadline
+    /// passes.
     ///
-    /// Work runs on other threads, so a single pump may find the queue empty.
-    /// Real embedders block on the completion signal; this yields, which keeps
-    /// the tests honest about the fact that completion is genuinely concurrent.
+    /// Blocks on the completion signal rather than spinning. The earlier
+    /// version looped a fixed number of times yielding, which raced through
+    /// 10,000 iterations in microseconds and gave up long before a real network
+    /// request could finish — fine against a loopback socket, useless against
+    /// NSURLSession.
     pub fn pump_until(&mut self, expected: i32) -> i32 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let mut delivered = 0;
-        for _ in 0..10_000 {
+        loop {
             delivered += self.pump().max(0);
-            if delivered >= expected {
-                break;
+            if delivered >= expected || std::time::Instant::now() >= deadline {
+                return delivered;
             }
-            std::thread::yield_now();
+            // SAFETY: `handle` is non-null for the lifetime of self.
+            unsafe { ibex2_hermes_wait(self.handle, 100) };
         }
-        delivered
     }
 
     /// Install `fetch`, carrying `grants` for the lifetime of the binding.
@@ -725,6 +730,15 @@ mod tests {
 
     impl TestServer {
         fn start(reply: &'static str) -> Self {
+            Self::start_with(reply, None)
+        }
+
+        /// A server that answers every request with a 302 to `location`.
+        fn start_redirecting_to(location: String) -> Self {
+            Self::start_with("unused", Some(location))
+        }
+
+        fn start_with(reply: &'static str, redirect_to: Option<String>) -> Self {
             use std::io::{Read, Write};
             let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
             let port = listener.local_addr().unwrap().port();
@@ -779,11 +793,16 @@ mod tests {
                     } else {
                         reply.to_string()
                     };
-                    let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Ibex: yes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                        body.len(),
-                        body
-                    );
+                    let response = match &redirect_to {
+                        Some(location) => format!(
+                            "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        ),
+                        None => format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Ibex: yes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        ),
+                    };
                     let _ = stream.write_all(response.as_bytes());
                     let _ = stream.flush();
                 }
@@ -962,6 +981,87 @@ mod tests {
         let err = rt.eval("err").unwrap();
         assert!(err.contains("Failed to fetch"), "unexpected: {err}");
         assert!(!err.contains("denied"), "a network error is not a denial");
+    }
+
+    /// Rust follows the redirect, not the platform. Two server hits prove the
+    /// second request was issued by the semantics layer.
+    #[test]
+    fn a_redirect_within_the_granted_origin_is_followed_by_rust() {
+        let destination = TestServer::start("arrived");
+        let redirector =
+            TestServer::start_redirecting_to(format!("{}/final", destination.origin()));
+
+        let (mut rt, _grants) = fetch_rt(&format!(
+            "net.fetch {}\nnet.fetch {}",
+            redirector.origin(),
+            destination.origin()
+        ));
+        rt.eval(&format!(
+            "globalThis.body = '';
+             __ibex2_fetch('{}/start').then(h => {{
+               body = __ibex2_text_decode(__ibex2_response_field(h, 4));
+             }});",
+            redirector.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+
+        assert_eq!(rt.eval("body").unwrap(), "arrived");
+        assert_eq!(redirector.hits().len(), 1);
+        assert_eq!(destination.hits().len(), 1);
+    }
+
+    /// **The reason the platform must not follow redirects.**
+    ///
+    /// NSURLSession follows them by default. If it did here, a grant for the
+    /// redirector would silently deliver a response from an origin that was
+    /// never granted — and Rust would never see the hop to refuse it. The
+    /// delegate in darwin_http.mm refuses every redirect so the 3xx comes back
+    /// for the capability check. This test fails if that delegate is removed.
+    #[test]
+    fn the_platform_does_not_launder_a_redirect_past_the_capability_check() {
+        let ungranted = TestServer::start("secret payload");
+        let redirector = TestServer::start_redirecting_to(format!("{}/steal", ungranted.origin()));
+
+        // Granted the redirector ONLY.
+        let (mut rt, _grants) = fetch_rt(&format!("net.fetch {}", redirector.origin()));
+        rt.eval(&format!(
+            "globalThis.result = 'pending';
+             __ibex2_fetch('{}/start')
+               .then(h => {{ result = 'leaked:' + __ibex2_text_decode(__ibex2_response_field(h, 4)); }})
+               .catch(e => {{ result = e.message; }});",
+            redirector.origin()
+        ))
+        .unwrap();
+        rt.pump_until(1);
+
+        assert_eq!(rt.eval("result").unwrap(), "denied: net.fetch");
+        assert_eq!(redirector.hits().len(), 1, "the first hop is granted");
+        assert!(
+            ungranted.hits().is_empty(),
+            "the ungranted origin was reached — the platform followed the redirect: {:?}",
+            ungranted.hits()
+        );
+    }
+
+    /// TLS against the real internet, through the system certificate store.
+    /// Ignored by default: it needs a network, and a test that fails on a plane
+    /// is a test people learn to skip. Run with `--ignored` to confirm the
+    /// platform transport genuinely works end to end.
+    #[test]
+    #[ignore]
+    fn https_works_through_the_platform_transport() {
+        let (mut rt, _grants) = fetch_rt("net.fetch https://example.com");
+        rt.eval(
+            "globalThis.status = 0; globalThis.err = '';
+             __ibex2_fetch('https://example.com/')
+               .then(h => { status = __ibex2_response_field(h, 0); })
+               .catch(e => { err = e.message; });",
+        )
+        .unwrap();
+        rt.pump_until(1);
+        assert_eq!(rt.eval("err").unwrap(), "", "fetch failed");
+        assert_eq!(rt.eval("status").unwrap(), "200");
     }
 
     /// The assertion that keeps the fork from growing back: a host function

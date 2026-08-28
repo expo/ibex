@@ -312,6 +312,8 @@ void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
 extern "C" int ibex2_async_begin(const void *queue, const void *grants,
                                  uint32_t op, const Ibex2AbiValue *argv,
                                  size_t argc, uint64_t task_id);
+extern "C" int ibex2_wait_for_completion(const void *queue,
+                                         unsigned long long timeout_ms);
 extern "C" int ibex2_response_field(const void *queue, double handle,
                                     uint32_t field, const Ibex2AbiValue *name,
                                     Ibex2AbiValue *out);
@@ -440,6 +442,18 @@ int ibex2_hermes_pump(void *handle) {
   // we just ran.
   runtime.drainMicrotasks();
   return delivered;
+}
+
+/// Block until a completion is ready, or the timeout elapses.
+///
+/// A real embedder calls this instead of spinning: it wakes exactly when there
+/// is work rather than burning a core to discover there is none.
+int ibex2_hermes_wait(void *handle, unsigned long long timeout_ms) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr) {
+    return 0;
+  }
+  return ibex2_wait_for_completion(rt->queue, timeout_ms);
 }
 
 /// Drain microtasks without delivering completions — the "JavaScript ran and

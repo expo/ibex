@@ -77,6 +77,23 @@ impl CompletionQueue {
         self.ready.lock().expect("completion queue poisoned").len()
     }
 
+    /// Block until at least one completion is ready, or the timeout elapses.
+    ///
+    /// This is what the Condvar is for. An embedder that polls in a loop burns
+    /// a core to do nothing; one that blocks here wakes exactly when there is
+    /// work. Returns whether anything is ready.
+    pub fn wait(&self, timeout: std::time::Duration) -> bool {
+        let ready = self.ready.lock().expect("completion queue poisoned");
+        if !ready.is_empty() {
+            return true;
+        }
+        let (ready, _) = self
+            .signal
+            .wait_timeout(ready, timeout)
+            .expect("completion queue poisoned");
+        !ready.is_empty()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -157,9 +174,9 @@ impl RuntimeState {
 /// The result must be released exactly once with `ibex2_queue_destroy`.
 #[no_mangle]
 pub extern "C" fn ibex2_queue_create() -> *const RuntimeState {
-    Arc::into_raw(Arc::new(RuntimeState::new(Box::new(
-        crate::transport::DevTcpTransport::new(),
-    ))))
+    Arc::into_raw(Arc::new(RuntimeState::new(
+        crate::transport::default_transport(),
+    )))
 }
 
 /// # Safety

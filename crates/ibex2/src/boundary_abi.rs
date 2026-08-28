@@ -572,6 +572,25 @@ fn run_async(
     }
 }
 
+/// Block until a completion is ready or `timeout_ms` elapses.
+///
+/// # Safety
+/// `state` must be a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_wait_for_completion(
+    state: *const crate::task::RuntimeState,
+    timeout_ms: u64,
+) -> c_int {
+    let Some(state) = crate::task::clone_queue(state) else {
+        return 0;
+    };
+    i32::from(
+        state
+            .queue
+            .wait(std::time::Duration::from_millis(timeout_ms)),
+    )
+}
+
 /// Take one ready completion for the engine to deliver.
 ///
 /// Returns 1 when a completion was taken and 0 when the queue is empty.
