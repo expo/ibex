@@ -32,6 +32,20 @@ pub struct Completion {
     pub result: Result<HostValue, HostError>,
 }
 
+/// One admitted host task.
+///
+/// LLP 0058.000.000 §8: Rust owns **one** sequence-numbered FIFO of admitted
+/// host tasks, *including timer deliveries and async settlements*. Two queues
+/// drained by different rules cannot state a single order between a timer and a
+/// settlement, which is what an application observes.
+#[derive(Debug)]
+pub enum HostTask {
+    /// An off-thread operation settled.
+    Settlement(Completion),
+    /// A timer came due and was admitted.
+    Timer { handle: u64 },
+}
+
 /// Completions waiting for **one** runtime.
 ///
 /// Per-runtime, not process-global. A shared queue lets two runtimes in the
@@ -40,7 +54,7 @@ pub struct Completion {
 /// concern — it showed up the moment two runtimes existed at once.
 #[derive(Debug, Default)]
 pub struct CompletionQueue {
-    ready: Mutex<VecDeque<Completion>>,
+    ready: Mutex<VecDeque<HostTask>>,
     /// Lets an embedder block until there is something to pump instead of
     /// spinning. A runtime that polls in a loop burns a core to do nothing,
     /// which is the default failure mode of this design.
@@ -52,21 +66,26 @@ impl CompletionQueue {
         Self::default()
     }
 
-    /// Publish a completion. Callable from any thread.
+    /// Publish a settlement. Callable from any thread.
     pub fn complete(&self, task_id: u64, result: Result<HostValue, HostError>) {
+        self.admit(HostTask::Settlement(Completion { task_id, result }));
+    }
+
+    /// Admit a task to the FIFO. Order of admission is the order of delivery.
+    pub fn admit(&self, task: HostTask) {
         self.ready
             .lock()
             .expect("completion queue poisoned")
-            .push_back(Completion { task_id, result });
+            .push_back(task);
         self.signal.notify_all();
     }
 
-    /// Take the next completion, if any. Called on the JavaScript thread.
+    /// Take the next admitted task, if any. Called on the JavaScript thread.
     ///
-    /// FIFO, and deliberately so: two operations that complete in a given order
-    /// are delivered in that order, so the ordering an application observes is
-    /// the ordering that actually happened rather than a scheduling artifact.
-    pub fn take(&self) -> Option<Completion> {
+    /// FIFO across BOTH kinds: a timer admitted before a settlement runs before
+    /// it. The order an application observes is the order things became ready,
+    /// not an artifact of which queue the driver happened to look at first.
+    pub fn take(&self) -> Option<HostTask> {
         self.ready
             .lock()
             .expect("completion queue poisoned")
@@ -121,6 +140,9 @@ pub struct RuntimeState {
     started: std::time::Instant,
     /// Where modules are loaded from, and what each one may reach.
     loader: Mutex<Option<LoaderConfig>>,
+    /// True while a drive cycle is running, so a nested request records a
+    /// wakeup instead of starting a second host task.
+    driving: std::sync::atomic::AtomicBool,
     /// Work started on another thread and not yet delivered.
     ///
     /// Without this, "is the loop idle?" is answered by looking at the
@@ -141,6 +163,7 @@ impl RuntimeState {
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
             loader: Mutex::new(None),
+            driving: std::sync::atomic::AtomicBool::new(false),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
             transport,
@@ -235,6 +258,20 @@ impl RuntimeState {
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Is the driver already running a cycle?
+    ///
+    /// A drive request made while not `Idle` records a wakeup rather than
+    /// nesting a second host task inside project JavaScript
+    /// (LLP 0058.000.000 §8).
+    pub fn begin_drive(&self) -> bool {
+        !self.driving.swap(true, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn end_drive(&self) {
+        self.driving
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// Nothing queued, nothing in flight, no timer pending.
     pub fn is_idle(&self) -> bool {
         self.queue.is_empty()
@@ -259,11 +296,25 @@ impl RuntimeState {
         self.timers.lock().expect("timers poisoned").clear(handle);
     }
 
-    /// The next timer due now, or none. One at a time: each fired timer is a
-    /// separate task and the engine owes a microtask checkpoint between them.
-    pub fn take_due_timer(&self) -> Option<u64> {
+    /// Move every timer due now into the host-task FIFO, and report how many.
+    ///
+    /// Admission, not delivery: the driver still takes at most one task per
+    /// cycle (LLP 0058.000.000 §8). Intervals reschedule inside `take_due` —
+    /// before their callback runs — so clearing an interval from within its own
+    /// callback removes the next occurrence rather than the one in flight.
+    pub fn admit_due_timers(&self) -> usize {
         let now = self.now();
-        self.timers.lock().expect("timers poisoned").take_due(now)
+        let mut admitted = 0;
+        loop {
+            let due = self.timers.lock().expect("timers poisoned").take_due(now);
+            match due {
+                Some(handle) => {
+                    self.queue.admit(HostTask::Timer { handle });
+                    admitted += 1;
+                }
+                None => return admitted,
+            }
+        }
     }
 
     /// Milliseconds until the next timer, for an embedder that wants to sleep
@@ -411,8 +462,8 @@ pub(crate) unsafe fn clone_queue(queue: *const RuntimeState) -> Option<Arc<Runti
 
 /// The ordering contract an engine adapter must satisfy.
 ///
-/// LLP 0058 OQ1 asks what exactly an adapter must guarantee. This is the
-/// answer, stated so a second engine can be held to it:
+/// **Normative source: LLP 0058.000.000 §8.** This restates the clauses the
+/// tests hold this implementation to; where the two differ, the spec governs.
 ///
 /// **C1.** Resolving a promise from a completion enqueues a microtask; it does
 /// not run the continuation inline. A host call must never re-enter JavaScript
@@ -427,18 +478,22 @@ pub(crate) unsafe fn clone_queue(queue: *const RuntimeState) -> Option<Arc<Runti
 /// **before** any microtask a completion enqueues during it. Completions join
 /// the back of the queue; they do not jump it.
 ///
-/// **C4.** Completions are delivered in the order they were published (FIFO),
-/// independent of how many the pump takes in one pass.
+/// **C4.** Tasks are delivered in the order they were admitted (FIFO), across
+/// timer deliveries and settlements alike — one queue, one order.
 ///
-/// **C5.** A completion is delivered to the runtime that started it, and to no
+/// **C5.** A task is delivered to the runtime that admitted it, and to no
 /// other. Queues are per-runtime.
+///
+/// **C6.** At most **one** host task runs per drive cycle, and a drive request
+/// made while a cycle is running records a wakeup rather than nesting.
 pub struct Pump;
 
 impl Pump {
     pub const CONTRACT: &'static str =
         "C1 resolve enqueues, never re-enters; C2 pump drains transitively; \
-         C3 pre-queued microtasks run first; C4 completions are FIFO; \
-         C5 completions reach only the runtime that started them";
+         C3 pre-queued microtasks run first; C4 one FIFO across timers and \
+         settlements; C5 tasks reach only their own runtime; \
+         C6 one host task per drive, never nested";
 }
 
 #[cfg(test)]
@@ -452,11 +507,13 @@ mod tests {
         queue.complete(2, Ok(HostValue::Number(2.0)));
         queue.complete(3, Err(HostError::Failed("third".into())));
 
-        assert_eq!(queue.take().unwrap().task_id, 1);
-        assert_eq!(queue.take().unwrap().task_id, 2);
-        let third = queue.take().unwrap();
-        assert_eq!(third.task_id, 3);
-        assert!(third.result.is_err());
+        let ids: Vec<u64> = (0..3)
+            .map(|_| match queue.take().unwrap() {
+                HostTask::Settlement(c) => c.task_id,
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        assert_eq!(ids, vec![1, 2, 3]);
         assert!(queue.take().is_none());
     }
 
@@ -470,14 +527,19 @@ mod tests {
         .join()
         .expect("worker thread");
 
-        let completion = queue
+        match queue
             .take()
-            .expect("a completion crossed the thread boundary");
-        assert_eq!(completion.task_id, 99);
-        assert_eq!(
-            completion.result.unwrap(),
-            HostValue::Str("from a worker".into())
-        );
+            .expect("a completion crossed the thread boundary")
+        {
+            HostTask::Settlement(completion) => {
+                assert_eq!(completion.task_id, 99);
+                assert_eq!(
+                    completion.result.unwrap(),
+                    HostValue::Str("from a worker".into())
+                );
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     /// C5 — two queues do not see each other's work. This is the property whose
@@ -492,14 +554,12 @@ mod tests {
         first.complete(1, Ok(HostValue::Str("first".into())));
         second.complete(1, Ok(HostValue::Str("second".into())));
 
-        assert_eq!(
-            first.take().unwrap().result.unwrap(),
-            HostValue::Str("first".into())
-        );
-        assert_eq!(
-            second.take().unwrap().result.unwrap(),
-            HostValue::Str("second".into())
-        );
+        let payload = |q: &CompletionQueue| match q.take().unwrap() {
+            HostTask::Settlement(c) => c.result.unwrap(),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(payload(&first), HostValue::Str("first".into()));
+        assert_eq!(payload(&second), HostValue::Str("second".into()));
         assert!(first.take().is_none());
         assert!(second.take().is_none());
     }
