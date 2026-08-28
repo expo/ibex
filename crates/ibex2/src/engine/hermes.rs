@@ -19,6 +19,7 @@ extern "C" {
         value: *const c_char,
     ) -> c_int;
     fn ibex2_hermes_free_string(value: *mut c_char);
+    fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
 }
 
 /// Whether JavaScript may compile source of its own.
@@ -72,6 +73,18 @@ impl Hermes {
             1 => Err(JsError(text.unwrap_or_else(|| "unknown error".into()))),
             other => panic!("ibex2_hermes_eval returned {other}"),
         }
+    }
+
+    /// Install the pure standard-library tier: `console`, `btoa`/`atob`, and
+    /// the text/URL host calls the binding layer will wrap.
+    pub fn install_stdlib(&mut self) -> bool {
+        // SAFETY: `handle` is non-null for the lifetime of self.
+        unsafe { ibex2_hermes_install_stdlib(self.handle) == 0 }
+    }
+
+    /// Drain the console records this runtime's thread has queued.
+    pub fn drain_console(&self) -> Vec<crate::stdlib::console::Record> {
+        crate::boundary_abi::drain_console()
     }
 
     /// Install a zero-argument host function returning a fixed string.
@@ -160,6 +173,139 @@ mod tests {
         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
         assert!(rt.install_probe("__ibex2_probe", "from-rust"));
         assert_eq!(rt.eval("__ibex2_probe()").unwrap(), "from-rust");
+    }
+
+    fn with_stdlib() -> Hermes {
+        let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+        assert!(rt.install_stdlib(), "stdlib install failed");
+        // Each test gets a clean queue; the console buffer is per-thread and
+        // Rust's test harness reuses threads.
+        let _ = rt.drain_console();
+        rt
+    }
+
+    #[test]
+    fn console_from_javascript_reaches_the_rust_queue() {
+        let mut rt = with_stdlib();
+        rt.eval("console.log('hello', 42, true); console.error('bad')")
+            .unwrap();
+
+        let records = rt.drain_console();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].message, "hello 42 true");
+        assert_eq!(records[0].level, crate::stdlib::console::Level::Log);
+        assert_eq!(records[1].message, "bad");
+        assert_eq!(records[1].level, crate::stdlib::console::Level::Error);
+    }
+
+    /// Formatting is Rust's, not the engine's — which is the point of §3.1.
+    /// A JS engine would print 1 for `1.0` too, but it is Rust deciding here.
+    #[test]
+    fn console_number_formatting_is_rust_owned() {
+        let mut rt = with_stdlib();
+        rt.eval("console.log(1.0, 1.5, NaN, Infinity, -0)").unwrap();
+        let records = rt.drain_console();
+        assert_eq!(records[0].message, "1 1.5 NaN Infinity 0");
+    }
+
+    #[test]
+    fn console_does_not_flush_synchronously() {
+        let mut rt = with_stdlib();
+        rt.eval("for (let i = 0; i < 100; i++) console.log(i)")
+            .unwrap();
+        // Nothing was written anywhere; it is all still queued.
+        assert_eq!(rt.drain_console().len(), 100);
+        assert_eq!(rt.drain_console().len(), 0);
+    }
+
+    #[test]
+    fn btoa_and_atob_round_trip_from_javascript() {
+        let mut rt = with_stdlib();
+        assert_eq!(rt.eval("btoa('hello')").unwrap(), "aGVsbG8=");
+        assert_eq!(rt.eval("atob('aGVsbG8=')").unwrap(), "hello");
+        assert_eq!(rt.eval("atob(btoa('round trip'))").unwrap(), "round trip");
+    }
+
+    /// The Rust error taxonomy has to arrive as a real JavaScript throw, or
+    /// application code cannot tell success from failure.
+    #[test]
+    fn a_rust_error_becomes_a_catchable_javascript_throw() {
+        let mut rt = with_stdlib();
+        let caught = rt
+            .eval("try { btoa('€'); 'no throw' } catch (e) { 'caught: ' + e.message }")
+            .unwrap();
+        assert!(
+            caught.starts_with("caught: InvalidCharacterError"),
+            "unexpected: {caught}"
+        );
+    }
+
+    #[test]
+    fn text_encode_returns_bytes_javascript_can_read() {
+        let mut rt = with_stdlib();
+        // The result is a real ArrayBuffer, so a typed-array view works.
+        assert_eq!(
+            rt.eval("new Uint8Array(__ibex2_text_encode('hi')).join(',')")
+                .unwrap(),
+            "104,105"
+        );
+        // Multi-byte UTF-8 crosses intact.
+        assert_eq!(
+            rt.eval("new Uint8Array(__ibex2_text_encode('€')).join(',')")
+                .unwrap(),
+            "226,130,172"
+        );
+    }
+
+    #[test]
+    fn bytes_round_trip_through_the_boundary_in_both_directions() {
+        let mut rt = with_stdlib();
+        assert_eq!(
+            rt.eval("__ibex2_text_decode(__ibex2_text_encode('héllo €'))")
+                .unwrap(),
+            "héllo €"
+        );
+    }
+
+    #[test]
+    fn url_parsing_is_the_real_whatwg_one() {
+        let mut rt = with_stdlib();
+        assert_eq!(
+            rt.eval("__ibex2_url_parse('../c', 'https://example.com/a/b/')")
+                .unwrap(),
+            "https://example.com/a/c"
+        );
+        // IDNA, which is exactly what a hand-rolled parser gets wrong.
+        assert_eq!(
+            rt.eval("__ibex2_url_parse('https://例え.テスト/')")
+                .unwrap(),
+            "https://xn--r8jz45g.xn--zckzah/"
+        );
+    }
+
+    #[test]
+    fn an_invalid_url_throws_rather_than_returning_something_plausible() {
+        let mut rt = with_stdlib();
+        let caught = rt
+            .eval("try { __ibex2_url_parse('not a url'); 'no throw' } catch (e) { 'caught' }")
+            .unwrap();
+        assert_eq!(caught, "caught");
+    }
+
+    #[test]
+    fn search_params_get_reads_through_the_boundary() {
+        let mut rt = with_stdlib();
+        assert_eq!(
+            rt.eval("__ibex2_search_params_get('?a=1&b=2&a=3', 'a')")
+                .unwrap(),
+            "1"
+        );
+        // A missing name is null, not undefined and not empty string.
+        assert_eq!(
+            rt.eval("String(__ibex2_search_params_get('?a=1', 'zz'))")
+                .unwrap(),
+            "null"
+        );
     }
 
     /// The assertion that keeps the fork from growing back: a host function

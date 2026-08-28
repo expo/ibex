@@ -120,3 +120,181 @@ int ibex2_hermes_install_probe(void *handle, const char *name,
 void ibex2_hermes_free_string(char *value) { std::free(value); }
 
 } // extern "C"
+
+// ---------------------------------------------------------------------------
+// The host-call boundary (LLP 0059.000 §1), bridged onto stock JSI.
+// ---------------------------------------------------------------------------
+
+// Mirrors ibex2::boundary_abi::AbiValue. Kept in lockstep by the round-trip
+// tests: any drift shows up as a wrong tag rather than silent corruption.
+struct Ibex2AbiValue {
+  int32_t tag;
+  double number;
+  const unsigned char *data;
+  size_t len;
+};
+
+enum : int32_t {
+  IBEX2_TAG_UNDEFINED = 0,
+  IBEX2_TAG_NULL = 1,
+  IBEX2_TAG_BOOL = 2,
+  IBEX2_TAG_NUMBER = 3,
+  IBEX2_TAG_STRING = 4,
+  IBEX2_TAG_BYTES = 5,
+};
+
+extern "C" int ibex2_host_call(uint32_t op, const Ibex2AbiValue *argv,
+                               size_t argc, Ibex2AbiValue *out);
+extern "C" void ibex2_host_release(Ibex2AbiValue *value);
+
+namespace {
+
+// Convert a JS argument. Strings are decoded into `owned`, which the caller
+// keeps alive for the duration of the host call so the span stays valid.
+Ibex2AbiValue to_abi(jsi::Runtime &rt, const jsi::Value &value,
+                     std::vector<std::string> &owned) {
+  Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+  if (value.isUndefined()) {
+    return out;
+  }
+  if (value.isNull()) {
+    out.tag = IBEX2_TAG_NULL;
+    return out;
+  }
+  if (value.isBool()) {
+    out.tag = IBEX2_TAG_BOOL;
+    out.number = value.getBool() ? 1.0 : 0.0;
+    return out;
+  }
+  if (value.isNumber()) {
+    out.tag = IBEX2_TAG_NUMBER;
+    out.number = value.getNumber();
+    return out;
+  }
+  if (value.isObject() && value.getObject(rt).isArrayBuffer(rt)) {
+    auto buffer = value.getObject(rt).getArrayBuffer(rt);
+    out.tag = IBEX2_TAG_BYTES;
+    out.data = buffer.data(rt);
+    out.len = buffer.size(rt);
+    return out;
+  }
+  // Everything else stringifies, which is what console does with its arguments.
+  owned.push_back(value.toString(rt).utf8(rt));
+  const std::string &text = owned.back();
+  out.tag = IBEX2_TAG_STRING;
+  out.data = reinterpret_cast<const unsigned char *>(text.data());
+  out.len = text.size();
+  return out;
+}
+
+// Byte results are copied into an engine-owned buffer and the Rust allocation
+// released immediately. LLP 0059.000 §1.4 wants buffers to cross by handle
+// "wherever the operation's lifetime allows it"; establishing that shared
+// lifetime is its own step, so this copies for now and does not pretend
+// otherwise.
+class OwnedBytes : public jsi::MutableBuffer {
+public:
+  explicit OwnedBytes(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
+  size_t size() const override { return bytes_.size(); }
+  uint8_t *data() override { return bytes_.data(); }
+
+private:
+  std::vector<uint8_t> bytes_;
+};
+
+jsi::Value from_abi(jsi::Runtime &rt, Ibex2AbiValue &value) {
+  switch (value.tag) {
+  case IBEX2_TAG_NULL:
+    return jsi::Value::null();
+  case IBEX2_TAG_BOOL:
+    return jsi::Value(value.number != 0.0);
+  case IBEX2_TAG_NUMBER:
+    return jsi::Value(value.number);
+  case IBEX2_TAG_STRING: {
+    std::string text(reinterpret_cast<const char *>(value.data), value.len);
+    return jsi::String::createFromUtf8(rt, text);
+  }
+  case IBEX2_TAG_BYTES: {
+    std::vector<uint8_t> bytes(value.data, value.data + value.len);
+    return jsi::Value(
+        rt, jsi::ArrayBuffer(rt, std::make_shared<OwnedBytes>(std::move(bytes))));
+  }
+  default:
+    return jsi::Value::undefined();
+  }
+}
+
+// One host function per op, so JavaScript sees ordinary callables while every
+// one of them funnels through the single ibex2_host_call surface.
+jsi::Function make_host_binding(jsi::Runtime &runtime, const char *name,
+                                uint32_t op) {
+  auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
+  return jsi::Function::createFromHostFunction(
+      runtime, prop, 1,
+      [op](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+           size_t count) -> jsi::Value {
+        std::vector<std::string> owned;
+        owned.reserve(count);
+        std::vector<Ibex2AbiValue> abi;
+        abi.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+          abi.push_back(to_abi(rt, args[i], owned));
+        }
+        Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+        int status = ibex2_host_call(op, abi.empty() ? nullptr : abi.data(),
+                                     abi.size(), &out);
+        jsi::Value result = from_abi(rt, out);
+        ibex2_host_release(&out);
+        if (status != 0) {
+          // The Rust error taxonomy becomes a JS throw here, so failures are
+          // identical on every platform (LLP 0057 §3).
+          throw jsi::JSError(rt, result.isString()
+                                     ? result.getString(rt).utf8(rt)
+                                     : std::string("host call failed"));
+        }
+        return result;
+      });
+}
+
+void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
+                 uint32_t op) {
+  target.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
+                     make_host_binding(rt, name, op));
+}
+
+} // namespace
+
+extern "C" {
+
+/// Install the pure tier: console, btoa/atob, and a raw host-call escape hatch.
+int ibex2_hermes_install_stdlib(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return -1;
+  }
+  try {
+    jsi::Runtime &runtime = *rt->runtime;
+    jsi::Object global = runtime.global();
+
+    jsi::Object console(runtime);
+    set_binding(runtime, console, "log", 1);
+    set_binding(runtime, console, "info", 2);
+    set_binding(runtime, console, "debug", 3);
+    set_binding(runtime, console, "warn", 4);
+    set_binding(runtime, console, "error", 5);
+    global.setProperty(runtime, jsi::PropNameID::forAscii(runtime, "console"),
+                       std::move(console));
+
+    set_binding(runtime, global, "btoa", 10);
+    set_binding(runtime, global, "atob", 11);
+    set_binding(runtime, global, "__ibex2_text_encode", 20);
+    set_binding(runtime, global, "__ibex2_text_decode", 21);
+    set_binding(runtime, global, "__ibex2_url_parse", 30);
+    set_binding(runtime, global, "__ibex2_search_params_get", 31);
+    return 0;
+  } catch (const std::exception &) {
+    return 1;
+  }
+}
+
+} // extern "C"
