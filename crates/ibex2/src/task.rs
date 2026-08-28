@@ -339,7 +339,7 @@ impl RuntimeState {
 /// Where the loader reads from, and the authority it hands each module.
 #[derive(Debug)]
 pub struct LoaderConfig {
-    pub root: std::path::PathBuf,
+    pub root: crate::loader::Root,
     pub grants: crate::loader::ModuleGrants,
     /// Compiles module wrappers ahead of time. Absent means source loading,
     /// which `rules/RULES.md` forbids for anything shippable and which exists

@@ -1,7 +1,7 @@
 #![cfg(feature = "hermes")]
 //! Probing what the ESM lowering does and does not preserve.
 use ibex2::engine::hermes::{DynamicCode, Hermes};
-use ibex2::loader::ModuleGrants;
+use ibex2::loader::{ModuleGrants, Root};
 use std::path::PathBuf;
 
 struct P(PathBuf);
@@ -20,7 +20,7 @@ impl P {
         let mut rt = Hermes::new(DynamicCode::Closed).unwrap();
         rt.install_stdlib();
         rt.install_bindings().unwrap();
-        rt.set_loader(&self.0, ModuleGrants::none());
+        rt.set_loader(Root::Declared(self.0.clone()), ModuleGrants::none());
         let e = rt.run_entry("./index.js").err().map(|e| e.0);
         rt.run_to_quiescence(std::time::Duration::from_secs(5));
         (
