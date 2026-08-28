@@ -205,7 +205,24 @@ impl Hermes {
     }
 
     /// Point the loader at a project root and its grant manifest.
+    ///
+    /// Without a compiler the loader falls back to source, which
+    /// `rules/RULES.md` forbids for anything shippable; see `set_loader_with`.
     pub fn set_loader(&mut self, root: &std::path::Path, grants: crate::loader::ModuleGrants) {
+        self.set_loader_with(root, grants, None, false)
+    }
+
+    /// Point the loader at a root, with ahead-of-time compilation.
+    pub fn set_loader_with(
+        &mut self,
+        root: &std::path::Path,
+        grants: crate::loader::ModuleGrants,
+        compiler: Option<crate::bytecode::Compiler>,
+        precompiled_only: bool,
+    ) {
+        let manifest = compiler
+            .as_ref()
+            .and_then(|_| crate::bytecode::Manifest::read(&root.join(".ibex2/cache")));
         // SAFETY: `handle` is non-null for the lifetime of self.
         let state = unsafe { ibex2_hermes_state(self.handle) };
         // SAFETY: the state pointer belongs to this runtime and outlives the call.
@@ -213,6 +230,9 @@ impl Hermes {
             state.set_loader(crate::task::LoaderConfig {
                 root: root.to_path_buf(),
                 grants,
+                compiler,
+                precompiled_only,
+                manifest,
             });
         }
     }

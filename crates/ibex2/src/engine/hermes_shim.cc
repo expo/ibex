@@ -514,6 +514,39 @@ int ibex2_hermes_drain_microtasks(void *handle) {
 
 namespace {
 
+/// A jsi::Buffer over bytes the caller owns for the duration of the call.
+///
+/// Safe for SOURCE, which Hermes parses and copies. **Not safe for bytecode**:
+/// Hermes keeps the buffer and reads from it for as long as the module lives,
+/// which is what makes HBC mmap-able and copy-free. Use OwnedBytes there.
+class BorrowedBytes : public jsi::Buffer {
+public:
+  BorrowedBytes(const unsigned char *data, size_t len) : data_(data), len_(len) {}
+  size_t size() const override { return len_; }
+  const uint8_t *data() const override { return data_; }
+
+private:
+  const unsigned char *data_;
+  size_t len_;
+};
+
+/// A jsi::Buffer that OWNS its bytes for as long as Hermes holds the buffer.
+///
+/// Required for bytecode. A borrowed buffer over a local vector produced a
+/// module whose synchronous body ran correctly and whose callbacks later
+/// executed against freed memory — the failure was silent, because the
+/// bytecode was gone rather than wrong.
+class OwnedBytes : public jsi::Buffer {
+public:
+  explicit OwnedBytes(std::vector<unsigned char> bytes)
+      : bytes_(std::move(bytes)) {}
+  size_t size() const override { return bytes_.size(); }
+  const uint8_t *data() const override { return bytes_.data(); }
+
+private:
+  std::vector<unsigned char> bytes_;
+};
+
 std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
                                          const std::string &from,
                                          const std::string &specifier);
@@ -550,8 +583,10 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
     ibex2_host_release(&source);
     throw jsi::JSError(rt, resolved_name);
   }
-  std::string source_text(reinterpret_cast<const char *>(source.data),
-                          source.len);
+  // Bytes, not text: Hermes bytecode when the loader has a compiler, wrapped
+  // source when it does not. Hermes detects the HBC magic, so the SAME call
+  // handles both and the loader decides which without the shim caring.
+  std::vector<unsigned char> module_bytes(source.data, source.data + source.len);
   ibex2_host_release(&resolved);
   ibex2_host_release(&source);
 
@@ -568,12 +603,13 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
   // Registered BEFORE evaluation, so a cycle finds this entry.
   owner->modules[resolved_name] = exports;
 
-  // The wrapper is a function EXPRESSION evaluated by the host. new Function
-  // cannot be used — dynamic code is closed at construction (LLP 0060 D4) —
-  // which is precisely why the loader lives here and not in JavaScript.
-  std::string wrapped =
-      "(function (module, exports, require, fetch) {\n" + source_text + "\n})";
-  auto buffer = std::make_shared<jsi::StringBuffer>(wrapped);
+  // A function EXPRESSION, evaluated by the host. new Function cannot be used
+  // — dynamic code is closed at construction (LLP 0060 D4) — which is why the
+  // loader lives here and not in JavaScript. The wrapper text itself is built
+  // in Rust, because it is what gets compiled and the artifact is keyed on it.
+  // OwnedBytes, not BorrowedBytes: Hermes retains a bytecode buffer for the
+  // life of the module.
+  auto buffer = std::make_shared<OwnedBytes>(std::move(module_bytes));
   jsi::Value fn_value = rt.evaluateJavaScript(buffer, resolved_name);
   if (!fn_value.isObject() || !fn_value.getObject(rt).isFunction(rt)) {
     owner->modules.erase(resolved_name);
@@ -624,21 +660,11 @@ int ibex2_hermes_eval_bytes(void *handle, const unsigned char *data, size_t len,
     return -1;
   }
 
-  // A Buffer over bytes the caller owns for the duration of the call.
-  class BorrowedBuffer : public jsi::Buffer {
-  public:
-    BorrowedBuffer(const unsigned char *data, size_t len)
-        : data_(data), len_(len) {}
-    size_t size() const override { return len_; }
-    const uint8_t *data() const override { return data_; }
-
-  private:
-    const unsigned char *data_;
-    size_t len_;
-  };
-
   try {
-    auto buffer = std::make_shared<BorrowedBuffer>(data, len);
+    // Copied, for the same reason load_module owns its bytes: anything the
+    // evaluated code leaves behind outlives this call.
+    auto buffer = std::make_shared<OwnedBytes>(
+        std::vector<unsigned char>(data, data + len));
     jsi::Value value = rt->runtime->evaluateJavaScript(buffer, "<hbc>");
     if (out != nullptr) {
       *out = dup_c_string(value.isUndefined()

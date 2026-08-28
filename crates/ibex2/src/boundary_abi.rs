@@ -638,10 +638,11 @@ fn run_async(
     }
 }
 
-/// Resolve and read a module's source.
+/// Resolve a module and produce its executable form.
 ///
-/// Returns 0 on success, writing the resolved specifier and the source into
-/// `out_resolved` and `out_source`; 1 on failure with the message in
+/// Returns 0 on success, writing the resolved specifier into `out_resolved` and
+/// the module's bytes into `out_source` — Hermes bytecode when a compiler is
+/// configured, wrapped source otherwise. 1 on failure with the message in
 /// `out_resolved`. Both are Rust-owned and released with `ibex2_host_release`.
 ///
 /// # Safety
@@ -671,10 +672,10 @@ pub unsafe extern "C" fn ibex2_loader_load(
         }
     };
 
-    match state.load_source(&read(from), &read(specifier)) {
-        Ok((resolved, source)) => {
+    match state.load_module(&read(from), &read(specifier)) {
+        Ok((resolved, bytes)) => {
             *out_resolved = leak_value(HostValue::Str(resolved));
-            *out_source = leak_value(HostValue::Str(source));
+            *out_source = leak_value(HostValue::Bytes(bytes));
             0
         }
         Err(message) => fail(out_resolved, &message),

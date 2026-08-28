@@ -14,16 +14,25 @@ use ibex2::loader::ModuleGrants;
 const HARDEN: &str = include_str!("../bindings/harden.js");
 
 fn usage() -> &'static str {
-    "usage: ibex2 run <entry.js> [--grants <file>] [--budget-ms <n>]\n\
+    "usage: ibex2 run   <entry.js> [--grants <file>] [--budget-ms <n>] [--precompiled] [--no-compile]\n\
+    \x20      ibex2 build <entry.js>\n\
      \n\
-     Runs <entry.js>. Modules require() each other by relative path and cannot\n\
-     escape the entry's directory. Each module receives only the capabilities\n\
-     its grant manifest names; without --grants, nothing is granted."
+     run    Runs <entry.js>. Modules require() each other by relative path and\n\
+     \x20      cannot escape the entry's directory. Each module receives only the\n\
+     \x20      capabilities its grant manifest names; without --grants, nothing\n\
+     \x20      is granted. Modules are compiled to bytecode and cached under\n\
+     \x20      .ibex2/cache; --precompiled refuses to compile anything on demand,\n\
+     \x20      and --no-compile falls back to loading source.\n\
+     \n\
+     build  Compiles the whole graph to bytecode ahead of time, so `run\n\
+     \x20      --precompiled` has everything it needs. rules/RULES.md forbids\n\
+     \x20      compiling at runtime what could be built ahead of it."
 }
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) != Some("run") || args.len() < 2 {
+    let command = args.first().map(String::as_str).unwrap_or("");
+    if !matches!(command, "run" | "build") || args.len() < 2 {
         eprintln!("{}", usage());
         return ExitCode::from(2);
     }
@@ -31,6 +40,8 @@ fn main() -> ExitCode {
     let entry = PathBuf::from(&args[1]);
     let mut grants_path: Option<PathBuf> = None;
     let mut budget_ms: u64 = 30_000;
+    let mut precompiled_only = false;
+    let mut compile = true;
     let mut rest = args[2..].iter();
     while let Some(flag) = rest.next() {
         match flag.as_str() {
@@ -48,6 +59,8 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
+            "--precompiled" => precompiled_only = true,
+            "--no-compile" => compile = false,
             other => {
                 eprintln!("unknown flag {other}\n\n{}", usage());
                 return ExitCode::from(2);
@@ -55,7 +68,17 @@ fn main() -> ExitCode {
         }
     }
 
-    match run(&entry, grants_path.as_deref(), budget_ms) {
+    let outcome = match command {
+        "build" => build(&entry),
+        _ => run(
+            &entry,
+            grants_path.as_deref(),
+            budget_ms,
+            compile,
+            precompiled_only,
+        ),
+    };
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("ibex2: {message}");
@@ -64,7 +87,98 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(entry: &Path, grants_path: Option<&Path>, budget_ms: u64) -> Result<(), String> {
+/// Where compiled modules live: beside the project, visible and deletable.
+fn cache_dir(root: &Path) -> PathBuf {
+    root.join(".ibex2/cache")
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Compile the whole reachable graph ahead of time.
+fn build(entry: &Path) -> Result<(), String> {
+    let entry = entry
+        .canonicalize()
+        .map_err(|e| format!("cannot open {}: {e}", entry.display()))?;
+    let root = entry
+        .parent()
+        .ok_or("entry has no directory")?
+        .to_path_buf();
+    let name = entry
+        .file_name()
+        .ok_or("entry has no file name")?
+        .to_string_lossy()
+        .into_owned();
+    let compiler = ibex2::bytecode::Compiler::discover(&repo_root(), cache_dir(&root))?;
+
+    // Walk from the entry, following require() as the loader would. Compiling
+    // every .js under the root instead would build files nothing imports.
+    let mut queue = vec![format!("./{name}")];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut manifest = ibex2::bytecode::Manifest::new();
+    let mut built = 0usize;
+    while let Some(specifier) = queue.pop() {
+        if !seen.insert(specifier.clone()) {
+            continue;
+        }
+        let path = root.join(specifier.trim_start_matches("./"));
+        let source = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let wrapped = ibex2::loader::wrap(&source);
+        compiler
+            .compile(&wrapped)
+            .map_err(|e| format!("{specifier}: {e}"))?;
+        // Recorded so the runtime finds this artifact without opening, reading,
+        // or hashing the source again.
+        manifest.insert(&specifier, &compiler.key(&wrapped));
+        built += 1;
+
+        for dependency in requires_in(&source) {
+            match ibex2::loader::resolve(&root, &specifier, &dependency) {
+                Ok(resolved) => queue.push(resolved),
+                // A require() this scan cannot resolve is not a build failure:
+                // it may be inside a branch that never runs, and the loader
+                // will report it properly if it is ever reached.
+                Err(_) => continue,
+            }
+        }
+    }
+    manifest.write(&cache_dir(&root))?;
+    println!("built {built} modules into {}", cache_dir(&root).display());
+    Ok(())
+}
+
+/// Find `require('...')` specifiers by scanning.
+///
+/// A scanner, not a parser: it can see a require inside a comment or a string
+/// and will compile a module nothing imports. That is wasted work rather than
+/// a wrong result, and a real parser arrives with ESM.
+fn requires_in(source: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find("require(") {
+        rest = &rest[at + "require(".len()..];
+        let rest_trimmed = rest.trim_start();
+        let quote = match rest_trimmed.chars().next() {
+            Some(q @ ('\'' | '"')) => q,
+            _ => continue,
+        };
+        let body = &rest_trimmed[1..];
+        if let Some(end) = body.find(quote) {
+            found.push(body[..end].to_string());
+        }
+    }
+    found
+}
+
+fn run(
+    entry: &Path,
+    grants_path: Option<&Path>,
+    budget_ms: u64,
+    compile: bool,
+    precompiled_only: bool,
+) -> Result<(), String> {
     let entry = entry
         .canonicalize()
         .map_err(|e| format!("cannot open {}: {e}", entry.display()))?;
@@ -94,7 +208,22 @@ fn run(entry: &Path, grants_path: Option<&Path>, budget_ms: u64) -> Result<(), S
         return Err("could not install the standard library".into());
     }
     rt.install_bindings().map_err(|e| e.0)?;
-    rt.set_loader(&root, grants);
+    let compiler = if compile || precompiled_only {
+        match ibex2::bytecode::Compiler::discover(&repo_root(), cache_dir(&root)) {
+            Ok(compiler) => Some(compiler),
+            Err(message) if precompiled_only => return Err(message),
+            // Without hermesc the runtime can still load source. That path is
+            // forbidden for anything shippable (rules/RULES.md) and says so.
+            Err(message) => {
+                eprintln!("ibex2: {message}");
+                eprintln!("ibex2: falling back to loading source; this compiles at runtime");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    rt.set_loader_with(&root, grants, compiler, precompiled_only);
 
     // R4: intrinsics frozen after the standard library is installed and before
     // any module code runs.

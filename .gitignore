@@ -27,3 +27,4 @@ secrets.env
 # Local LLP run bookkeeping (ship runs etc.), matching the snapback convention
 .llp/
 /ios/Frameworks-vanilla-nodebug
+/**/.ibex2
