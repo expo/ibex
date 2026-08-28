@@ -138,6 +138,23 @@ ibex_hermes_source_profile_authority_key() {
         "${identity_hex:0:12}"
 }
 
+# The vanilla (unpatched) profile deliberately derives its cache key from a
+# DIFFERENT scheme than the reviewed source-patched one: it binds the pinned
+# commit and the Apple build authority, and it never binds the patch stack —
+# because there is no patch stack. The literal "vanilla" component guarantees
+# the two key spaces cannot collide, so an unpatched build can never land in a
+# reviewed cache slot or be installed as the reviewed profile. Vanilla builds
+# emit no source-profile receipt at all.
+# @ref LLP 0060#6-verification — the unpatched engine the vanilla gate builds against
+ibex_hermes_apple_vanilla_cache_key() {
+    local version_key="$1"
+    local debugger_suffix="${2:-}"
+    printf '%s%s-vanilla-ba%s-oapple\n' \
+        "$version_key" \
+        "$debugger_suffix" \
+        "$(ibex_hermes_apple_build_authority_digest_hex | cut -c1-12)"
+}
+
 ibex_hermes_apple_source_cache_key() {
     local version_key="$1"
     local debugger_suffix="${2:-}"

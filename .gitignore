@@ -3,9 +3,11 @@
 /packages/*/node_modules
 /packages/*/dist
 /ios/Frameworks
+/ios/Frameworks-vanilla
 /android
 /linux
 /tools/hermes
+/tools/hermes-vanilla
 .agent-skill-sources/
 .agent-skill-backups/
 vendored-generated/*.deps.json

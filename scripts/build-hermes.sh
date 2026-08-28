@@ -12,6 +12,7 @@
 #   ./scripts/build-hermes.sh --release            # Build without debugger
 #   ./scripts/build-hermes.sh --debug              # Force debugger on
 #   ./scripts/build-hermes.sh --clean              # Clean cache and rebuild
+#   ./scripts/build-hermes.sh --vanilla            # Build UNPATCHED upstream Hermes
 #   ./scripts/build-hermes.sh --normalize-static-archive <path>
 #                                                   # Normalize one Apple archive in place
 #
@@ -38,13 +39,20 @@ CACHE_DIR="$HOME/.cache/exact/hermes"
 FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 CLEAN_CACHE=false
+# The vanilla profile builds pristine upstream Hermes with the carried patch
+# series NOT applied, installs it beside (never over) the reviewed artifacts,
+# and emits no source-profile receipt. It exists so Ibex 2 can be developed and
+# gated against an unpatched engine.
+# @ref LLP 0060#6-verification — the vanilla gate this build mode serves
+HERMES_VANILLA="${IBEX_HERMES_VANILLA:-false}"
 HOST_ARCH_RAW="$(uname -m)"
 case "$HOST_ARCH_RAW" in
     x86_64|amd64) HOST_ARCH="x64" ;;
     arm64|aarch64) HOST_ARCH="arm64" ;;
     *) HOST_ARCH="$HOST_ARCH_RAW" ;;
 esac
-HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
+HERMES_TOOLS_DIR="$PROJECT_ROOT/tools/hermes"
+HERMESC_DEST="$HERMES_TOOLS_DIR/hermesc-macos-$HOST_ARCH"
 MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
 MACOS_STATIC_DIR="$FRAMEWORKS_DIR/macos-static"
 PROFILE_RECEIPT_DEST="$FRAMEWORKS_DIR/hermes-profile-provenance.json"
@@ -124,6 +132,10 @@ while [[ $# -gt 0 ]]; do
             HERMES_DEBUGGER=true
             shift
             ;;
+        --vanilla)
+            HERMES_VANILLA=true
+            shift
+            ;;
         *)
             HERMES_VERSION="$1"
             shift
@@ -134,6 +146,26 @@ DEBUG_SUFFIX=""
 if [[ "$HERMES_DEBUGGER" == "1" || "$HERMES_DEBUGGER" == "true" || "$HERMES_DEBUGGER" == "TRUE" || "$HERMES_DEBUGGER" == "yes" || "$HERMES_DEBUGGER" == "YES" ]]; then
     DEBUG_SUFFIX="-debug"
 fi
+
+# Redirect every install destination for the vanilla profile. The reviewed
+# artifacts under ios/Frameworks/ and tools/hermes/ are never touched, so the
+# two engines coexist and build.rs's existing lookup cannot pick the unpatched
+# one up by accident. A vanilla build is opt-in at every layer: this flag, a
+# separate cache key space, a separate install root, and no receipt.
+case "$HERMES_VANILLA" in
+    1|true|TRUE|yes|YES|on|ON)
+        HERMES_VANILLA=true
+        FRAMEWORKS_DIR="$PROJECT_ROOT/ios/Frameworks-vanilla"
+        HERMES_TOOLS_DIR="$PROJECT_ROOT/tools/hermes-vanilla"
+        HERMESC_DEST="$HERMES_TOOLS_DIR/hermesc-macos-$HOST_ARCH"
+        MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
+        MACOS_STATIC_DIR="$FRAMEWORKS_DIR/macos-static"
+        PROFILE_RECEIPT_DEST="$FRAMEWORKS_DIR/hermes-profile-provenance.json"
+        ;;
+    *)
+        HERMES_VANILLA=false
+        ;;
+esac
 
 # Both platform builders reuse mutable source/build caches. Hold the shared
 # kernel-backed lock until the final cache/receipt install has completed. EXIT
@@ -176,6 +208,14 @@ verify_debugger_symbols() {
 }
 
 write_profile_receipt() {
+    # A vanilla build is not the reviewed source-patched profile and must never
+    # present itself as one. Emit nothing, and clear any receipt left behind by
+    # an earlier occupant of this destination.
+    if [ "$HERMES_VANILLA" = true ]; then
+        rm -f "$PROFILE_RECEIPT_DEST"
+        echo "[provenance] vanilla profile: no source-patched receipt emitted."
+        return 0
+    fi
     ibex_write_source_patched_profile_receipt \
         "$MACOS_FRAMEWORK_DEST/Versions/1/hermesvm" \
         "$PROFILE_RECEIPT_DEST" \
@@ -234,9 +274,19 @@ APPLE_BUILD_AUTHORITY_DIGEST="$(ibex_hermes_apple_build_authority_digest_hex)"
 LINUX_BUILD_AUTHORITY_DIGEST="$(ibex_hermes_linux_build_authority_digest_hex)"
 PATCH_APPLICATION_AUTHORITY_DIGEST="$(ibex_hermes_patch_application_authority_digest)"
 PATCH_IDENTITY_AUTHORITY_DIGEST="$(ibex_hermes_patch_identity_authority_digest)"
-VERSION_CACHE="$CACHE_DIR/$(ibex_hermes_apple_source_cache_key "$VERSION_KEY" "$DEBUG_SUFFIX")"
+if [ "$HERMES_VANILLA" = true ]; then
+    VERSION_CACHE="$CACHE_DIR/$(ibex_hermes_apple_vanilla_cache_key "$VERSION_KEY" "$DEBUG_SUFFIX")"
+else
+    VERSION_CACHE="$CACHE_DIR/$(ibex_hermes_apple_source_cache_key "$VERSION_KEY" "$DEBUG_SUFFIX")"
+fi
 
 echo "=== Hermes Build Script ==="
+if [ "$HERMES_VANILLA" = true ]; then
+    echo "Profile: VANILLA (upstream, patch series NOT applied)"
+    echo "Install root: $FRAMEWORKS_DIR"
+else
+    echo "Profile: source-patched (reviewed)"
+fi
 echo "Version: $HERMES_VERSION"
 echo "Cache key: $VERSION_KEY (patch stack: $PATCH_DIGEST)"
 echo "Apple build authority: ${APPLE_BUILD_AUTHORITY_DIGEST:0:12}"
@@ -253,6 +303,7 @@ echo ""
 # incomplete/crashed publication or a bundle built by an older patch verifier
 # is a miss, never a source-profile install.
 if [ -d "$VERSION_CACHE/hermesvm.xcframework" ] \
+    && [ "$HERMES_VANILLA" != true ] \
     && [[ "$HERMES_VERSION" == "$IBEX_HERMES_SOURCE_COMMIT" ]] \
     && ! ibex_hermes_profile_receipt_has_cache_key \
         "$VERSION_CACHE/hermes-profile-provenance.json" \
@@ -299,13 +350,13 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ] && [ -d "$VERSION_CACHE/macos-st
 
     # Copy hermesc / hermes binaries
     if [ -f "$VERSION_CACHE/bin/hermesc" ]; then
-        mkdir -p "$PROJECT_ROOT/tools/hermes"
+        mkdir -p "$HERMES_TOOLS_DIR"
         cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST"
         echo "[✓] hermesc installed"
     fi
     if [ -f "$VERSION_CACHE/bin/hermes" ]; then
-        mkdir -p "$PROJECT_ROOT/tools/hermes"
-        cp "$VERSION_CACHE/bin/hermes" "$PROJECT_ROOT/tools/hermes/hermes"
+        mkdir -p "$HERMES_TOOLS_DIR"
+        cp "$VERSION_CACHE/bin/hermes" "$HERMES_TOOLS_DIR/hermes"
         echo "[✓] hermes installed"
     fi
 
@@ -394,7 +445,11 @@ echo ""
 # @ref LLP 0013#upstream-tracking — the complete checkout is now pristine,
 # including its real index and all ignored build outputs, before replaying the
 # carried Hermes patch stack.
-"$SCRIPT_DIR/apply-hermes-patches.sh" "$HERMES_SRC"
+if [ "$HERMES_VANILLA" = true ]; then
+    echo "[vanilla] Skipping the carried patch series; building pristine upstream Hermes."
+else
+    "$SCRIPT_DIR/apply-hermes-patches.sh" "$HERMES_SRC"
+fi
 
 echo "=== Building Hermes for iOS ==="
 echo ""
@@ -565,9 +620,22 @@ rm -rf "$FRAMEWORKS_DIR/hermes-headers"
 mkdir -p "$FRAMEWORKS_DIR/hermes-headers"
 cp -R "$VERSION_CACHE/include/"* "$FRAMEWORKS_DIR/hermes-headers/"
 
-mkdir -p "$PROJECT_ROOT/tools/hermes"
-cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST" 2>/dev/null || true
-cp "$VERSION_CACHE/bin/hermes" "$PROJECT_ROOT/tools/hermes/hermes" 2>/dev/null || true
+# hermesc is the ahead-of-time compiler the whole build pipeline depends on, so
+# a missing one is a failed build, not a warning. The previous `2>/dev/null ||
+# true` here reported "Build Complete" and printed the CLI path while the copy
+# had silently failed — which is exactly what the fail-loud rule forbids. It
+# was latent only because tools/hermes/ already exists in a real checkout.
+# @ref scripts/README.md — the fail-loud rule this restores
+mkdir -p "$HERMES_TOOLS_DIR"
+if [ ! -f "$VERSION_CACHE/bin/hermesc" ]; then
+    echo "[✗] hermesc is missing from the build cache: $VERSION_CACHE/bin/hermesc" >&2
+    exit 1
+fi
+cp "$VERSION_CACHE/bin/hermesc" "$HERMESC_DEST"
+# The full hermes CLI is optional; its absence is not a build failure.
+if [ -f "$VERSION_CACHE/bin/hermes" ]; then
+    cp "$VERSION_CACHE/bin/hermes" "$HERMES_TOOLS_DIR/hermes"
+fi
 
 echo ""
 echo "=== Build Complete ==="
