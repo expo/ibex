@@ -19,11 +19,59 @@
 
 use crate::grant::{GrantSet, Operation};
 
-/// A value crossing the boundary.
+/// An **argument** crossing into Rust.
 ///
-/// Primitives and byte buffers only. There is deliberately no `Object` or
-/// `Json` variant: a boundary that serializes has traded parse time for call
-/// time, which is the thing LLP 0059.000 §1.1 forbids.
+/// Borrowed, and deliberately so: LLP 0059.000 §1.2 requires an `ArrayBuffer`
+/// argument to reach Rust as a span over the engine's own allocation rather
+/// than a copy of it. `HostArg` is the type that makes copying the arguments
+/// impossible rather than merely discouraged — there is no owned byte variant
+/// to copy into.
+///
+/// The lifetime is the duration of one host call and not one instant longer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostArg<'a> {
+    Undefined,
+    Null,
+    Bool(bool),
+    Number(f64),
+    /// Borrowed from the engine's UTF-8 rendering of a JS string. The engine
+    /// allocated that rendering (§1.2: strings cost one copy no boundary can
+    /// remove); Rust does not add a second.
+    Str(&'a str),
+    /// Borrowed directly from the engine's `ArrayBuffer` storage. No copy.
+    Bytes(&'a [u8]),
+}
+
+impl<'a> HostArg<'a> {
+    pub fn as_str(&self) -> Option<&'a str> {
+        match self {
+            HostArg::Str(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bytes(&self) -> Option<&'a [u8]> {
+        match self {
+            HostArg::Bytes(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            HostArg::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+}
+
+/// A **result** crossing back out to the engine.
+///
+/// Owned, because ownership is what transfers: a `Bytes` result becomes the
+/// backing store of a JavaScript `ArrayBuffer` directly, and the engine frees
+/// it through the boundary when the object is collected (§1.2, outbound). There
+/// is deliberately no `Object` or `Json` variant: a boundary that serializes
+/// has traded parse time for call time, which §1.1 forbids.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostValue {
     Undefined,

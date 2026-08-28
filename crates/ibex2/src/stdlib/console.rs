@@ -9,7 +9,7 @@
 //!
 //! Out of v1: `table`, `group`, `time`, `trace`, `dir`, `count`, `assert`.
 
-use crate::boundary::HostValue;
+use crate::boundary::HostArg;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -60,7 +60,7 @@ impl Console {
     }
 
     /// Enqueue one call. Returns immediately; nothing is written here.
-    pub fn write(&mut self, level: Level, args: &[HostValue]) {
+    pub fn write(&mut self, level: Level, args: &[HostArg]) {
         if self.pending.len() >= self.capacity {
             self.dropped += 1;
             return;
@@ -91,22 +91,22 @@ impl Console {
 }
 
 /// Join arguments the way `console.log` does: single space, no trailing space.
-pub fn format_args_list(args: &[HostValue]) -> String {
+pub fn format_args_list(args: &[HostArg]) -> String {
     args.iter().map(format_value).collect::<Vec<_>>().join(" ")
 }
 
 /// Render one value as JavaScript would.
-pub fn format_value(value: &HostValue) -> String {
+pub fn format_value(value: &HostArg) -> String {
     match value {
-        HostValue::Undefined => "undefined".to_string(),
-        HostValue::Null => "null".to_string(),
-        HostValue::Bool(true) => "true".to_string(),
-        HostValue::Bool(false) => "false".to_string(),
-        HostValue::Number(n) => format_number(*n),
+        HostArg::Undefined => "undefined".to_string(),
+        HostArg::Null => "null".to_string(),
+        HostArg::Bool(true) => "true".to_string(),
+        HostArg::Bool(false) => "false".to_string(),
+        HostArg::Number(n) => format_number(*n),
         // A bare string logs without quotes, as the first argument does in a
         // browser console.
-        HostValue::Str(s) => s.clone(),
-        HostValue::Bytes(bytes) => format!("Uint8Array({})", bytes.len()),
+        HostArg::Str(s) => (*s).to_string(),
+        HostArg::Bytes(bytes) => format!("Uint8Array({})", bytes.len()),
     }
 }
 
@@ -139,14 +139,14 @@ pub fn format_number(value: f64) -> String {
 mod tests {
     use super::*;
 
-    fn s(text: &str) -> HostValue {
-        HostValue::Str(text.into())
+    fn s(text: &str) -> HostArg<'_> {
+        HostArg::Str(text)
     }
 
     #[test]
     fn arguments_join_with_single_spaces() {
         assert_eq!(
-            format_args_list(&[s("a"), HostValue::Number(1.0), HostValue::Bool(true)]),
+            format_args_list(&[s("a"), HostArg::Number(1.0), HostArg::Bool(true)]),
             "a 1 true"
         );
         assert_eq!(format_args_list(&[]), "");
@@ -166,8 +166,8 @@ mod tests {
 
     #[test]
     fn null_and_undefined_are_distinct() {
-        assert_eq!(format_value(&HostValue::Null), "null");
-        assert_eq!(format_value(&HostValue::Undefined), "undefined");
+        assert_eq!(format_value(&HostArg::Null), "null");
+        assert_eq!(format_value(&HostArg::Undefined), "undefined");
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
     fn overflow_drops_and_says_so_rather_than_growing_without_bound() {
         let mut console = Console::with_capacity(2);
         for i in 0..5 {
-            console.write(Level::Log, &[HostValue::Number(f64::from(i))]);
+            console.write(Level::Log, &[HostArg::Number(f64::from(i))]);
         }
         let drained = console.drain();
         assert_eq!(drained.len(), 3, "two records plus the drop notice");
