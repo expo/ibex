@@ -188,6 +188,11 @@ version of this for Ibex 1). The implementation in `crates/ibex2` uses a
 per-module manifest provisionally. This remains the largest open design question
 in the capability model and is not answered by the 0058.000 family.
 
+Package resolution has since made one part of it concrete rather than
+hypothetical: grants key on a resolved file path, so granting a package means
+naming internals that are not the author's to know and that change on upgrade.
+LLP 0065 OQ2 carries that narrower question.
+
 **OQ2 — Does the freeze belong in Rust?** ~2 ms is affordable but not free, and
 a native freeze over the same graph would likely be faster. It is not needed for
 correctness, so it is a startup-budget question to answer with a measurement

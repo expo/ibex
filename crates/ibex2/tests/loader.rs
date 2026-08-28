@@ -59,7 +59,13 @@ impl Project {
             precompiled_only,
         );
         let error = rt.run_entry(entry).err().map(|e| e.0);
-        rt.run_to_quiescence(std::time::Duration::from_secs(10));
+        // Not a network budget. In a *debug* test binary the first
+        // NSURLSession construction in the process costs 3-9s, because dyld
+        // resolves the network stack's 880-odd images against a 34MB
+        // unstripped symbol table. Release pays 2ms. The budget has to clear
+        // that tax or tests that touch the network fail for reasons that have
+        // nothing to do with what they assert. See issues/20260828-*.
+        rt.run_to_quiescence(std::time::Duration::from_secs(45));
         let output = rt.drain_console().into_iter().map(|r| r.message).collect();
         (output, error)
     }
@@ -178,15 +184,18 @@ fn a_module_cannot_require_its_way_out_of_the_project() {
     assert_eq!(out, vec!["refused"]);
 }
 
+/// A package that is not installed fails with a message that names it, rather
+/// than a path deep inside `node_modules` the reader never wrote.
 #[test]
-fn bare_specifiers_are_refused_with_a_useful_message() {
+fn a_missing_package_is_refused_with_a_useful_message() {
     let p = Project::new("bare");
     p.file(
         "index.js",
         "try { require('lodash'); } catch (e) { console.log(e.message); }",
     );
     let (out, _) = p.run("./index.js", "");
-    assert!(out[0].contains("bare specifier"), "{out:?}");
+    assert!(out[0].contains("lodash"), "{out:?}");
+    assert!(out[0].contains("cannot resolve"), "{out:?}");
 }
 
 /// LLP 0062 R1: after boot, no capability-bearing name is on the global object.
@@ -804,4 +813,259 @@ fn typescript_behaves_identically_from_bytecode() {
     assert_eq!(hbc_err, None);
     assert_eq!(hbc_out, source_out);
     assert_eq!(source_out, vec!["v 5"]);
+}
+
+// ---------------------------------------------------------------------------
+// Package resolution.
+//
+// Bare specifiers go through `oxc_resolver`, which implements Node resolution
+// including `exports` maps and condition matching. These tests are the reason
+// to trust that: they build real packages on disk and require them.
+// ---------------------------------------------------------------------------
+
+/// The plain case: `main`, and exports flowing back out.
+#[test]
+fn a_package_resolves_through_its_main_field() {
+    let p = Project::new("pkg-main");
+    p.file("index.js", "console.log(require('tiny').shout('hi'));")
+        .file(
+            "node_modules/tiny/package.json",
+            r#"{"name":"tiny","version":"1.0.0","main":"lib/index.js"}"#,
+        )
+        .file(
+            "node_modules/tiny/lib/index.js",
+            "exports.shout = s => s.toUpperCase();",
+        );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["HI"]);
+}
+
+/// A package with no `main` at all falls back to `index.js`, which is a real
+/// part of the algorithm and not something to reimplement by hand.
+#[test]
+fn a_package_without_a_main_field_falls_back_to_index() {
+    let p = Project::new("pkg-index");
+    p.file("index.js", "console.log(require('bare').value);")
+        .file("node_modules/bare/package.json", r#"{"name":"bare"}"#)
+        .file("node_modules/bare/index.js", "exports.value = 'found';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["found"]);
+}
+
+/// `exports` maps are the modern surface, and the conditions we select are a
+/// policy (loader::CONDITIONS). `import` is preferred over `require`, and
+/// `node` is not in the list at all — a package offering a Node build must not
+/// win, because Node's server surface does not exist here (LLP 0059 §6).
+#[test]
+fn an_exports_map_selects_the_import_condition_and_never_node() {
+    let p = Project::new("pkg-exports");
+    p.file("index.js", "console.log(require('conditional').which);")
+        .file(
+            "node_modules/conditional/package.json",
+            r#"{"name":"conditional","exports":{".":{"node":"./node.js","import":"./esm.js","require":"./cjs.js","default":"./default.js"}}}"#,
+        )
+        .file("node_modules/conditional/node.js", "exports.which = 'node';")
+        .file("node_modules/conditional/esm.js", "export const which = 'esm';")
+        .file("node_modules/conditional/cjs.js", "exports.which = 'cjs';")
+        .file(
+            "node_modules/conditional/default.js",
+            "exports.which = 'default';",
+        );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["esm"]);
+}
+
+/// Subpath exports, and the fact that a package can hide files: a subpath not
+/// listed in the map is not reachable, which is the package's own decision and
+/// the loader must honor it rather than falling back to a raw file read.
+#[test]
+fn subpath_exports_are_honored_including_what_they_conceal() {
+    let p = Project::new("pkg-subpath");
+    p.file("index.js", "console.log(require('lib/public').ok);")
+        .file(
+            "node_modules/lib/package.json",
+            r#"{"name":"lib","exports":{"./public":"./src/public.js"}}"#,
+        )
+        .file("node_modules/lib/src/public.js", "exports.ok = 'public';")
+        .file("node_modules/lib/src/private.js", "exports.ok = 'private';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["public"]);
+
+    let p2 = Project::new("pkg-subpath-hidden");
+    p2.file("index.js", "require('lib/src/private');")
+        .file(
+            "node_modules/lib/package.json",
+            r#"{"name":"lib","exports":{"./public":"./src/public.js"}}"#,
+        )
+        .file("node_modules/lib/src/private.js", "exports.ok = 'private';");
+    let (_, err) = p2.run("./index.js", "");
+    assert!(err.is_some(), "an unexported subpath must not resolve");
+}
+
+/// Scoped packages, which is what `@exact/*` are.
+#[test]
+fn a_scoped_package_resolves() {
+    let p = Project::new("pkg-scoped");
+    p.file("index.js", "console.log(require('@scope/pkg').id);")
+        .file(
+            "node_modules/@scope/pkg/package.json",
+            r#"{"name":"@scope/pkg","main":"main.js"}"#,
+        )
+        .file("node_modules/@scope/pkg/main.js", "exports.id = 'scoped';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["scoped"]);
+}
+
+/// A package can require its own dependencies, resolved from *its* directory
+/// rather than the entry's. This is the part hand-rolled resolvers get wrong.
+#[test]
+fn a_package_resolves_its_own_dependencies_from_its_own_directory() {
+    let p = Project::new("pkg-nested");
+    p.file("index.js", "console.log(require('outer').run());")
+        .file(
+            "node_modules/outer/package.json",
+            r#"{"name":"outer","main":"index.js"}"#,
+        )
+        .file(
+            "node_modules/outer/index.js",
+            "const inner = require('inner'); exports.run = () => inner.tag + '/outer';",
+        )
+        .file(
+            "node_modules/outer/node_modules/inner/package.json",
+            r#"{"name":"inner","main":"index.js"}"#,
+        )
+        .file(
+            "node_modules/outer/node_modules/inner/index.js",
+            "exports.tag = 'inner';",
+        );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["inner/outer"]);
+}
+
+/// Workspace packages are symlinks into the monorepo, and `@exact/*` — the
+/// dominant case in the real graph — are exactly that. Resolution deliberately
+/// does **not** follow the symlink to its real path: the logical path stays
+/// inside `node_modules`, and therefore inside the project.
+#[cfg(unix)]
+#[test]
+fn a_workspace_symlink_resolves_through_its_logical_path() {
+    let p = Project::new("pkg-workspace");
+    p.file("index.js", "console.log(require('@w/ui').name);")
+        .file(
+            "packages/ui/package.json",
+            r#"{"name":"@w/ui","main":"index.js"}"#,
+        )
+        .file("packages/ui/index.js", "exports.name = 'workspace-ui';");
+    std::fs::create_dir_all(p.0.join("node_modules/@w")).unwrap();
+    std::os::unix::fs::symlink(p.0.join("packages/ui"), p.0.join("node_modules/@w/ui")).unwrap();
+
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["workspace-ui"]);
+}
+
+/// ES modules, TypeScript, and packages are one system, not three. A package
+/// written in TypeScript, imported with `import`, re-exporting a dependency.
+#[test]
+fn a_typescript_package_imports_and_re_exports_through_esm() {
+    let p = Project::new("pkg-ts-esm");
+    p.file(
+        "index.ts",
+        "import { label } from 'ts-pkg';\nconsole.log(label({ n: 2 }));",
+    )
+    .file(
+        "node_modules/ts-pkg/package.json",
+        r#"{"name":"ts-pkg","exports":{".":{"import":"./src/index.ts"}}}"#,
+    )
+    .file(
+        "node_modules/ts-pkg/src/index.ts",
+        "export * from './label';",
+    )
+    .file(
+        "node_modules/ts-pkg/src/label.ts",
+        "interface Arg { n: number }\nexport const label = (a: Arg): string => `n=${a.n}`;",
+    );
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["n=2"]);
+}
+
+/// The security property, and the reason resolution did not simply get turned
+/// on. A package is a module like any other: it holds exactly the authority the
+/// manifest names under its resolved specifier, and nothing by virtue of being
+/// a dependency (LLP 0060 D1).
+///
+/// The probe is behavioural, not `typeof`. Every module is handed a `fetch`
+/// parameter; what differs is the authority that parameter carries, so the
+/// question "does this package have fetch?" is only answered by calling it.
+/// The target is unroutable on purpose: a capability denial and a connection
+/// failure are different answers, and neither needs the internet to tell them
+/// apart.
+#[test]
+fn a_package_gets_no_authority_it_was_not_granted() {
+    let p = Project::new("pkg-authority");
+    p.file(
+        "index.js",
+        "require('greedy').probe().then(m => console.log('pkg: ' + m));",
+    )
+    .file(
+        "node_modules/greedy/package.json",
+        r#"{"name":"greedy","main":"index.js"}"#,
+    )
+    .file(
+        "node_modules/greedy/index.js",
+        "exports.probe = () => fetch('https://127.0.0.1:1/').then(
+           () => 'REACHED', e => e.message);",
+    );
+    // The entry holds the capability; the package is named nowhere.
+    let (out, err) = p.run(
+        "./index.js",
+        "[./index.js]\nnet.fetch https://127.0.0.1:1\n",
+    );
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["pkg: denied: net.fetch"]);
+}
+
+/// ...and the same package, once the manifest names it under its resolved
+/// specifier, does get it. Grants key on where a module resolved to, so a
+/// package is addressable without being ambient.
+///
+/// Reaching the transport at all is the assertion. The connection then fails,
+/// which is the point: the capability check is behind us.
+#[test]
+fn a_package_can_be_granted_authority_under_its_resolved_specifier() {
+    let p = Project::new("pkg-granted");
+    p.file(
+        "index.js",
+        "require('needy').probe().then(m => console.log('pkg: ' + m));",
+    )
+    .file(
+        "node_modules/needy/package.json",
+        r#"{"name":"needy","main":"index.js"}"#,
+    )
+    .file(
+        "node_modules/needy/index.js",
+        "exports.probe = () => fetch('https://127.0.0.1:1/').then(
+           () => 'REACHED', e => e.message);",
+    );
+    let (out, err) = p.run(
+        "./index.js",
+        "[./node_modules/needy/index.js]\nnet.fetch https://127.0.0.1:1\n",
+    );
+    assert_eq!(err, None);
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert!(
+        !out[0].contains("denied"),
+        "the granted package was denied: {out:?}"
+    );
+    assert!(
+        out[0].contains("Failed to fetch"),
+        "expected a transport failure, got: {out:?}"
+    );
 }

@@ -106,22 +106,35 @@ impl ModuleGrants {
     }
 }
 
+/// The conditions honored when resolving a package's `exports`.
+///
+/// A policy choice, not a mechanism. `import` first because Ibex 2's loader is
+/// ESM-first and a package's ESM entry is the one whose live bindings and
+/// static shape the transform understands; `require` after it, because most of
+/// npm still ships CommonJS and the loader handles both. **`node` is
+/// deliberately absent** — this is not Node, and LLP 0059 §6 deleted Node's
+/// server surface, so a package selecting a Node build would get one whose
+/// dependencies do not exist here.
+///
+/// @ref LLP 0065#1-conditions-and-the-one-that-is-missing — why `node` is omitted
+pub const CONDITIONS: &[&str] = &["import", "require", "default"];
+
 /// Resolve `specifier` as written inside `from`, against `root`.
 ///
-/// Relative specifiers only in v1. Bare specifiers are refused rather than
-/// silently searched: a resolution algorithm that walks `node_modules` is a
-/// design decision (LLP 0059 §6 deleted Node's server surface), not a detail to
-/// slip in here.
-///
-/// **Containment is enforced.** A resolved path must stay under the root, so
+/// Relative specifiers resolve lexically and are contained. **Containment is
+/// enforced**: a resolved path must stay under the root, so
 /// `require('../../../../etc/passwd')` fails at resolution rather than becoming
 /// an fs.read question. Path reach is a capability concern (LLP 0059.000
 /// §3.11), and the loader is not an exception to it.
+///
+/// Bare specifiers go through `oxc_resolver` — Node resolution is a real
+/// algorithm with `exports` maps and condition matching, and the ecosystem
+/// already has the answer (LLP 0028). The result is still contained: a package
+/// resolving outside the root is refused, which is what makes `node_modules`
+/// part of the project rather than a hole in it.
 pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
-        return Err(format!(
-            "cannot resolve bare specifier {specifier:?}; only ./ and ../ are supported"
-        ));
+        return resolve_bare(root, from, specifier);
     }
 
     let from_dir = Path::new(from).parent().unwrap_or(Path::new(""));
@@ -169,6 +182,64 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
         format!("{relative}.js")
     };
     Ok(format!("./{fallback}"))
+}
+
+/// Resolve a package specifier through Node resolution, then contain it.
+///
+/// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it — containment
+/// still applies, and matters more here because resolution walks upward
+fn resolve_bare(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
+    // `node:` and `bun:` are runtime builtins, not packages. Refused by name so
+    // the error says what is wrong rather than "not found in node_modules".
+    if let Some((scheme, _)) = specifier.split_once(':') {
+        return Err(format!(
+            "{specifier:?} names the {scheme:?} builtin namespace, which this runtime does not \
+             provide (LLP 0059 §6)"
+        ));
+    }
+
+    let from_dir = root.join(
+        Path::new(from.trim_start_matches("./"))
+            .parent()
+            .unwrap_or(Path::new("")),
+    );
+
+    let options = oxc_resolver::ResolveOptions {
+        condition_names: CONDITIONS.iter().map(|c| (*c).to_string()).collect(),
+        extensions: EXTENSIONS.iter().map(|e| (*e).to_string()).collect(),
+        // `module` before `main`: the ESM entry where a package offers one.
+        main_fields: vec!["module".to_string(), "main".to_string()],
+        // Do NOT follow symlinks to their real path. Workspace packages —
+        // @ref LLP 0065#3-workspace-symlinks-resolve-logically — states the
+        // containment this trades away, and what would replace it.
+        // `@exact/*`, the dominant case in the real graph — are symlinks from
+        // `node_modules` into the monorepo, and resolving them would land
+        // outside the project root and be refused by containment below. The
+        // logical path is the one that stays inside the project.
+        symlinks: false,
+        ..oxc_resolver::ResolveOptions::default()
+    };
+    let resolved = oxc_resolver::Resolver::new(options)
+        .resolve(&from_dir, specifier)
+        .map_err(|e| format!("cannot resolve {specifier:?} from {from}: {e}"))?;
+
+    let path = resolved.full_path();
+    // Containment again, and it matters more here: Node resolution walks UP the
+    // directory tree, so without this a package could resolve to a
+    // node_modules outside the project entirely.
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+    let relative = canonical.strip_prefix(&canonical_root).map_err(|_| {
+        format!(
+            "{specifier:?} resolves outside the project root: {}",
+            path.display()
+        )
+    })?;
+
+    Ok(format!(
+        "./{}",
+        relative.to_string_lossy().replace('\\', "/")
+    ))
 }
 
 /// Extensions tried, in order. TypeScript first: in a project that has both,
@@ -308,11 +379,20 @@ mod tests {
         );
     }
 
+    /// `node:` and `bun:` are builtin namespaces, not packages. LLP 0059 §6
+    /// deleted Node's server surface, so the error should say that rather than
+    /// "not found in node_modules".
     #[test]
-    fn bare_specifiers_are_refused_rather_than_searched() {
+    fn builtin_namespaces_are_refused_by_name() {
+        let err = resolve(&root(), "./index.js", "node:fs").unwrap_err();
+        assert!(err.contains("builtin namespace"), "{err}");
+        assert!(resolve(&root(), "./index.js", "bun:test").is_err());
+    }
+
+    #[test]
+    fn a_package_that_does_not_exist_is_a_resolution_error() {
         let err = resolve(&root(), "./index.js", "lodash").unwrap_err();
-        assert!(err.contains("bare specifier"), "{err}");
-        assert!(resolve(&root(), "./index.js", "node:fs").is_err());
+        assert!(err.contains("cannot resolve"), "{err}");
     }
 
     /// Escaping the root is a resolution failure, not an fs.read question.
