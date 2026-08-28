@@ -34,6 +34,14 @@ impl Project {
         ibex2::bytecode::Compiler::discover(&root, self.0.join(".ibex2/cache")).ok()
     }
 
+    fn engine_dir() -> std::path::PathBuf {
+        match std::env::var("IBEX2_VANILLA_HERMES_DIR") {
+            Ok(path) => std::path::PathBuf::from(path),
+            Err(_) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../ios/Frameworks-vanilla"),
+        }
+    }
+
     fn run_with(
         &self,
         entry: &str,
@@ -420,4 +428,62 @@ fn fs_read_and_write_are_separate_grants() {
     let (out, err) = p.run("./index.js", &manifest);
     assert_eq!(err, None);
     assert_eq!(out, vec!["wrote", "denied: fs.read"]);
+}
+
+// --- Receipts ----------------------------------------------------------------
+
+/// The shipping posture requires a HermesInputReceipt. An engine with none is
+/// indistinguishable from a patched one to a reader that only checks receipts
+/// it can find, and "no evidence" is not evidence.
+#[test]
+fn an_unreceipted_engine_is_refused_in_the_shipping_posture() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let patched = root.join("ios/Frameworks");
+    if !patched.join("hermesvm.framework").exists() {
+        return; // no patched engine installed on this machine
+    }
+    assert!(
+        !ibex2::receipt::HermesInput::path(&patched).exists(),
+        "this test assumes the patched engine carries no vanilla receipt"
+    );
+
+    let cache = std::env::temp_dir().join(format!("ibex2-receipt-{}", std::process::id()));
+    let err = ibex2::bytecode::Compiler::discover_for_engine(&root, cache.clone(), &patched, true)
+        .expect_err("an unreceipted engine must be refused when a receipt is required");
+    assert!(err.contains("no HermesInputReceipt"), "{err}");
+
+    // ...and tolerated when it is not required, so a machine can still work
+    // before its engine has been receipted.
+    if ibex2::bytecode::Compiler::discover(&root, cache.clone()).is_ok() {
+        assert!(ibex2::bytecode::Compiler::discover_for_engine(
+            &root,
+            cache.clone(),
+            &patched,
+            false
+        )
+        .is_ok());
+    }
+    let _ = std::fs::remove_dir_all(cache);
+}
+
+/// A receipted vanilla engine passes, and its receipt describes the bytes that
+/// are actually there.
+#[test]
+fn a_receipted_vanilla_engine_is_accepted_and_verified() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let engine = Project::engine_dir();
+    if !ibex2::receipt::HermesInput::path(&engine).exists() {
+        return;
+    }
+    let receipt = ibex2::receipt::HermesInput::read(&engine).expect("read");
+    assert!(receipt.is_vanilla());
+    receipt
+        .verify_binary(&engine)
+        .expect("the receipt describes this engine");
+
+    let cache = std::env::temp_dir().join(format!("ibex2-receipt-ok-{}", std::process::id()));
+    assert!(
+        ibex2::bytecode::Compiler::discover_for_engine(&root, cache.clone(), &engine, true).is_ok()
+    );
+    let _ = std::fs::remove_dir_all(cache);
 }
