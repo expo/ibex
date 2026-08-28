@@ -12,7 +12,7 @@
 
 use std::ffi::{c_char, c_int, c_uchar};
 
-use crate::boundary::{HostError, HostValue};
+use crate::boundary::{HostArg, HostError, HostValue};
 use crate::stdlib::{base64, console, text, url};
 
 pub const TAG_UNDEFINED: i32 = 0;
@@ -42,25 +42,55 @@ impl AbiValue {
         }
     }
 
+    /// Borrow this value as an argument. **No bytes are copied** — see
+    /// LLP 0059.000 §1.2. `HostArg` has no owned byte variant, so this cannot
+    /// silently regress into a copy.
+    ///
     /// # Safety
-    /// `data`/`len` must describe a span valid for the duration of the call.
-    unsafe fn to_host_value(self) -> Result<HostValue, HostError> {
+    /// `data`/`len` must describe a span valid for the duration of the call,
+    /// and the returned borrow must not outlive it.
+    unsafe fn borrow<'a>(self) -> Result<HostArg<'a>, HostError> {
         Ok(match self.tag {
-            TAG_UNDEFINED => HostValue::Undefined,
-            TAG_NULL => HostValue::Null,
-            TAG_BOOL => HostValue::Bool(self.number != 0.0),
-            TAG_NUMBER => HostValue::Number(self.number),
+            TAG_UNDEFINED => HostArg::Undefined,
+            TAG_NULL => HostArg::Null,
+            TAG_BOOL => HostArg::Bool(self.number != 0.0),
+            TAG_NUMBER => HostArg::Number(self.number),
             TAG_STRING => {
-                let bytes = self.span();
-                HostValue::Str(String::from_utf8_lossy(bytes).into_owned())
+                // The engine already produced UTF-8; borrow it rather than
+                // re-validating into a new String. Invalid UTF-8 here would be
+                // an engine bug, so it is an error rather than a lossy repair.
+                let text = std::str::from_utf8(self.span()).map_err(|_| {
+                    HostError::InvalidArgument("string argument was not valid UTF-8".into())
+                })?;
+                HostArg::Str(text)
             }
-            TAG_BYTES => HostValue::Bytes(self.span().to_vec()),
+            TAG_BYTES => HostArg::Bytes(self.span()),
             other => {
                 return Err(HostError::InvalidArgument(format!(
                     "unknown value tag {other}"
                 )))
             }
         })
+    }
+
+    /// Borrow a byte argument mutably, so Rust writes through to the engine's
+    /// own buffer.
+    ///
+    /// This is the inbound half of §1.2 and the reason `ArrayBuffer` is in the
+    /// boundary contract at all: `encodeInto` must be visible in the buffer the
+    /// caller already holds, and an `encodeInto` that copies has implemented
+    /// `encode` with extra steps.
+    ///
+    /// # Safety
+    /// The span must be valid, writable, and unaliased for the call.
+    unsafe fn borrow_mut<'a>(self) -> Option<&'a mut [u8]> {
+        if self.tag != TAG_BYTES || self.data.is_null() || self.len == 0 {
+            return None;
+        }
+        Some(std::slice::from_raw_parts_mut(
+            self.data as *mut u8,
+            self.len,
+        ))
     }
 
     unsafe fn span<'a>(self) -> &'a [u8] {
@@ -85,6 +115,7 @@ pub enum Op {
     Atob = 11,
     TextEncode = 20,
     TextDecode = 21,
+    TextEncodeInto = 22,
     UrlParse = 30,
     UrlSearchParamsGet = 31,
 }
@@ -101,6 +132,7 @@ impl Op {
             11 => Op::Atob,
             20 => Op::TextEncode,
             21 => Op::TextDecode,
+            22 => Op::TextEncodeInto,
             30 => Op::UrlParse,
             31 => Op::UrlSearchParamsGet,
             _ => return None,
@@ -135,7 +167,7 @@ pub fn drain_console() -> Vec<console::Record> {
     CONSOLE.with(|c| c.borrow_mut().drain())
 }
 
-fn dispatch(op: Op, args: &[HostValue]) -> Result<HostValue, HostError> {
+fn dispatch(op: Op, args: &[HostArg]) -> Result<HostValue, HostError> {
     if let Some(level) = op.console_level() {
         CONSOLE.with(|c| c.borrow_mut().write(level, args));
         return Ok(HostValue::Undefined);
@@ -143,7 +175,7 @@ fn dispatch(op: Op, args: &[HostValue]) -> Result<HostValue, HostError> {
 
     let first_str = |label: &str| -> Result<&str, HostError> {
         args.first()
-            .and_then(HostValue::as_str)
+            .and_then(HostArg::as_str)
             .ok_or_else(|| HostError::InvalidArgument(format!("{label} expects a string")))
     };
 
@@ -154,10 +186,10 @@ fn dispatch(op: Op, args: &[HostValue]) -> Result<HostValue, HostError> {
         Op::TextDecode => {
             let bytes = args
                 .first()
-                .and_then(HostValue::as_bytes)
+                .and_then(HostArg::as_bytes)
                 .ok_or_else(|| HostError::InvalidArgument("decode expects bytes".into()))?;
-            let fatal = matches!(args.get(1), Some(HostValue::Bool(true)));
-            let ignore_bom = matches!(args.get(2), Some(HostValue::Bool(true)));
+            let fatal = matches!(args.get(1), Some(HostArg::Bool(true)));
+            let ignore_bom = matches!(args.get(2), Some(HostArg::Bool(true)));
             let on_invalid = if fatal {
                 text::OnInvalid::Throw
             } else {
@@ -166,7 +198,7 @@ fn dispatch(op: Op, args: &[HostValue]) -> Result<HostValue, HostError> {
             text::decode(bytes, on_invalid, ignore_bom).map(HostValue::Str)
         }
         Op::UrlParse => {
-            let base = args.get(1).and_then(HostValue::as_str);
+            let base = args.get(1).and_then(HostArg::as_str);
             // Returned as href for the spike; the object shape is the binding
             // layer's job, not the boundary's.
             url::parse(first_str("URL")?, base).map(|parsed| HostValue::Str(parsed.href))
@@ -175,12 +207,15 @@ fn dispatch(op: Op, args: &[HostValue]) -> Result<HostValue, HostError> {
             let query = first_str("URLSearchParams")?;
             let name = args
                 .get(1)
-                .and_then(HostValue::as_str)
+                .and_then(HostArg::as_str)
                 .ok_or_else(|| HostError::InvalidArgument("get expects a name".into()))?;
             Ok(match url::SearchParams::parse(query).get(name) {
                 Some(value) => HostValue::Str(value.to_string()),
                 None => HostValue::Null,
             })
+        }
+        Op::TextEncodeInto => {
+            unreachable!("handled in ibex2_host_call, which owns the mutable span")
         }
         _ => unreachable!("console ops returned above"),
     }
@@ -216,7 +251,7 @@ pub unsafe extern "C" fn ibex2_host_call(
 
     let mut args = Vec::with_capacity(raw.len());
     for value in raw {
-        match value.to_host_value() {
+        match value.borrow() {
             Ok(value) => args.push(value),
             Err(err) => return fail(out, &err.to_string()),
         }
@@ -225,6 +260,23 @@ pub unsafe extern "C" fn ibex2_host_call(
     let Some(op) = Op::from_u32(op) else {
         return fail(out, &format!("unknown host op {op}"));
     };
+
+    // encodeInto is the one op that writes through to the caller's buffer, so
+    // it takes the mutable span here rather than through the shared immutable
+    // argument vector. Arg 0 is the source string, arg 1 the destination.
+    if op == Op::TextEncodeInto {
+        let Some(source) = args.first().and_then(HostArg::as_str) else {
+            return fail(out, "encodeInto expects a string source");
+        };
+        let Some(destination) = raw.get(1).copied().and_then(|value| value.borrow_mut()) else {
+            return fail(out, "encodeInto expects a writable destination buffer");
+        };
+        let (read, written) = crate::stdlib::text::encode_into(source, destination);
+        // (read, written) packed as the spec's two fields; the binding layer
+        // turns this into { read, written }.
+        *out = leak_value(HostValue::Str(format!("{read},{written}")));
+        return 0;
+    }
 
     match dispatch(op, &args) {
         Ok(value) => {

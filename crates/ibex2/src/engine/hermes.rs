@@ -308,6 +308,106 @@ mod tests {
         );
     }
 
+    /// The conclusive proof of inbound zero-copy (LLP 0059.000 §1.2).
+    ///
+    /// Rust writes through to the buffer JavaScript already holds. If the
+    /// boundary had handed Rust a copy, `view` here would still be all zeros —
+    /// there is no way for this test to pass against a copying boundary.
+    #[test]
+    fn encode_into_writes_through_to_the_callers_own_buffer() {
+        let mut rt = with_stdlib();
+        let observed = rt
+            .eval(
+                "const view = new Uint8Array(8);
+                 __ibex2_text_encode_into('hi', view.buffer);
+                 view.join(',')",
+            )
+            .unwrap();
+        assert_eq!(observed, "104,105,0,0,0,0,0,0");
+    }
+
+    #[test]
+    fn encode_into_reports_read_and_written() {
+        let mut rt = with_stdlib();
+        // Three bytes of room for a three-byte character: exactly fits.
+        assert_eq!(
+            rt.eval("__ibex2_text_encode_into('€', new Uint8Array(3).buffer)")
+                .unwrap(),
+            "1,3"
+        );
+        // Two bytes of room: nothing is written rather than half a code point.
+        assert_eq!(
+            rt.eval("__ibex2_text_encode_into('€', new Uint8Array(2).buffer)")
+                .unwrap(),
+            "0,0"
+        );
+        // An astral character reports two UTF-16 units read, as JS counts them.
+        assert_eq!(
+            rt.eval("__ibex2_text_encode_into('😀', new Uint8Array(8).buffer)")
+                .unwrap(),
+            "2,4"
+        );
+    }
+
+    #[test]
+    fn encode_into_leaves_the_rest_of_the_buffer_untouched() {
+        let mut rt = with_stdlib();
+        let observed = rt
+            .eval(
+                "const view = new Uint8Array(6).fill(9);
+                 __ibex2_text_encode_into('ab', view.buffer);
+                 view.join(',')",
+            )
+            .unwrap();
+        assert_eq!(observed, "97,98,9,9,9,9");
+    }
+
+    /// Outbound, a returned buffer IS the Rust allocation, freed through the
+    /// boundary when the engine collects it. The risk of that design is a
+    /// premature release or a double free, so churn a thousand buffers to run
+    /// the destructor path hard and confirm a retained one still reads.
+    #[test]
+    fn returned_buffers_survive_collection_pressure() {
+        let mut rt = with_stdlib();
+        let observed = rt
+            .eval(
+                "const keep = new Uint8Array(__ibex2_text_encode('survivor'));
+                 for (let i = 0; i < 1000; i++) { __ibex2_text_encode('churn ' + i); }
+                 String.fromCharCode.apply(null, keep)",
+            )
+            .unwrap();
+        assert_eq!(observed, "survivor");
+    }
+
+    /// It is real storage, not a frozen snapshot: the buffer JavaScript gets
+    /// back is the Rust allocation and is writable in place.
+    #[test]
+    fn a_returned_buffer_is_writable_in_place() {
+        let mut rt = with_stdlib();
+        let observed = rt
+            .eval(
+                "const view = new Uint8Array(__ibex2_text_encode('abc'));
+                 view[0] = 122;
+                 String.fromCharCode.apply(null, view)",
+            )
+            .unwrap();
+        assert_eq!(observed, "zbc");
+    }
+
+    /// A large buffer crosses without the boundary doubling it.
+    #[test]
+    fn a_large_buffer_crosses_intact() {
+        let mut rt = with_stdlib();
+        let observed = rt
+            .eval(
+                "const big = 'x'.repeat(4 * 1024 * 1024);
+                 const bytes = new Uint8Array(__ibex2_text_encode(big));
+                 bytes.length + ':' + bytes[0] + ':' + bytes[bytes.length - 1]",
+            )
+            .unwrap();
+        assert_eq!(observed, "4194304:120:120");
+    }
+
     /// The assertion that keeps the fork from growing back: a host function
     /// installed for one runtime is not ambient in another. This is the shape
     /// LLP 0060 D2 needs from the engine — per-runtime, not global-by-default.

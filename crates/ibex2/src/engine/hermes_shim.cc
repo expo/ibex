@@ -187,21 +187,35 @@ Ibex2AbiValue to_abi(jsi::Runtime &rt, const jsi::Value &value,
   return out;
 }
 
-// Byte results are copied into an engine-owned buffer and the Rust allocation
-// released immediately. LLP 0059.000 §1.4 wants buffers to cross by handle
-// "wherever the operation's lifetime allows it"; establishing that shared
-// lifetime is its own step, so this copies for now and does not pretend
-// otherwise.
-class OwnedBytes : public jsi::MutableBuffer {
+// A byte result IS the JavaScript ArrayBuffer's storage — no copy, no second
+// allocation. Rust allocated it, ownership transfers here, and the engine frees
+// it back through the boundary when the ArrayBuffer is collected. That is the
+// outbound half of LLP 0059.000 §1.2.
+//
+// The destructor is the whole mechanism: Hermes holds this shared_ptr for as
+// long as the ArrayBuffer is reachable, so the Rust allocation outlives every
+// JavaScript reference to it and is released exactly once.
+class RustBytes : public jsi::MutableBuffer {
 public:
-  explicit OwnedBytes(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
-  size_t size() const override { return bytes_.size(); }
-  uint8_t *data() override { return bytes_.data(); }
+  explicit RustBytes(Ibex2AbiValue value) : value_(value) {}
+  ~RustBytes() override { ibex2_host_release(&value_); }
+
+  RustBytes(const RustBytes &) = delete;
+  RustBytes &operator=(const RustBytes &) = delete;
+
+  size_t size() const override { return value_.len; }
+  uint8_t *data() override {
+    return const_cast<uint8_t *>(value_.data);
+  }
 
 private:
-  std::vector<uint8_t> bytes_;
+  Ibex2AbiValue value_;
 };
 
+// Convert a result. For bytes this TAKES OWNERSHIP and clears `value`, so the
+// caller's release becomes a no-op — the RustBytes destructor releases instead,
+// when the engine is done with the buffer. Strings still copy: Hermes owns its
+// own string representation and there is no way to hand it one (§1.2).
 jsi::Value from_abi(jsi::Runtime &rt, Ibex2AbiValue &value) {
   switch (value.tag) {
   case IBEX2_TAG_NULL:
@@ -215,9 +229,10 @@ jsi::Value from_abi(jsi::Runtime &rt, Ibex2AbiValue &value) {
     return jsi::String::createFromUtf8(rt, text);
   }
   case IBEX2_TAG_BYTES: {
-    std::vector<uint8_t> bytes(value.data, value.data + value.len);
-    return jsi::Value(
-        rt, jsi::ArrayBuffer(rt, std::make_shared<OwnedBytes>(std::move(bytes))));
+    Ibex2AbiValue owned = value;
+    value = Ibex2AbiValue{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+    return jsi::Value(rt,
+                      jsi::ArrayBuffer(rt, std::make_shared<RustBytes>(owned)));
   }
   default:
     return jsi::Value::undefined();
@@ -289,6 +304,7 @@ int ibex2_hermes_install_stdlib(void *handle) {
     set_binding(runtime, global, "atob", 11);
     set_binding(runtime, global, "__ibex2_text_encode", 20);
     set_binding(runtime, global, "__ibex2_text_decode", 21);
+    set_binding(runtime, global, "__ibex2_text_encode_into", 22);
     set_binding(runtime, global, "__ibex2_url_parse", 30);
     set_binding(runtime, global, "__ibex2_search_params_get", 31);
     return 0;
