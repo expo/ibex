@@ -18,3 +18,4 @@ pub mod boundary_abi;
 pub mod engine;
 pub mod grant;
 pub mod stdlib;
+pub mod task;

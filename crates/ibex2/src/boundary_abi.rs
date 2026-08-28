@@ -334,6 +334,131 @@ fn leak_value(value: HostValue) -> AbiValue {
     }
 }
 
+/// Start a delegating op on another thread.
+///
+/// Returns immediately. The op is **not** run on the JavaScript thread — that
+/// is the entire point of the delegating shape (LLP 0059.000 §1.1) — and it
+/// touches no engine state, because nothing in `crate::task` may hold a `jsi`
+/// value.
+///
+/// # Safety
+/// `argv` must point to `argc` initialized `AbiValue`s valid for this call.
+/// Arguments are copied here, deliberately: they must outlive the call that
+/// started the work, so the borrowed-span rule that governs synchronous ops
+/// cannot apply.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_async_begin(
+    queue: *const crate::task::CompletionQueue,
+    op: u32,
+    argv: *const AbiValue,
+    argc: usize,
+    task_id: u64,
+) -> c_int {
+    let Some(queue) = crate::task::clone_queue(queue) else {
+        return 1;
+    };
+    let raw = if argv.is_null() || argc == 0 {
+        &[][..]
+    } else {
+        std::slice::from_raw_parts(argv, argc)
+    };
+
+    // Owned snapshot: the worker outlives this call, so it cannot borrow.
+    let mut owned = Vec::with_capacity(raw.len());
+    for value in raw {
+        match value.borrow() {
+            Ok(HostArg::Str(text)) => owned.push(HostValue::Str(text.to_string())),
+            Ok(HostArg::Bytes(bytes)) => owned.push(HostValue::Bytes(bytes.to_vec())),
+            Ok(HostArg::Number(n)) => owned.push(HostValue::Number(n)),
+            Ok(HostArg::Bool(b)) => owned.push(HostValue::Bool(b)),
+            Ok(HostArg::Null) => owned.push(HostValue::Null),
+            Ok(HostArg::Undefined) => owned.push(HostValue::Undefined),
+            Err(_) => return 1,
+        }
+    }
+
+    let Some(op) = AsyncOp::from_u32(op) else {
+        return 1;
+    };
+
+    std::thread::spawn(move || {
+        let result = run_async(op, &owned);
+        queue.complete(task_id, result);
+    });
+    0
+}
+
+/// The delegating ops. `fetch` joins this list once the adapter is proven.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+enum AsyncOp {
+    /// Echo the first argument back after leaving the thread. Exists so the
+    /// ordering contract can be tested without a network in the way.
+    Echo = 100,
+}
+
+impl AsyncOp {
+    fn from_u32(value: u32) -> Option<Self> {
+        match value {
+            100 => Some(AsyncOp::Echo),
+            _ => None,
+        }
+    }
+}
+
+fn run_async(op: AsyncOp, args: &[HostValue]) -> Result<HostValue, HostError> {
+    match op {
+        AsyncOp::Echo => {
+            let text = match args.first() {
+                Some(HostValue::Str(text)) => text.clone(),
+                _ => return Err(HostError::InvalidArgument("echo expects a string".into())),
+            };
+            // A deliberate marker: an argument of "fail" rejects, so the
+            // rejection path is exercised by the same op.
+            if text == "fail" {
+                return Err(HostError::Failed("echo was asked to fail".into()));
+            }
+            Ok(HostValue::Str(text))
+        }
+    }
+}
+
+/// Take one ready completion for the engine to deliver.
+///
+/// Returns 1 when a completion was taken and 0 when the queue is empty.
+///
+/// # Safety
+/// All three out pointers must be valid and writable.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_take_completion(
+    queue: *const crate::task::CompletionQueue,
+    task_id: *mut u64,
+    out: *mut AbiValue,
+    is_error: *mut c_int,
+) -> c_int {
+    if task_id.is_null() || out.is_null() || is_error.is_null() {
+        return 0;
+    }
+    let Some(queue) = crate::task::clone_queue(queue) else {
+        return 0;
+    };
+    let Some(completion) = queue.take() else {
+        return 0;
+    };
+    *task_id = completion.task_id;
+    match completion.result {
+        Ok(value) => {
+            *is_error = 0;
+            *out = leak_value(value);
+        }
+        Err(err) => {
+            *is_error = 1;
+            *out = leak_value(HostValue::Str(err.to_string()));
+        }
+    }
+    1
+}
+
 /// Release a value produced by `ibex2_host_call`.
 ///
 /// # Safety

@@ -12,16 +12,34 @@
 #include <jsi/jsi.h>
 
 #include <cstdlib>
+#include <unordered_map>
+#include <vector>
 #include <cstring>
 #include <memory>
 #include <string>
 
 using namespace facebook;
 
+extern "C" const void *ibex2_queue_create();
+extern "C" void ibex2_queue_destroy(const void *queue);
+
 namespace {
+
+struct PendingPromise {
+  std::shared_ptr<jsi::Function> resolve;
+  std::shared_ptr<jsi::Function> reject;
+};
 
 struct Ibex2Runtime {
   std::unique_ptr<jsi::Runtime> runtime;
+  // Promises awaiting an off-thread completion. Keyed by task id, and touched
+  // ONLY on the JavaScript thread — jsi values are not thread-safe and nothing
+  // here may be reached from a worker.
+  std::unordered_map<uint64_t, PendingPromise> pending;
+  uint64_t next_task_id = 1;
+  // This runtime's own completion queue. Per-runtime so two runtimes in one
+  // process cannot take each other's completions (task::Pump C5).
+  const void *queue = nullptr;
 };
 
 // Copy a std::string out to a malloc'd C string the Rust side owns and frees
@@ -45,8 +63,13 @@ extern "C" {
 /// which is the whole point: the runtime can still run prepared code while
 /// JavaScript cannot compile source of its own.
 void *ibex2_hermes_create(int enable_eval) {
+  // The engine microtask queue is OFF by default in stock Hermes. Ibex 2 needs
+  // it on: it is what makes the job queue explicit and drainable, which is the
+  // whole basis of the LLP 0058 §3 adapter. Without it there is no defined
+  // point at which "microtasks have finished" is true.
   auto config = ::hermes::vm::RuntimeConfig::Builder()
                     .withEnableEval(enable_eval != 0)
+                    .withMicrotaskQueue(true)
                     .build();
   // Fully qualified: `using namespace facebook` makes bare `hermes` ambiguous
   // between ::hermes (the VM namespace) and facebook::hermes (the JSI one).
@@ -56,11 +79,18 @@ void *ibex2_hermes_create(int enable_eval) {
   }
   auto *handle = new Ibex2Runtime();
   handle->runtime = std::move(runtime);
+  handle->queue = ibex2_queue_create();
   return handle;
 }
 
 void ibex2_hermes_destroy(void *handle) {
-  delete static_cast<Ibex2Runtime *>(handle);
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr) {
+    // Workers may still hold the queue; releasing our reference is enough,
+    // and the last holder frees it.
+    ibex2_queue_destroy(rt->queue);
+  }
+  delete rt;
 }
 
 /// Evaluate `source` as the host. Returns 0 on success and 1 if JavaScript
@@ -279,6 +309,148 @@ void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
 
 } // namespace
 
+extern "C" int ibex2_async_begin(const void *queue, uint32_t op,
+                                 const Ibex2AbiValue *argv, size_t argc,
+                                 uint64_t task_id);
+extern "C" int ibex2_take_completion(const void *queue, uint64_t *task_id,
+                                     Ibex2AbiValue *out, int *is_error);
+
+// ---------------------------------------------------------------------------
+// The job-queue adapter (LLP 0058 §3 / OQ1).
+//
+// A delegating op returns a promise immediately, the work happens on another
+// thread, and the completion is delivered here — on the JavaScript thread —
+// by resolving the stored promise and then draining microtasks. The ordering
+// contract is stated in Rust, in task::Pump::CONTRACT, and the tests hold this
+// implementation to it.
+// ---------------------------------------------------------------------------
+
+
+namespace {
+
+// Build a promise and stash its resolve/reject under `id`.
+//
+// The executor runs synchronously inside the Promise constructor, so the
+// functions are captured before this returns and a completion can never arrive
+// to find the table empty.
+jsi::Value make_pending_promise(jsi::Runtime &rt, Ibex2Runtime *owner,
+                                uint64_t id) {
+  auto ctor = rt.global().getPropertyAsFunction(rt, "Promise");
+  auto executor = jsi::Function::createFromHostFunction(
+      rt, jsi::PropNameID::forAscii(rt, "executor"), 2,
+      [owner, id](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+                  size_t count) -> jsi::Value {
+        if (count < 2) {
+          throw jsi::JSError(rt, "promise executor needs resolve and reject");
+        }
+        owner->pending[id] = PendingPromise{
+            std::make_shared<jsi::Function>(
+                args[0].getObject(rt).getFunction(rt)),
+            std::make_shared<jsi::Function>(
+                args[1].getObject(rt).getFunction(rt))};
+        return jsi::Value::undefined();
+      });
+  return ctor.callAsConstructor(rt, executor);
+}
+
+jsi::Function make_async_binding(jsi::Runtime &runtime, const char *name,
+                                 uint32_t op, Ibex2Runtime *owner) {
+  auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
+  return jsi::Function::createFromHostFunction(
+      runtime, prop, 1,
+      [op, owner](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+                  size_t count) -> jsi::Value {
+        std::vector<std::string> owned;
+        owned.reserve(count);
+        std::vector<Ibex2AbiValue> abi;
+        abi.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+          abi.push_back(to_abi(rt, args[i], owned));
+        }
+
+        uint64_t id = owner->next_task_id++;
+        jsi::Value promise = make_pending_promise(rt, owner, id);
+
+        // The work starts only after the promise exists, so there is no window
+        // in which a completion could arrive for an unknown task.
+        if (ibex2_async_begin(owner->queue, op,
+                              abi.empty() ? nullptr : abi.data(), abi.size(),
+                              id) != 0) {
+          owner->pending.erase(id);
+          throw jsi::JSError(rt, "could not start the async operation");
+        }
+        return promise;
+      });
+}
+
+} // namespace
+
+extern "C" {
+
+/// Deliver every ready completion, then drain microtasks. Returns how many
+/// completions were delivered.
+///
+/// This is the entire adapter. The order of the two steps is the contract:
+/// resolving only ENQUEUES continuations (C1), and draining afterwards runs
+/// them to quiescence before the caller regains control (C2).
+int ibex2_hermes_pump(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return -1;
+  }
+  jsi::Runtime &runtime = *rt->runtime;
+  int delivered = 0;
+
+  uint64_t id = 0;
+  Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+  int is_error = 0;
+  while (ibex2_take_completion(rt->queue, &id, &value, &is_error) != 0) {
+    auto found = rt->pending.find(id);
+    if (found == rt->pending.end()) {
+      // Nothing is waiting for it; release the payload rather than leak it.
+      ibex2_host_release(&value);
+      continue;
+    }
+    PendingPromise promise = found->second;
+    rt->pending.erase(found);
+
+    jsi::Value payload = from_abi(runtime, value);
+    ibex2_host_release(&value);
+    try {
+      if (is_error != 0) {
+        // Reject with a real Error so `catch (e) { e.message }` works.
+        auto error_ctor = runtime.global().getPropertyAsFunction(runtime, "Error");
+        jsi::Value err = error_ctor.callAsConstructor(runtime, payload);
+        promise.reject->call(runtime, err);
+      } else {
+        promise.resolve->call(runtime, payload);
+      }
+    } catch (const jsi::JSError &) {
+      // A throwing resolve must not abort the pump; the remaining completions
+      // are still owed delivery.
+    }
+    delivered += 1;
+  }
+
+  // C2: drain to quiescence, including microtasks enqueued by the microtasks
+  // we just ran.
+  runtime.drainMicrotasks();
+  return delivered;
+}
+
+/// Drain microtasks without delivering completions — the "JavaScript ran and
+/// then yielded" step, used by the tests to observe ordering.
+int ibex2_hermes_drain_microtasks(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return -1;
+  }
+  rt->runtime->drainMicrotasks();
+  return 0;
+}
+
+} // extern "C"
+
 extern "C" {
 
 /// Install the pure tier: console, btoa/atob, and a raw host-call escape hatch.
@@ -307,6 +479,12 @@ int ibex2_hermes_install_stdlib(void *handle) {
     set_binding(runtime, global, "__ibex2_text_encode_into", 22);
     set_binding(runtime, global, "__ibex2_url_parse", 30);
     set_binding(runtime, global, "__ibex2_search_params_get", 31);
+
+    // The delegating tier. One op for now — enough to hold the adapter to its
+    // ordering contract before any transport exists.
+    global.setProperty(runtime,
+                       jsi::PropNameID::forAscii(runtime, "__ibex2_async_echo"),
+                       make_async_binding(runtime, "__ibex2_async_echo", 100, rt));
     return 0;
   } catch (const std::exception &) {
     return 1;
