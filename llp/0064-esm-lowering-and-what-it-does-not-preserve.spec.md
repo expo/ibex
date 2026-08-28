@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
 **Revised:** 2026-08-28 (§7: `import.meta` and dynamic `import()` are lowered rather than left to the engine, since Oxc parses what Hermes will not and the transform already sits between them — 807 and 759 uses in Exact respectively. §7.1 records why top-level await is deferred rather than joining them.) 2026-08-28 (§4.1: both remaining divergences are now reported by `ibex2 build` rather than left silent. Measurement added — Exact has 3 `export let` against 12,677 immutable exports and 112 barrel files, which is why §3.1 gets a warning and not the §5 fix.) 2026-08-28 (initial draft)
-**Related:** LLP 0028 (Oxc-only transform authority — the parser this uses), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why ESM is required), LLP 0026 (ESM module runner — Ibex 1's prior art), LLP 0058.000.001 (greenfield kernel — the loader this sits in), LLP 0062 (measured engine facts, §3.1 — the `for-of` bug found here), LLP 0058 (the engine seam, OQ3 — the conformance floor this argues for)
+**Related:** LLP 0028 (Oxc-only transform authority — the parser this uses), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why ESM is required), LLP 0026 (ESM module runner — Ibex 1's prior art), LLP 0058.000.001 (greenfield kernel — the loader this sits in), LLP 0062 (measured engine facts, §3.1 — the `for-of` bug found here), LLP 0058 (the engine seam, OQ3 — the conformance floor this argues for), LLP 0065 (package resolution — how a specifier becomes the module this lowers)
 
 ## Summary
 
