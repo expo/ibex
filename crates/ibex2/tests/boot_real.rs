@@ -143,4 +143,8 @@ fn real_boot_by_graph_size() {
     println!("  budget (rules/RULES.md): 30ms to app entry");
     println!("  LLP 0057 §1 records Exact's real graph as 570 modules / 5.47MB,");
     println!("  and the current runtime as 155ms of parse per launch.");
+    println!();
+    println!("  The engine build matters: a debugger-enabled Hermes is ~35% slower");
+    println!("  here and halves parse throughput. Point IBEX2_VANILLA_HERMES_DIR at a");
+    println!("  --vanilla --release engine for a production-shaped number.");
 }
