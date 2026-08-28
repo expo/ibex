@@ -13,5 +13,8 @@
 //! @ref LLP 0057#2-the-inversion — the three-category split this crate implements
 //! @ref LLP 0060#1-the-decision — authority is carried, not inferred
 
+pub mod boundary;
+pub mod boundary_abi;
 pub mod engine;
 pub mod grant;
+pub mod stdlib;
