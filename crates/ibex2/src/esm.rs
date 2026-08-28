@@ -14,6 +14,11 @@
 //! `hermesc` cannot do this job: its `-commonjs` mode is the one that accepts
 //! module syntax, and on the pinned engine it segfaults on every input.
 //!
+//! **What this does not preserve is specified in LLP 0064 §3**, and every
+//! remaining divergence is silent — named imports snapshot, and cycles behave
+//! as CommonJS cycles rather than raising a ReferenceError.
+//!
+//! @ref LLP 0064#3-what-is-not-preserved — the divergences, measured
 //! @ref LLP 0028#summary — Oxc is the transform authority
 //! @ref LLP 0057#52-what-ibex-2-is-for — why ESM is required at all
 
@@ -31,6 +36,15 @@ struct Splice {
     start: usize,
     end: usize,
     replacement: String,
+    /// Imports move to the top of the module body rather than staying where
+    /// they were written.
+    ///
+    /// ES modules evaluate every dependency before the importing module's own
+    /// code, and a binding is available above its `import` statement. Leaving a
+    /// `require` where the import was written reproduces neither: a module that
+    /// used a binding before importing it silently saw `undefined`. Hoisting is
+    /// strictly more faithful, not a convenience.
+    hoisted: bool,
 }
 
 /// Does this source use ES module syntax?
@@ -161,6 +175,7 @@ pub fn lower(source: &str) -> Result<String, String> {
                     start: declaration.span.start as usize,
                     end: declaration.span.end as usize,
                     replacement: parts.join(" "),
+                    hoisted: true,
                 });
             }
 
@@ -195,6 +210,7 @@ pub fn lower(source: &str) -> Result<String, String> {
                     start: declaration.span.start as usize,
                     end: declaration.span.end as usize,
                     replacement: parts.join(" "),
+                    hoisted: false,
                 });
             }
 
@@ -226,6 +242,7 @@ pub fn lower(source: &str) -> Result<String, String> {
                     start: declaration.span.start as usize,
                     end: declaration.span.end as usize,
                     replacement,
+                    hoisted: false,
                 });
             }
 
@@ -245,6 +262,7 @@ pub fn lower(source: &str) -> Result<String, String> {
                     start: declaration.span.start as usize,
                     end: declaration.span.end as usize,
                     replacement,
+                    hoisted: false,
                 });
             }
 
@@ -258,14 +276,26 @@ pub fn lower(source: &str) -> Result<String, String> {
     }
 
     splices.sort_by_key(|splice| splice.start);
+
     let mut out = String::with_capacity(source.len() + 256);
+    // Imports first, in source order: every dependency is evaluated before the
+    // importing module's own code, as ES modules require.
+    for splice in splices.iter().filter(|splice| splice.hoisted) {
+        out.push_str(&splice.replacement);
+        out.push('\n');
+    }
+
     let mut cursor = 0usize;
     for splice in &splices {
         if splice.start < cursor {
             return Err("overlapping module declarations".into());
         }
         out.push_str(&source[cursor..splice.start]);
-        out.push_str(&splice.replacement);
+        // A hoisted import leaves nothing behind, so line structure is
+        // preserved for anything that later maps positions.
+        if !splice.hoisted {
+            out.push_str(&splice.replacement);
+        }
         cursor = splice.end;
     }
     out.push_str(&source[cursor..]);
