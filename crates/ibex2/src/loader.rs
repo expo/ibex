@@ -162,7 +162,14 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
 ///
 /// Capability-bearing names are here — as PARAMETERS — and correspondingly not
 /// on the global object. That is R1 and R2 in one list.
-pub const MODULE_PARAMETERS: &[&str] = &["module", "exports", "require", "fetch", "fs"];
+pub const MODULE_PARAMETERS: &[&str] = &[
+    "module",
+    "exports",
+    "require",
+    "fetch",
+    "fs",
+    "__ibex2_meta",
+];
 
 /// Wrap module source in a function of its injected bindings.
 ///
@@ -196,6 +203,7 @@ pub fn lower_and_wrap(source: &str) -> Result<String, String> {
 /// Capability-bearing names are deliberately absent: they arrive as parameters.
 pub const ALLOWED_GLOBALS: &[&str] = &[
     "__ibex2_default",
+    "__ibex2_dynamic_import",
     "__ibex2_response_field",
     "__ibex2_export_all",
     "console",
@@ -258,7 +266,9 @@ mod tests {
     fn a_wrapped_module_ends_cleanly_after_a_trailing_comment() {
         let wrapped = wrap("exports.x = 1; // trailing comment");
         assert!(wrapped.ends_with("\n})"), "{wrapped}");
-        assert!(wrapped.starts_with("(function (module, exports, require, fetch, fs) {"));
+        assert!(
+            wrapped.starts_with("(function (module, exports, require, fetch, fs, __ibex2_meta) {")
+        );
     }
 
     #[test]

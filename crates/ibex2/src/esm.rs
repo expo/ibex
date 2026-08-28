@@ -27,6 +27,7 @@ use oxc_ast::ast::{
     Declaration, ExportDefaultDeclarationKind, ImportDeclarationSpecifier, ModuleDeclaration,
     Statement,
 };
+use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
 
@@ -66,6 +67,51 @@ pub fn is_module(source: &str) -> bool {
     })
 }
 
+/// `import.meta` and `import(...)` occurrences, which live inside expressions
+/// rather than at the top level.
+///
+/// Hermes parses neither — it reports `'import.meta' is currently unsupported`
+/// and `Invalid expression` for a dynamic import. Oxc parses both, and the
+/// transform already stands between them, so the engine's parser limits are
+/// this file's to route around rather than the application's to work around.
+#[derive(Default)]
+struct ExpressionForms {
+    /// Spans of `import.meta`.
+    meta: Vec<(usize, usize)>,
+    /// Spans of `import(...)`, with the whole expression's range and the
+    /// literal specifier when there is one.
+    dynamic_imports: Vec<(usize, usize, Option<String>)>,
+}
+
+impl<'a> Visit<'a> for ExpressionForms {
+    fn visit_meta_property(&mut self, it: &oxc_ast::ast::MetaProperty<'a>) {
+        if it.meta.name == "import" && it.property.name == "meta" {
+            self.meta
+                .push((it.span.start as usize, it.span.end as usize));
+        }
+    }
+
+    fn visit_import_expression(&mut self, it: &oxc_ast::ast::ImportExpression<'a>) {
+        // A literal specifier is a static dependency the build can compile
+        // ahead of time. A computed one is an expression, and no build can
+        // resolve it — see LLP 0064 §7.
+        let literal = match &it.source {
+            oxc_ast::ast::Expression::StringLiteral(s) => Some(s.value.to_string()),
+            _ => None,
+        };
+        self.dynamic_imports
+            .push((it.span.start as usize, it.span.end as usize, literal));
+        // Keep walking: the argument may itself contain another import().
+        oxc_ast_visit::walk::walk_import_expression(self, it);
+    }
+}
+
+fn expression_forms(program: &oxc_ast::ast::Program) -> ExpressionForms {
+    let mut forms = ExpressionForms::default();
+    forms.visit_program(program);
+    forms
+}
+
 /// Every static dependency a module declares: imports and re-exports alike.
 ///
 /// From the parser, not a scan. `export { a } from './x'` and
@@ -73,9 +119,8 @@ pub fn is_module(source: &str) -> bool {
 /// scan for the word "import" finds them in strings and comments while missing
 /// these two entirely.
 ///
-/// Dynamic `import()` is deliberately absent: its specifier is an expression,
-/// so a build cannot resolve it in general, and pretending otherwise would make
-/// the build's module list quietly wrong.
+/// Dynamic `import()` is NOT here — see `dynamic_dependencies`, which is
+/// separate because a dynamic import is conditional where a static one is not.
 pub fn dependencies(source: &str) -> Vec<String> {
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
@@ -96,6 +141,24 @@ pub fn dependencies(source: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// Literal specifiers of dynamic `import()` calls.
+///
+/// Separate from `dependencies` because they are CONDITIONAL. A static import
+/// that does not resolve is a bug and should fail a build; a dynamic one may
+/// legitimately reference something absent — the call rejects, and code that
+/// guards it is correct. Failing the build on it would refuse a valid program.
+///
+/// Computed specifiers are not here: no build can resolve an expression.
+pub fn dynamic_dependencies(source: &str) -> Vec<String> {
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    expression_forms(&parsed.program)
+        .dynamic_imports
+        .into_iter()
+        .filter_map(|(_, _, literal)| literal)
+        .collect()
 }
 
 /// Exported bindings this module both declares mutable and assigns to.
@@ -205,6 +268,41 @@ pub fn lower(source: &str) -> Result<String, String> {
 
     let mut splices: Vec<Splice> = Vec::new();
     let mut saw_module_syntax = false;
+
+    // `import.meta` and `import(...)` are expressions, so they come from a
+    // visitor rather than the statement walk below. Neither parses in Hermes;
+    // both parse in Oxc, and lowering them here is what makes that difference
+    // invisible to application code.
+    let forms = expression_forms(&parsed.program);
+    for (start, end) in &forms.meta {
+        saw_module_syntax = true;
+        splices.push(Splice {
+            start: *start,
+            end: *end,
+            // Injected per module, so `import.meta.url` is this module's URL
+            // while the wrapper text stays identical across modules — which is
+            // what keeps one artifact per distinct source.
+            replacement: "__ibex2_meta".to_string(),
+            hoisted: false,
+        });
+    }
+    for (start, end, _) in &forms.dynamic_imports {
+        saw_module_syntax = true;
+        // The module's OWN require, so the specifier resolves relative to this
+        // module and the imported module's grants are looked up under its own
+        // resolved name. Wrapping rather than replacing keeps the argument
+        // expression exactly as written, computed specifiers included.
+        let argument = &source[*start + "import".len()..*end];
+        splices.push(Splice {
+            start: *start,
+            end: *end,
+            replacement: format!(
+                "__ibex2_dynamic_import(require, {})",
+                &argument[1..argument.len() - 1]
+            ),
+            hoisted: false,
+        });
+    }
 
     for statement in &parsed.program.body {
         let Some(module) = as_module_declaration(statement) else {
@@ -634,9 +732,19 @@ mod tests {
              import './side.js';\n\
              export { b } from './b.js';\n\
              export * from './c.js';\n\
-             const d = require('./d.js');\n",
+             const d = require('./d.js');\n\
+             import('./lazy.js');\n",
         );
-        assert_eq!(deps, vec!["./a.js", "./side.js", "./b.js", "./c.js"]);
+        assert_eq!(
+            deps,
+            vec!["./a.js", "./side.js", "./b.js", "./c.js"],
+            "a dynamic import is conditional and belongs in dynamic_dependencies"
+        );
+        assert_eq!(
+            dynamic_dependencies("import('./lazy.js'); import('./' + x);"),
+            vec!["./lazy.js"],
+            "only literal specifiers; a computed one is unresolvable"
+        );
     }
 
     /// A dynamic import's specifier is an expression, so the build cannot

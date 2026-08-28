@@ -22,6 +22,7 @@ base64 = "0.22"
 # authority; ESM lowering is a transform, so it uses the same parser.
 oxc_allocator = "=0.140.0"
 oxc_ast = "=0.140.0"
+oxc_ast_visit = "=0.140.0"
 oxc_parser = "=0.140.0"
 oxc_span = "=0.140.0"
 form_urlencoded = "1.2"

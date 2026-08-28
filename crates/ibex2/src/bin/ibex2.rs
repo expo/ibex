@@ -173,11 +173,36 @@ fn build(entry: &Path) -> Result<(), String> {
         // Both module systems: import/export-from come from the parser,
         // require from a scan, because a require's specifier is an ordinary
         // call argument no module-syntax parse reports.
-        let mut dependencies = ibex2::esm::dependencies(&source);
-        dependencies.extend(requires_in(&source));
-        for dependency in dependencies {
+        let mut dependencies: Vec<(String, bool)> = ibex2::esm::dependencies(&source)
+            .into_iter()
+            .map(|dependency| (dependency, true))
+            .collect();
+        dependencies.extend(
+            requires_in(&source)
+                .into_iter()
+                .map(|dependency| (dependency, true)),
+        );
+        // A literal dynamic import is worth building — otherwise it is missing
+        // from the manifest and fails under --precompiled — but it is
+        // CONDITIONAL where a static import is not, so a target that does not
+        // exist is a warning rather than a build failure. Code that guards an
+        // optional import is correct.
+        dependencies.extend(
+            ibex2::esm::dynamic_dependencies(&source)
+                .into_iter()
+                .map(|dependency| (dependency, false)),
+        );
+
+        for (dependency, required) in dependencies {
             match ibex2::loader::resolve(&root, &specifier, &dependency) {
                 Ok(resolved) => {
+                    if !required && !root.join(resolved.trim_start_matches("./")).exists() {
+                        warnings.push(format!(
+                            "{specifier} dynamically imports {dependency:?}, which does not \
+                             exist. The call rejects at run time; it is not built."
+                        ));
+                        continue;
+                    }
                     edges
                         .entry(specifier.clone())
                         .or_default()

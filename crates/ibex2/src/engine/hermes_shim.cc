@@ -676,10 +676,20 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
                    make_async_binding(rt, method.name, method.op, owner, grants));
   }
 
+  // import.meta, per module. LLP 0023 §6 gives a file-backed module the
+  // virtual `file:///project/...` URL; that namespace does not exist yet, so
+  // this uses the same shape over the resolved specifier and will move to the
+  // VFS when there is one.
+  jsi::Object meta(rt);
+  std::string module_url = "file:///project/" + resolved_name.substr(
+      resolved_name.rfind("./", 0) == 0 ? 2 : 0);
+  meta.setProperty(rt, jsi::PropNameID::forAscii(rt, "url"),
+                   jsi::String::createFromUtf8(rt, module_url));
+
   fn_value.getObject(rt).getFunction(rt).call(
       rt, jsi::Value(rt, *module), jsi::Value(rt, *exports),
       jsi::Value(rt, make_require(rt, owner, resolved_name)),
-      std::move(fetch_binding), std::move(fs));
+      std::move(fetch_binding), std::move(fs), std::move(meta));
 
   // `module.exports = ...` replaces the object, so re-read it after running.
   jsi::Value final_exports = module->getProperty(rt, "exports");
