@@ -132,6 +132,11 @@ pub const CONDITIONS: &[&str] = &["import", "require", "default"];
 /// already has the answer (LLP 0028). The result is still contained: a package
 /// resolving outside the root is refused, which is what makes `node_modules`
 /// part of the project rather than a hole in it.
+///
+/// **Containment is checked against the canonical path**, so a symlink in
+/// `node_modules` pointing out of the project is refused like any other escape.
+/// A workspace package therefore resolves to its real location and is reachable
+/// only when that location is itself inside the root.
 pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
         return resolve_bare(root, from, specifier);
@@ -189,13 +194,22 @@ pub fn resolve(root: &Path, from: &str, specifier: &str) -> Result<String, Strin
 /// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it — containment
 /// still applies, and matters more here because resolution walks upward
 fn resolve_bare(root: &Path, from: &str, specifier: &str) -> Result<String, String> {
-    // `node:` and `bun:` are runtime builtins, not packages. Refused by name so
-    // the error says what is wrong rather than "not found in node_modules".
+    // Anything with a scheme is not a package name, and the two kinds fail for
+    // different reasons — so they say different things. `node:`/`bun:` name
+    // builtin namespaces this runtime does not have; a URL names a module to be
+    // fetched, which no amount of node_modules searching will find. Reporting
+    // either as "not installed" sends the reader looking in the wrong place.
     if let Some((scheme, _)) = specifier.split_once(':') {
-        return Err(format!(
-            "{specifier:?} names the {scheme:?} builtin namespace, which this runtime does not \
-             provide (LLP 0059 §6)"
-        ));
+        return Err(match scheme {
+            "node" | "bun" => format!(
+                "{specifier:?} names the {scheme:?} builtin namespace, which this runtime does \
+                 not provide (LLP 0059 §6)"
+            ),
+            _ => format!(
+                "cannot resolve {specifier:?} from {from}: modules are loaded from the project, \
+                 not over {scheme:?}"
+            ),
+        });
     }
 
     let from_dir = root.join(
@@ -209,14 +223,6 @@ fn resolve_bare(root: &Path, from: &str, specifier: &str) -> Result<String, Stri
         extensions: EXTENSIONS.iter().map(|e| (*e).to_string()).collect(),
         // `module` before `main`: the ESM entry where a package offers one.
         main_fields: vec!["module".to_string(), "main".to_string()],
-        // Do NOT follow symlinks to their real path. Workspace packages —
-        // @ref LLP 0065#3-workspace-symlinks-resolve-logically — states the
-        // containment this trades away, and what would replace it.
-        // `@exact/*`, the dominant case in the real graph — are symlinks from
-        // `node_modules` into the monorepo, and resolving them would land
-        // outside the project root and be refused by containment below. The
-        // logical path is the one that stays inside the project.
-        symlinks: false,
         ..oxc_resolver::ResolveOptions::default()
     };
     let resolved = oxc_resolver::Resolver::new(options)
@@ -387,6 +393,15 @@ mod tests {
         let err = resolve(&root(), "./index.js", "node:fs").unwrap_err();
         assert!(err.contains("builtin namespace"), "{err}");
         assert!(resolve(&root(), "./index.js", "bun:test").is_err());
+    }
+
+    /// A URL is not a package and not a builtin, and saying otherwise sends the
+    /// reader to `node_modules` for something that was never going to be there.
+    #[test]
+    fn a_url_specifier_is_refused_as_a_url() {
+        let err = resolve(&root(), "./index.js", "https://evil.example/m.js").unwrap_err();
+        assert!(!err.contains("builtin namespace"), "{err}");
+        assert!(err.contains("not over"), "{err}");
     }
 
     #[test]

@@ -52,25 +52,48 @@ This matters more here than for relative specifiers, because Node resolution
 a project could silently bind against a package installed above it, outside
 anything the author reviewed.
 
-## 3. Workspace symlinks resolve logically
+## 3. Symlinks are resolved, and containment is checked against the real path
 
-`oxc_resolver` defaults to resolving symlinks to their real path. Ibex 2 turns
-that off (`symlinks: false`).
+Containment (§2) compares the **canonical** path against the canonical root, so
+a symlink inside `node_modules` pointing out of the project is refused like any
+other escape. A workspace package resolves to its real location — and is
+reachable only if that location is itself inside the root.
 
-Workspace packages are symlinks from `node_modules` into the monorepo, and
-`@exact/*` — the dominant case in the real graph — are exactly that. Following
-the link yields a path outside the project root, which §2 then refuses. The
-logical path stays inside.
+**This section previously claimed the opposite**, and was wrong. It said
+resolution deliberately did not follow symlinks (`oxc_resolver`'s
+`symlinks: false`), so workspace links would resolve "logically" and stay
+inside `node_modules`, and it recorded that as an accepted weakening of
+containment. Two things were wrong with that:
 
-**The tradeoff, stated plainly:** a symlink inside `node_modules` pointing
-somewhere arbitrary becomes reachable as a module. That is a weaker containment
-guarantee than resolving first and checking after. It is accepted because the
-alternative refuses every monorepo, and because the contents of a project's own
-`node_modules` are already code the project chose to install and execute. §2
-still governs everything that is not a symlink the project placed there itself.
+1. The option was **inert**. Setting it to `true` changes no observable
+   behaviour, because the canonicalize below it normalizes the path either way.
+   Verified by mutation: every test passes identically with the option flipped.
+2. The weakening it admitted **did not exist**. A symlink out of the project was
+   already refused. The document conceded a security property the code had not
+   actually given up.
 
-This is the weakest claim in this document and the one to revisit first if
-containment is ever load-bearing against an installed-dependency threat.
+The option has been removed rather than left with a corrected comment, so the
+resolver and the containment check now agree on what a path is instead of one
+silently undoing the other. `a_symlink_out_of_the_project_is_refused` pins the
+behaviour, and says in its own comment that the protection comes from the
+canonicalize — so a future change that relaxes it fails a test that explains
+itself.
+
+The lesson worth keeping: this document was written from the code's *comments*
+rather than from its *behaviour*, and the comments described an intent that the
+implementation had overtaken.
+
+### 3.1 What this costs, which is real
+
+Strict containment plus a root defined as the entry's own directory means
+**monorepo layouts do not resolve at all**. With the entry at
+`apps/mobile/index.js`, a hoisted `node_modules/` and a `packages/` directory at
+the repository root are both *above* the root and therefore refused.
+
+That is Exact's shape, and Exact is what Ibex 2 targets (LLP 0057 §5.2), so
+package resolution is not yet usable for its actual target. The mechanism is
+correct and the containment is correct; the **root** is the wrong one. OQ4
+carries this.
 
 ## 4. A package is granted nothing by being a dependency
 
@@ -111,7 +134,18 @@ internals — which are not the author's to know and change on upgrade. A
 package-level grant scope is the obvious answer and is not yet specified. This
 is the concrete form LLP 0062 OQ1 takes once packages exist.
 
-**OQ3 — Is `symlinks: false` right, or is a root allowlist better?** §3 accepts
-a real weakening. An alternative is to resolve symlinks honestly and let the
-project declare additional permitted roots (the workspace directory), which
-keeps containment strict at the cost of configuration.
+**OQ3 — Should a project be able to declare additional permitted roots?**
+Containment is a single directory today. A project that legitimately spans two
+trees has no way to say so except by widening the root, which widens it for
+everything. An explicit allowlist would keep the boundary tight and stated.
+
+**OQ4 — What is the project root?** The blocking question, and §3.1 is why. The
+root is the entry file's own directory, which is right for a single-directory
+program and wrong for every monorepo. Candidates: the nearest ancestor holding
+a `package.json`; the nearest ancestor whose `package.json` declares
+`workspaces`; the nearest ancestor holding a `node_modules`; or an explicit
+`--root`. The tension is that containment is a security boundary, and every
+implicit rule that widens it automatically can be induced to widen it further
+than the author expected — a stray `package.json` in a home directory should
+not silently make the home directory reachable. An explicit `--root` with a
+conservative default is the likely answer, but the default is the decision.
