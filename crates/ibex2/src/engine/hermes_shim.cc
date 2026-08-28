@@ -309,9 +309,12 @@ void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
 
 } // namespace
 
-extern "C" int ibex2_async_begin(const void *queue, uint32_t op,
-                                 const Ibex2AbiValue *argv, size_t argc,
-                                 uint64_t task_id);
+extern "C" int ibex2_async_begin(const void *queue, const void *grants,
+                                 uint32_t op, const Ibex2AbiValue *argv,
+                                 size_t argc, uint64_t task_id);
+extern "C" int ibex2_response_field(const void *queue, double handle,
+                                    uint32_t field, const Ibex2AbiValue *name,
+                                    Ibex2AbiValue *out);
 extern "C" int ibex2_take_completion(const void *queue, uint64_t *task_id,
                                      Ibex2AbiValue *out, int *is_error);
 
@@ -354,12 +357,13 @@ jsi::Value make_pending_promise(jsi::Runtime &rt, Ibex2Runtime *owner,
 }
 
 jsi::Function make_async_binding(jsi::Runtime &runtime, const char *name,
-                                 uint32_t op, Ibex2Runtime *owner) {
+                                 uint32_t op, Ibex2Runtime *owner,
+                                 const void *grants) {
   auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
   return jsi::Function::createFromHostFunction(
       runtime, prop, 1,
-      [op, owner](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
-                  size_t count) -> jsi::Value {
+      [op, owner, grants](jsi::Runtime &rt, const jsi::Value &,
+                          const jsi::Value *args, size_t count) -> jsi::Value {
         std::vector<std::string> owned;
         owned.reserve(count);
         std::vector<Ibex2AbiValue> abi;
@@ -373,7 +377,7 @@ jsi::Function make_async_binding(jsi::Runtime &runtime, const char *name,
 
         // The work starts only after the promise exists, so there is no window
         // in which a completion could arrive for an unknown task.
-        if (ibex2_async_begin(owner->queue, op,
+        if (ibex2_async_begin(owner->queue, grants, op,
                               abi.empty() ? nullptr : abi.data(), abi.size(),
                               id) != 0) {
           owner->pending.erase(id);
@@ -453,6 +457,60 @@ int ibex2_hermes_drain_microtasks(void *handle) {
 
 extern "C" {
 
+/// Install `fetch`, bound to the grants it will carry for its whole lifetime.
+///
+/// The grants are captured HERE, at install time, and handed back on every
+/// call. That is LLP 0060 D1 made concrete: two runtimes — or two bindings —
+/// can be given different authority for identical JavaScript, and neither can
+/// reach the other's.
+int ibex2_hermes_install_fetch(void *handle, const void *grants) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return -1;
+  }
+  try {
+    jsi::Runtime &runtime = *rt->runtime;
+    jsi::Object global = runtime.global();
+    global.setProperty(
+        runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_fetch"),
+        make_async_binding(runtime, "__ibex2_fetch", 101, rt, grants));
+
+    // Response accessors. A response crosses as a handle; these read it.
+    auto field_fn = jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_response_field"), 3,
+        [rt](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+             size_t count) -> jsi::Value {
+          if (count < 2) {
+            throw jsi::JSError(r, "response field needs a handle and a field id");
+          }
+          std::vector<std::string> owned;
+          Ibex2AbiValue name{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+          if (count >= 3) {
+            name = to_abi(r, args[2], owned);
+          }
+          Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+          int status = ibex2_response_field(
+              rt->queue, args[0].asNumber(),
+              static_cast<uint32_t>(args[1].asNumber()),
+              count >= 3 ? &name : nullptr, &out);
+          jsi::Value result = from_abi(r, out);
+          ibex2_host_release(&out);
+          if (status != 0) {
+            throw jsi::JSError(r, result.isString()
+                                      ? result.getString(r).utf8(r)
+                                      : std::string("response read failed"));
+          }
+          return result;
+        });
+    global.setProperty(runtime,
+                       jsi::PropNameID::forAscii(runtime, "__ibex2_response_field"),
+                       std::move(field_fn));
+    return 0;
+  } catch (const std::exception &) {
+    return 1;
+  }
+}
+
 /// Install the pure tier: console, btoa/atob, and a raw host-call escape hatch.
 int ibex2_hermes_install_stdlib(void *handle) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
@@ -484,7 +542,7 @@ int ibex2_hermes_install_stdlib(void *handle) {
     // ordering contract before any transport exists.
     global.setProperty(runtime,
                        jsi::PropNameID::forAscii(runtime, "__ibex2_async_echo"),
-                       make_async_binding(runtime, "__ibex2_async_echo", 100, rt));
+                       make_async_binding(runtime, "__ibex2_async_echo", 100, rt, nullptr));
     return 0;
   } catch (const std::exception &) {
     return 1;

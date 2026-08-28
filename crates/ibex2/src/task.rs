@@ -82,19 +82,90 @@ impl CompletionQueue {
     }
 }
 
+/// Everything one runtime owns on the Rust side.
+///
+/// Per-runtime for the reason C5 exists, and it holds the response registry as
+/// well as the completion queue: a `Response` cannot cross the boundary as a
+/// value, because §1.1 forbids serializing at the boundary and a `Response` is
+/// a status, a header list, and a body. It crosses as a **handle** — the other
+/// half of "primitives and handles" — and these are the objects the handle
+/// refers to.
+pub struct RuntimeState {
+    pub queue: CompletionQueue,
+    responses: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Response>>,
+    next_handle: std::sync::atomic::AtomicU64,
+    transport: Box<dyn crate::stdlib::fetch::Transport>,
+}
+
+impl RuntimeState {
+    pub fn new(transport: Box<dyn crate::stdlib::fetch::Transport>) -> Self {
+        Self {
+            queue: CompletionQueue::new(),
+            responses: Mutex::new(std::collections::HashMap::new()),
+            next_handle: std::sync::atomic::AtomicU64::new(1),
+            transport,
+        }
+    }
+
+    pub fn transport(&self) -> &dyn crate::stdlib::fetch::Transport {
+        self.transport.as_ref()
+    }
+
+    /// Park a response and return the handle JavaScript will hold.
+    pub fn store_response(&self, response: crate::stdlib::fetch::Response) -> u64 {
+        let handle = self
+            .next_handle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.responses
+            .lock()
+            .expect("response registry poisoned")
+            .insert(handle, response);
+        handle
+    }
+
+    pub fn with_response<T>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&crate::stdlib::fetch::Response) -> T,
+    ) -> Option<T> {
+        self.responses
+            .lock()
+            .expect("response registry poisoned")
+            .get(&handle)
+            .map(f)
+    }
+
+    /// Take the response out, so its body can be moved rather than copied.
+    pub fn take_response(&self, handle: u64) -> Option<crate::stdlib::fetch::Response> {
+        self.responses
+            .lock()
+            .expect("response registry poisoned")
+            .remove(&handle)
+    }
+
+    pub fn live_responses(&self) -> usize {
+        self.responses
+            .lock()
+            .expect("response registry poisoned")
+            .len()
+    }
+}
+
 /// Create a queue and hand ownership to the caller as a raw pointer.
 ///
 /// # Safety
 /// The result must be released exactly once with `ibex2_queue_destroy`.
 #[no_mangle]
-pub extern "C" fn ibex2_queue_create() -> *const CompletionQueue {
-    Arc::into_raw(Arc::new(CompletionQueue::new()))
+pub extern "C" fn ibex2_queue_create() -> *const RuntimeState {
+    Arc::into_raw(Arc::new(RuntimeState::new(Box::new(
+        crate::transport::DevTcpTransport::new(),
+    ))))
 }
 
 /// # Safety
 /// `queue` must come from `ibex2_queue_create` and not have been destroyed.
 #[no_mangle]
-pub unsafe extern "C" fn ibex2_queue_destroy(queue: *const CompletionQueue) {
+pub unsafe extern "C" fn ibex2_queue_destroy(queue: *const RuntimeState) {
     if !queue.is_null() {
         drop(Arc::from_raw(queue));
     }
@@ -104,7 +175,7 @@ pub unsafe extern "C" fn ibex2_queue_destroy(queue: *const CompletionQueue) {
 ///
 /// # Safety
 /// `queue` must be a live pointer from `ibex2_queue_create`.
-pub(crate) unsafe fn clone_queue(queue: *const CompletionQueue) -> Option<Arc<CompletionQueue>> {
+pub(crate) unsafe fn clone_queue(queue: *const RuntimeState) -> Option<Arc<RuntimeState>> {
     if queue.is_null() {
         return None;
     }

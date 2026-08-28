@@ -6,5 +6,6 @@
 
 pub mod base64;
 pub mod console;
+pub mod fetch;
 pub mod text;
 pub mod url;

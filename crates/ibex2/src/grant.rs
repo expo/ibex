@@ -174,6 +174,69 @@ impl GrantSet {
     }
 }
 
+impl GrantSet {
+    /// Parse a grant spec: one grant per line, `capability target`.
+    ///
+    /// Fixed at creation, because a grant set that can be added to after the
+    /// fact is ambient authority wearing a struct (LLP 0060 D1). Blank lines
+    /// and `#` comments are ignored.
+    ///
+    /// ```text
+    /// net.fetch http://127.0.0.1:8080
+    /// fs.read   /data
+    /// env.read  NODE_ENV
+    /// ```
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let mut set = GrantSet::none();
+        for (index, line) in spec.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut parts = line.split_whitespace();
+            let capability = parts.next().unwrap_or_default();
+            let target = parts
+                .next()
+                .ok_or_else(|| format!("line {}: `{capability}` needs a target", index + 1))?;
+            let grant = match capability {
+                "net.fetch" | "net.websocket" => {
+                    let url = url::Url::parse(target)
+                        .map_err(|e| format!("line {}: bad origin `{target}`: {e}", index + 1))?;
+                    let host = url
+                        .host_str()
+                        .ok_or_else(|| format!("line {}: origin has no host", index + 1))?;
+                    let port = url.port_or_known_default().ok_or_else(|| {
+                        format!("line {}: no default port for `{}`", index + 1, url.scheme())
+                    })?;
+                    let origin = Origin::new(url.scheme(), host, port);
+                    if capability == "net.fetch" {
+                        Grant::Fetch(origin)
+                    } else {
+                        Grant::WebSocket(origin)
+                    }
+                }
+                "fs.read" | "fs.write" | "sqlite.open" => {
+                    let prefix = PathPrefix::new(target).ok_or_else(|| {
+                        format!(
+                            "line {}: `{target}` must be an absolute, resolved path",
+                            index + 1
+                        )
+                    })?;
+                    match capability {
+                        "fs.read" => Grant::FsRead(prefix),
+                        "fs.write" => Grant::FsWrite(prefix),
+                        _ => Grant::SqliteOpen(prefix),
+                    }
+                }
+                "env.read" => Grant::EnvRead(target.to_string()),
+                other => return Err(format!("line {}: unknown capability `{other}`", index + 1)),
+            };
+            set = set.with(grant);
+        }
+        Ok(set)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +352,39 @@ mod tests {
         assert!(!set.permits(&Operation::EnvRead {
             name: "NODE_ENV_EXTRA".into()
         }));
+    }
+
+    #[test]
+    fn a_spec_parses_into_the_grants_it_names() {
+        let set = GrantSet::parse(
+            "# a comment\n\nnet.fetch http://127.0.0.1:8080\nfs.read /data\nenv.read NODE_ENV\n",
+        )
+        .unwrap();
+        assert!(set.permits(&Operation::Fetch {
+            origin: Origin::new("http", "127.0.0.1", 8080)
+        }));
+        assert!(set.permits(&Operation::FsRead {
+            path: "/data/x".into()
+        }));
+        assert!(set.permits(&Operation::EnvRead {
+            name: "NODE_ENV".into()
+        }));
+        // And nothing beyond them.
+        assert!(!set.permits(&Operation::Fetch {
+            origin: Origin::new("http", "127.0.0.1", 9090)
+        }));
+        assert!(!set.permits(&Operation::FsWrite {
+            path: "/data/x".into()
+        }));
+    }
+
+    #[test]
+    fn an_empty_spec_grants_nothing_and_a_bad_one_is_refused() {
+        assert!(GrantSet::parse("").unwrap().is_empty());
+        assert!(GrantSet::parse("net.fetch").is_err());
+        assert!(GrantSet::parse("nonsense.cap x").is_err());
+        assert!(GrantSet::parse("fs.read relative/path").is_err());
+        assert!(GrantSet::parse("net.fetch not-a-url").is_err());
     }
 
     #[test]
