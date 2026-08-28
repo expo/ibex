@@ -145,7 +145,7 @@ fn build(entry: &Path) -> Result<(), String> {
         let path = root.join(specifier.trim_start_matches("./"));
         let source = std::fs::read_to_string(&path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let wrapped = ibex2::loader::wrap(&source);
+        let wrapped = ibex2::loader::lower_and_wrap(&source)?;
         compiler
             .compile(&wrapped)
             .map_err(|e| format!("{specifier}: {e}"))?;
@@ -154,7 +154,12 @@ fn build(entry: &Path) -> Result<(), String> {
         manifest.insert(&specifier, &compiler.key(&wrapped));
         built += 1;
 
-        for dependency in requires_in(&source) {
+        // Both module systems: `import`/`export from` come from the parser,
+        // `require` from a scan, because a require's specifier is an ordinary
+        // call argument that no module-syntax parse reports.
+        let mut dependencies = ibex2::esm::dependencies(&source);
+        dependencies.extend(requires_in(&source));
+        for dependency in dependencies {
             match ibex2::loader::resolve(&root, &specifier, &dependency) {
                 Ok(resolved) => queue.push(resolved),
                 // A require() this scan cannot resolve is not a build failure:
@@ -172,8 +177,9 @@ fn build(entry: &Path) -> Result<(), String> {
 /// Find `require('...')` specifiers by scanning.
 ///
 /// A scanner, not a parser: it can see a require inside a comment or a string
-/// and will compile a module nothing imports. That is wasted work rather than
-/// a wrong result, and a real parser arrives with ESM.
+/// and will compile a module nothing imports. That is wasted work rather than a
+/// wrong result. ES module specifiers come from the parser instead — see
+/// `esm::dependencies`.
 fn requires_in(source: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = source;

@@ -133,6 +133,7 @@ impl Hermes {
     /// global object. That is the whole argument for R5 — R1 is a property of a
     /// list, and a list nothing checks drifts.
     pub fn install_bindings(&mut self) -> Result<(), JsError> {
+        self.eval(include_str!("../bindings/esm.js"))?;
         self.eval(include_str!("../bindings/headers.js"))?;
         self.eval(include_str!("../bindings/timers.js"))?;
         Ok(())

@@ -181,11 +181,23 @@ pub fn wrap(source: &str) -> String {
     )
 }
 
+/// Lower ES module syntax, then wrap.
+///
+/// One function, because the artifact key is computed over the wrapper text and
+/// the wrapper must therefore be the LOWERED form. Two call sites producing the
+/// wrapper differently would produce two keys for one module.
+pub fn lower_and_wrap(source: &str) -> Result<String, String> {
+    Ok(wrap(&crate::esm::lower(source)?))
+}
+
 /// The global names a module may see. Anything outside this list on
 /// `globalThis` after boot is an R1 violation.
 ///
 /// Capability-bearing names are deliberately absent: they arrive as parameters.
 pub const ALLOWED_GLOBALS: &[&str] = &[
+    "__ibex2_default",
+    "__ibex2_response_field",
+    "__ibex2_export_all",
     "console",
     "setTimeout",
     "setInterval",

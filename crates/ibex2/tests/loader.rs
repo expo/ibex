@@ -487,3 +487,129 @@ fn a_receipted_vanilla_engine_is_accepted_and_verified() {
     );
     let _ = std::fs::remove_dir_all(cache);
 }
+
+// --- ESM ---------------------------------------------------------------------
+
+#[test]
+fn es_modules_import_and_export_across_files() {
+    let p = Project::new("esm");
+    p.file(
+        "index.js",
+        "import greet, { NAME, shout } from './greet.js';
+         import * as all from './greet.js';
+         console.log(greet('world'));
+         console.log(shout(NAME));
+         console.log('namespace:', Object.keys(all).sort().join(','));",
+    )
+    .file(
+        "greet.js",
+        "export const NAME = 'ibex2';
+         export function shout(s) { return s.toUpperCase() + '!'; }
+         export default function greet(who) { return 'hello, ' + who; }",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(
+        out,
+        vec!["hello, world", "IBEX2!", "namespace: NAME,default,shout",]
+    );
+}
+
+/// ESM exports are live. A snapshot would print 0 twice.
+#[test]
+fn an_exported_binding_is_a_live_view() {
+    let p = Project::new("esmlive");
+    p.file(
+        "index.js",
+        "import * as counter from './counter.js';
+         console.log('before', counter.value);
+         counter.bump();
+         console.log('after', counter.value);",
+    )
+    .file(
+        "counter.js",
+        "export let value = 0;
+         export function bump() { value += 1; }",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["before 0", "after 1"]);
+}
+
+#[test]
+fn re_exports_and_export_star_compose() {
+    let p = Project::new("esmstar");
+    p.file(
+        "index.js",
+        "import { a, b, renamed } from './barrel.js';
+         console.log([a, b, renamed].join(','));",
+    )
+    .file(
+        "barrel.js",
+        "export * from './one.js';
+         export { c as renamed } from './two.js';",
+    )
+    .file("one.js", "export const a = 1; export const b = 2;")
+    .file("two.js", "export const c = 3;");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["1,2,3"]);
+}
+
+/// A CommonJS module imported by an ES module: its module.exports becomes the
+/// default, which is the interop every bundler converged on.
+#[test]
+fn an_es_module_can_import_a_commonjs_one() {
+    let p = Project::new("esminterop");
+    p.file(
+        "index.js",
+        "import cjs from './legacy.js';
+         import { named } from './legacy.js';
+         console.log(cjs.hello(), named);",
+    )
+    .file(
+        "legacy.js",
+        "exports.hello = () => 'from cjs'; exports.named = 'also works';",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["from cjs also works"]);
+}
+
+/// ESM and CommonJS in one graph, since a real migration has both.
+#[test]
+fn es_modules_and_commonjs_coexist_in_one_graph() {
+    let p = Project::new("esmmixed");
+    p.file(
+        "index.js",
+        "import { fromEsm } from './esm.js';
+         const cjs = require('./cjs.js');
+         console.log(fromEsm(), cjs.fromCjs());",
+    )
+    .file("esm.js", "export const fromEsm = () => 'esm';")
+    .file("cjs.js", "exports.fromCjs = () => 'cjs';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["esm cjs"]);
+}
+
+/// ESM through the ahead-of-time path must behave identically, since the
+/// artifact is the LOWERED wrapper.
+#[test]
+fn es_modules_behave_identically_from_bytecode() {
+    let p = Project::new("esmhbc");
+    p.file(
+        "index.js",
+        "import { value } from './dep.js';
+         console.log('value is', value);",
+    )
+    .file("dep.js", "export const value = 7;");
+
+    let (source_out, source_err) = p.run("./index.js", "");
+    let Some(compiler) = p.compiler() else { return };
+    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false);
+    assert_eq!(source_err, None);
+    assert_eq!(hbc_err, None);
+    assert_eq!(hbc_out, source_out);
+    assert_eq!(source_out, vec!["value is 7"]);
+}

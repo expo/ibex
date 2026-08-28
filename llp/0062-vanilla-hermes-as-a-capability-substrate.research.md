@@ -5,6 +5,7 @@
 **Systems:** CapSec, Runtime, Engine, Module Loader
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
+**Revised:** 2026-08-28 (Ibex 2's measured engine is `IBEX_HERMES_VANILLA_SOURCE_COMMIT` `6badada762121682b5481b6124e6c3a991ae6046`; the numbers below were taken on the previous vanilla checkout of the patched pin `e639a7ba` and should be re-read if they drift)
 **Revised:** 2026-08-28 (rescoped from Spec to Research after LLP 0058.000 and 0058.000.000 landed from a dual-model review: they own the requirements normatively, and this measures the engine facts they state as conditionals. §1 now points at them rather than competing.) 2026-08-28 (initial draft)
 **Related:** LLP 0058.000 (vanilla Hermes and the Rust capability boundary — **normative**; this measures what it assumes), LLP 0058.000.000 (capability-context and adapter protocol — normative for §1's requirements), LLP 0060 (superseded; the independently-derived decision), LLP 0057 (Ibex 2 §4 — where capsec moves), LLP 0059.000 (the host-call boundary this sits above), LLP 0013 (per-package compartments — the retired mechanism), LLP 0023 (the virtual filesystem namespace the loader addresses)
 
@@ -15,7 +16,11 @@ This document measures. Those documents state, correctly and conservatively,
 several things about stock Hermes as conditionals — *if* the selected pin
 retains a behaviour, *if* an escape is closed — and a capability argument that
 rests on a conditional is only as good as whether anyone checked. This is the
-check, run against the pinned commit with a build carrying zero Ibex patches.
+check, run against the vanilla pin (`IBEX_HERMES_VANILLA_SOURCE_COMMIT` in
+`scripts/hermes-version.sh`) with a build carrying zero Ibex patches. The
+absolute timings in §3 were taken on the previous vanilla checkout of
+`e639a7bad8bfca844d982afa54fac786c65a8856`; the escape inventory is a
+language/VM fact that a pin bump must re-assert, not a number that moves.
 
 Three findings, in descending order of how much they matter:
 
@@ -117,6 +122,35 @@ cap, and it tracks **visited** so cycles terminate.
 **This discharges LLP 0060 OQ1.** Freeze at boot and pay ~2 ms. Patch 0006's
 native deep-freeze was worth about that much wall clock — a performance
 optimization, not a capability requirement.
+
+## 3.1 A language conformance gap that reaches ordinary code
+
+Found while lowering ES modules, and recorded here because it is the same kind
+of fact as §2: something a design may reasonably assume, which this engine does
+not provide.
+
+**`for (const x of …)` does not create a per-iteration binding.** Closures made
+inside the loop all capture the last value:
+
+```js
+const fs = [];
+for (const n of ['a', 'b']) fs.push(() => n);
+fs.map(f => f()).join(',')   // 'b,b'  — the spec says 'a,b'
+```
+
+`forEach` is correct, because each element gets its own function invocation, and
+that is the workaround `__ibex2_export_all` uses. Without it, `export * from`
+republishes one value under every name — which is how this was found.
+
+LLP 0058 §2 puts Hermes at roughly 55% of Test262 and argues the gap is
+survivable because Ibex 2 moves the standard library out of JavaScript, so less
+of the language is load-bearing. That argument holds, and this is the shape of
+its cost: the failure is silent, produces plausible values rather than an error,
+and appears in a pattern application code writes constantly.
+
+It also sharpens LLP 0058 OQ3. A conformance floor "expressed as a suite over
+the application tier" needs to include closure capture in loops, because a
+runtime that gets this wrong miscomputes rather than refuses.
 
 ## 4. What is not defended
 
