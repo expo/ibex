@@ -316,6 +316,8 @@ extern "C" int ibex2_async_begin(const void *queue, const void *grants,
                                  size_t argc, uint64_t task_id);
 extern "C" int ibex2_wait_for_completion(const void *queue,
                                          unsigned long long timeout_ms);
+extern "C" double ibex2_take_due_timer(const void *queue);
+extern "C" double ibex2_millis_until_next_timer(const void *queue);
 extern "C" int ibex2_response_field(const void *queue, double handle,
                                     uint32_t field, const Ibex2AbiValue *name,
                                     Ibex2AbiValue *out);
@@ -443,6 +445,29 @@ int ibex2_hermes_pump(void *handle) {
   // C2: drain to quiescence, including microtasks enqueued by the microtasks
   // we just ran.
   runtime.drainMicrotasks();
+
+  // Then timers. Each fired timer is a separate TASK, so the microtask queue is
+  // drained after each one rather than once at the end — that is the HTML
+  // microtask checkpoint, and batching it would let a later timer's
+  // continuation run before an earlier timer's.
+  jsi::Value fire = runtime.global().getProperty(runtime, "__ibex2_fire_timer");
+  while (true) {
+    double handle = ibex2_take_due_timer(rt->queue);
+    if (handle == 0.0) {
+      break;
+    }
+    if (fire.isObject() && fire.getObject(runtime).isFunction(runtime)) {
+      try {
+        fire.getObject(runtime).getFunction(runtime).call(runtime, handle);
+      } catch (const jsi::JSError &) {
+        // A throwing timer callback must not stop the other timers that are
+        // already due, exactly as an unhandled error in one task does not
+        // cancel the next.
+      }
+    }
+    runtime.drainMicrotasks();
+    delivered += 1;
+  }
   return delivered;
 }
 
@@ -572,6 +597,11 @@ int ibex2_hermes_install_stdlib(void *handle) {
     global.setProperty(runtime,
                        jsi::PropNameID::forAscii(runtime, "__ibex2_headers"),
                        std::move(headers));
+
+    set_binding(runtime, global, "__ibex2_timer_set", 60, rt->queue);
+    set_binding(runtime, global, "__ibex2_timer_set_repeating", 61, rt->queue);
+    set_binding(runtime, global, "__ibex2_timer_clear", 62, rt->queue);
+    set_binding(runtime, global, "__ibex2_performance_now", 63, rt->queue);
 
     // The delegating tier. One op for now — enough to hold the adapter to its
     // ordering contract before any transport exists.

@@ -113,6 +113,12 @@ pub struct RuntimeState {
     /// Header lists JavaScript holds by handle, for the same reason responses
     /// are: a header list is not a primitive and §1.1 forbids serializing.
     headers: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Headers>>,
+    /// The timer wheel (LLP 0059.000 §3.2). Rust owns *when*; the engine keeps
+    /// the closures and owns *what*.
+    timers: Mutex<crate::stdlib::timers::Timers>,
+    /// The runtime's monotonic origin, so `now()` is milliseconds since boot —
+    /// the same base `performance.now` will read (§2).
+    started: std::time::Instant,
     next_handle: std::sync::atomic::AtomicU64,
     transport: Box<dyn crate::stdlib::fetch::Transport>,
 }
@@ -123,6 +129,8 @@ impl RuntimeState {
             queue: CompletionQueue::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
             headers: Mutex::new(std::collections::HashMap::new()),
+            timers: Mutex::new(crate::stdlib::timers::Timers::new()),
+            started: std::time::Instant::now(),
             next_handle: std::sync::atomic::AtomicU64::new(1),
             transport,
         }
@@ -204,6 +212,41 @@ impl RuntimeState {
             .lock()
             .expect("header registry poisoned")
             .remove(&handle);
+    }
+
+    /// Milliseconds since this runtime started.
+    pub fn now(&self) -> f64 {
+        self.started.elapsed().as_secs_f64() * 1000.0
+    }
+
+    pub fn set_timer(&self, delay_ms: f64, repeating: bool) -> u64 {
+        let delay = std::time::Duration::from_secs_f64((delay_ms.max(0.0)) / 1000.0);
+        self.timers
+            .lock()
+            .expect("timers poisoned")
+            .set(self.now(), delay, repeating)
+    }
+
+    pub fn clear_timer(&self, handle: u64) {
+        self.timers.lock().expect("timers poisoned").clear(handle);
+    }
+
+    /// The next timer due now, or none. One at a time: each fired timer is a
+    /// separate task and the engine owes a microtask checkpoint between them.
+    pub fn take_due_timer(&self) -> Option<u64> {
+        let now = self.now();
+        self.timers.lock().expect("timers poisoned").take_due(now)
+    }
+
+    /// Milliseconds until the next timer, for an embedder that wants to sleep
+    /// exactly long enough rather than poll.
+    pub fn millis_until_next_timer(&self) -> Option<f64> {
+        let now = self.now();
+        self.timers
+            .lock()
+            .expect("timers poisoned")
+            .next_deadline()
+            .map(|deadline| (deadline - now).max(0.0))
     }
 
     pub fn live_responses(&self) -> usize {

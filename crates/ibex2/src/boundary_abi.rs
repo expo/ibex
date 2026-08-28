@@ -131,6 +131,10 @@ pub enum Op {
     HeadersValidName = 49,
     HeadersValidValue = 50,
     HeadersFree = 51,
+    TimerSet = 60,
+    TimerSetRepeating = 61,
+    TimerClear = 62,
+    PerformanceNow = 63,
 }
 
 impl Op {
@@ -160,6 +164,10 @@ impl Op {
             49 => Op::HeadersValidName,
             50 => Op::HeadersValidValue,
             51 => Op::HeadersFree,
+            60 => Op::TimerSet,
+            61 => Op::TimerSetRepeating,
+            62 => Op::TimerClear,
+            63 => Op::PerformanceNow,
             _ => return None,
         })
     }
@@ -210,6 +218,27 @@ fn dispatch(
             .and_then(HostArg::as_str)
             .ok_or_else(|| HostError::InvalidArgument(format!("{label} expects a string")))
     };
+
+    if matches!(
+        op,
+        Op::TimerSet | Op::TimerSetRepeating | Op::TimerClear | Op::PerformanceNow
+    ) {
+        let state = state.ok_or_else(|| HostError::Failed("no runtime state".into()))?;
+        let number = |index: usize| -> f64 {
+            match args.get(index) {
+                Some(HostArg::Number(n)) => *n,
+                _ => 0.0,
+            }
+        };
+        return Ok(match op {
+            Op::PerformanceNow => HostValue::Number(state.now()),
+            Op::TimerClear => {
+                state.clear_timer(number(0) as u64);
+                HostValue::Undefined
+            }
+            _ => HostValue::Number(state.set_timer(number(0), op == Op::TimerSetRepeating) as f64),
+        });
+    }
 
     match op {
         Op::Btoa => base64::btoa(first_str("btoa")?).map(HostValue::Str),
@@ -603,6 +632,32 @@ fn run_async(
             Ok(HostValue::Str(text))
         }
     }
+}
+
+/// Take the next timer due now, or 0 when none is.
+///
+/// # Safety
+/// `state` must be a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_take_due_timer(state: *const crate::task::RuntimeState) -> f64 {
+    let Some(state) = crate::task::clone_queue(state) else {
+        return 0.0;
+    };
+    state.take_due_timer().map(|h| h as f64).unwrap_or(0.0)
+}
+
+/// Milliseconds until the next timer, or -1 when none is scheduled.
+///
+/// # Safety
+/// `state` must be a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_millis_until_next_timer(
+    state: *const crate::task::RuntimeState,
+) -> f64 {
+    let Some(state) = crate::task::clone_queue(state) else {
+        return -1.0;
+    };
+    state.millis_until_next_timer().unwrap_or(-1.0)
 }
 
 /// Block until a completion is ready or `timeout_ms` elapses.

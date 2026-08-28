@@ -1,3 +1,6 @@
+//! The LLP 0062 §3 intrinsic-freeze measurement, kept reproducible.
+#![cfg(feature = "hermes")]
+
 #[test]
 #[ignore]
 fn measure_userland_harden() {
