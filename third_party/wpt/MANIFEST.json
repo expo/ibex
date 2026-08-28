@@ -1,0 +1,32 @@
+{
+  "upstream": "https://github.com/web-platform-tests/wpt",
+  "note": "Frozen subset per LLP 0061 D2. Each entry records its upstream path and SHA-256 so a refresh is a deliberate, reviewable act rather than a silent drift.",
+  "fetchedOn": "2026-08-28",
+  "files": [
+    {
+      "upstream": "fetch/api/headers/headers-basic.any.js",
+      "local": "third_party/wpt/fetch/api/headers/headers-basic.any.js",
+      "sha256": "596cd577710773b42a5edf7c6150138fd0502e005a76b383a8331b5fcaf2cfeb"
+    },
+    {
+      "upstream": "fetch/api/headers/headers-casing.any.js",
+      "local": "third_party/wpt/fetch/api/headers/headers-casing.any.js",
+      "sha256": "f9034ff6ddc3c23e2aa16419738005d229e19a0b40eb5791af465b16df3ab877"
+    },
+    {
+      "upstream": "fetch/api/headers/headers-errors.any.js",
+      "local": "third_party/wpt/fetch/api/headers/headers-errors.any.js",
+      "sha256": "4b4b9c8d9b72a52c5200feaa67f018cc91d05e9ee0c98a2a18ad56f44873047b"
+    },
+    {
+      "upstream": "fetch/api/headers/headers-normalize.any.js",
+      "local": "third_party/wpt/fetch/api/headers/headers-normalize.any.js",
+      "sha256": "8f914199d80ed14cd5dec7992464a10981e0b5b74fd26b70768f04f1fd1fb4c1"
+    },
+    {
+      "upstream": "url/resources/urltestdata.json",
+      "local": "third_party/wpt/urltestdata.json",
+      "sha256": "b8767904d25029a46e0d297e1320ded3a733322f489caa5a482c886fb11e9238"
+    }
+  ]
+}

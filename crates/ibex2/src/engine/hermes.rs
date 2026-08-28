@@ -104,6 +104,18 @@ impl Hermes {
         }
     }
 
+    /// Evaluate the JavaScript binding preludes.
+    ///
+    /// Source, not bytecode, for now — a production boot compiles these with
+    /// hermesc so nothing is parsed at launch (LLP 0058 §1.1). They are small
+    /// enough that it does not yet matter, and this is the seam where that
+    /// changes.
+    pub fn install_bindings(&mut self) -> Result<(), JsError> {
+        self.eval(include_str!("../bindings/testharness.js"))?;
+        self.eval(include_str!("../bindings/headers.js"))?;
+        Ok(())
+    }
+
     /// Install the pure standard-library tier: `console`, `btoa`/`atob`, and
     /// the text/URL host calls the binding layer will wrap.
     pub fn install_stdlib(&mut self) -> bool {

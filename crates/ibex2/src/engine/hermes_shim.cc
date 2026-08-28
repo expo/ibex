@@ -173,8 +173,9 @@ enum : int32_t {
   IBEX2_TAG_BYTES = 5,
 };
 
-extern "C" int ibex2_host_call(uint32_t op, const Ibex2AbiValue *argv,
-                               size_t argc, Ibex2AbiValue *out);
+extern "C" int ibex2_host_call(const void *state, uint32_t op,
+                               const Ibex2AbiValue *argv, size_t argc,
+                               Ibex2AbiValue *out);
 extern "C" void ibex2_host_release(Ibex2AbiValue *value);
 
 namespace {
@@ -272,12 +273,12 @@ jsi::Value from_abi(jsi::Runtime &rt, Ibex2AbiValue &value) {
 // One host function per op, so JavaScript sees ordinary callables while every
 // one of them funnels through the single ibex2_host_call surface.
 jsi::Function make_host_binding(jsi::Runtime &runtime, const char *name,
-                                uint32_t op) {
+                                uint32_t op, const void *state) {
   auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
   return jsi::Function::createFromHostFunction(
       runtime, prop, 1,
-      [op](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
-           size_t count) -> jsi::Value {
+      [op, state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+                  size_t count) -> jsi::Value {
         std::vector<std::string> owned;
         owned.reserve(count);
         std::vector<Ibex2AbiValue> abi;
@@ -286,7 +287,8 @@ jsi::Function make_host_binding(jsi::Runtime &runtime, const char *name,
           abi.push_back(to_abi(rt, args[i], owned));
         }
         Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-        int status = ibex2_host_call(op, abi.empty() ? nullptr : abi.data(),
+        int status = ibex2_host_call(state, op,
+                                     abi.empty() ? nullptr : abi.data(),
                                      abi.size(), &out);
         jsi::Value result = from_abi(rt, out);
         ibex2_host_release(&out);
@@ -302,9 +304,9 @@ jsi::Function make_host_binding(jsi::Runtime &runtime, const char *name,
 }
 
 void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
-                 uint32_t op) {
+                 uint32_t op, const void *state) {
   target.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
-                     make_host_binding(rt, name, op));
+                     make_host_binding(rt, name, op, state));
 }
 
 } // namespace
@@ -536,21 +538,40 @@ int ibex2_hermes_install_stdlib(void *handle) {
     jsi::Object global = runtime.global();
 
     jsi::Object console(runtime);
-    set_binding(runtime, console, "log", 1);
-    set_binding(runtime, console, "info", 2);
-    set_binding(runtime, console, "debug", 3);
-    set_binding(runtime, console, "warn", 4);
-    set_binding(runtime, console, "error", 5);
+    set_binding(runtime, console, "log", 1, rt->queue);
+    set_binding(runtime, console, "info", 2, rt->queue);
+    set_binding(runtime, console, "debug", 3, rt->queue);
+    set_binding(runtime, console, "warn", 4, rt->queue);
+    set_binding(runtime, console, "error", 5, rt->queue);
     global.setProperty(runtime, jsi::PropNameID::forAscii(runtime, "console"),
                        std::move(console));
 
-    set_binding(runtime, global, "btoa", 10);
-    set_binding(runtime, global, "atob", 11);
-    set_binding(runtime, global, "__ibex2_text_encode", 20);
-    set_binding(runtime, global, "__ibex2_text_decode", 21);
-    set_binding(runtime, global, "__ibex2_text_encode_into", 22);
-    set_binding(runtime, global, "__ibex2_url_parse", 30);
-    set_binding(runtime, global, "__ibex2_search_params_get", 31);
+    set_binding(runtime, global, "btoa", 10, rt->queue);
+    set_binding(runtime, global, "atob", 11, rt->queue);
+    set_binding(runtime, global, "__ibex2_text_encode", 20, rt->queue);
+    set_binding(runtime, global, "__ibex2_text_decode", 21, rt->queue);
+    set_binding(runtime, global, "__ibex2_text_encode_into", 22, rt->queue);
+    set_binding(runtime, global, "__ibex2_url_parse", 30, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_get", 31, rt->queue);
+
+    // The ops behind the Headers class. Rust owns the semantics; the class
+    // shape is in bindings/headers.js.
+    jsi::Object headers(runtime);
+    set_binding(runtime, headers, "create", 40, rt->queue);
+    set_binding(runtime, headers, "append", 41, rt->queue);
+    set_binding(runtime, headers, "set", 42, rt->queue);
+    set_binding(runtime, headers, "get", 43, rt->queue);
+    set_binding(runtime, headers, "has", 44, rt->queue);
+    set_binding(runtime, headers, "remove", 45, rt->queue);
+    set_binding(runtime, headers, "count", 46, rt->queue);
+    set_binding(runtime, headers, "nameAt", 47, rt->queue);
+    set_binding(runtime, headers, "valueAt", 48, rt->queue);
+    set_binding(runtime, headers, "validName", 49, rt->queue);
+    set_binding(runtime, headers, "validValue", 50, rt->queue);
+    set_binding(runtime, headers, "free", 51, rt->queue);
+    global.setProperty(runtime,
+                       jsi::PropNameID::forAscii(runtime, "__ibex2_headers"),
+                       std::move(headers));
 
     // The delegating tier. One op for now — enough to hold the adapter to its
     // ordering contract before any transport exists.

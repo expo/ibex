@@ -119,6 +119,18 @@ pub enum Op {
     TextEncodeInto = 22,
     UrlParse = 30,
     UrlSearchParamsGet = 31,
+    HeadersNew = 40,
+    HeadersAppend = 41,
+    HeadersSet = 42,
+    HeadersGet = 43,
+    HeadersHas = 44,
+    HeadersDelete = 45,
+    HeadersCount = 46,
+    HeadersNameAt = 47,
+    HeadersValueAt = 48,
+    HeadersValidName = 49,
+    HeadersValidValue = 50,
+    HeadersFree = 51,
 }
 
 impl Op {
@@ -136,6 +148,18 @@ impl Op {
             22 => Op::TextEncodeInto,
             30 => Op::UrlParse,
             31 => Op::UrlSearchParamsGet,
+            40 => Op::HeadersNew,
+            41 => Op::HeadersAppend,
+            42 => Op::HeadersSet,
+            43 => Op::HeadersGet,
+            44 => Op::HeadersHas,
+            45 => Op::HeadersDelete,
+            46 => Op::HeadersCount,
+            47 => Op::HeadersNameAt,
+            48 => Op::HeadersValueAt,
+            49 => Op::HeadersValidName,
+            50 => Op::HeadersValidValue,
+            51 => Op::HeadersFree,
             _ => return None,
         })
     }
@@ -168,7 +192,14 @@ pub fn drain_console() -> Vec<console::Record> {
     CONSOLE.with(|c| c.borrow_mut().drain())
 }
 
-fn dispatch(op: Op, args: &[HostArg]) -> Result<HostValue, HostError> {
+fn dispatch(
+    op: Op,
+    args: &[HostArg],
+    state: Option<&crate::task::RuntimeState>,
+) -> Result<HostValue, HostError> {
+    if let Some(result) = crate::stdlib::headers_ops::dispatch(op as u32, args, state) {
+        return result;
+    }
     if let Some(level) = op.console_level() {
         CONSOLE.with(|c| c.borrow_mut().write(level, args));
         return Ok(HostValue::Undefined);
@@ -234,6 +265,7 @@ fn dispatch(op: Op, args: &[HostArg]) -> Result<HostValue, HostError> {
 /// for this call, and `out` must be a valid writable pointer.
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_host_call(
+    state: *const crate::task::RuntimeState,
     op: u32,
     argv: *const AbiValue,
     argc: usize,
@@ -279,7 +311,8 @@ pub unsafe extern "C" fn ibex2_host_call(
         return 0;
     }
 
-    match dispatch(op, &args) {
+    let state = crate::task::clone_queue(state);
+    match dispatch(op, &args, state.as_deref()) {
         Ok(value) => {
             *out = leak_value(value);
             0
