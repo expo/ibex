@@ -161,6 +161,22 @@ impl GrantSet {
         self
     }
 
+    /// The environment variables this set may read, in a stable order.
+    ///
+    /// `process.env` is a **snapshot**, not a live proxy (LLP 0059.000 §3.8),
+    /// and the snapshot is built from exactly this list — so a module cannot
+    /// see a variable it was not granted, with no check at read time. The
+    /// capability is the object's contents.
+    pub fn readable_env(&self) -> Vec<&str> {
+        self.grants
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::EnvRead(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Is `operation` admitted by any grant in this set?
     ///
     /// Fails closed: an empty set admits nothing, and no operation has a

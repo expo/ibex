@@ -965,3 +965,70 @@ pub unsafe extern "C" fn ibex2_host_free_string(value: *mut c_char) {
         drop(std::ffi::CString::from_raw(value));
     }
 }
+
+/// How many environment variables this grant set may read.
+///
+/// `process.env` is built from this list at binding time rather than checked at
+/// read time: the snapshot contains exactly the granted variables, so an
+/// ungranted one is `undefined` because it is absent, not because a check
+/// refused it. Authority carried by the binding (LLP 0060 D1), in its most
+/// literal form.
+///
+/// # Safety
+/// `grants` must come from `ibex2_grants_create` and still be alive.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_grants_env_count(grants: *const GrantSet) -> usize {
+    match grants.as_ref() {
+        Some(set) => set.readable_env().len(),
+        None => 0,
+    }
+}
+
+/// The name and current value of granted variable `index`.
+///
+/// Returns 0 and leaves the outputs null when the variable is not set in the
+/// process environment, so `process.env.MISSING` is `undefined` as it is in
+/// Node — a grant is permission to read, not a guarantee there is something
+/// there.
+///
+/// # Safety
+/// `grants` must be live; both out-pointers must be valid. The returned
+/// strings are owned by the caller and freed with `ibex2_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_grants_env_at(
+    grants: *const GrantSet,
+    index: usize,
+    out_name: *mut *mut std::ffi::c_char,
+    out_value: *mut *mut std::ffi::c_char,
+) -> std::ffi::c_int {
+    *out_name = std::ptr::null_mut();
+    *out_value = std::ptr::null_mut();
+    let Some(set) = grants.as_ref() else {
+        return 0;
+    };
+    let names = set.readable_env();
+    let Some(name) = names.get(index) else {
+        return 0;
+    };
+    let Ok(value) = std::env::var(name) else {
+        return 0;
+    };
+    let (Ok(name_c), Ok(value_c)) = (std::ffi::CString::new(*name), std::ffi::CString::new(value))
+    else {
+        return 0;
+    };
+    *out_name = name_c.into_raw();
+    *out_value = value_c.into_raw();
+    1
+}
+
+/// Release a string handed out by `ibex2_grants_env_at`.
+///
+/// # Safety
+/// `value` must come from that function and be freed exactly once.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_string_free(value: *mut std::ffi::c_char) {
+    if !value.is_null() {
+        drop(std::ffi::CString::from_raw(value));
+    }
+}

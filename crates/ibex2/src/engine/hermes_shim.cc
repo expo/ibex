@@ -21,6 +21,10 @@
 using namespace facebook;
 
 extern "C" const void *ibex2_queue_create();
+extern "C" size_t ibex2_grants_env_count(const void *grants);
+extern "C" int ibex2_grants_env_at(const void *grants, size_t index,
+                                   char **out_name, char **out_value);
+extern "C" void ibex2_string_free(char *value);
 extern "C" void ibex2_queue_destroy(const void *queue);
 extern "C" void ibex2_grants_destroy(const void *grants);
 
@@ -676,6 +680,32 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
                    make_async_binding(rt, method.name, method.op, owner, grants));
   }
 
+  // `process`, carrying the same grants as this module's fetch and fs.
+  //
+  // `process.env` is a SNAPSHOT of exactly the variables this module was
+  // granted (LLP 0059.000 §3.8), not a live proxy and not the real
+  // environment. There is no read-time check because there is nothing to
+  // check: an ungranted variable is undefined because it is not in the object.
+  // That is the whole capability model in one object — a package reading
+  // AWS_SECRET_ACCESS_KEY finds undefined unless someone said otherwise.
+  //
+  // Frozen, so a module cannot hand a mutated env to one it calls.
+  jsi::Object process(rt);
+  jsi::Object env(rt);
+  size_t env_count = ibex2_grants_env_count(grants);
+  for (size_t i = 0; i < env_count; ++i) {
+    char *name = nullptr;
+    char *value = nullptr;
+    if (ibex2_grants_env_at(grants, i, &name, &value) == 0) {
+      continue;
+    }
+    env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
+                    jsi::String::createFromUtf8(rt, std::string(value)));
+    ibex2_string_free(name);
+    ibex2_string_free(value);
+  }
+  process.setProperty(rt, jsi::PropNameID::forAscii(rt, "env"), env);
+
   // import.meta, per module. LLP 0023 §6 gives a file-backed module the
   // virtual `file:///project/...` URL; that namespace does not exist yet, so
   // this uses the same shape over the resolved specifier and will move to the
@@ -689,7 +719,8 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
   fn_value.getObject(rt).getFunction(rt).call(
       rt, jsi::Value(rt, *module), jsi::Value(rt, *exports),
       jsi::Value(rt, make_require(rt, owner, resolved_name)),
-      std::move(fetch_binding), std::move(fs), std::move(meta));
+      std::move(fetch_binding), std::move(fs), std::move(process),
+      std::move(meta));
 
   // `module.exports = ...` replaces the object, so re-read it after running.
   jsi::Value final_exports = module->getProperty(rt, "exports");

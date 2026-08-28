@@ -136,6 +136,7 @@ impl Hermes {
         self.eval(include_str!("../bindings/esm.js"))?;
         self.eval(include_str!("../bindings/headers.js"))?;
         self.eval(include_str!("../bindings/timers.js"))?;
+        self.eval(include_str!("../bindings/message_channel.js"))?;
         Ok(())
     }
 

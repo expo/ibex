@@ -415,6 +415,7 @@ pub const MODULE_PARAMETERS: &[&str] = &[
     "require",
     "fetch",
     "fs",
+    "process",
     "__ibex2_meta",
 ];
 
@@ -441,15 +442,28 @@ pub fn wrap(source: &str) -> String {
 /// the wrapper must therefore be the LOWERED form. Two call sites producing the
 /// wrapper differently would produce two keys for one module.
 pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
-    // TypeScript first: the ESM lowering parses JavaScript, and a `.ts` module
-    // is not JavaScript. Type stripping deliberately leaves module syntax
-    // alone, so `esm::lower` still sees the imports and exports.
-    let javascript = if crate::typescript::needs_stripping(specifier) {
-        crate::typescript::strip(source, specifier)?
+    Ok(wrap(&crate::esm::lower(&to_javascript(
+        source, specifier,
+    )?)?))
+}
+
+/// A module's source as JavaScript, before ESM lowering.
+///
+/// TypeScript first: the ESM lowering parses JavaScript, and a `.ts` module is
+/// not JavaScript. Type stripping deliberately leaves module syntax alone, so
+/// `esm::lower` still sees the imports and exports.
+///
+/// **Public because the build walk must scan this text, not the original.** The
+/// JSX transform *injects* `import { jsx } from "react/jsx-runtime"`, which
+/// does not appear in the `.tsx` a developer wrote. A dependency scan over the
+/// original source cannot see that edge, so the module never gets compiled and
+/// `run --precompiled` fails on a graph the build reported as complete.
+pub fn to_javascript(source: &str, specifier: &str) -> Result<String, String> {
+    if crate::typescript::needs_stripping(specifier) {
+        crate::typescript::strip(source, specifier)
     } else {
-        source.to_string()
-    };
-    Ok(wrap(&crate::esm::lower(&javascript)?))
+        Ok(source.to_string())
+    }
 }
 
 /// The global names a module may see. Anything outside this list on
@@ -468,6 +482,8 @@ pub const ALLOWED_GLOBALS: &[&str] = &[
     "clearInterval",
     "performance",
     "Headers",
+    "MessageChannel",
+    "MessagePort",
     "atob",
     "btoa",
 ];
@@ -504,6 +520,45 @@ mod tests {
     /// `node:` and `bun:` are builtin namespaces, not packages. LLP 0059 §6
     /// deleted Node's server surface, so the error should say that rather than
     /// "not found in node_modules".
+    /// The JSX transform *injects* a dependency the developer never wrote, and
+    /// the build walk scans `to_javascript` output for exactly that reason.
+    /// Scanning the original `.tsx` misses the edge, so `react/jsx-runtime`
+    /// never gets compiled and `run --precompiled` fails on a graph the build
+    /// reported as complete — a failure that looks like a fast start when timed.
+    ///
+    /// Both shapes are covered because the transform emits different ones: a
+    /// module gets an `import`, a script gets a `require`. A test over only one
+    /// would leave half the walk unguarded.
+    #[test]
+    fn the_jsx_transform_injects_a_dependency_the_source_does_not_contain() {
+        // Module form: the injected edge is an import.
+        let module_source = "import { useState } from 'react';\nconst el = <div/>;";
+        assert_eq!(
+            crate::esm::dependencies(module_source, "./a.tsx"),
+            vec!["react".to_string()],
+            "the source itself imports only react"
+        );
+        let javascript = to_javascript(module_source, "./a.tsx").expect("strips");
+        assert!(
+            crate::esm::dependencies(&javascript, "./a.tsx")
+                .iter()
+                .any(|d| d == "react/jsx-runtime"),
+            "the injected import must be visible to the build walk: {javascript}"
+        );
+
+        // Script form: no imports, so the transform reaches for require instead.
+        let script_source = "const el = <div id=\"a\">hi</div>;";
+        assert!(
+            crate::esm::dependencies(script_source, "./a.tsx").is_empty(),
+            "the source itself depends on nothing"
+        );
+        let javascript = to_javascript(script_source, "./a.tsx").expect("strips");
+        assert!(
+            javascript.contains("require(\"react/jsx-runtime\")"),
+            "the injected require must be visible to the build walk: {javascript}"
+        );
+    }
+
     #[test]
     fn builtin_namespaces_are_refused_by_name() {
         let err = resolve(&Root::Declared(root()), "./index.js", "node:fs").unwrap_err();
@@ -556,9 +611,9 @@ mod tests {
     fn a_wrapped_module_ends_cleanly_after_a_trailing_comment() {
         let wrapped = wrap("exports.x = 1; // trailing comment");
         assert!(wrapped.ends_with("\n})"), "{wrapped}");
-        assert!(
-            wrapped.starts_with("(function (module, exports, require, fetch, fs, __ibex2_meta) {")
-        );
+        assert!(wrapped.starts_with(
+            "(function (module, exports, require, fetch, fs, process, __ibex2_meta) {"
+        ));
     }
 
     #[test]
