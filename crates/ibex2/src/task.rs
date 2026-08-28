@@ -390,7 +390,7 @@ impl RuntimeState {
         // The wrapper is built HERE, once, because it is what gets compiled —
         // the artifact is the wrapper, so a second definition of it elsewhere
         // would be a second definition of the thing the cache is keyed on.
-        let wrapped = crate::loader::lower_and_wrap(&source)?;
+        let wrapped = crate::loader::lower_and_wrap(&source, &resolved)?;
 
         match &config.compiler {
             Some(compiler) => {

@@ -702,3 +702,106 @@ fn a_dynamically_imported_commonjs_module_gets_a_namespace() {
     assert_eq!(err, None);
     assert_eq!(out, vec!["cjs object"]);
 }
+
+// --- TypeScript --------------------------------------------------------------
+
+#[test]
+fn typescript_modules_load_and_types_are_erased() {
+    let p = Project::new("ts");
+    p.file(
+        "index.ts",
+        "import { greet, Color } from './lib.js';
+         import * as util from './util';
+         interface Local { n: number }
+         const v: Local = { n: 21 };
+         function id<T>(x: T): T { return x; }
+         console.log(greet('ts'), id<number>(util.double(v.n)), Color.Blue, Color[Color.Blue]);",
+    )
+    .file(
+        "lib.ts",
+        "export interface Shape { r: number }
+         export type Unused = string;
+         export enum Color { Red, Blue }
+         export const greet = (who: string): string => `hello ${who}`;",
+    )
+    .file(
+        "util.ts",
+        "export function double(n: number): number { return n * 2; }",
+    );
+
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["hello ts 42 1 Blue"]);
+}
+
+/// TypeScript makes you write the EMITTED extension in an import, so `./lib.js`
+/// must find `lib.ts`. Without this a TypeScript codebase cannot import
+/// anything.
+#[test]
+fn a_js_specifier_resolves_to_its_typescript_source() {
+    let p = Project::new("tsext");
+    p.file("index.ts", "import { v } from './dep.js';\nconsole.log(v);")
+        .file("dep.ts", "export const v: number = 1;");
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["1"]);
+}
+
+#[test]
+fn an_omitted_extension_and_a_directory_index_both_resolve() {
+    let p = Project::new("tsindex");
+    p.file("index.ts", "import { a } from './pkg';\nconsole.log(a);")
+        .file("pkg/index.ts", "export const a = 'from index';");
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["from index"]);
+}
+
+/// Where both exist, the TypeScript source wins — the .js is build output.
+#[test]
+fn typescript_wins_over_a_javascript_file_of_the_same_name() {
+    let p = Project::new("tswins");
+    p.file(
+        "index.ts",
+        "import { which } from './dep';\nconsole.log(which);",
+    )
+    .file("dep.ts", "export const which = 'typescript';")
+    .file("dep.js", "export const which = 'javascript';");
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["typescript"]);
+}
+
+#[test]
+fn typescript_and_javascript_mix_in_one_graph() {
+    let p = Project::new("tsmixed");
+    p.file(
+        "index.ts",
+        "import { fromTs } from './a.ts';
+         import { fromJs } from './b.js';
+         const cjs = require('./c.js');
+         console.log(fromTs(), fromJs(), cjs.fromCjs());",
+    )
+    .file("a.ts", "export const fromTs = (): string => 'ts';")
+    .file("b.js", "export const fromJs = () => 'js';")
+    .file("c.js", "exports.fromCjs = () => 'cjs';");
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["ts js cjs"]);
+}
+
+/// A .ts module goes through a different transform than a .js one, so bytecode
+/// parity has to be asserted for it separately.
+#[test]
+fn typescript_behaves_identically_from_bytecode() {
+    let p = Project::new("tshbc");
+    p.file("index.ts", "import { v } from './d';\nconsole.log('v', v);")
+        .file("d.ts", "export const v: number = 5;");
+    let (source_out, source_err) = p.run("./index.ts", "");
+    let Some(compiler) = p.compiler() else { return };
+    let (hbc_out, hbc_err) = p.run_with("./index.ts", "", Some(compiler), false);
+    assert_eq!(source_err, None);
+    assert_eq!(hbc_err, None);
+    assert_eq!(hbc_out, source_out);
+    assert_eq!(source_out, vec!["v 5"]);
+}

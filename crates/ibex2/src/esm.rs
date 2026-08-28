@@ -121,9 +121,14 @@ fn expression_forms(program: &oxc_ast::ast::Program) -> ExpressionForms {
 ///
 /// Dynamic `import()` is NOT here — see `dynamic_dependencies`, which is
 /// separate because a dynamic import is conditional where a static one is not.
-pub fn dependencies(source: &str) -> Vec<String> {
+pub fn dependencies(source: &str, specifier: &str) -> Vec<String> {
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    // The specifier decides how to parse. Reading a TypeScript module as
+    // JavaScript fails, and this function ignores diagnostics — so it would
+    // return NO dependencies rather than an error, and the build would quietly
+    // compile one module and fail at run time. That is exactly what happened.
+    let source_type = crate::typescript::source_type_for(specifier);
+    let parsed = Parser::new(&allocator, source, source_type).parse();
     let mut found = Vec::new();
     for statement in &parsed.program.body {
         let Some(module) = as_module_declaration(statement) else {
@@ -151,9 +156,10 @@ pub fn dependencies(source: &str) -> Vec<String> {
 /// guards it is correct. Failing the build on it would refuse a valid program.
 ///
 /// Computed specifiers are not here: no build can resolve an expression.
-pub fn dynamic_dependencies(source: &str) -> Vec<String> {
+pub fn dynamic_dependencies(source: &str, specifier: &str) -> Vec<String> {
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    let source_type = crate::typescript::source_type_for(specifier);
+    let parsed = Parser::new(&allocator, source, source_type).parse();
     expression_forms(&parsed.program)
         .dynamic_imports
         .into_iter()
@@ -177,9 +183,10 @@ pub fn dynamic_dependencies(source: &str) -> Vec<String> {
 /// this can warn where the export is in fact never reassigned. For a warning
 /// that is the right direction to err, and a precise answer needs the scope
 /// analysis §5 defers.
-pub fn mutable_exports(source: &str) -> Vec<String> {
+pub fn mutable_exports(source: &str, specifier: &str) -> Vec<String> {
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+    let source_type = crate::typescript::source_type_for(specifier);
+    let parsed = Parser::new(&allocator, source, source_type).parse();
 
     let mut exported_mutable: Vec<String> = Vec::new();
     for statement in &parsed.program.body {
@@ -561,6 +568,17 @@ fn collect_pattern_names(pattern: &oxc_ast::ast::BindingPattern, names: &mut Vec
 mod tests {
     use super::*;
 
+    // The specifier decides the parse; these exercise the JavaScript path.
+    fn dependencies_js(source: &str) -> Vec<String> {
+        dependencies(source, "./m.js")
+    }
+    fn dynamic_dependencies_js(source: &str) -> Vec<String> {
+        dynamic_dependencies(source, "./m.js")
+    }
+    fn mutable_exports_js(source: &str) -> Vec<String> {
+        mutable_exports(source, "./m.js")
+    }
+
     fn lowered(source: &str) -> String {
         lower(source).expect("lowers")
     }
@@ -727,7 +745,7 @@ mod tests {
 
     #[test]
     fn dependencies_include_imports_and_re_exports() {
-        let deps = dependencies(
+        let deps = dependencies_js(
             "import a from './a.js';\n\
              import './side.js';\n\
              export { b } from './b.js';\n\
@@ -741,7 +759,7 @@ mod tests {
             "a dynamic import is conditional and belongs in dynamic_dependencies"
         );
         assert_eq!(
-            dynamic_dependencies("import('./lazy.js'); import('./' + x);"),
+            dynamic_dependencies_js("import('./lazy.js'); import('./' + x);"),
             vec!["./lazy.js"],
             "only literal specifiers; a computed one is unresolvable"
         );
@@ -751,32 +769,32 @@ mod tests {
     /// resolve it and must not claim to.
     #[test]
     fn dynamic_import_is_not_a_static_dependency() {
-        assert!(dependencies("const m = import('./' + name);").is_empty());
-        assert!(dependencies("const s = 'import x from y';").is_empty());
+        assert!(dependencies_js("const m = import('./' + name);").is_empty());
+        assert!(dependencies_js("const s = 'import x from y';").is_empty());
     }
 
     #[test]
     fn mutable_exports_finds_only_bindings_that_are_reassigned() {
         // Declared mutable AND reassigned — the case §3.1 gets wrong.
         assert_eq!(
-            mutable_exports("export let n = 0;\nexport function bump() { n += 1; }"),
+            mutable_exports_js("export let n = 0;\nexport function bump() { n += 1; }"),
             vec!["n"]
         );
-        assert_eq!(mutable_exports("export let n = 0;\nn = 5;"), vec!["n"]);
+        assert_eq!(mutable_exports_js("export let n = 0;\nn = 5;"), vec!["n"]);
 
         // Declared mutable but never reassigned: indistinguishable from const
         // to an importer, so not worth a warning.
-        assert!(mutable_exports("export let n = 0;\nconsole.log(n);").is_empty());
+        assert!(mutable_exports_js("export let n = 0;\nconsole.log(n);").is_empty());
 
         // const cannot be reassigned at all.
-        assert!(mutable_exports("export const n = 0;").is_empty());
+        assert!(mutable_exports_js("export const n = 0;").is_empty());
 
         // Comparisons and arrows are not assignments.
-        assert!(mutable_exports("export let n = 0;\nif (n == 1) {}").is_empty());
-        assert!(mutable_exports("export let n = 0;\nconst f = n => n;").is_empty());
+        assert!(mutable_exports_js("export let n = 0;\nif (n == 1) {}").is_empty());
+        assert!(mutable_exports_js("export let n = 0;\nconst f = n => n;").is_empty());
 
         // A name that merely contains the export's name is a different name.
-        assert!(mutable_exports("export let n = 0;\nlet number = 1; number = 2;").is_empty());
+        assert!(mutable_exports_js("export let n = 0;\nlet number = 1; number = 2;").is_empty());
     }
 
     #[test]

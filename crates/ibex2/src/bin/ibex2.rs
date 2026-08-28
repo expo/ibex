@@ -150,7 +150,7 @@ fn build(entry: &Path) -> Result<(), String> {
         let path = root.join(specifier.trim_start_matches("./"));
         let source = std::fs::read_to_string(&path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let wrapped = ibex2::loader::lower_and_wrap(&source)?;
+        let wrapped = ibex2::loader::lower_and_wrap(&source, &specifier)?;
         compiler
             .compile(&wrapped)
             .map_err(|e| format!("{specifier}: {e}"))?;
@@ -162,7 +162,7 @@ fn build(entry: &Path) -> Result<(), String> {
         // LLP 0064 §3.1: an importer writing `import { n }` snapshots, so a
         // reassignment of `n` is invisible to it. The divergence is silent;
         // this is where it stops being.
-        for binding in ibex2::esm::mutable_exports(&source) {
+        for binding in ibex2::esm::mutable_exports(&source, &specifier) {
             warnings.push(format!(
                 "{specifier} exports `{binding}` and reassigns it. An importer writing \
                  `import {{ {binding} }}` will see a stale value; `import * as ns` reads \
@@ -173,7 +173,7 @@ fn build(entry: &Path) -> Result<(), String> {
         // Both module systems: import/export-from come from the parser,
         // require from a scan, because a require's specifier is an ordinary
         // call argument no module-syntax parse reports.
-        let mut dependencies: Vec<(String, bool)> = ibex2::esm::dependencies(&source)
+        let mut dependencies: Vec<(String, bool)> = ibex2::esm::dependencies(&source, &specifier)
             .into_iter()
             .map(|dependency| (dependency, true))
             .collect();
@@ -188,7 +188,7 @@ fn build(entry: &Path) -> Result<(), String> {
         // exist is a warning rather than a build failure. Code that guards an
         // optional import is correct.
         dependencies.extend(
-            ibex2::esm::dynamic_dependencies(&source)
+            ibex2::esm::dynamic_dependencies(&source, &specifier)
                 .into_iter()
                 .map(|dependency| (dependency, false)),
         );
