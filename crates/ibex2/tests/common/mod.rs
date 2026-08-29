@@ -63,7 +63,8 @@ impl Project {
             ModuleGrants::parse(manifest).expect("manifest"),
             compiler,
             precompiled_only,
-        );
+        )
+        .expect("manifest binds to the project");
         let error = rt.run_entry(entry).err().map(|e| e.0);
         // Not a network budget. In a *debug* test binary the first
         // NSURLSession construction in the process costs 3-9s, because dyld

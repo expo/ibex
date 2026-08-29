@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Security, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
+**Revised:** 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
 **Revised:** 2026-08-28 (§5 — the project root is declared with `--root` and never inferred, which unblocks monorepos and so unblocks Exact; §3 rewritten after self-review found it documenting a tradeoff that did not exist; §1 and §4.1 corrected after an adversarial review confirmed two capability bypasses. See `llp/reviews/0065-*.grok.md`.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — `oxc_resolver` is the same pin), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why bare specifiers are required), LLP 0059 §6 (Node's server surface is deleted — why the `node` condition is absent), LLP 0060 (authority is carried, not inferred — why a package is granted nothing by arriving), LLP 0064 (ESM lowering — what happens to a module once resolution has found it), LLP 0062 (the reachability frame this containment rule belongs to)
 
@@ -185,6 +185,54 @@ reintroduces both bugs at once.
 
 
 
+### 4.2 Packages are granted by name; first-party code by path
+
+Added 2026-08-28, discharging OQ2. Keying grants on file paths alone made a
+manifest for a real dependency graph unwritable: a package's internals are not
+the author's to know and change on upgrade. A manifest section now names one
+of four things, and a module gets the **most specific** section naming it —
+its own file, then its package, then the longest directory, then `*` — with
+nothing combined, so an explicit empty section still means nothing:
+
+```
+[*]                          # everything not named below
+[./net.js]                   # one module
+[./src/telemetry/]           # every module under a directory, longest prefix wins
+[react]                      # every file of the package, in every installed copy
+[@w/ui]                      # a scoped package, installed or workspace
+```
+
+**What names a package is its path, never its `package.json`.** The innermost
+`node_modules/<name>/` segment of the canonical specifier decides:
+`./node_modules/react/cjs/react.js` is `react`, so is a nested copy under
+another package, so is pnpm's `.pnpm/react@19/node_modules/react/`. A package
+that declares `"name": "react"` in its own manifest gets nothing by saying so —
+identity by self-description is how a dependency would borrow another's
+authority. `react-dom` is not `react`, and neither is a sibling.
+
+**A workspace package is first-party code under a name.** Its symlink
+canonicalizes outside `node_modules` (§4.1: `./packages/ui/index.js`), so the
+path does not name it. `ModuleGrants::bind` resolves every package section
+against the project at load: an installed package stays name-matched; a
+workspace package is bound to its real directory, so `[@w/ui]` reaches it
+whether it is imported by name or by relative path — one file, one name, one
+grant set, as §4.1 requires.
+
+**A section naming something that does not exist is refused**, at load and
+before any module runs: a package not installed under the root's
+`node_modules`, or a section that is neither a path, a directory, a package
+name, nor `*`. That is a usability rule, not a safety one — a misspelt section
+grants nothing either way — and it exists because a manifest that silently
+does nothing is the worst kind of wrong. A copy installed only nested under
+another package is granted by its directory instead; the refusal says so.
+
+Tests: `a_package_section_covers_the_package_and_nothing_beside_it`,
+`the_most_specific_section_names_a_module_and_nothing_is_combined`,
+`bind_refuses_the_uninstalled_and_binds_workspace_packages_to_their_directory`
+(unit); `a_package_grant_covers_every_file_of_the_package_and_no_other`,
+`a_workspace_package_section_binds_to_its_real_directory`,
+`a_manifest_naming_an_uninstalled_package_is_refused` (engine).
+
 So packages are *addressable* without being *ambient*: a manifest can grant one
 exactly what it needs, and silence grants nothing.
 
@@ -265,11 +313,11 @@ browser, but much of npm treats `browser` as "not Node", which is closer to
 true here than `default` is. Wants measurement against Exact's actual
 dependencies rather than a guess.
 
-**OQ2 — Should the manifest be able to grant a whole package?** Grants key on
-resolved file paths, so granting a multi-file package means naming its
-internals — which are not the author's to know and change on upgrade. A
-package-level grant scope is the obvious answer and is not yet specified. This
-is the concrete form LLP 0062 OQ1 takes once packages exist.
+**OQ2 — Should the manifest be able to grant a whole package?** *Resolved by
+§4.2:* yes, by name, with identity taken from the path and never from the
+package's own `package.json`; first-party code and workspace packages by
+directory. This was the concrete form LLP 0062 OQ1 took once packages existed,
+and the second item of `issues/20260828-capsec-made-whole.md`.
 
 **OQ3 — Should a project be able to declare additional permitted roots?**
 Containment is a single directory today. A project that legitimately spans two
