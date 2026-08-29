@@ -20,12 +20,15 @@ use sha2::{Digest, Sha256};
 /// Bumped when anything about how sources become artifacts changes in a way
 /// the inputs below do not already capture. Changing it invalidates every
 /// cached artifact, which is the point.
-const ARTIFACT_VERSION: u32 = 2;
+const ARTIFACT_VERSION: u32 = 3;
 
 /// Compiles module wrappers to Hermes bytecode, caching by content.
 #[derive(Debug, Clone)]
 pub struct Compiler {
-    hermesc: PathBuf,
+    /// Absent on the shipping path: a `--precompiled` run never compiles, so
+    /// it never looks for a compiler, and an artifact missing from the
+    /// manifest is refused rather than built.
+    hermesc: Option<PathBuf>,
     cache_dir: PathBuf,
     /// Identity of the compiler binary, folded into every key.
     ///
@@ -80,10 +83,78 @@ impl Compiler {
                     receipt.patches_applied
                 ));
             }
+            // Hashes the engine and compiler on disk against the receipt. This
+            // is the BUILD posture and it is the only place that hashes
+            // anything: a run does not, because it does not run these files —
+            // it runs the engine linked into it, whose digest was baked in at
+            // link time (`linked_engine`).
             receipt.verify_binary(engine_dir)?;
         }
         let hermesc = Self::find_hermesc(repo_root)?;
+        if let Some(expected) = receipt.as_ref().and_then(|r| r.compiler_digest.as_deref()) {
+            let actual = format!("sha256-{}", hex(&Sha256::digest(std::fs::read(&hermesc).map_err(
+                |e| format!("cannot read {}: {e}", hermesc.display()),
+            )?)));
+            if actual != expected {
+                return Err(format!(
+                    "the receipt describes a different hermesc than the one present\n  \
+                     receipt: {expected}\n  actual:  {actual}"
+                ));
+            }
+        }
         Self::with_engine(hermesc, cache_dir, receipt)
+    }
+
+    /// The compiler for a run: the receipt's digests, read and never
+    /// re-hashed, and a compiler only if one may be needed.
+    ///
+    /// A `--precompiled` run touches the receipt (2 KB) and the manifest and
+    /// nothing else before the floor. The previous design hashed the framework
+    /// dylib and `hermesc` at every start — 25 ms of a 30 ms budget — to verify
+    /// files the runtime does not run; the engine it runs is linked in, and
+    /// `linked_engine` is its identity.
+    pub fn for_run(
+        repo_root: &Path,
+        cache_dir: PathBuf,
+        engine_dir: &Path,
+        precompiled_only: bool,
+    ) -> Result<Self, String> {
+        let receipt = crate::receipt::HermesInput::read(engine_dir).ok();
+        if let Some(receipt) = &receipt {
+            if !receipt.is_vanilla() {
+                return Err(format!(
+                    "the engine at {} is not vanilla: its receipt records {} applied patches",
+                    engine_dir.display(),
+                    receipt.patches_applied
+                ));
+            }
+        }
+        let hermesc = if precompiled_only {
+            None
+        } else {
+            Some(Self::find_hermesc(repo_root)?)
+        };
+        let toolchain = match (
+            receipt.as_ref().and_then(|r| r.compiler_digest.clone()),
+            &hermesc,
+        ) {
+            (Some(digest), _) => digest,
+            (None, Some(hermesc)) => hash_file(hermesc)?,
+            (None, None) => "no-compiler".to_string(),
+        };
+        Ok(Self {
+            hermesc,
+            cache_dir,
+            toolchain,
+            engine: receipt.map(|receipt| receipt.binary_digest),
+        })
+    }
+
+    /// The engine linked into this binary, baked in at link time by
+    /// `build.rs` as a digest of the archive actually linked. What artifacts
+    /// are keyed by and what a manifest is checked against.
+    pub fn linked_engine() -> &'static str {
+        option_env!("IBEX2_LINKED_ENGINE_DIGEST").unwrap_or("no-linked-engine")
     }
 
     fn find_hermesc(repo_root: &Path) -> Result<PathBuf, String> {
@@ -144,12 +215,14 @@ impl Compiler {
         cache_dir: PathBuf,
         engine: Option<crate::receipt::HermesInput>,
     ) -> Result<Self, String> {
-        let bytes = std::fs::read(&hermesc)
-            .map_err(|e| format!("cannot read {}: {e}", hermesc.display()))?;
-        // Hashed once, not per module: the binary is a few megabytes.
-        let toolchain = hex(&Sha256::digest(&bytes));
+        // The receipt already records the compiler's digest; hash the binary
+        // only when there is no receipt to say.
+        let toolchain = match engine.as_ref().and_then(|r| r.compiler_digest.clone()) {
+            Some(digest) => digest,
+            None => hash_file(&hermesc)?,
+        };
         Ok(Self {
-            hermesc,
+            hermesc: Some(hermesc),
             cache_dir,
             toolchain,
             engine: engine.map(|receipt| receipt.binary_digest),
@@ -167,6 +240,7 @@ impl Compiler {
     pub fn key(&self, wrapped: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(ARTIFACT_VERSION.to_le_bytes());
+        hasher.update(Self::linked_engine().as_bytes());
         hasher.update(self.toolchain.as_bytes());
         hasher.update(
             self.engine
@@ -239,12 +313,19 @@ impl Compiler {
         std::fs::write(&source_path, wrapped)
             .map_err(|e| format!("cannot write {}: {e}", source_path.display()))?;
 
-        let output = std::process::Command::new(&self.hermesc)
+        let Some(hermesc) = &self.hermesc else {
+            return Err(
+                "not in the build manifest, and a --precompiled run compiles nothing; \
+                 run `ibex2 build`"
+                    .into(),
+            );
+        };
+        let output = std::process::Command::new(hermesc)
             .args(["-emit-binary", "-O", "-out"])
             .arg(&out_path)
             .arg(&source_path)
             .output()
-            .map_err(|e| format!("cannot run {}: {e}", self.hermesc.display()))?;
+            .map_err(|e| format!("cannot run {}: {e}", hermesc.display()))?;
         let _ = std::fs::remove_file(&source_path);
 
         if !output.status.success() {
@@ -287,11 +368,27 @@ impl Compiler {
 #[derive(Debug, Clone, Default)]
 pub struct Manifest {
     entries: std::collections::BTreeMap<String, String>,
+    /// The linked-engine digest the artifacts were built for. Checked against
+    /// the running binary's own at load, so a cache built by one engine is
+    /// refused by another rather than found by key and fed to it.
+    engine: Option<String>,
 }
 
 impl Manifest {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A manifest for artifacts built by `compiler`'s engine.
+    pub fn for_engine(engine: &str) -> Self {
+        Self {
+            entries: Default::default(),
+            engine: Some(engine.to_string()),
+        }
+    }
+
+    pub fn engine(&self) -> Option<&str> {
+        self.engine.as_deref()
     }
 
     pub fn insert(&mut self, specifier: &str, key: &str) {
@@ -314,17 +411,28 @@ impl Manifest {
     /// the startup path, and a dependency-free line format cannot become a
     /// parser's problem.
     pub fn serialize(&self) -> String {
-        self.entries
-            .iter()
-            .map(|(specifier, key)| format!("{specifier}\t{key}\n"))
-            .collect()
+        let header = self
+            .engine
+            .as_deref()
+            .map(|engine| format!("#engine\t{engine}\n"))
+            .unwrap_or_default();
+        header
+            + &self
+                .entries
+                .iter()
+                .map(|(specifier, key)| format!("{specifier}\t{key}\n"))
+                .collect::<String>()
     }
 
     pub fn parse(text: &str) -> Self {
         let mut manifest = Manifest::new();
         for line in text.lines() {
             if let Some((specifier, key)) = line.split_once('\t') {
-                manifest.insert(specifier.trim(), key.trim());
+                match specifier.trim() {
+                    "#engine" => manifest.engine = Some(key.trim().to_string()),
+                    header if header.starts_with('#') => {}
+                    specifier => manifest.insert(specifier, key.trim()),
+                }
             }
         }
         manifest
@@ -351,6 +459,13 @@ impl Manifest {
 /// The HBC magic. Hermes refuses anything else, and so should the cache.
 pub fn is_hermes_bytecode(bytes: &[u8]) -> bool {
     bytes.len() >= 8 && bytes[..4] == [0xc6, 0x1f, 0xbc, 0x03]
+}
+
+/// `sha256-<hex>` of a file, the receipt's own convention.
+fn hash_file(path: &Path) -> Result<String, String> {
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    Ok(format!("sha256-{}", hex(&Sha256::digest(&bytes))))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -442,7 +557,7 @@ mod tests {
             return;
         };
         let bound = Compiler::with_engine(
-            plain.hermesc.clone(),
+            plain.hermesc.clone().expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
                 binary_digest: "sha256-engine-a".into(),
@@ -454,7 +569,7 @@ mod tests {
         )
         .expect("compiler");
         let other = Compiler::with_engine(
-            plain.hermesc.clone(),
+            plain.hermesc.clone().expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
                 binary_digest: "sha256-engine-b".into(),
@@ -506,5 +621,31 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("hermesc failed"), "{err}");
         let _ = std::fs::remove_dir_all(cache);
+    }
+
+    /// The manifest carries the engine its artifacts were built for, as a
+    /// header line the entry parser skips, and it survives a round trip.
+    #[test]
+    fn a_manifest_records_its_engine_and_reads_it_back() {
+        let mut manifest = Manifest::for_engine("sha256-abc");
+        manifest.insert("./a.js", "k1");
+        manifest.insert("./b.js", "k2");
+        let text = manifest.serialize();
+        assert!(text.starts_with("#engine\tsha256-abc\n"), "{text}");
+        let back = Manifest::parse(&text);
+        assert_eq!(back.engine(), Some("sha256-abc"));
+        assert_eq!(back.get("./a.js"), Some("k1"));
+        assert_eq!(back.len(), 2, "the header is not an entry");
+        // A manifest from before engine binding has no engine, and says so.
+        assert_eq!(Manifest::parse("./a.js\tk1\n").engine(), None);
+    }
+
+    /// The key folds in the engine this binary links, so a rebuild against a
+    /// different engine is a cache miss rather than bytecode fed to the wrong
+    /// VM — and the constant is baked, never read from disk at run time.
+    #[test]
+    fn the_linked_engine_is_part_of_every_key() {
+        let linked = Compiler::linked_engine();
+        assert!(linked.starts_with("sha256-") || linked == "no-linked-engine", "{linked}");
     }
 }

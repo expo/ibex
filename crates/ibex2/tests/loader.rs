@@ -795,3 +795,33 @@ fn module_exports_may_be_a_primitive() {
     assert_eq!(err, None);
     assert_eq!(out, vec!["string text text 42 true"]);
 }
+
+/// Artifacts are bytecode for one engine. A manifest written by another
+/// binary still resolves every key to a file on disk, so without this check
+/// the wrong engine would be handed bytecode it may not accept. `--precompiled`
+/// refuses; a run that may compile ignores the stale manifest instead.
+#[test]
+fn a_manifest_built_for_another_engine_is_refused_under_precompiled() {
+    let p = Project::new("stale-manifest");
+    p.file("index.js", "console.log('ran');");
+    let Some(compiler) = p.compiler() else { return };
+    let cache = p.0.join(".ibex2/cache");
+    let mut manifest = ibex2::bytecode::Manifest::for_engine("sha256-someone-elses-engine");
+    manifest.insert("./index.js", "deadbeef");
+    manifest.write(&cache).unwrap();
+
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    assert!(rt.install_stdlib());
+    rt.install_bindings().expect("bindings");
+    let err = rt
+        .set_loader_with(Root::Declared(p.0.clone()), ModuleGrants::none(), Some(compiler.clone()), true)
+        .unwrap_err();
+    assert!(err.contains("another engine") && err.contains("someone-elses-engine"), "{err}");
+
+    // Not precompiled-only: the stale manifest is ignored and the module is
+    // compiled on demand, so the program still runs.
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), false);
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["ran"]);
+}
+

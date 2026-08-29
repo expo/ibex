@@ -1,6 +1,7 @@
 # `ibex2 run` SHA-256s the engine framework on every start: 25 ms of a 30 ms budget
 
-**Status:** Open
+**Status:** Closed
+**Resolved:** 2026-08-29
 **Impact:** 4
 **Urgency:** 4
 **Ease:** 4
@@ -47,3 +48,26 @@ a compiler should be discovered only when something is going to be compiled.
 `--no-compile` on `scripts/metrics.mjs`'s process row, the receipt is still
 required for `build`, and an artifact built against one engine is still
 refused by another.
+
+## Resolution (2026-08-29)
+
+Verification moved to where the engine is bound. `build.rs` hashes the
+archive the binary actually links (`libhermesvm_a.a`) once per link and
+bakes it in as `IBEX2_LINKED_ENGINE_DIGEST`; `Compiler::linked_engine()`
+reads the constant. Every artifact key folds it in (ARTIFACT_VERSION 3), and
+the manifest now carries an `#engine` header the runtime checks at load — a
+manifest built by another binary, or one from before binding, is refused
+under `--precompiled` and ignored otherwise. `Compiler::for_run` reads the
+receipt's 2 KB for its digest strings and hashes nothing; under
+`--precompiled` it does not even look for `hermesc`. `discover_for_engine`
+keeps the build posture — receipt required, dylib and now hermesc verified
+against it — because a build is where trusting the files on disk is the
+point.
+
+`scripts/metrics.mjs`, process row, precompiled one-module program: **33 →
+7.4 ms** (7.9 ms was the `--no-compile` floor it should have matched), RSS
+24.8 → 12 MB, because the runtime no longer reads a 25 MB dylib to hash it.
+
+Tests: `a_manifest_records_its_engine_and_reads_it_back`,
+`a_manifest_built_for_another_engine_is_refused_under_precompiled`; the
+receipt-refusal tests in `tests/loader.rs` are unchanged and still pass.

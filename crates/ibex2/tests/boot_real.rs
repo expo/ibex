@@ -172,7 +172,7 @@ fn real_boot_by_graph_size() {
         };
         // Build first — including the manifest, so the measured runs never
         // open a source file.
-        let mut manifest = ibex2::bytecode::Manifest::new();
+        let mut manifest = ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
         for i in 0..count {
             let specifier = format!("./m{i}.js");
             let source = std::fs::read_to_string(graph.dir.join(format!("m{i}.js"))).expect("read");

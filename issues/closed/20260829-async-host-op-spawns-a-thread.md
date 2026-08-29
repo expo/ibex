@@ -1,6 +1,7 @@
 # An async host op round trip costs ~1.3 ms: the loop polls with a 1 ms sleep
 
-**Status:** Open
+**Status:** Closed
+**Resolved:** 2026-08-29
 **Impact:** 3
 **Urgency:** 3
 **Ease:** 3
@@ -34,3 +35,15 @@ number can show it.
 then run on a bounded pool (or the platform's queue where one exists —
 `NSURLSession` already has its own), the round trip in `scripts/metrics.mjs`
 is under 100 µs, and the quiescence accounting still passes its tests.
+
+## Resolution (2026-08-29)
+
+`run_to_quiescence` now waits on the Condvar the queue always had —
+`ibex2_hermes_wait` — with the next timer's deadline (or the remaining
+budget) as the timeout, instead of sleeping 1 ms and polling. A completion
+wakes it immediately; a timer wakes it when due; nothing spins.
+
+`scripts/metrics.mjs`, async row, `fs.readFile` of one byte round trip:
+**1262 → 36 µs**. The thread-per-op spawn is inside that 36 µs and is the
+remaining item; it is not ticketed separately because the number is now
+small enough to see it move if a pool is ever worth writing.

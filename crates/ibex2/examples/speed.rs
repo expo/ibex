@@ -148,7 +148,7 @@ fn compiler_for(root: &Path) -> Option<ibex2::bytecode::Compiler> {
 /// build` does. Returns the wall time, which is the dev-loop cost of a build.
 fn build_bytecode(graph: &Graph, count: usize, compiler: &ibex2::bytecode::Compiler) -> Duration {
     let t = Instant::now();
-    let mut manifest = ibex2::bytecode::Manifest::new();
+    let mut manifest = ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
     for spec in graph.specifiers(count) {
         let source = std::fs::read_to_string(graph.dir.join(spec.trim_start_matches("./"))).expect("read");
         let wrapped = ibex2::loader::lower_and_wrap(&source, &spec).expect("lower");
