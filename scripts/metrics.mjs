@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import {
   appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { cpus, hostname, loadavg, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const t0 = Date.now();
@@ -34,7 +34,13 @@ const out = {
   date: `${new Date().toISOString().slice(0, 19)}Z`,
   commit: run('git', ['rev-parse', '--short', 'HEAD']).stdout.trim(),
   host: hostname(),
+  // The 1-minute load average when the run started, so a reader can discount
+  // a number taken on a busy machine — a run under a load of 150 doubled
+  // every row and would have been read as a regression.
+  load1: +loadavg()[0].toFixed(1),
+  cores: cpus().length,
 };
+const loaded = out.load1 > out.cores / 2;
 const step = (name, f) => { const t = Date.now(); const v = f(); out[`_${name}_s`] = +((Date.now() - t) / 1000).toFixed(2); return v; };
 const BIN = resolve(ROOT, 'target/release/ibex2');
 const SPEED = resolve(ROOT, 'target/release/examples/speed');
@@ -134,7 +140,7 @@ const rows = [
   ['async host task round trip', us(out.async_fs_roundtrip_us), 'fs.readFile of one byte, back through the loop'],
   ['binary', kib(out.binary_bytes / 1024), `runtime ${out.runtime_lines} lines · JS bindings ${kib(out.bindings_js_bytes / 1024)}`],
 ];
-console.log(`ibex2 metrics — ${out.date}, ${out.commit}, warm build, medians (min where noise matters)`);
+console.log(`ibex2 metrics — ${out.date}, ${out.commit}, warm build, medians (min where noise matters), load ${out.load1} on ${out.cores} cores${loaded ? ' — LOADED: do not read these as a trend' : ''}`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);
 console.log(
   `  ${'total'.padEnd(34)} ${`${out.total_s} s`.padStart(11)}   build ${out._build_s} s · in-process ${out._inprocess_s} s · process ${out._process_s} s` +
