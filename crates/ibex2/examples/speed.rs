@@ -15,8 +15,6 @@ use ibex2::loader::{ModuleGrants, Root};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-const HARDEN: &str = include_str!("../src/bindings/harden.js");
-
 fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
@@ -53,7 +51,7 @@ fn floor() -> Floor {
     rt.install_bindings().expect("bindings");
     let bindings = ms(t.elapsed());
     let t = Instant::now();
-    rt.eval(HARDEN).expect("harden");
+    rt.harden().expect("harden");
     let freeze = ms(t.elapsed());
     let t = Instant::now();
     rt.eval("1 + 1").expect("first eval");
@@ -172,7 +170,7 @@ fn load(root: &Path, compiler: Option<ibex2::bytecode::Compiler>, precompiled: b
         precompiled,
     )
     .expect("loader");
-    rt.eval(HARDEN).expect("harden");
+    rt.harden().expect("harden");
     let t = Instant::now();
     rt.run_entry("./index.js").expect("entry");
     ms(t.elapsed())
@@ -242,7 +240,7 @@ fn async_fs_roundtrip_us() -> f64 {
             ModuleGrants::parse(&manifest).expect("manifest"),
         )
         .expect("loader");
-        rt.eval(HARDEN).expect("harden");
+        rt.harden().expect("harden");
         let t = Instant::now();
         rt.run_entry("./index.js").expect("entry");
         rt.run_to_quiescence(Duration::from_secs(20));

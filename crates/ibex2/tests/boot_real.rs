@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 use ibex2::loader::{ModuleGrants, Root};
 
-const HARDEN: &str = include_str!("../src/bindings/harden.js");
 
 /// Roughly the per-module size of Exact's measured graph.
 const TARGET_MODULE_BYTES: usize = 9_600;
@@ -113,7 +112,7 @@ fn boot_with(
         precompiled_only,
     )
     .expect("loader");
-    rt.eval(HARDEN).expect("harden");
+    rt.harden().expect("harden");
     let floor = t.elapsed();
 
     let t = Instant::now();

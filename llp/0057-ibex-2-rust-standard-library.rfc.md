@@ -110,6 +110,9 @@ the JS bindings ~1.0 ms, the intrinsic freeze 1.7 ms. The 956 ms boot this
 program exists to delete was module source being parsed, and bytecode removes
 it (851 ms → 13 ms for a 570-module graph). Moving what is left of the JS
 bindings to Rust would recover about a millisecond; the freeze alone costs more.
+*(2026-08-29: the bindings now ship as bytecode too, compiled by `build.rs`,
+and cost 0.04 ms — the millisecond was parsing, as everywhere else. The
+freeze is 0.7 ms since the global object stopped being frozen.)*
 
 **The reason is the non-JS consumer.** `rules/NOT-DOING.md` sets the bar: a
 Rust root, or the Linux/DRM path, gets the same standard library with no engine

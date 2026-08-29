@@ -31,8 +31,10 @@ Cited from code as R1–R5.
   grant captured. A module cannot borrow another's binding by name.
 - **R3 — Modules ship as bytecode.** Compiled ahead of time against the engine
   this binary links (§5); a `--precompiled` run compiles nothing and refuses
-  what was not built. Grants are not part of the artifact key, so changing a
-  manifest never recompiles anything.
+  what was not built. So do the runtime's own bindings, compiled by
+  `build.rs` with the engine's `hermesc`: a runtime parses no JavaScript at
+  start. Grants are not part of the artifact key, so changing a manifest
+  never recompiles anything.
 - **R4 — Intrinsics are frozen before any module code runs.** Every existing
   global binding is locked and everything reachable from it is frozen; the
   global object itself stays extensible (§4).
