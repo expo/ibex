@@ -155,13 +155,13 @@ fn bytes_round_trip_through_the_boundary_in_both_directions() {
 fn url_parsing_is_the_real_whatwg_one() {
     let mut rt = with_stdlib();
     assert_eq!(
-        rt.eval("__ibex2_url_parse('../c', 'https://example.com/a/b/')")
+        rt.eval("__ibex2_url_parse('../c', 'https://example.com/a/b/').split('\\n')[0]")
             .unwrap(),
         "https://example.com/a/c"
     );
     // IDNA, which is exactly what a hand-rolled parser gets wrong.
     assert_eq!(
-        rt.eval("__ibex2_url_parse('https://例え.テスト/')")
+        rt.eval("__ibex2_url_parse('https://例え.テスト/').split('\\n')[0]")
             .unwrap(),
         "https://xn--r8jz45g.xn--zckzah/"
     );
