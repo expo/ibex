@@ -191,6 +191,7 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     // `name` is already a specifier — `./apps/mobile/index.ts` — because it is
     // a path from the root, not a bare file name. Prefixing it again produced
     // `././...`, which the loader then never matched at run time.
+    let cache = ibex2::loader::ResolveCache::default();
     let mut queue = vec![name.clone()];
     let mut seen = std::collections::BTreeSet::new();
     let mut edges: std::collections::BTreeMap<String, Vec<String>> =
@@ -258,7 +259,7 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
         );
 
         for (dependency, required) in dependencies {
-            match ibex2::loader::resolve(&root, &specifier, &dependency) {
+            match ibex2::loader::resolve_in(&cache, &root, &specifier, &dependency) {
                 Ok(resolved) => {
                     if !required && !root.join(resolved.trim_start_matches("./")).exists() {
                         warnings.push(format!(

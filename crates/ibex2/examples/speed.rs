@@ -286,6 +286,59 @@ fn main() {
             put("graph_500_bytecode_ms", num(loaded));
             put("graph_500_bytecode_min_ms", num(best));
             put("graph_500_bytecode_per_module_us", num(best * 1000.0 / 500.0));
+            // Where the per-module cost goes, each stage alone, best of 5:
+            // resolving the specifier (containment canonicalizes, the probe
+            // stats candidates), reading the artifact by key, and evaluating
+            // the bytecode into a function. What load pays beyond their sum
+            // is the loader's own work: the registry, require, the bindings,
+            // the module and exports objects, and the call.
+            let root = Root::Declared(large.dir.clone());
+            let manifest = ibex2::bytecode::Manifest::read(&large.dir.join(".ibex2/cache")).expect("manifest");
+            let specs: Vec<(String, String)> = (1..500)
+                .map(|i| (format!("./m{}.js", i - 1), format!("./m{i}")))
+                .collect();
+            let resolve_ms = median(
+                (0..5)
+                    .map(|_| {
+                        // One cache per pass, as one loader would have.
+                        let cache = ibex2::loader::ResolveCache::default();
+                        let t = Instant::now();
+                        for (from, spec) in &specs {
+                            ibex2::loader::resolve_in(&cache, &root, from, spec).expect("resolve");
+                        }
+                        ms(t.elapsed())
+                    })
+                    .collect(),
+            );
+            let keys: Vec<String> = (0..500).map(|i| manifest.get(&format!("./m{i}.js")).expect("key").to_string()).collect();
+            let read_ms = median(
+                (0..5)
+                    .map(|_| {
+                        let t = Instant::now();
+                        for key in &keys {
+                            compiler.by_key(key).expect("artifact");
+                        }
+                        ms(t.elapsed())
+                    })
+                    .collect(),
+            );
+            let artifacts: Vec<Vec<u8>> = keys.iter().map(|k| compiler.by_key(k).expect("artifact")).collect();
+            let eval_ms = median(
+                (0..5)
+                    .map(|_| {
+                        let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+                        assert!(rt.install_stdlib());
+                        let t = Instant::now();
+                        for bytes in &artifacts {
+                            rt.eval_bytes(bytes).expect("eval");
+                        }
+                        ms(t.elapsed())
+                    })
+                    .collect(),
+            );
+            put("graph_500_resolve_ms", num(resolve_ms));
+            put("graph_500_read_ms", num(read_ms));
+            put("graph_500_eval_ms", num(eval_ms));
             put("hermesc", "true".to_string());
         }
         None => {

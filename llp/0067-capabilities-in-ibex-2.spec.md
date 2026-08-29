@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (§2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -134,11 +134,15 @@ authority, and each is checked on its own (cookies are off, LLP 0059.000
 ## 7. Evidence
 
 Tests that fail: grants honoured and denied per module, per package, and per
-directory (`tests/loader.rs`, `tests/resolution.rs`); the R1 and R5
-assertions; the freeze's effect and its budget (`tests/harden.rs`); the
+directory, including a directory named after a granted package inside another
+package (`tests/loader.rs`, `tests/resolution.rs`); R1 and R5 as an exact
+comparison of the global object's added names against `ALLOWED_GLOBALS`; a
+module that cannot see another module's response or any handle accessor; the
+freeze's effect, its budget, and a walk of everything reachable from the
+global bindings that reports anything left open (`tests/harden.rs`); the
 closure scan; the receipt refusals; the manifest-engine refusal; `fs` path
-normalization and the two-path operations. That is the evidence, and the whole
-of it.
+normalization, the two-path operations, and a symlink inside a granted prefix
+that does not reach outside it. That is the evidence, and the whole of it.
 
 Not evidence, and not sought: proofs that no path bypasses the boundary;
 receipts beyond the artifact-to-engine binding; graduation manifests, tier
