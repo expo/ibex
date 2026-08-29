@@ -5,6 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-08-29 (§2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -46,11 +47,13 @@ Cited from code as R1–R5.
 
 A manifest keyed by module identity (LLP 0065 §4): a section names a file, a
 package, a directory, or `*`; a module gets the most specific section naming
-it, nothing is combined, and an empty section means nothing. Package identity
-comes from the path — the innermost `node_modules/<name>/` — never from a
-package's own `package.json`; a workspace package is bound to its real
-directory at load; a section naming something not installed is refused before
-any module runs. No manifest means no authority.
+it, nothing is combined, and an empty section means nothing. A package
+section applies to the install the manifest is bound to — the directory
+`<root>/node_modules/<name>` resolves to, after symlinks — never to a path
+because of how it is spelt, and never to a package because of what its own
+`package.json` says; every section is canonical after binding; a section
+naming something that does not exist is refused before any module runs. No
+manifest means no authority.
 
 Three families exist, each a parameterized question:
 
@@ -73,9 +76,11 @@ the grant the invoked binding carries and answers the family's question. It
 never inspects a stack, a frame, a domain, or a job queue; there is no
 attribution and no registry to keep. An operation touching two paths
 (`rename`, `copyFile`) needs read on the source and write on the destination.
-Paths are normalized lexically before the check, so `/data/../etc/passwd` does
-not pass a `/data` grant and a symlink cannot change what a grant covers
-between the check and the use. An async operation carries its grant into the
+Paths are checked twice: as spelt, normalized lexically so `/data/../etc/passwd`
+does not pass a `/data` grant, and as the filesystem will really resolve them,
+so a symlink inside a granted prefix — one a module with write on that prefix
+could plant — does not reach outside it. The grant's own prefix is realized
+the same way, so a grant on a directory that is itself a symlink still holds. An async operation carries its grant into the
 host task; a synchronous host call is permitted only for an operation that
 never leaves the calling thread.
 

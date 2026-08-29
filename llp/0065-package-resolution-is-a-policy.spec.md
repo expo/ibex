@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Security, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
+**Revised:** 2026-08-29 (§4.2: package identity is the install `bind` resolves, never a path's spelling — a reviewer showed `evil/node_modules/react/` holding `[react]`; sections are canonicalized at bind) 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
 **Revised:** 2026-08-28 (§5 — the project root is declared with `--root` and never inferred, which unblocks monorepos and so unblocks Exact; §3 rewritten after self-review found it documenting a tradeoff that did not exist; §1 and §4.1 corrected after an adversarial review confirmed two capability bypasses. See `llp/reviews/0065-*.grok.md`.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — `oxc_resolver` is the same pin), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why bare specifiers are required), LLP 0059 §6 (Node's server surface is deleted — why the `node` condition is absent), LLP 0060 (authority is carried, not inferred — why a package is granted nothing by arriving), LLP 0064 (ESM lowering — what happens to a module once resolution has found it), LLP 0062 (the reachability frame this containment rule belongs to)
 
@@ -202,34 +202,46 @@ nothing combined, so an explicit empty section still means nothing:
 [@w/ui]                      # a scoped package, installed or workspace
 ```
 
-**What names a package is its path, never its `package.json`.** The innermost
-`node_modules/<name>/` segment of the canonical specifier decides:
-`./node_modules/react/cjs/react.js` is `react`, so is a nested copy under
-another package, so is pnpm's `.pnpm/react@19/node_modules/react/`. A package
-that declares `"name": "react"` in its own manifest gets nothing by saying so —
-identity by self-description is how a dependency would borrow another's
-authority. `react-dom` is not `react`, and neither is a sibling.
+**What names a package is the install, never a spelling.** `ModuleGrants::bind`
+resolves each package section to the directory `<root>/node_modules/<name>`
+canonicalizes to — the same place for an in-place install, pnpm's store for a
+pnpm one, the project's own tree for a workspace package — and the files
+under that directory hold the grant. Nothing else does: not a package
+declaring `"name": "react"` in its own manifest, and not a directory *named*
+`react` that a dependency vendors inside itself. The first version of this
+section took identity from the innermost `node_modules/<name>/` segment of the
+path, which closed the first door and left the second wide open — a
+reviewer's `evil/node_modules/react/` held `[react]`'s authority — and it was
+the mistake §4.1 had already fixed for files, one level up. A copy nested
+under another package is a different install and is granted by its directory
+if it needs anything. `react-dom` is not `react`, and neither is a sibling.
 
 **A workspace package is first-party code under a name.** Its symlink
-canonicalizes outside `node_modules` (§4.1: `./packages/ui/index.js`), so the
-path does not name it. `ModuleGrants::bind` resolves every package section
-against the project at load: an installed package stays name-matched; a
-workspace package is bound to its real directory, so `[@w/ui]` reaches it
-whether it is imported by name or by relative path — one file, one name, one
-grant set, as §4.1 requires.
+canonicalizes outside `node_modules` (§4.1: `./packages/ui/index.js`); `bind`
+binds `[@w/ui]` to that directory, at package precedence, so it reaches the
+package whether imported by name or by relative path and outranks a directory
+section covering the same tree — one file, one name, one grant set.
+
+**Every section is canonical after `bind`.** File and directory sections are
+re-keyed by their real path, because module identity is canonical and a
+section spelt `./LOCKED.js` on a case-insensitive filesystem named
+`./locked.js` in every respect but the one that decided its grants.
 
 **A section naming something that does not exist is refused**, at load and
 before any module runs: a package not installed under the root's
-`node_modules`, or a section that is neither a path, a directory, a package
-name, nor `*`. That is a usability rule, not a safety one — a misspelt section
-grants nothing either way — and it exists because a manifest that silently
-does nothing is the worst kind of wrong. A copy installed only nested under
-another package is granted by its directory instead; the refusal says so.
+`node_modules`, a file or directory that is not there, or a section that is
+neither a path, a directory, a package name, nor `*`. That is a usability
+rule, not a safety one — a section that matches nothing grants nothing — and
+it exists because a manifest that silently does nothing is the worst kind of
+wrong.
 
-Tests: `a_package_section_covers_the_package_and_nothing_beside_it`,
+Tests: `a_package_section_covers_its_install_and_nothing_beside_it`,
 `the_most_specific_section_names_a_module_and_nothing_is_combined`,
 `bind_refuses_the_uninstalled_and_binds_workspace_packages_to_their_directory`
 (unit); `a_package_grant_covers_every_file_of_the_package_and_no_other`,
+`a_directory_named_after_a_granted_package_inside_another_package_gets_nothing`,
+`a_package_section_beats_a_directory_section_for_a_workspace_package`,
+`a_section_spelt_in_another_case_still_names_the_file`,
 `a_workspace_package_section_binds_to_its_real_directory`,
 `a_manifest_naming_an_uninstalled_package_is_refused` (engine).
 

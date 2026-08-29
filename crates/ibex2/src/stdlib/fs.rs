@@ -93,11 +93,56 @@ pub fn normalize(path: &str) -> Result<PathBuf, HostError> {
     Ok(PathBuf::from(format!("/{}", parts.join("/"))))
 }
 
+/// A path as the filesystem will actually resolve it: its longest existing
+/// prefix canonicalized (symlinks followed, case settled), the rest appended
+/// as written.
+///
+/// The lexical check alone let a symlink *inside* a granted prefix reach
+/// outside it — `/data/link -> /etc/passwd` read `/etc/passwd` under a
+/// `/data` grant, and a module with write on `/data` could make that link
+/// itself. So a request is admitted only if both its spelling and its real
+/// path are covered, each against the grant's own spelling and real path,
+/// which is what keeps a grant on `/var/...` working when `/var` is itself a
+/// symlink to `/private/var`.
+pub fn realize(path: &Path) -> PathBuf {
+    let mut existing = path;
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(canonical) = std::fs::canonicalize(existing) {
+            let mut out = canonical;
+            for component in rest.iter().rev() {
+                out.push(component);
+            }
+            return out;
+        }
+        match (existing.file_name(), existing.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name.to_os_string());
+                existing = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
 /// Check an operation's paths against the caller's grants.
 ///
-/// Every path is checked. For a two-path operation both are, with the right
-/// capability on each.
+/// Every path is checked, as spelt and as realized (`realize`). For a two-path
+/// operation both are, with the right capability on each.
 pub fn admit(
+    grants: &GrantSet,
+    op: FsOp,
+    path: &Path,
+    destination: Option<&Path>,
+) -> Result<(), HostError> {
+    admit_as(grants, op, path, destination)?;
+    let realized = grants.realized_fs();
+    let real_path = realize(path);
+    let real_destination = destination.map(realize);
+    admit_as(&realized, op, &real_path, real_destination.as_deref())
+}
+
+fn admit_as(
     grants: &GrantSet,
     op: FsOp,
     path: &Path,

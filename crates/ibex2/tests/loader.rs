@@ -924,3 +924,46 @@ fn fetch_resolves_to_a_response_object() {
     assert_eq!(out, vec!["200 true https://example.com/ false string false true true TypeError TypeError"]);
 }
 
+/// Codex's finding, as a test: a symlink *inside* a granted prefix must not
+/// reach outside it — a module with write on the prefix could plant the link
+/// itself. The request is admitted only if both its spelling and its real path
+/// are covered. And a grant on a directory that is itself a symlink still
+/// works, because the grant's prefix is realized the same way.
+#[test]
+fn a_symlink_inside_a_granted_prefix_does_not_reach_outside_it() {
+    let p = Project::new("fs-symlink");
+    let allowed = p.0.join("allowed");
+    std::fs::create_dir_all(&allowed).unwrap();
+    std::fs::write(p.0.join("outside.txt"), "OUTSIDE").unwrap();
+    std::fs::write(allowed.join("inside.txt"), "INSIDE").unwrap();
+    std::os::unix::fs::symlink(p.0.join("outside.txt"), allowed.join("link.txt")).unwrap();
+    // A grant spelt through a symlinked directory: `linkdir` -> `allowed`.
+    std::os::unix::fs::symlink(&allowed, p.0.join("linkdir")).unwrap();
+    p.file(
+        "index.js",
+        &format!(
+            "(async () => {{
+               const show = (tag, promise) => promise.then(
+                 b => console.log(tag + ': ' + new TextDecoder().decode(b)), e => console.log(tag + ': ' + e.message));
+               await show('inside', fs.readFile({inside:?}));
+               await show('through link', fs.readFile({link:?}));
+               await show('via linkdir', fs.readFile({via:?}));
+             }})();",
+            inside = allowed.join("inside.txt").to_string_lossy(),
+            link = allowed.join("link.txt").to_string_lossy(),
+            via = p.0.join("linkdir/inside.txt").to_string_lossy(),
+        ),
+    );
+    let manifest = format!(
+        "[./index.js]\nfs.read {}\nfs.read {}\n",
+        allowed.to_string_lossy(),
+        p.0.join("linkdir").to_string_lossy()
+    );
+    let (out, err) = p.run("./index.js", &manifest);
+    assert_eq!(err, None);
+    assert_eq!(
+        out,
+        vec!["inside: INSIDE", "through link: denied: fs.read", "via linkdir: INSIDE"]
+    );
+}
+
