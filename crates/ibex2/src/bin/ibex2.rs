@@ -12,7 +12,7 @@ use ibex2::loader::Root;
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 use ibex2::loader::ModuleGrants;
 
-/// The intrinsic freeze from LLP 0062 §3/R4 — ~2 ms, before any module runs.
+/// The intrinsic freeze, LLP 0067 R4 (measured in LLP 0062 §3) — under 2 ms, before any module runs.
 const HARDEN: &str = include_str!("../bindings/harden.js");
 
 fn usage() -> &'static str {
@@ -431,7 +431,7 @@ fn run(
         .collect();
     if !unexpected.is_empty() {
         return Err(format!(
-            "refusing to run: unexpected globals {unexpected:?} (LLP 0062 R1)"
+            "refusing to run: unexpected globals {unexpected:?} (LLP 0067 R1)"
         ));
     }
 

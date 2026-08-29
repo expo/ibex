@@ -1,6 +1,7 @@
 //! Receipts: what an artifact is allowed to claim about itself.
 //!
-//! LLP 0058.000.001 §5 defines a four-artifact chain. This implements the first
+//! LLP 0058.000.001 §5 (tombstoned) defined a four-artifact chain; LLP 0067 §5
+//! keeps the first link. This implements the first
 //! link, `HermesInputReceipt`, and binds module artifacts to it. The
 //! `GraduationManifest` and the post-link `GreenfieldFinalArtifactReceipt` are
 //! **not** implemented: the first needs a tier-definition process and the second
@@ -12,8 +13,8 @@
 //! produced by a separate tool, verified here, and refused if the engine
 //! carries the patch series' exports.
 //!
-//! @ref LLP 0058.000.001#5-build-artifact-and-dependency-isolation — the receipt chain
-//! @ref LLP 0058.000#d1-vanilla-means-zero-ibex-source-patches — the claim being checked
+//! @ref LLP 0067#5-the-engine-and-the-artifacts — the receipt, and what is verified where
+//! @ref LLP 0067#5-the-engine-and-the-artifacts — vanilla means zero patches: the claim being checked
 
 use std::path::Path;
 

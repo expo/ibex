@@ -43,6 +43,7 @@ pending their first measurement on this repository; tighten them once measured.
 | Blocking gate suite | 60s |
 | Full build, warm cache | 5 min |
 | **Process start to app entry evaluated** | **30ms** |
+| Intrinsic freeze at boot (LLP 0067 §4) | 2ms |
 
 The product row is derived, not invented: Exact budgets 100ms from launch to an
 interactive first frame, and ibex sits underneath layout and paint. Thirty milliseconds is

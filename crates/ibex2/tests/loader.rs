@@ -53,7 +53,7 @@ fn a_require_cycle_terminates() {
     assert_eq!(out, vec!["a b"]);
 }
 
-/// LLP 0060 D2, end to end: two modules in one runtime, different authority.
+/// LLP 0067 R1 and R2, end to end: two modules in one runtime, different authority.
 #[test]
 fn each_module_gets_only_the_authority_its_manifest_names() {
     let p = Project::new("grants");
@@ -129,7 +129,7 @@ fn a_missing_package_is_refused_with_a_useful_message() {
     assert!(out[0].contains("cannot resolve"), "{out:?}");
 }
 
-/// LLP 0062 R1: after boot, no capability-bearing name is on the global object.
+/// LLP 0067 R1: after boot, no capability-bearing name is on the global object.
 #[test]
 fn no_capability_is_reachable_from_the_global_object() {
     let p = Project::new("r1");
@@ -148,7 +148,7 @@ fn no_capability_is_reachable_from_the_global_object() {
     }
 }
 
-/// LLP 0062 R2: a module's `fetch` is its own, so one cannot use another's.
+/// LLP 0067 R2: a module's `fetch` is its own, so one cannot use another's.
 #[test]
 fn a_module_cannot_borrow_another_modules_binding_by_name() {
     let p = Project::new("r2");

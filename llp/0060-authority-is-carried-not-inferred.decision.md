@@ -1,13 +1,17 @@
 # LLP 0060: Authority is carried, not inferred
 
 **Type:** Decision
-**Status:** Superseded by [LLP 0058.000](./0058.000-vanilla-hermes-and-rust-capability-boundary.rfc.md)
+**Status:** Superseded by [LLP 0067](./0067-capabilities-in-ibex-2.spec.md)
 **Systems:** CapSec, Engine, Runtime, Module Loader, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
 **Revised:** 2026-08-28 (D4 corrected: `withEnableEval(false)` does not close Hermes's cached `Function("return this")` fast path, so patch 0014 is not retired by it. The decision stands — the model needs an empty global, not an unreachable one — but the claim was wrong and was made untested.) 2026-08-27 (initial draft)
 **Related:** LLP 0062 (reachable authority — the mechanism this decision needs, and where its OQ1 is answered), LLP 0057 (Ibex 2 — this discharges its OQ2 and is the precondition for its §4), LLP 0058 (the engine seam — unreachable without this decision), LLP 0059.000 (the six capabilities this decision binds), LLP 0013 (per-package capability compartments — the mechanism this retires), LLP 0039 (secure and insecure modes — the cost record this closes), LLP 0004 (module loading and builtins — the injection site), LLP 0002 (host embedding ABI)
 
+> **Superseded again 2026-08-29 by LLP 0067**, the one page that states the
+> model as built; 0058.000, which superseded this first, is superseded by the
+> same page. The history below is unchanged.
+>
 > **Superseded 2026-08-28.** LLP 0058.000 reaches the same conclusions from a
 > dual-model review and develops them further: its D3 is this document's D1, its
 > D4 is D2, its D5 is §3's handoff limit, and its §5 gives every carried patch a

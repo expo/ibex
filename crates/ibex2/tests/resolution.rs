@@ -241,7 +241,7 @@ fn a_typescript_package_imports_and_re_exports_through_esm() {
 /// The security property, and the reason resolution did not simply get turned
 /// on. A package is a module like any other: it holds exactly the authority the
 /// manifest names under its resolved specifier, and nothing by virtue of being
-/// a dependency (LLP 0060 D1).
+/// a dependency (LLP 0067 §2).
 ///
 /// The probe is behavioural, not `typeof`. Every module is handed a `fetch`
 /// parameter; what differs is the authority that parameter carries, so the

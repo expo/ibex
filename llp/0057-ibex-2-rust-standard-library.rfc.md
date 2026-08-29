@@ -297,6 +297,10 @@ list:
    G1–G6 program is tombstoned; what its §7 wanted as *tests* is kept as
    tests.
 
+*Done 2026-08-29: LLP 0067 is the page; package grants are LLP 0065 §4.2; the
+freeze budget is a `rules/RULES.md` row enforced by a test; 0058.000.001 is
+tombstoned and 0058.000 superseded.*
+
 The line that keeps it whole rather than endless: the claim is supply-chain
 integrity against packages that were not granted, and the evidence is tests
 that fail. The moment the ask becomes "prove no path bypasses the boundary
