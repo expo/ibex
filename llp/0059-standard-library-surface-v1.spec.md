@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-27 (§6 amended — `fs`, `WebSocket`, `Buffer`, and `crypto.subtle` move into v1 by the author's decision, as APIs he intends to build on. The measurement is unchanged and stands: none are used by Exact's runtime today. LLP 0059.000 specifies them and marks them *author-required*.) 2026-08-27 (initial draft)
+**Revised:** 2026-08-28 (LLP 0057 §5.2: the target is Exact 2. This inventory was measured from Exact 1 and is now a *ceiling*, not a specification — nothing in it is built without a measured call site in Exact 2's own JavaScript, which today is none. `MessageChannel` removed under that rule.) 2026-08-27 (§6 amended — `fs`, `WebSocket`, `Buffer`, and `crypto.subtle` move into v1 by the author's decision, as APIs he intends to build on. The measurement is unchanged and stands: none are used by Exact's runtime today. LLP 0059.000 specifies them and marks them *author-required*.) 2026-08-27 (initial draft)
 **Related:** LLP 0057 (Ibex 2 — this discharges its OQ1 with measurement), LLP 0058 (the engine seam — the intrinsics tier below), LLP 0004 (module loading and builtins — the surface this replaces)
 
 ## Summary
@@ -72,7 +72,6 @@ The v1 surface. Everything here is measured in the boot graph.
 | `structuredClone` | 1 / 1 | |
 | `CustomEvent` `EventTarget` | 2 / 2 | |
 | `Blob` | vendored only | required by Rive and Lottie |
-| `MessageChannel` | React's renderer | §6 — a scheduling primitive, not messaging |
 
 Per LLP 0057 §3, each is Rust-owned semantics over a platform-owned transport
 where a transport exists. `URL`, `TextEncoder`, `atob`, and `structuredClone`
@@ -137,13 +136,12 @@ an intent for a measurement.
   `FormData`** — absent or single-use. `XMLHttpRequest` appears only inside
   vendored Rive, which falls back to `fetch` when it is missing.
 - **`Worker`** — vendored only, one use. Deferred until an application needs it.
-- **`MessageChannel`** — was here as "vendored only, one use, deferred until an
-  application needs it." **An application needs it** (2026-08-28). React's
-  server renderer builds one at module scope and uses it as its task-scheduling
-  primitive, so nothing that renders React runs without it. Added to Tier I by
-  the evidence standard §7 sets — a measured call site, not an anticipated one.
-  `Worker` stays out; the two were only ever grouped by being adjacent in the
-  spec, not by being needed together.
+- **`MessageChannel`** — vendored only, one use. Added to Tier I on 2026-08-28
+  because React's renderer built one at module scope, and **removed the same
+  evening** when LLP 0057 §5.2 moved the target to Exact 2, which has no React
+  tier. The rule in §7 cuts both ways: an API with no measured call site in
+  the target is not in v1, however recently it had one elsewhere. `Worker`
+  stays out with it.
 
 ## 7. How this list grows
 

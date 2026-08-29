@@ -1,6 +1,7 @@
 # `MessagePort.postMessage` passes a reference instead of cloning
 
-**Status:** Open
+**Status:** Closed
+**Resolved:** 2026-08-28
 **Impact:** 2
 **Urgency:** 2
 **Ease:** 3
@@ -32,3 +33,12 @@ Two consequences to fix together:
 
 **Done when:** a message whose payload the sender mutates after `postMessage`
 arrives with the value as it was at post time, and a function payload throws.
+
+## Resolution (2026-08-28)
+
+Retired, not fixed. `MessageChannel` was in Tier I for one reason — React's
+renderer — and LLP 0057 §5.2 moved the target to Exact 2, which has no React
+tier. LLP 0059 §7's rule (no measured call site, no API) took the binding out
+the same evening, and this ticket with it. If a `MessageChannel` ever returns
+it should clone from the start; the divergence recorded here is the reason.
+
