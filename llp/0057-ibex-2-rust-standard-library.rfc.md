@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Module Loader, CapSec, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-27 (initial draft)
+**Revised:** 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
 **Related:** LLP 0063 (where startup time goes — the measurement §7 said had not been taken), LLP 0000 (Ibex — the root this amends), LLP 0002 (host embedding ABI — the boundary this generalizes), LLP 0004 (module loading and builtins — the JS standard library this inverts), LLP 0013 (per-package capability compartments — the enforcement point this relocates), LLP 0039 (secure and insecure modes — the cost record this cites), LLP 0058 (the engine seam)
 
 ## Summary
@@ -99,6 +99,44 @@ expensive to retrofit:
   be sub-microsecond.
 - **Async by default.** No new synchronous cross-thread call surface.
 
+### 3.1 What goes in Rust, and what does not
+
+Stated 2026-08-28, after it had been implied for a month and after the reason
+usually given for it turned out to be the weak one.
+
+**Load time is not the reason.** LLP 0063 §2 measures the per-runtime floor at
+1.5 ms in release: construction 0.36 ms, Rust stdlib host functions 0.02 ms,
+the JS bindings ~1.0 ms, the intrinsic freeze 1.7 ms. The 956 ms boot this
+program exists to delete was module source being parsed, and bytecode removes
+it (851 ms → 13 ms for a 570-module graph). Moving what is left of the JS
+bindings to Rust would recover about a millisecond; the freeze alone costs more.
+
+**The reason is the non-JS consumer.** `rules/NOT-DOING.md` sets the bar: a
+Rust root, or the Linux/DRM path, gets the same standard library with no engine
+in the process. Exact 2's plan runner is that consumer — it is Rust, it runs
+the application, and it needs `fetch`, `fs`, timers, and `URL` itself. One
+implementation serves it directly and the JavaScript bindings thinly. The
+second reason is the one §4 gives: one boundary is one place to check.
+
+**So the split is by what a thing touches, not by preference for a language:**
+
+- **Rust owns** semantics, state the platform touches, transport, byte-level
+  parsing (`URL`, base64, `crypto`), and anything a Rust consumer needs.
+- **JavaScript owns** object shape and plumbing over JavaScript values —
+  `EventTarget`, `AbortController`, `MessageChannel`, the mutation surface of
+  `URLSearchParams`. LLP 0059.000 §1.3 measures why: bytes cross for free,
+  strings at 2–3.5 ms/MB, and every host call has a fixed price. An API that
+  is nothing but object plumbing gets slower and larger if each operation
+  crosses.
+- **The engine keeps** what it does natively — `TextEncoder`, `JSON`, `Intl`.
+
+Two rules that follow. Modules load as bytecode only, and the floor stays at
+or under 2 ms, measured by `caps` rather than asserted. And authority arrives
+as objects at the boundary — a module's `fetch` carries its grant in its
+closure — so the Rust side checks a grant against a request and never asks who
+is calling. That property, not the language, is what keeps §4 from growing the
+attribution machinery Ibex 1 grew.
+
 ## 4. capsec moves to the boundary
 
 With the standard library in Rust, every capability is reached through one
@@ -131,7 +169,37 @@ registry in its current shape. And, separately but in the same window, most of
 superseded incremental-in-place strategy, and a section carrying two meanings
 is worse than a gap in the numbering.)*
 
-**Decided 2026-08-28: Ibex 2 targets Exact.** It is the runtime Exact moves to,
+**Revised, later on 2026-08-28: Ibex 2 targets Exact 2** — the from-scratch
+rewrite in the `exact2` repository (its LLP 1000 is the root map), not the
+Exact this section was written against that morning. The earlier decision and
+its consequences are kept below because they drove a day's work (LLP 0066) and
+because most of what that work found about the *runtime* still holds; what it
+found about the *application* was Exact 1's shape.
+
+What Exact 2 says, and what follows for Ibex 2:
+
+- **No application JavaScript runs before first pixel** (`rules/RULES.md`
+  there: 100 ms p50 cold start to interactive first frame; "App JS executed
+  before first pixel: none"). Contract compiles in Rust to a plan, a Rust VM
+  runs it, and the web host is kernel and runner as wasm over the DOM. Ibex 2
+  is therefore off the first-pixel path by construction. Its startup job is
+  its own floor (§3.1) and a small bytecode graph, not a 511-module boot in
+  30 ms.
+- **The v1 surface is measured from Exact 2's JavaScript**, which is currently
+  none. LLP 0059's 560-module inventory becomes a ceiling, not a
+  specification; the list shrinks from there, one measured call site at a
+  time, per LLP 0059 §7.
+- **Exact 2 forbids platform-suffixed route files and has no React tier**
+  (`rules/NOT-DOING.md` there). LLP 0065 §8's `--platform` serves a convention
+  the target bans; it is cheap and harmless and is a deletion candidate.
+  `WebAssembly` and `requestAnimationFrame` are no longer requirements of the
+  JS tier.
+- ESM and TypeScript remain required: whatever JavaScript Exact 2 does run
+  will be written that way.
+
+*The decision as first recorded on 2026-08-28, superseded above:*
+
+**Ibex 2 targets Exact.** It is the runtime Exact moves to,
 not a smaller runtime for new work alongside an ibex 1 that keeps Exact.
 
 This was implicit and is now explicit, because the whole corpus assumed it
@@ -166,10 +234,38 @@ storage, `URL`, and `TextEncoder`. Deleting is far cheaper than porting, and
 this single answer sets the size of the entire program. It is a product
 question, not a technical one, and it is the author's.
 
-**OQ2 — capsec timing.** OQ1 answers most of this: with no npm graph, the
-compartment layer defends nothing and the boundary check is sufficient. If
-Ibex stays a general JavaScript runtime, compartments return and are
-differentiating.
+**OQ2 — capsec: whole, or absent.** Restated 2026-08-28 as the author's
+requirement: Ibex 2 ends up with capsec either fully implemented, understood,
+testable, and usable — or not present, creating no complexity and no
+performance tax. Not the state it is in.
+
+Two things carry the name today. The *mechanism* is small and whole: authority
+arrives as module parameters, never on the global object; a manifest keyed by
+module; three grant families (origin, path prefix, environment name) checked
+at one Rust chokepoint; intrinsics frozen at boot. It fits on a page
+(LLP 0060, LLP 0062 R1–R5), it is tested, and it costs a grant lookup per host
+call plus the 1.7 ms freeze. The *program* around it — LLP 0058.000.001's
+G1–G6, policy generations, revocation ancestry, graduation manifests, tier
+definitions, five-platform receipts — is large, unbuilt, and is the shape that
+produced Ibex 1's unending list. Ibex 1's list came from enforcing at
+JavaScript globals, thousands of sinks needing observers and registries to
+prove coverage; Ibex 2 removed that cause, and the remaining risk is
+re-importing the evidence ceremony by specification.
+
+The question that decides it is the author's: **will Exact 2 run JavaScript
+its author did not write** — npm packages, agent-installed code, user
+extensions?
+
+- *Yes:* keep the mechanism, retire the program. Tombstone 0058.000.001's
+  gates, add package-level grants (LLP 0065 OQ2 — without them a real
+  manifest is unwritable), bound the freeze in `caps`, done.
+- *No:* delete grants, manifest, freeze, and receipts. Keep only what costs
+  nothing and keeps the door open the way Exact 2's own NOT-DOING keeps
+  doors open: capabilities stay parameters rather than globals (§3.1).
+
+Recommendation, given Exact 2's shape — no npm graph, no application JS
+before first pixel, Contract-first: *no, door open*. Undecided; the author
+decides.
 
 **OQ3 — The event loop.** How the Rust executor and the engine's job queue
 interleave, and who owns the microtask drain. Owned by LLP 0058.

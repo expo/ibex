@@ -5,6 +5,7 @@
 **Systems:** Runtime, Module Loader, Rust Stdlib, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
+**Revised:** 2026-08-28 (reframed after LLP 0057 §5.2 moved the target to Exact 2)
 **Related:** LLP 0057 (§5.2 — Ibex 2 targets Exact, which is why this run was the next thing to do), LLP 0059 (the v1 surface, measured from a 560-module graph; §7 — how the list grows), LLP 0062 (§3 — the freeze this run changed; §3.1 — the `for-of` gap this run sizes), LLP 0064 (§8 — JSON modules, from this run), LLP 0065 (§8 — platform variants, from this run), LLP 0058.000.001 (§7 — the vertical slice this does not replace)
 
 ## Summary
@@ -21,6 +22,17 @@ empty object.
 With those fixed the runtime evaluates Exact's entry, its runtime globals, its
 document-meta and oracle-environment modules, and reaches route mounting. What
 stands between that and a first frame is measured below and ordered in §7.
+
+**Reframed the same evening.** LLP 0057 §5.2 now records that Ibex 2 targets
+*Exact 2*, the from-scratch rewrite, which runs no application JavaScript
+before first pixel and forbids the conventions §4 asks Exact to change. What
+survives of this document: the three runtime defects and their fixes (§2), the
+`URL` binding gap (§3), the floor and the one number (§6), and the graph walk
+as an instrument. What does not: §4 as a work list, and §7's order — the JS
+surface is now measured from Exact 2, with the counts in §3 a ceiling. The
+`--platform` policy from §2 serves a convention Exact 2 bans and is a deletion
+candidate. Kept whole rather than rewritten, because the measurement is what a
+research document is for.
 
 ## 1. Method
 
