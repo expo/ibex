@@ -1,0 +1,285 @@
+{
+ "llp": "0066",
+ "date": "2026-08-28",
+ "method": "cargo run -p ibex2 --example graph -- <exact> js/src/main.tsx native",
+ "exactCommit": "a8e633907",
+ "ibexBaseCommit": "fdc20c2a6",
+ "platform": "native",
+ "reachable": {
+  "modules": 1028,
+  "underNodeModules": 107,
+  "sourceBytes": 13465512,
+  "byExtension": {
+   "contract": 44,
+   "css": 1,
+   "js": 189,
+   "json": 2,
+   "mjs": 3,
+   "ts": 666,
+   "tsx": 122
+  },
+  "loweredOk": 982,
+  "unresolvable": {
+   "exact": 1,
+   "exact/app": 19
+  }
+ },
+ "bootGraph": {
+  "definition": "static closure of js/src/main.tsx ∪ static closure of js/src/main-router.tsx",
+  "modules": 511,
+  "underNodeModules": 12,
+  "packages": [
+   "react",
+   "react-reconciler",
+   "scheduler"
+  ],
+  "contractModulesOnBoot": [
+   "./js/src/app/web-fallback-screen.contract",
+   "./packages/exact-router/src/components/router-action.contract",
+   "./packages/exact-router/src/components/router-link.contract",
+   "./packages/exact-router/src/components/router-outlet.contract",
+   "./packages/exact-router/src/components/router-slot.contract"
+  ]
+ },
+ "apiUsage": {
+  "bootGraph": {
+   "AbortController/AbortSignal": {
+    "files": 14,
+    "uses": 39
+   },
+   "queueMicrotask": {
+    "files": 13,
+    "uses": 22
+   },
+   "localStorage": {
+    "files": 4,
+    "uses": 16
+   },
+   "requestAnimationFrame": {
+    "files": 4,
+    "uses": 8
+   },
+   "structuredClone": {
+    "files": 2,
+    "uses": 3
+   },
+   "EventTarget": {
+    "files": 2,
+    "uses": 3
+   },
+   "Buffer": {
+    "files": 2,
+    "uses": 3
+   },
+   "WebAssembly": {
+    "files": 1,
+    "uses": 8
+   },
+   "Intl": {
+    "files": 5,
+    "uses": 7
+   },
+   "CustomEvent": {
+    "files": 0,
+    "uses": 0
+   },
+   "Blob": {
+    "files": 0,
+    "uses": 0
+   },
+   "crypto.randomUUID": {
+    "files": 0,
+    "uses": 0
+   },
+   "crypto.getRandomValues": {
+    "files": 0,
+    "uses": 0
+   },
+   "crypto.subtle": {
+    "files": 0,
+    "uses": 0
+   },
+   "WebSocket": {
+    "files": 0,
+    "uses": 0
+   },
+   "hostCallAsync / __hostCall / invokeHostAsync": {
+    "files": 13,
+    "uses": 44
+   },
+   "TextEncoder/TextDecoder": {
+    "files": 26,
+    "uses": 51
+   },
+   "process.env": {
+    "files": 22,
+    "uses": 45
+   },
+   "setTimeout/setInterval": {
+    "files": 20,
+    "uses": 40
+   },
+   "URL/URLSearchParams": {
+    "files": 19,
+    "uses": 36
+   },
+   "performance.now": {
+    "files": 12,
+    "uses": 22
+   },
+   "fetch(": {
+    "files": 6,
+    "uses": 7
+   },
+   "MessageChannel": {
+    "files": 3,
+    "uses": 7
+   },
+   "import.meta": {
+    "files": 6,
+    "uses": 15
+   },
+   "atob/btoa": {
+    "files": 3,
+    "uses": 5
+   },
+   "for (const|let … of …)": {
+    "files": 179,
+    "uses": 967
+   }
+  },
+  "reachable": {
+   "AbortController/AbortSignal": {
+    "files": 19,
+    "uses": 51
+   },
+   "queueMicrotask": {
+    "files": 25,
+    "uses": 52
+   },
+   "localStorage": {
+    "files": 7,
+    "uses": 28
+   },
+   "requestAnimationFrame": {
+    "files": 21,
+    "uses": 69
+   },
+   "structuredClone": {
+    "files": 2,
+    "uses": 3
+   },
+   "EventTarget": {
+    "files": 10,
+    "uses": 17
+   },
+   "Buffer": {
+    "files": 3,
+    "uses": 4
+   },
+   "WebAssembly": {
+    "files": 3,
+    "uses": 33
+   },
+   "Intl": {
+    "files": 11,
+    "uses": 23
+   },
+   "CustomEvent": {
+    "files": 5,
+    "uses": 11
+   },
+   "Blob": {
+    "files": 7,
+    "uses": 37
+   },
+   "crypto.randomUUID": {
+    "files": 2,
+    "uses": 6
+   },
+   "crypto.getRandomValues": {
+    "files": 1,
+    "uses": 2
+   },
+   "crypto.subtle": {
+    "files": 0,
+    "uses": 0
+   },
+   "WebSocket": {
+    "files": 0,
+    "uses": 0
+   },
+   "hostCallAsync / __hostCall / invokeHostAsync": {
+    "files": 23,
+    "uses": 64
+   },
+   "TextEncoder/TextDecoder": {
+    "files": 33,
+    "uses": 79
+   },
+   "process.env": {
+    "files": 30,
+    "uses": 54
+   },
+   "setTimeout/setInterval": {
+    "files": 52,
+    "uses": 112
+   },
+   "URL/URLSearchParams": {
+    "files": 31,
+    "uses": 55
+   },
+   "performance.now": {
+    "files": 22,
+    "uses": 57
+   },
+   "fetch(": {
+    "files": 12,
+    "uses": 27
+   },
+   "MessageChannel": {
+    "files": 3,
+    "uses": 7
+   },
+   "import.meta": {
+    "files": 14,
+    "uses": 29
+   },
+   "atob/btoa": {
+    "files": 8,
+    "uses": 13
+   },
+   "for (const|let … of …)": {
+    "files": 297,
+    "uses": 1678
+   }
+  }
+ },
+ "globalsPresentInIbex2": {
+  "Intl": true,
+  "Proxy": true,
+  "Reflect": true,
+  "WeakRef": true,
+  "FinalizationRegistry": true,
+  "queueMicrotask": false,
+  "WebAssembly": false,
+  "AbortController": false,
+  "structuredClone": false,
+  "EventTarget": false,
+  "localStorage": false,
+  "requestAnimationFrame": false,
+  "Buffer": false,
+  "crypto": false,
+  "navigator": false
+ },
+ "wallsInOrder": [
+  "esm lowering: overlapping module declarations (21 modules; fixed)",
+  "JSON module on the boot path: @exact/core color-v1.policy.json (fixed)",
+  "frozen global object: globalThis.__exactContractMonitorState ??= silently no-op (fixed)",
+  ".contract module: js/src/app/routes/index.contract (Exact-side)"
+ ],
+ "foundBesideTheWalls": [
+  "module.exports = <primitive> returned the empty original (fixed)",
+  "22 .native variants ignored without a platform (fixed: --platform)"
+ ]
+}
