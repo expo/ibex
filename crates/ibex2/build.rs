@@ -67,6 +67,21 @@ fn main() {
             .compile("ibex2_darwin_http");
     }
 
+    // The engine this binary links, as a digest baked into it. Artifacts are
+    // keyed by it at build time and the manifest is checked against it at run
+    // time, so the runtime never hashes anything to know which engine it is —
+    // the previous design SHA-256'd the framework dylib on disk at every start,
+    // 25 ms of a 30 ms budget, to verify a file it does not even run
+    // (issues/20260829-run-hashes-the-engine-on-every-start.md). Hashed here,
+    // once per link, of the archive actually linked.
+    let archive = static_dir.join("libhermesvm_a.a");
+    println!("cargo:rerun-if-changed={}", archive.display());
+    let archive_bytes = std::fs::read(&archive)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", archive.display()));
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&archive_bytes);
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DIGEST=sha256-{hex}");
+
     println!("cargo:rustc-link-search=native={}", static_dir.display());
     println!("cargo:rustc-link-lib=static=hermesvm_a");
     println!("cargo:rustc-link-lib=static=jsi");

@@ -169,22 +169,24 @@ fn engine_dir() -> PathBuf {
     }
 }
 
-/// A compiler bound to the installed engine's receipt, so artifacts built for
-/// one engine are never found under another (LLP 0058.000.001 §5).
-fn compiler_for(root: &Path, require_receipt: bool) -> Result<ibex2::bytecode::Compiler, String> {
-    ibex2::bytecode::Compiler::discover_for_engine(
-        &repo_root(),
-        cache_dir(root),
-        &engine_dir(),
-        require_receipt,
-    )
+/// The build's compiler: receipt required and verified against the engine
+/// and hermesc on disk, artifacts keyed to the engine this binary links
+/// (LLP 0058.000.001 §5).
+fn compiler_for_build(root: &Path) -> Result<ibex2::bytecode::Compiler, String> {
+    ibex2::bytecode::Compiler::discover_for_engine(&repo_root(), cache_dir(root), &engine_dir(), true)
+}
+
+/// A run's compiler: nothing hashed, and no compiler at all under
+/// `--precompiled`, where a module missing from the manifest is refused.
+fn compiler_for_run(root: &Path, precompiled_only: bool) -> Result<ibex2::bytecode::Compiler, String> {
+    ibex2::bytecode::Compiler::for_run(&repo_root(), cache_dir(root), &engine_dir(), precompiled_only)
 }
 
 /// Compile the whole reachable graph ahead of time.
 fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     let (root, name) = project_root(entry, declared_root)?;
     // A build produces artifacts others will trust, so it requires the receipt.
-    let compiler = compiler_for(&root, true)?;
+    let compiler = compiler_for_build(&root)?;
 
     // Walk from the entry, following require() and import as the loader would.
     // Compiling every .js under the root instead would build files nothing
@@ -196,7 +198,9 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     let mut seen = std::collections::BTreeSet::new();
     let mut edges: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
-    let mut manifest = ibex2::bytecode::Manifest::new();
+    // Bound to the engine this binary links, so another binary refuses it.
+    let mut manifest =
+        ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
     let mut warnings: Vec<String> = Vec::new();
     let mut built = 0usize;
 
@@ -395,7 +399,7 @@ fn run(
     }
     rt.install_bindings().map_err(|e| e.0)?;
     let compiler = if compile || precompiled_only {
-        match compiler_for(&root, precompiled_only) {
+        match compiler_for_run(&root, precompiled_only) {
             Ok(compiler) => Some(compiler),
             Err(message) if precompiled_only => return Err(message),
             // Without hermesc the runtime can still load source. That path is

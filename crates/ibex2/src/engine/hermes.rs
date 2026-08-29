@@ -229,9 +229,33 @@ impl Hermes {
         precompiled_only: bool,
     ) -> Result<(), String> {
         grants.bind(root.path())?;
-        let manifest = compiler
+        let cache = root.join(".ibex2/cache");
+        let mut manifest = compiler
             .as_ref()
-            .and_then(|_| crate::bytecode::Manifest::read(&root.join(".ibex2/cache")));
+            .and_then(|_| crate::bytecode::Manifest::read(&cache));
+        // Artifacts are bytecode for one engine. A manifest built by another
+        // binary would still resolve by key and hand this engine bytecode it
+        // may not accept — so the manifest carries the engine it was built
+        // for, and this is where it is checked, before any module loads.
+        if let Some(found) = &manifest {
+            let linked = crate::bytecode::Compiler::linked_engine();
+            let stale = match found.engine() {
+                Some(built_for) => built_for != linked,
+                None => true,
+            };
+            if stale && precompiled_only {
+                return Err(format!(
+                    "the precompiled artifacts under {} were built for another engine\n  \
+                     built for: {}\n  this runtime links: {linked}\n\
+                     Run `ibex2 build` again with this binary.",
+                    cache.display(),
+                    found.engine().unwrap_or("(a build that predates engine binding)")
+                ));
+            }
+            if stale {
+                manifest = None;
+            }
+        }
         // SAFETY: `handle` is non-null for the lifetime of self.
         let state = unsafe { ibex2_hermes_state(self.handle) };
         // SAFETY: the state pointer belongs to this runtime and outlives the call.
@@ -280,7 +304,23 @@ impl Hermes {
             if idle {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            // Wait for the next thing that can make work: a completion, which
+            // signals the Condvar, or the next timer's deadline. Exactly what
+            // the Condvar in `CompletionQueue` is for — this loop used to sleep
+            // 1 ms and poll, which put up to a millisecond of latency on every
+            // async round trip (issues/20260829-async-host-op-spawns-a-thread.md).
+            let until_timer = unsafe { crate::task::borrow_state(state) }
+                .and_then(|s| s.millis_until_next_timer())
+                .map(|ms| ms.ceil() as u64);
+            let remaining = deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .as_millis() as u64;
+            let timeout = until_timer.unwrap_or(u64::MAX).min(remaining);
+            if timeout == 0 {
+                continue;
+            }
+            // SAFETY: `handle` is non-null for the lifetime of self.
+            unsafe { ibex2_hermes_wait(self.handle, timeout) };
         }
     }
 
