@@ -60,6 +60,7 @@ The v1 surface. Everything here is measured in the boot graph.
 |---|---|---|
 | `console.{log,warn,error,info,debug}` | 214 / 89 | the most-used API by a wide margin |
 | `setTimeout` `setInterval` `clear*` | 64 / 33 | |
+| `queueMicrotask` | 22 / 13 (boot graph, LLP 0066) | added 2026-08-29; a name for the engine's Promise jobs |
 | `TextEncoder` `TextDecoder` | 47 / 38 | |
 | `URL` `URLSearchParams` | 36 / 25 | pure computation; no platform |
 | `performance.now` | 23 / 10 | must share the frame clock's time base |

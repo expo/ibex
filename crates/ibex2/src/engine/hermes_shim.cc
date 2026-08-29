@@ -864,7 +864,16 @@ int ibex2_hermes_install_stdlib(void *handle) {
     set_binding(runtime, global, "__ibex2_text_decode", 21, rt->queue);
     set_binding(runtime, global, "__ibex2_text_encode_into", 22, rt->queue);
     set_binding(runtime, global, "__ibex2_url_parse", 30, rt->queue);
+    set_binding(runtime, global, "__ibex2_url_set", 32, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_normalize", 29, rt->queue);
     set_binding(runtime, global, "__ibex2_search_params_get", 31, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_get_all", 33, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_has", 34, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_set", 35, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_append", 36, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_delete", 37, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_sort", 38, rt->queue);
+    set_binding(runtime, global, "__ibex2_search_params_entries", 39, rt->queue);
 
     // The ops behind the Headers class. Rust owns the semantics; the class
     // shape is in bindings/headers.js.

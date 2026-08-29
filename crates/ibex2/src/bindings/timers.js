@@ -62,6 +62,19 @@
     entry.fn.apply(undefined, entry.args);
   };
 
+  // queueMicrotask: the one scheduling primitive the engine's Promise jobs
+  // already provide, given its name. A callback that throws is lost the same
+  // way a throwing timer callback is (see the pump): the error does not stop
+  // the jobs behind it, and nothing reports it yet.
+  global.queueMicrotask = function (callback) {
+    if (typeof callback !== "function") {
+      throw new TypeError("queueMicrotask requires a function");
+    }
+    Promise.resolve().then(function () {
+      callback();
+    });
+  };
+
   global.performance = global.performance || {};
   if (!global.performance.now) {
     global.performance.now = function () {

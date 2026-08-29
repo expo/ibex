@@ -728,7 +728,10 @@ pub const ALLOWED_GLOBALS: &[&str] = &[
     "clearTimeout",
     "clearInterval",
     "performance",
+    "queueMicrotask",
     "Headers",
+    "URL",
+    "URLSearchParams",
     "atob",
     "btoa",
 ];
