@@ -119,6 +119,15 @@ pub enum Op {
     TextEncodeInto = 22,
     UrlParse = 30,
     UrlSearchParamsGet = 31,
+    UrlSet = 32,
+    UrlSearchParamsGetAll = 33,
+    UrlSearchParamsHas = 34,
+    UrlSearchParamsSet = 35,
+    UrlSearchParamsAppend = 36,
+    UrlSearchParamsDelete = 37,
+    UrlSearchParamsSort = 38,
+    UrlSearchParamsEntries = 39,
+    UrlSearchParamsNormalize = 29,
     HeadersNew = 40,
     HeadersAppend = 41,
     HeadersSet = 42,
@@ -150,8 +159,17 @@ impl Op {
             20 => Op::TextEncode,
             21 => Op::TextDecode,
             22 => Op::TextEncodeInto,
+            29 => Op::UrlSearchParamsNormalize,
             30 => Op::UrlParse,
             31 => Op::UrlSearchParamsGet,
+            32 => Op::UrlSet,
+            33 => Op::UrlSearchParamsGetAll,
+            34 => Op::UrlSearchParamsHas,
+            35 => Op::UrlSearchParamsSet,
+            36 => Op::UrlSearchParamsAppend,
+            37 => Op::UrlSearchParamsDelete,
+            38 => Op::UrlSearchParamsSort,
+            39 => Op::UrlSearchParamsEntries,
             40 => Op::HeadersNew,
             41 => Op::HeadersAppend,
             42 => Op::HeadersSet,
@@ -218,6 +236,11 @@ fn dispatch(
             .and_then(HostArg::as_str)
             .ok_or_else(|| HostError::InvalidArgument(format!("{label} expects a string")))
     };
+    fn str_at<'a>(args: &'a [HostArg<'a>], index: usize, what: &str) -> Result<&'a str, HostError> {
+        args.get(index)
+            .and_then(HostArg::as_str)
+            .ok_or_else(|| HostError::InvalidArgument(format!("expected {what}")))
+    }
 
     if matches!(
         op,
@@ -260,21 +283,69 @@ fn dispatch(
         }
         Op::UrlParse => {
             let base = args.get(1).and_then(HostArg::as_str);
-            // Returned as href for the spike; the object shape is the binding
-            // layer's job, not the boundary's.
-            url::parse(first_str("URL")?, base).map(|parsed| HostValue::Str(parsed.href))
+            // Every component, one per line: the object shape is the binding
+            // layer's job, and it should not have to ask eleven times.
+            url::parse(first_str("URL")?, base).map(|parsed| HostValue::Str(parsed.joined()))
         }
+        Op::UrlSet => {
+            let field = str_at(args, 1, "a field name")?;
+            let value = str_at(args, 2, "a value")?;
+            url::set(first_str("URL")?, field, value).map(|parsed| HostValue::Str(parsed.joined()))
+        }
+        // URLSearchParams: the object's whole state is its query string, and
+        // every method is one crossing that reads or rewrites it here, so the
+        // list semantics — order, duplicates, form-urlencoded escaping — have
+        // exactly one implementation.
+        Op::UrlSearchParamsNormalize => Ok(HostValue::Str(
+            url::SearchParams::parse(first_str("URLSearchParams")?).to_query_string(),
+        )),
         Op::UrlSearchParamsGet => {
-            let query = first_str("URLSearchParams")?;
-            let name = args
-                .get(1)
-                .and_then(HostArg::as_str)
-                .ok_or_else(|| HostError::InvalidArgument("get expects a name".into()))?;
-            Ok(match url::SearchParams::parse(query).get(name) {
+            let params = url::SearchParams::parse(first_str("URLSearchParams")?);
+            Ok(match params.get(str_at(args, 1, "a name")?) {
                 Some(value) => HostValue::Str(value.to_string()),
                 None => HostValue::Null,
             })
         }
+        Op::UrlSearchParamsGetAll => {
+            let params = url::SearchParams::parse(first_str("URLSearchParams")?);
+            Ok(HostValue::Str(params.get_all_json(str_at(args, 1, "a name")?)))
+        }
+        Op::UrlSearchParamsHas => {
+            let params = url::SearchParams::parse(first_str("URLSearchParams")?);
+            let name = str_at(args, 1, "a name")?;
+            Ok(HostValue::Bool(match args.get(2).and_then(HostArg::as_str) {
+                Some(value) => params.has_pair(name, value),
+                None => params.has(name),
+            }))
+        }
+        Op::UrlSearchParamsSet | Op::UrlSearchParamsAppend => {
+            let mut params = url::SearchParams::parse(first_str("URLSearchParams")?);
+            let name = str_at(args, 1, "a name")?;
+            let value = str_at(args, 2, "a value")?;
+            if op == Op::UrlSearchParamsSet {
+                params.set(name, value);
+            } else {
+                params.append(name, value);
+            }
+            Ok(HostValue::Str(params.to_query_string()))
+        }
+        Op::UrlSearchParamsDelete => {
+            let mut params = url::SearchParams::parse(first_str("URLSearchParams")?);
+            let name = str_at(args, 1, "a name")?;
+            match args.get(2).and_then(HostArg::as_str) {
+                Some(value) => params.delete_pair(name, value),
+                None => params.delete(name),
+            }
+            Ok(HostValue::Str(params.to_query_string()))
+        }
+        Op::UrlSearchParamsSort => {
+            let mut params = url::SearchParams::parse(first_str("URLSearchParams")?);
+            params.sort();
+            Ok(HostValue::Str(params.to_query_string()))
+        }
+        Op::UrlSearchParamsEntries => Ok(HostValue::Str(
+            url::SearchParams::parse(first_str("URLSearchParams")?).entries_json(),
+        )),
         Op::TextEncodeInto => {
             unreachable!("handled in ibex2_host_call, which owns the mutable span")
         }

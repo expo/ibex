@@ -825,3 +825,21 @@ fn a_manifest_built_for_another_engine_is_refused_under_precompiled() {
     assert_eq!(out, vec!["ran"]);
 }
 
+/// `queueMicrotask` runs after the current script and before any timer, in
+/// order with Promise jobs, and refuses a non-function like the platform does.
+#[test]
+fn queue_microtask_runs_before_timers_and_in_order_with_promise_jobs() {
+    let p = Project::new("microtask");
+    p.file(
+        "index.js",
+        "queueMicrotask(() => console.log('micro'));
+         Promise.resolve().then(() => console.log('promise'));
+         setTimeout(() => console.log('timer'), 0);
+         try { queueMicrotask(1); } catch (e) { console.log(e.constructor.name); }
+         console.log('sync');",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["TypeError", "sync", "micro", "promise", "timer"]);
+}
+
