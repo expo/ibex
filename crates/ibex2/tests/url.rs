@@ -78,8 +78,11 @@ fn setters_rewrite_the_url_with_the_specs_semantics() {
          u.port = '8080'; log.push(u.host); \
          u.port = 'abc'; log.push(u.port); \
          u.host = 'h2:99'; log.push(u.hostname + ':' + u.port); \
+         u.host = 'h3:80abc'; log.push(u.hostname + ':' + u.port); \
+         u.host = 'h4:'; log.push(u.hostname + ':' + u.port); \
          u.protocol = 'http'; log.push(u.protocol); \
          u.protocol = 'mailto'; log.push(u.protocol); \
+         u.protocol = 'https:garbage'; log.push(u.protocol); /* and 80 is now the default port, so it drops */ \
          u.username = 'me'; u.password = 'pw'; log.push(u.href); \
          u.href = 'https://z/'; log.push(u.origin); \
          try { u.href = 'nope'; log.push('no throw'); } catch (e) { log.push(e.constructor.name); } \
@@ -88,8 +91,8 @@ fn setters_rewrite_the_url_with_the_specs_semantics() {
     );
     assert_eq!(
         out,
-        "https://h/p?b=2#x|https://h/p?b=2|/q%20r|h:8080|8080|h2:99|http:|http:|\
-         http://me:pw@h2:99/q%20r?b=2|https://z|TypeError|https://z/"
+        "https://h/p?b=2#x|https://h/p?b=2|/q%20r|h:8080|8080|h2:99|h3:80|h4:80|http:|http:|https:|\
+         https://me:pw@h4/q%20r?b=2|https://z|TypeError|https://z/"
     );
     assert_eq!(
         eval(&mut rt, "(function () { const u = new URL('https://h/'); u.origin = 'x'; return u.origin; })()"),

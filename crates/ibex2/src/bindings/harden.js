@@ -24,7 +24,7 @@
   const queue = [];
 
   seen.add(globalThis);
-  const globals = Object.getOwnPropertyNames(globalThis);
+  const globals = Object.getOwnPropertyNames(globalThis).concat(Object.getOwnPropertySymbols(globalThis));
   for (let i = 0; i < globals.length; i++) {
     let d;
     try { d = Object.getOwnPropertyDescriptor(globalThis, globals[i]); } catch (e) { continue; }
@@ -49,10 +49,13 @@
     if (seen.has(obj)) continue;
     seen.add(obj);
     try { Object.freeze(obj); } catch (e) {}
-    const names = Object.getOwnPropertyNames(obj);
-    for (let i = 0; i < names.length; i++) {
+    // Names AND symbols: `Date.prototype[Symbol.toPrimitive]` and the RegExp
+    // `Symbol.match`/`split`/... functions are reachable only by symbol, and a
+    // walk by name left every one of them extensible.
+    const keys = Object.getOwnPropertyNames(obj).concat(Object.getOwnPropertySymbols(obj));
+    for (let i = 0; i < keys.length; i++) {
       let d;
-      try { d = Object.getOwnPropertyDescriptor(obj, names[i]); } catch (e) { continue; }
+      try { d = Object.getOwnPropertyDescriptor(obj, keys[i]); } catch (e) { continue; }
       if (!d) continue;
       if ("value" in d) queue.push(d.value);
       else { queue.push(d.get); queue.push(d.set); }
