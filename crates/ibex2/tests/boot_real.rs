@@ -111,7 +111,8 @@ fn boot_with(
         ModuleGrants::none(),
         compiler,
         precompiled_only,
-    );
+    )
+    .expect("loader");
     rt.eval(HARDEN).expect("harden");
     let floor = t.elapsed();
 

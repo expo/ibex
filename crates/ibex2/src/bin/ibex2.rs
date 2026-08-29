@@ -409,7 +409,7 @@ fn run(
     } else {
         None
     };
-    rt.set_loader_with(root, grants, compiler, precompiled_only);
+    rt.set_loader_with(root, grants, compiler, precompiled_only)?;
 
     // R4: intrinsics frozen after the standard library is installed and before
     // any module code runs.

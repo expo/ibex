@@ -137,7 +137,7 @@ fn no_capability_is_reachable_from_the_global_object() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none());
+    rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none()).expect("loader");
 
     let globals = rt.global_names();
     for forbidden in ["fetch", "WebSocket", "localStorage", "process"] {

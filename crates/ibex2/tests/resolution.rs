@@ -369,7 +369,7 @@ fn a_package_above_the_project_root_is_refused() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none());
+    rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none()).expect("loader");
     let err = rt.run_entry("./index.js").err().map(|e| e.0);
     let _ = std::fs::remove_dir_all(&outer);
     let err = err.expect("a package above the root must not resolve");
@@ -705,3 +705,81 @@ fn tsx_resolves_the_injected_jsx_runtime_and_renders() {
     assert_eq!(out.len(), 1, "{out:?}");
     assert!(out[0].contains("\"type\":\"ul\""), "{out:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Package-level grants (LLP 0065 §4.2).
+// ---------------------------------------------------------------------------
+
+/// `[needy]` grants every file of the package, however deep, and nothing to
+/// the module that imported it or to a sibling package.
+#[test]
+fn a_package_grant_covers_every_file_of_the_package_and_no_other() {
+    let p = Project::new("pkg-grant");
+    p.file(
+        "index.js",
+        "const needy = require('needy'); const other = require('other');
+         fetch('https://example.com/').then(
+           () => console.log('index: LEAKED'), e => console.log('index: ' + e.message));
+         needy.probe(); other.probe();",
+    )
+    .file("node_modules/needy/package.json", r#"{"name":"needy","main":"index.js"}"#)
+    .file("node_modules/needy/index.js", "module.exports = require('./lib/inner.js');")
+    .file(
+        "node_modules/needy/lib/inner.js",
+        "exports.probe = () => fetch('https://example.com/').then(
+           () => console.log('needy: allowed'), e => console.log('needy: ' + e.message));",
+    )
+    .file("node_modules/other/package.json", r#"{"name":"other","main":"index.js"}"#)
+    .file(
+        "node_modules/other/index.js",
+        "exports.probe = () => fetch('https://example.com/').then(
+           () => console.log('other: LEAKED'), e => console.log('other: ' + e.message));",
+    );
+    let (out, err) = p.run("./index.js", "[*]\n[needy]\nnet.fetch https://example.com\n");
+    assert_eq!(err, None);
+    for expected in ["index: denied: net.fetch", "needy: allowed", "other: denied: net.fetch"] {
+        assert!(out.iter().any(|l| l == expected), "missing {expected:?} in {out:?}");
+    }
+}
+
+/// A workspace package is a symlink into the project's own tree, so its files
+/// canonicalize outside node_modules and the path does not name it. `bind`
+/// resolves the section to the real directory, so `[@w/ui]` reaches the
+/// package whether it is imported by name or by relative path — one file, one
+/// name, one grant set.
+#[test]
+fn a_workspace_package_section_binds_to_its_real_directory() {
+    let p = Project::new("pkg-grant-workspace");
+    p.file(
+        "index.js",
+        "require('@w/ui').probe('by name'); require('./packages/ui/index.js').probe('by path');",
+    )
+    .file("packages/ui/package.json", r#"{"name":"@w/ui","main":"index.js"}"#)
+    .file(
+        "packages/ui/index.js",
+        "exports.probe = how => fetch('https://example.com/').then(
+           () => console.log(how + ': allowed'), e => console.log(how + ': ' + e.message));",
+    );
+    std::fs::create_dir_all(p.0.join("node_modules/@w")).unwrap();
+    std::os::unix::fs::symlink(p.0.join("packages/ui"), p.0.join("node_modules/@w/ui")).unwrap();
+    let (out, err) = p.run("./index.js", "[*]\n[@w/ui]\nnet.fetch https://example.com\n");
+    assert_eq!(err, None);
+    for expected in ["by name: allowed", "by path: allowed"] {
+        assert!(out.iter().any(|l| l == expected), "missing {expected:?} in {out:?}");
+    }
+}
+
+/// A manifest naming a package that is not installed is refused at load,
+/// before any module runs, and the refusal names the package.
+#[test]
+fn a_manifest_naming_an_uninstalled_package_is_refused() {
+    let p = Project::new("pkg-missing");
+    p.file("index.js", "console.log('ran');");
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    assert!(rt.install_stdlib());
+    rt.install_bindings().expect("bindings");
+    let manifest = ModuleGrants::parse("[nope]\nnet.fetch https://example.com\n").unwrap();
+    let err = rt.set_loader(Root::Declared(p.0.clone()), manifest).unwrap_err();
+    assert!(err.contains("\"nope\"") && err.contains("not installed"), "{err}");
+}
+

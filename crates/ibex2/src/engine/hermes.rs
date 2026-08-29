@@ -208,18 +208,27 @@ impl Hermes {
     ///
     /// Without a compiler the loader falls back to source, which
     /// `rules/RULES.md` forbids for anything shippable; see `set_loader_with`.
-    pub fn set_loader(&mut self, root: crate::loader::Root, grants: crate::loader::ModuleGrants) {
+    pub fn set_loader(
+        &mut self,
+        root: crate::loader::Root,
+        grants: crate::loader::ModuleGrants,
+    ) -> Result<(), String> {
         self.set_loader_with(root, grants, None, false)
     }
 
     /// Point the loader at a root, with ahead-of-time compilation.
+    ///
+    /// Fails when the manifest cannot be bound to the root — a package section
+    /// naming something not installed — because a manifest that silently
+    /// grants nothing is worse than one refused.
     pub fn set_loader_with(
         &mut self,
         root: crate::loader::Root,
-        grants: crate::loader::ModuleGrants,
+        mut grants: crate::loader::ModuleGrants,
         compiler: Option<crate::bytecode::Compiler>,
         precompiled_only: bool,
-    ) {
+    ) -> Result<(), String> {
+        grants.bind(root.path())?;
         let manifest = compiler
             .as_ref()
             .and_then(|_| crate::bytecode::Manifest::read(&root.join(".ibex2/cache")));
@@ -235,6 +244,7 @@ impl Hermes {
                 manifest,
             });
         }
+        Ok(())
     }
 
     /// Load and run an entry module. Its dependencies load through `require`.

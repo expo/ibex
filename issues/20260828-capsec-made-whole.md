@@ -19,7 +19,7 @@ the fourth is done the list is closed, not extended.
 1. **One page.** A spec that states the model in full (LLP 0057 OQ2 has the
    paragraph; LLP 0060 and LLP 0062 R1–R5 have the pieces) and the non-goals.
    Probably a rewrite of LLP 0060 rather than a new number.
-2. **Package-level grants.** Manifest sections name packages
+2. **Package-level grants.** *Done 2026-08-28 — LLP 0065 §4.2.* Manifest sections name packages
    (`[react]`, `[@scope/pkg]`), resolved to canonical-path prefixes under
    `node_modules`; file-keyed sections stay for first-party code. Refuse a
    manifest that names a package not installed. Tests: a package granted an
