@@ -77,3 +77,8 @@ this row is aspirational until modules ship as bytecode.
 
 `caps` enforces the budgets above. `ref-check` validates the LLP corpus and every `@ref`.
 Everything else runs async.
+
+`node scripts/metrics.mjs` prints every Ibex 2 speed number that matters in under
+30 s on a warm build — the floor by phase, graphs from source and bytecode, the
+boundary, cold start, RSS, size — with `--json` for machines and `--record` to
+append a line to `metrics/ibex2-speed.jsonl`. Diagnostic, never blocking.
