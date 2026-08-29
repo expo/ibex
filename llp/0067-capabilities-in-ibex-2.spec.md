@@ -31,8 +31,8 @@ Cited from code as R1–R5.
   the `fetch`, `fs`, and `process` it receives were built for it with its
   grant captured. A module cannot borrow another's binding by name.
 - **R3 — Modules ship as bytecode.** Compiled ahead of time against the engine
-  this binary links (§5); a `--precompiled` run compiles nothing and refuses
-  what was not built. So do the runtime's own bindings, compiled by
+  this binary links (§5); a `--precompiled` run compiles nothing, resolves
+  nothing the build already resolved, and refuses what was not built. So do the runtime's own bindings, compiled by
   `build.rs` with the engine's `hermesc`: a runtime parses no JavaScript at
   start. Grants are not part of the artifact key, so changing a manifest
   never recompiles anything.

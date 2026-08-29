@@ -2,7 +2,7 @@
 //! real dependency graph needs.
 //!
 //! Split from `tests/loader.rs` when it outgrew the line cap.
-#![cfg(feature = "hermes")]
+#![cfg(all(feature = "hermes", feature = "loader"))]
 
 mod common;
 

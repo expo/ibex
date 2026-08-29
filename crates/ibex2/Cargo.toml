@@ -17,23 +17,30 @@ required-features = ["hermes"]
 # The speed instrument needs the engine; the graph walk does not.
 [[example]]
 name = "speed"
-required-features = ["hermes"]
+required-features = ["hermes", "loader"]
+
+[[example]]
+name = "graph"
+required-features = ["loader"]
 
 [dependencies]
 # LLP 0059.000 §3.4: a partial URL parser is a security bug rather than a
 # missing feature, so URL is a well-tested crate and not hand-written.
 base64 = "0.22"
 # Pinned to the workspace's versions. LLP 0028 makes Oxc the transform
-# authority; ESM lowering is a transform, so it uses the same parser.
-oxc_allocator = "=0.140.0"
-oxc_ast = "=0.140.0"
-oxc_ast_visit = "=0.140.0"
-oxc_codegen = "=0.140.0"
-oxc_parser = "=0.140.0"
-oxc_resolver = "=11.24.2"
-oxc_semantic = "=0.140.0"
-oxc_span = "=0.140.0"
-oxc_transformer = "=0.140.0"
+# authority; ESM lowering is a transform, so it uses the same parser. All
+# optional, behind the `loader` feature: a run-only binary and a Rust
+# consumer of the standard library (LLP 0068) never turn source into a
+# wrapper or a specifier into a file, and should not carry the crates that do.
+oxc_allocator = { version = "=0.140.0", optional = true }
+oxc_ast = { version = "=0.140.0", optional = true }
+oxc_ast_visit = { version = "=0.140.0", optional = true }
+oxc_codegen = { version = "=0.140.0", optional = true }
+oxc_parser = { version = "=0.140.0", optional = true }
+oxc_resolver = { version = "=11.24.2", optional = true }
+oxc_semantic = { version = "=0.140.0", optional = true }
+oxc_span = { version = "=0.140.0", optional = true }
+oxc_transformer = { version = "=0.140.0", optional = true }
 form_urlencoded = "1.2"
 sha2 = "0.10"
 url = "2.5"
@@ -48,7 +55,23 @@ cc = "1"
 sha2 = "0.10"
 
 [features]
-default = []
+default = ["loader"]
+# The loader: TypeScript and JSX stripping, ESM lowering, and package
+# resolution — everything that turns source into a wrapper and a specifier
+# into a file. `ibex2 build` needs it; a `run --precompiled` does not, since
+# the build recorded every edge in the manifest and every artifact in the
+# bundle. Off, the binary is run-only and carries no Oxc at all.
+loader = [
+    "dep:oxc_allocator",
+    "dep:oxc_ast",
+    "dep:oxc_ast_visit",
+    "dep:oxc_codegen",
+    "dep:oxc_parser",
+    "dep:oxc_resolver",
+    "dep:oxc_semantic",
+    "dep:oxc_span",
+    "dep:oxc_transformer",
+]
 # Link the spike against vanilla Hermes from ios/Frameworks-vanilla/.
 # Off by default so the workspace builds without an engine present.
 hermes = []

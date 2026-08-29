@@ -89,9 +89,13 @@ step('process', () => {
   }
 });
 
-// 4. Size: what "tighter" means in bytes and lines.
+// 4. Size: what "tighter" means in bytes and lines. The run-only binary —
+//    no loader, no Oxc — is built into its own target dir so the two feature
+//    sets do not evict each other; warm, that is a relink.
 step('size', () => {
   out.binary_bytes = statSync(BIN).size;
+  const runOnly = run('cargo', ['build', '-q', '--release', '--no-default-features', '--features', 'hermes', '-p', 'ibex2', '--bin', 'ibex2', '--target-dir', 'target/run-only']);
+  if (runOnly.status === 0) out.binary_run_only_bytes = statSync(resolve(ROOT, 'target/run-only/release/ibex2')).size;
   const bindingsDir = resolve(ROOT, 'crates/ibex2/src/bindings');
   out.bindings_js_bytes = readdirSync(bindingsDir)
     .filter((f) => f.endsWith('.js') && f !== 'testharness.js')
@@ -138,7 +142,7 @@ const rows = [
     out.process_note ?? `min ${ms(out.process_start_min_ms)} · one module, spawn included · RSS ${kib(out.process_rss_kib)}`],
   ['sync host call', ns(out.sync_host_call_ns), 'performance.now() through its binding'],
   ['async host task round trip', us(out.async_fs_roundtrip_us), 'fs.readFile of one byte, back through the loop'],
-  ['binary', kib(out.binary_bytes / 1024), `runtime ${out.runtime_lines} lines · JS bindings ${kib(out.bindings_js_bytes / 1024)}`],
+  ['binary', kib(out.binary_bytes / 1024), `run-only ${kib(out.binary_run_only_bytes / 1024)} · runtime ${out.runtime_lines} lines · JS bindings ${kib(out.bindings_js_bytes / 1024)}`],
 ];
 console.log(`ibex2 metrics — ${out.date}, ${out.commit}, warm build, medians (min where noise matters), load ${out.load1} on ${out.cores} cores${loaded ? ' — LOADED: do not read these as a trend' : ''}`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);

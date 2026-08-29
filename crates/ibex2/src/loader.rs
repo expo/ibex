@@ -17,7 +17,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+#[cfg(feature = "loader")]
+use std::sync::OnceLock;
 
 use crate::grant::GrantSet;
 
@@ -438,6 +440,7 @@ struct DirListing {
 pub struct ResolveCache {
     canonical_root: Mutex<Option<PathBuf>>,
     dirs: Mutex<HashMap<PathBuf, Arc<DirListing>>>,
+    #[cfg(feature = "loader")]
     resolver: OnceLock<oxc_resolver::Resolver>,
 }
 
@@ -514,6 +517,7 @@ impl ResolveCache {
         }
     }
 
+    #[cfg(feature = "loader")]
     fn resolver(&self) -> &oxc_resolver::Resolver {
         self.resolver.get_or_init(|| {
             oxc_resolver::Resolver::new(oxc_resolver::ResolveOptions {
@@ -592,6 +596,7 @@ pub fn resolve_in(
     specifier: &str,
 ) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
+        refuse_schemes(from, specifier)?;
         return resolve_bare(cache, root, from, specifier);
     }
 
@@ -647,10 +652,33 @@ pub fn resolve_in(
     Ok(format!("./{fallback}"))
 }
 
+/// Anything with a scheme is not a package name, and the two kinds fail for
+/// different reasons — so they say different things. `node:`/`bun:` name
+/// builtin namespaces this runtime does not have; a URL names a module to be
+/// fetched, which no amount of node_modules searching will find. Reporting
+/// either as "not installed" sends the reader looking in the wrong place.
+/// Policy, not resolution: a run-only build says the same thing.
+fn refuse_schemes(from: &str, specifier: &str) -> Result<(), String> {
+    if let Some((scheme, _)) = specifier.split_once(':') {
+        return Err(match scheme {
+            "node" | "bun" => format!(
+                "{specifier:?} names the {scheme:?} builtin namespace, which this runtime does \
+                 not provide (LLP 0059 §6)"
+            ),
+            _ => format!(
+                "cannot resolve {specifier:?} from {from}: modules are loaded from the project, \
+                 not over {scheme:?}"
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Resolve a package specifier through Node resolution, then contain it.
 ///
 /// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it — containment
 /// still applies, and matters more here because resolution walks upward
+#[cfg(feature = "loader")]
 fn resolve_bare(
     cache: &ResolveCache,
     root: &Root,
@@ -669,23 +697,6 @@ fn resolve_bare(
         ));
     }
 
-    // Anything with a scheme is not a package name, and the two kinds fail for
-    // different reasons — so they say different things. `node:`/`bun:` name
-    // builtin namespaces this runtime does not have; a URL names a module to be
-    // fetched, which no amount of node_modules searching will find. Reporting
-    // either as "not installed" sends the reader looking in the wrong place.
-    if let Some((scheme, _)) = specifier.split_once(':') {
-        return Err(match scheme {
-            "node" | "bun" => format!(
-                "{specifier:?} names the {scheme:?} builtin namespace, which this runtime does \
-                 not provide (LLP 0059 §6)"
-            ),
-            _ => format!(
-                "cannot resolve {specifier:?} from {from}: modules are loaded from the project, \
-                 not over {scheme:?}"
-            ),
-        });
-    }
 
     let from_dir = root.join(
         Path::new(from.trim_start_matches("./"))
@@ -708,6 +719,22 @@ fn resolve_bare(
     // walks UP the directory tree, so without it a package could resolve to a
     // node_modules outside the project entirely.
     contain(cache, root, resolved.path(), specifier)
+}
+
+/// A run-only build carries no package resolver: every edge a program needs
+/// was resolved by the build and recorded in the manifest, and a bare
+/// specifier the manifest does not have is refused rather than searched for.
+#[cfg(not(feature = "loader"))]
+fn resolve_bare(
+    _cache: &ResolveCache,
+    _root: &Root,
+    from: &str,
+    specifier: &str,
+) -> Result<String, String> {
+    Err(format!(
+        "cannot resolve package {specifier:?} from {from}: this build resolves nothing at run time, \
+         and the build manifest does not name this edge"
+    ))
 }
 
 /// Extensions tried, in order. TypeScript first: in a project that has both,
@@ -799,6 +826,7 @@ pub fn wrap(source: &str) -> String {
 /// One function, because the artifact key is computed over the wrapper text and
 /// the wrapper must therefore be the LOWERED form. Two call sites producing the
 /// wrapper differently would produce two keys for one module.
+#[cfg(feature = "loader")]
 pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
     let javascript = to_javascript(source, specifier)?;
     // Named, because the error reaches the author through a dynamic import's
@@ -806,6 +834,15 @@ pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
     // with no module is a search rather than a diagnosis.
     let lowered = crate::esm::lower(&javascript).map_err(|e| format!("{specifier}: {e}"))?;
     Ok(wrap(&lowered))
+}
+
+/// A run-only build has no loader: it runs bytecode built elsewhere and
+/// turns no source into anything.
+#[cfg(not(feature = "loader"))]
+pub fn lower_and_wrap(_source: &str, specifier: &str) -> Result<String, String> {
+    Err(format!(
+        "{specifier}: this build has no loader; it runs precompiled artifacts only (run `ibex2 build` with a full build)"
+    ))
 }
 
 /// A module's source as JavaScript, before ESM lowering.
@@ -821,12 +858,20 @@ pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
 /// `run --precompiled` fails on a graph the build reported as complete.
 pub fn to_javascript(source: &str, specifier: &str) -> Result<String, String> {
     if specifier.ends_with(".json") {
-        Ok(json_module(source))
-    } else if crate::typescript::needs_stripping(specifier) {
-        crate::typescript::strip(source, specifier)
-    } else {
-        Ok(source.to_string())
+        return Ok(json_module(source));
     }
+    let typescript = [".ts", ".tsx", ".mts"].iter().any(|ext| specifier.ends_with(ext));
+    if typescript {
+        #[cfg(feature = "loader")]
+        {
+            return crate::typescript::strip(source, specifier);
+        }
+        #[cfg(not(feature = "loader"))]
+        {
+            return Err(format!("{specifier}: this build has no loader and cannot strip TypeScript"));
+        }
+    }
+    Ok(source.to_string())
 }
 
 /// A JSON module: a CommonJS module whose `module.exports` is the parsed
@@ -940,7 +985,7 @@ mod tests {
     /// Both shapes are covered because the transform emits different ones: a
     /// module gets an `import`, a script gets a `require`. A test over only one
     /// would leave half the walk unguarded.
-    #[test]
+    #[cfg(feature = "loader")]    #[test]
     fn the_jsx_transform_injects_a_dependency_the_source_does_not_contain() {
         // Module form: the injected edge is an import.
         let module_source = "import { useState } from 'react';\nconst el = <div/>;";
@@ -1022,7 +1067,7 @@ mod tests {
     /// carried as a string literal and parsed at load, never pasted in as an
     /// object literal. The text passes through the ESM lowering and the build
     /// walk's dependency scan untouched, however much it looks like code.
-    #[test]
+    #[cfg(feature = "loader")]    #[test]
     fn a_json_module_is_parsed_not_evaluated() {
         let text = "{\"a\": \"line\\nbreak\"}\n";
         let out = to_javascript(text, "./x.json").unwrap();

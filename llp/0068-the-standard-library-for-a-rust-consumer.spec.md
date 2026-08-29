@@ -75,10 +75,11 @@ what a wasm host would hand its module as imports.
 
 ## 5. Open questions
 
-**OQ1 — The crate boundary.** A Rust consumer depending on `ibex2` today also
-compiles `oxc_parser`, `oxc_transformer`, `oxc_resolver`, and the rest of the
-loader it never uses. Those should be optional, behind a feature the binary
-enables; the same cut makes a run-only binary. Owed.
+**OQ1 — The crate boundary.** *Resolved the same day:* the loader — Oxc's
+parser, transformer, and resolver — is behind the `loader` feature, on by
+default. A Rust consumer depends on `ibex2` with `default-features = false`
+and compiles none of it; the same cut is the run-only binary of LLP 0065
+§3.3, 5.6 MB against 9.6 MB.
 
 **OQ2 — Linux.** The default transport off Apple platforms is the development
 TCP transport, which speaks no TLS. A Linux transport is owed before the

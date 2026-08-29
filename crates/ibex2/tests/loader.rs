@@ -1,6 +1,6 @@
 //! The module loader: CommonJS, ESM, TypeScript, bytecode, and the
 //! capability model they run under.
-#![cfg(feature = "hermes")]
+#![cfg(all(feature = "hermes", feature = "loader"))]
 
 mod common;
 

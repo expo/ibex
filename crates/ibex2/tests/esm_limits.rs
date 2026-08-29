@@ -1,4 +1,4 @@
-#![cfg(feature = "hermes")]
+#![cfg(all(feature = "hermes", feature = "loader"))]
 //! Probing what the ESM lowering does and does not preserve.
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 use ibex2::loader::{ModuleGrants, Root};
