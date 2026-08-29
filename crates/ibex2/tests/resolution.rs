@@ -769,3 +769,67 @@ fn tsx_resolves_the_injected_jsx_runtime_and_renders() {
     assert_eq!(out.len(), 1, "{out:?}");
     assert!(out[0].contains("\"type\":\"ul\""), "{out:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Platform variants (LLP 0065 §8).
+// ---------------------------------------------------------------------------
+
+/// `x.native.js` shadows `x.js` when the platform says so, on both arms, and
+/// never otherwise. Exact's boot graph has 22 such pairs, four of them on the
+/// first import line of its entry; without this the runtime evaluates the web
+/// build of a native app and every later finding is about the wrong program.
+#[test]
+fn a_platform_selects_suffixed_variants_on_both_arms() {
+    let p = Project::new("platform");
+    p.file(
+        "index.js",
+        "console.log([require('./greet').tag, require('./greet.js').tag, require('pkg').tag, \
+         require('./only').tag].join(' '));",
+    )
+    .file("greet.js", "exports.tag = 'web-greet';")
+    .file("greet.native.js", "exports.tag = 'native-greet';")
+    .file("only.js", "exports.tag = 'only';")
+    .file(
+        "node_modules/pkg/package.json",
+        r#"{"name":"pkg","main":"index.js"}"#,
+    )
+    .file("node_modules/pkg/index.js", "exports.tag = 'web-pkg';")
+    .file("node_modules/pkg/index.native.js", "exports.tag = 'native-pkg';");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["web-greet web-greet web-pkg only"], "no platform, no variant");
+    let (out, err) = p.run_for("native", "./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["native-greet native-greet native-pkg only"]);
+}
+
+/// The chain: a platform tries its own suffix, then `native`; `web` tries only
+/// itself. A file asked for by its suffixed name is returned as asked, and a
+/// `.json` has no platform.
+#[test]
+fn the_variant_chain_is_platform_then_native_except_for_web() {
+    use ibex2::loader::resolve_for;
+    let p = Project::new("platform-chain");
+    p.file("a.ts", "")
+        .file("a.native.ts", "")
+        .file("a.mac.tsx", "")
+        .file("b.ts", "")
+        .file("b.native.ts", "")
+        .file("b.web.ts", "")
+        .file("d.json", "{}")
+        .file("d.native.json", "{}");
+    let root = Root::Declared(p.0.clone());
+    let r = |platform: Option<&str>, specifier: &str| {
+        resolve_for(&root, platform, "./index.ts", specifier).unwrap()
+    };
+    assert_eq!(r(Some("mac"), "./a"), "./a.mac.tsx");
+    assert_eq!(r(Some("ios"), "./a"), "./a.native.ts");
+    assert_eq!(r(Some("native"), "./a.js"), "./a.native.ts", "through the .js -> .ts rewrite");
+    assert_eq!(r(Some("web"), "./a"), "./a.ts", "web never takes a native file");
+    assert_eq!(r(Some("web"), "./b"), "./b.web.ts");
+    assert_eq!(r(Some("native"), "./b.web.ts"), "./b.web.ts", "asked for by name");
+    assert_eq!(r(Some("native"), "./a.native.ts"), "./a.native.ts");
+    assert_eq!(r(Some("native"), "./d.json"), "./d.json", "JSON has no platform");
+    assert_eq!(r(None, "./a"), "./a.ts");
+}
+

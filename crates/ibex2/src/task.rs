@@ -347,6 +347,10 @@ pub struct LoaderConfig {
     pub compiler: Option<crate::bytecode::Compiler>,
     /// Refuse to compile on demand: every module must already be built.
     pub precompiled_only: bool,
+    /// The platform whose file variants shadow unsuffixed modules
+    /// (`x.native.ts` over `x.ts`). Declared by the author; absent means no
+    /// variant is ever selected.
+    pub platform: Option<String>,
     /// Resolved specifier to artifact key, written by the build. When present,
     /// a module is found without reading or hashing its source.
     pub manifest: Option<crate::bytecode::Manifest>,
@@ -367,7 +371,8 @@ impl RuntimeState {
     pub fn load_module(&self, from: &str, specifier: &str) -> Result<(String, Vec<u8>), String> {
         let guard = self.loader.lock().expect("loader poisoned");
         let config = guard.as_ref().ok_or("no loader configured")?;
-        let resolved = crate::loader::resolve(&config.root, from, specifier)?;
+        let resolved =
+            crate::loader::resolve_for(&config.root, config.platform.as_deref(), from, specifier)?;
 
         // The fast path: the build already said which artifact this is, so the
         // source file is never opened.

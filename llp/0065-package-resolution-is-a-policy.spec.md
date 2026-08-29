@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Security, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
+**Revised:** 2026-08-28 (§8 platform variants, from running Exact's native entry; OQ6)
 **Revised:** 2026-08-28 (§5 — the project root is declared with `--root` and never inferred, which unblocks monorepos and so unblocks Exact; §3 rewritten after self-review found it documenting a tradeoff that did not exist; §1 and §4.1 corrected after an adversarial review confirmed two capability bypasses. See `llp/reviews/0065-*.grok.md`.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — `oxc_resolver` is the same pin), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why bare specifiers are required), LLP 0059 §6 (Node's server surface is deleted — why the `node` condition is absent), LLP 0060 (authority is carried, not inferred — why a package is granted nothing by arriving), LLP 0064 (ESM lowering — what happens to a module once resolution has found it), LLP 0062 (the reachability frame this containment rule belongs to)
 
@@ -246,6 +247,38 @@ algorithm reached. `node:` and `bun:` are refused ahead of resolution by their
 scheme, naming the deleted builtin namespace (LLP 0059 §6) instead of reporting
 that a package called `node:fs` is not installed.
 
+## 8. Platform variants
+
+A file with a platform suffix shadows the unsuffixed one: `x.native.ts` over
+`x.ts`. The rule is Metro's — `x.<platform>.ext`, then `x.native.ext` for any
+platform but `web`, then `x.ext` — and Exact's own `platformVariantPriority`
+table (`packages/exact-router/src/platform-variants.ts`) agrees with it for
+every platform this runtime targets.
+
+The platform is **declared**, with `--platform <name>`, for the same reason the
+root is (§5): nothing on disk says what a program is being run for, and a
+resolver that guessed would select modules the author never chose. Without it
+no variant is ever selected.
+
+Measured, running Exact's native entry for `native`: its boot graph has 22
+files with a `.native` sibling, four of them on the first import line of the
+entry, `app-runtime.native.tsx` among them. Without the rule the runtime
+evaluated the *web* build of a native app, and the `node:crypto` and
+`node:http` refusals the first walk reported were both on web-variant paths a
+native run never reaches. A measurement taken on the wrong graph is worse than
+none.
+
+The rule applies on both arms. A workspace package's `exports` names an
+unsuffixed source file (`@exact/router/router` is `router.ts`, beside
+`router.native.ts`), and `scheduler` ships `index.native.js` beside `index.js`
+for exactly this convention. Exact's Vite plugin substitutes only for relative
+and `@exact/` specifiers, so its native bundle carries `scheduler/index.js`;
+that is a pre-resolve hook never seeing the resolved file, not a decision, and
+Metro's answer is the one taken here.
+
+Only script files are varianted: a `.json` has no platform. A file asked for by
+a suffixed name (`./x.web.ts`) is returned as asked.
+
 ## 7. Open questions
 
 **OQ1 — Should `browser` be honored?** It is not today. Ibex 2 is not a
@@ -269,3 +302,9 @@ never inferred, and bare specifiers refused when it is absent. **OQ5 replaces
 it:** is passing `--root` annoying enough in practice to justify the config
 file §5.2 describes? That is a usage question and wants a few weeks of use
 rather than an argument.
+
+**OQ6 — Should the platform be bound into the build manifest?** `ibex2 build
+--platform native` compiles the native graph; a `run --precompiled` for another
+platform finds modules missing and says so, but only on reaching them. The
+manifest should probably carry the platform so a mismatch is refused at
+startup. Not done until `--precompiled` is used for more than one platform.

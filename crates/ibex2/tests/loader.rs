@@ -184,7 +184,7 @@ fn bytecode_and_source_produce_identical_behaviour() {
 
     let (source_out, source_err) = p.run("./index.js", "");
     let Some(compiler) = p.compiler() else { return };
-    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false);
+    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false, None);
 
     assert_eq!(source_err, None);
     assert_eq!(hbc_err, None);
@@ -211,7 +211,7 @@ fn a_callback_still_works_after_its_module_has_finished_loading() {
          console.log('module body ran');",
     );
     let Some(compiler) = p.compiler() else { return };
-    let (out, err) = p.run_with("./index.js", "", Some(compiler), false);
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), false, None);
     assert_eq!(err, None);
     assert_eq!(
         out,
@@ -227,7 +227,7 @@ fn precompiled_only_refuses_what_was_not_built() {
     p.file("index.js", "console.log('ran');");
     let Some(compiler) = p.compiler() else { return };
 
-    let (_, err) = p.run_with("./index.js", "", Some(compiler.clone()), true);
+    let (_, err) = p.run_with("./index.js", "", Some(compiler.clone()), true, None);
     assert!(
         err.is_some_and(|e| e.contains("no precompiled artifact")),
         "strict mode compiled on demand"
@@ -238,7 +238,7 @@ fn precompiled_only_refuses_what_was_not_built() {
     compiler
         .compile(&ibex2::loader::wrap(&source))
         .expect("build");
-    let (out, err) = p.run_with("./index.js", "", Some(compiler), true);
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), true, None);
     assert_eq!(err, None);
     assert_eq!(out, vec!["ran"]);
 }
@@ -251,7 +251,7 @@ fn the_artifact_does_not_depend_on_the_modules_grants() {
     p.file("index.js", "console.log(typeof fetch);");
     let Some(compiler) = p.compiler() else { return };
 
-    p.run_with("./index.js", "", Some(compiler.clone()), false);
+    p.run_with("./index.js", "", Some(compiler.clone()), false, None);
     let after_empty: Vec<_> = std::fs::read_dir(p.0.join(".ibex2/cache"))
         .unwrap()
         .filter_map(|e| e.ok().map(|e| e.file_name()))
@@ -262,6 +262,7 @@ fn the_artifact_does_not_depend_on_the_modules_grants() {
         "[*]\nnet.fetch https://example.com\n",
         Some(compiler),
         false,
+        None,
     );
     let after_granted: Vec<_> = std::fs::read_dir(p.0.join(".ibex2/cache"))
         .unwrap()
@@ -547,7 +548,7 @@ fn es_modules_behave_identically_from_bytecode() {
 
     let (source_out, source_err) = p.run("./index.js", "");
     let Some(compiler) = p.compiler() else { return };
-    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false);
+    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false, None);
     assert_eq!(source_err, None);
     assert_eq!(hbc_err, None);
     assert_eq!(hbc_out, source_out);
@@ -739,9 +740,59 @@ fn typescript_behaves_identically_from_bytecode() {
         .file("d.ts", "export const v: number = 5;");
     let (source_out, source_err) = p.run("./index.ts", "");
     let Some(compiler) = p.compiler() else { return };
-    let (hbc_out, hbc_err) = p.run_with("./index.ts", "", Some(compiler), false);
+    let (hbc_out, hbc_err) = p.run_with("./index.ts", "", Some(compiler), false, None);
     assert_eq!(source_err, None);
     assert_eq!(hbc_err, None);
     assert_eq!(hbc_out, source_out);
     assert_eq!(source_out, vec!["v 5"]);
+}
+
+/// JSON is on Exact's boot path — `@exact/core` imports its colour policy
+/// before a single route loads — so it is a module format here, not a
+/// resolver gap. Default import, `require`, an extensionless specifier, and
+/// the import attribute Node requires and this runtime merely accepts. The
+/// `__proto__` line is what separates `JSON.parse` from an object literal.
+#[test]
+fn json_modules_load_as_their_parsed_value() {
+    let p = Project::new("json");
+    p.file(
+        "index.ts",
+        "import policy from './policy.json';\n\
+         import attributed from './policy.json' with { type: 'json' };\n\
+         const viaRequire = require('./policy');\n\
+         console.log(`${policy.name}|${policy.n + 1}|${JSON.stringify(policy.list)}`);\n\
+         console.log(`${attributed === policy} ${viaRequire === policy}`);\n\
+         console.log(`${Object.getPrototypeOf(policy.proto) === Object.prototype} ${policy.proto.__proto__}`);\n\
+         console.log(require('./both'));",
+    )
+    .file(
+        "policy.json",
+        "{\"name\": \"colour v1\", \"n\": 41, \"list\": [1, 2], \"proto\": {\"__proto__\": 1}}",
+    )
+    // A `.js` sibling wins for an extensionless specifier, as in Node.
+    .file("both.js", "module.exports = 'js';")
+    .file("both.json", "\"json\"");
+    let (out, err) = p.run("./index.ts", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["colour v1|42|[1,2]", "true true", "true 1", "js"]);
+}
+
+/// `module.exports = 'text'` is legal CommonJS. The registry held objects, so
+/// a primitive was dropped and `require` handed back the empty original —
+/// silently, as `[object Object]`. Found by the `.js`-beats-`.json` check in
+/// the JSON test, whose sibling exported a string.
+#[test]
+fn module_exports_may_be_a_primitive() {
+    let p = Project::new("primitive");
+    p.file(
+        "index.js",
+        "import t from './s.js';\n\
+         console.log(`${typeof require('./s')} ${require('./s')} ${t} ${require('./n') + 1} ${require('./f') === false}`);",
+    )
+    .file("s.js", "module.exports = 'text';")
+    .file("n.js", "module.exports = 41;")
+    .file("f.js", "module.exports = false;");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["string text text 42 true"]);
 }
