@@ -83,6 +83,7 @@ Counted over the 511-module boot graph. Files, then occurrences.
 
 | API | files | uses |
 |---|---|---|
+| `URL` / `URLSearchParams` | 19 | 36 |
 | `AbortController/AbortSignal` | 14 | 39 |
 | `queueMicrotask` | 13 | 22 |
 | `localStorage` | 4 | 16 |
@@ -92,13 +93,22 @@ Counted over the 511-module boot graph. Files, then occurrences.
 | `Buffer` | 2 | 3 |
 | `WebAssembly` | 1 | 8 |
 
-`queueMicrotask` was not on LLP 0059's Tier I list and is on 13 boot files.
+**`URL` is implemented and not bound.** `stdlib/url.rs` passes the WPT
+suite, but no JavaScript binding wraps it: `install_bindings` installs
+`esm`, `headers`, `timers`, and `message_channel`, and `URL` is not in
+`ALLOWED_GLOBALS`. Found while timing (§6): Exact's `pathnameForRoute`
+wraps `new URL(path, 'https://exact.local')` in a `try/catch` that falls
+back to `/`, so every initial path became the labs home and the `/settings`
+steering in §1 never took effect. The run in §2 therefore only ever walked
+the `/` path; the five router `.contract` modules are on the router
+closure by the static walk, not by observation. `queueMicrotask` was not on
+LLP 0059's Tier I list either, and is on 13 boot files.
 `WebAssembly` is one file, `exact-contract`'s `aquifer-machine.ts`
 (not guarded by a `typeof` check), and vanilla Hermes has
 no WebAssembly at all — LLP 0057 §5.2 put it in Tier E, and Tier E cannot
 provide it. That is a decision, not a gap to fill.
 
-**Present:** `TextEncoder/TextDecoder`, `process.env`, `setTimeout/setInterval`, `URL/URLSearchParams`, `performance.now`, `fetch(`, `MessageChannel`, `import.meta`, `atob/btoa`, `Intl`
+**Present:** `TextEncoder/TextDecoder`, `process.env`, `setTimeout/setInterval`, `performance.now`, `fetch(`, `MessageChannel`, `import.meta`, `atob/btoa`, `Intl`
 (`Intl` is an object on the vanilla macOS build; its completeness is untested).
 
 **Zero on the boot graph:** `CustomEvent`, `Blob`, `crypto.randomUUID`, `crypto.getRandomValues`, `crypto.subtle`, `WebSocket`. `Blob` is 7
@@ -146,10 +156,15 @@ is Tier H as well.
 
 ## 6. What this does not measure
 
-Time. Every run here loaded source with `--no-compile`; the 30 ms budget in
-`rules/RULES.md` is measured against bytecode, and the boot graph has not
-been built ahead of time yet because it cannot load. LLP 0063's numbers stand
-until it can.
+Time, except for one number. Every run here loaded source with
+`--no-compile`; the 30 ms budget in `rules/RULES.md` is measured against
+bytecode, and the boot graph cannot be built ahead of time until it can load.
+The number: `main.tsx`'s static closure — 72 modules, TypeScript and JSX
+through Oxc and then Hermes parsing source — evaluates in **~490 ms** on this
+machine (three runs: 585, 493, 493; process baseline 0), about 7 ms a module.
+That is the cost LLP 0063 measured and bytecode removes; it says nothing about
+what a bytecode boot will cost, and LLP 0063's 13 ms for a 570-module
+bytecode graph remains the expectation, not a result.
 
 ## 7. Next, in order
 
@@ -158,8 +173,9 @@ until it can.
 2. The host-op ingress (§3, Tier H): the shape Exact calls, over the Rust
    boundary. The largest Ibex 2 item, and the one LLP 0058.000.001 §7's
    vertical slice was meant to prove first.
-3. `queueMicrotask`, `AbortController`/`AbortSignal`, `localStorage`,
-   `structuredClone`, `EventTarget` — Tier I, in that order of use.
+3. `URL`/`URLSearchParams` (bind what exists), `queueMicrotask`,
+   `AbortController`/`AbortSignal`, `localStorage`, `structuredClone`,
+   `EventTarget` — Tier I, in that order of use.
    `structuredClone` also closes the `MessageChannel` ticket.
 4. `requestAnimationFrame` (Tier H) and the `WebAssembly` decision.
 5. `"use strict"` for lowered modules; the `for-of` capture count.
