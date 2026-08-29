@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "metrics": "node scripts/metrics.mjs",
     "build:builtins": "bun packages/ibex-devtools/src/scripts/build-builtins.mjs --src-dir src/builtins --out-dir vendored-generated/builtins",
     "build:runtime": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry.ts --out packages/ibex-runtime-js/dist/runtime-maximal.js --format iife --lower-classes",
     "build:runtime:core": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry.ts --out vendored-generated/embedded_runtime_bundle.js --format iife --lower-classes",
