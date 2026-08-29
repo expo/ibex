@@ -877,3 +877,50 @@ fn shared_bindings_cannot_be_altered_by_one_module_for_another() {
     );
 }
 
+/// A response crosses as a handle into a runtime-wide table, and its accessor
+/// was a global: an ungranted module could read any module's in-flight
+/// response by guessing small integers. The accessor is off the global now,
+/// the handle is behind a Response in a WeakMap, and `Function("return
+/// this")` — the reachable-but-empty global LLP 0067 §4 accepts — finds
+/// nothing either.
+#[test]
+fn a_module_cannot_read_another_modules_response() {
+    let p = Project::new("thief");
+    p.file("index.js", "require('./net.js'); require('./thief.js');")
+        .file(
+            "net.js",
+            "fetch('https://example.com/').then(r => console.log('net: ' + r.status + ' ' + Object.prototype.toString.call(r)));",
+        )
+        .file(
+            "thief.js",
+            "const g = ({}).constructor.constructor('return this')();
+             console.log(['thief:', typeof __ibex2_response_field, typeof g.__ibex2_response_field,
+                          typeof g.__ibex2_headers, typeof g.__ibex2_timer_clear, typeof g.__ibex2_text_decode,
+                          typeof g.__ibex2_async_echo].join(' '));",
+        );
+    let (out, err) = p.run("./index.js", "[*]\n[./net.js]\nnet.fetch https://example.com\n");
+    assert_eq!(err, None);
+    assert!(out.iter().any(|l| l == "thief: undefined undefined undefined undefined undefined undefined"), "{out:?}");
+    assert!(out.iter().any(|l| l == "net: 200 [object Response]"), "{out:?}");
+}
+
+/// What a granted module gets back from fetch: a Response with the web's
+/// accessors, a body that can be consumed once, and no constructor.
+#[test]
+fn fetch_resolves_to_a_response_object() {
+    let p = Project::new("response");
+    p.file(
+        "index.js",
+        "fetch('https://example.com/').then(async r => {
+           const text = await r.text();
+           let again; try { await r.text(); again = 'no throw'; } catch (e) { again = e.constructor.name; }
+           let ctor; try { new r.constructor(); ctor = 'constructed'; } catch (e) { ctor = e.constructor.name; }
+           console.log([r.status, r.ok, r.url, r.redirected, typeof r.headers.get('content-type'),
+                        r.headers.has('nope'), text.length > 100, r.bodyUsed, again, ctor].join(' '));
+         });",
+    );
+    let (out, err) = p.run("./index.js", "[./index.js]\nnet.fetch https://example.com\n");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["200 true https://example.com/ false string false true true TypeError TypeError"]);
+}
+

@@ -718,10 +718,12 @@ fn js_string_literal(text: &str) -> String {
 ///
 /// Capability-bearing names are deliberately absent: they arrive as parameters.
 pub const ALLOWED_GLOBALS: &[&str] = &[
+    // The lowering's helpers, referenced by name from lowered module code.
     "__ibex2_default",
     "__ibex2_dynamic_import",
-    "__ibex2_response_field",
     "__ibex2_export_all",
+    // Called by the pump, from the engine side, once per due timer.
+    "__ibex2_fire_timer",
     "console",
     "setTimeout",
     "setInterval",

@@ -7,6 +7,18 @@
 (function (global) {
   "use strict";
 
+  // Captured, then removed from the global object: `__ibex2_timer_clear`
+  // takes an integer handle, and a module that could reach it could cancel
+  // another module's timer by guessing one.
+  var timerSet = global.__ibex2_timer_set;
+  var timerSetRepeating = global.__ibex2_timer_set_repeating;
+  var timerClear = global.__ibex2_timer_clear;
+  var performanceNow = global.__ibex2_performance_now;
+  delete global.__ibex2_timer_set;
+  delete global.__ibex2_timer_set_repeating;
+  delete global.__ibex2_timer_clear;
+  delete global.__ibex2_performance_now;
+
   var callbacks = new Map();
 
   function schedule(repeating, handler, delay) {
@@ -21,9 +33,7 @@
     var ms = Number(delay);
     if (!isFinite(ms) || ms < 0) ms = 0;
     var extra = Array.prototype.slice.call(arguments, 3);
-    var handle = repeating
-      ? global.__ibex2_timer_set_repeating(ms)
-      : global.__ibex2_timer_set(ms);
+    var handle = repeating ? timerSetRepeating(ms) : timerSet(ms);
     callbacks.set(handle, { fn: handler, args: extra, repeating: repeating });
     return handle;
   }
@@ -46,7 +56,7 @@
     // clearTimeout(undefined) and clearTimeout(0) are no-ops in a browser.
     if (handle === undefined || handle === null) return;
     callbacks.delete(handle);
-    global.__ibex2_timer_clear(Number(handle));
+    timerClear(Number(handle));
   }
 
   global.clearTimeout = cancel;
@@ -78,7 +88,7 @@
   global.performance = global.performance || {};
   if (!global.performance.now) {
     global.performance.now = function () {
-      return global.__ibex2_performance_now();
+      return performanceNow();
     };
   }
 })(globalThis);

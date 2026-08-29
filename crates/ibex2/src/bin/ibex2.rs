@@ -391,6 +391,10 @@ fn run(
     };
 
     let mut rt = Hermes::new(DynamicCode::Closed).ok_or("could not create a runtime")?;
+    // What the engine itself puts on the global object, before anything of
+    // ours: the baseline R5 subtracts. Everything else must be in
+    // ALLOWED_GLOBALS by name — no prefix, no "looks like an intrinsic".
+    let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
     if !rt.install_stdlib() {
         return Err("could not install the standard library".into());
     }
@@ -421,9 +425,7 @@ fn run(
         .global_names()
         .into_iter()
         .filter(|name| {
-            !ibex2::loader::ALLOWED_GLOBALS.contains(&name.as_str())
-                && !name.starts_with("__ibex2_")
-                && !is_intrinsic(name)
+            !baseline.contains(name) && !ibex2::loader::ALLOWED_GLOBALS.contains(&name.as_str())
         })
         .collect();
     if !unexpected.is_empty() {
@@ -446,34 +448,6 @@ fn run(
     Ok(())
 }
 
-/// Names the engine puts on the global object. Not a policy list — these are
-/// ECMAScript's, and Ibex neither adds to nor removes from them.
-fn is_intrinsic(name: &str) -> bool {
-    name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-        // Static Hermes publishes its compiler-builtin namespace here.
-        || name.starts_with('$')
-        || matches!(
-            name,
-            "globalThis"
-                | "undefined"
-                | "NaN"
-                | "Infinity"
-                | "eval"
-                | "isNaN"
-                | "isFinite"
-                | "parseInt"
-                | "parseFloat"
-                | "decodeURI"
-                | "decodeURIComponent"
-                | "encodeURI"
-                | "encodeURIComponent"
-                | "escape"
-                | "unescape"
-                | "print"
-                | "gc"
-                | "require"
-        )
-}
 
 #[cfg(test)]
 mod tests {

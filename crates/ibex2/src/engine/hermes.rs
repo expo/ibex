@@ -28,6 +28,12 @@ extern "C" {
     fn ibex2_hermes_drain_microtasks(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_wait(handle: *mut c_void, timeout_ms: u64) -> c_int;
     fn ibex2_hermes_install_fetch(handle: *mut c_void, grants: *const c_void) -> c_int;
+    fn ibex2_hermes_install_async_echo(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_install_fetch_factory(
+        handle: *mut c_void,
+        bytes: *const u8,
+        len: usize,
+    ) -> c_int;
     fn ibex2_hermes_state(handle: *mut c_void) -> *const crate::task::RuntimeState;
     fn ibex2_hermes_eval_bytes(
         handle: *mut c_void,
@@ -143,6 +149,16 @@ impl Hermes {
             &include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc"))[..],
         ] {
             self.eval_bytes(binding)?;
+        }
+        // fetch.js is different: its value is the fetch factory, and it must
+        // not be a global (see the file). The shim keeps it.
+        let fetch = include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc"));
+        // SAFETY: `handle` is non-null for the lifetime of self; the bytes
+        // outlive the call.
+        let status =
+            unsafe { ibex2_hermes_install_fetch_factory(self.handle, fetch.as_ptr(), fetch.len()) };
+        if status != 0 {
+            return Err(JsError("the fetch binding did not evaluate to its factory".into()));
         }
         Ok(())
     }
@@ -348,6 +364,13 @@ impl Hermes {
             .eval("Object.getOwnPropertyNames(globalThis).sort().join(',')")
             .unwrap_or_default();
         raw.split(',').map(str::to_string).collect()
+    }
+
+    /// Install the `__ibex2_async_echo` op. Tests only: a delegating op with
+    /// no transport behind it, for holding the pump to its ordering contract.
+    pub fn install_async_echo(&mut self) -> bool {
+        // SAFETY: `handle` is non-null for the lifetime of self.
+        unsafe { ibex2_hermes_install_async_echo(self.handle) == 0 }
     }
 
     /// Install `fetch`, carrying `grants` for the lifetime of the binding.

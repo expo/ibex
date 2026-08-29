@@ -300,7 +300,7 @@ impl SearchParams {
 /// A JSON string literal. The escapes JSON requires and nothing more; this is
 /// the one direction the boundary encodes, and the engine's own `JSON.parse`
 /// decodes it.
-fn json_string(text: &str) -> String {
+pub(crate) fn json_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
     for c in text.chars() {

@@ -68,6 +68,11 @@ struct Ibex2Runtime {
     jsi::Value process;
   };
   std::unordered_map<const void *, SharedBindings> shared;
+  // The fetch factory: `bindings/fetch.js`'s completion value, held here and
+  // never on the global object. Called once per grant set with the raw async
+  // binding; what it returns is what a module receives as `fetch`. Undefined
+  // until the bindings are installed, in which case the raw binding is used.
+  jsi::Value make_fetch;
 };
 
 // `Object.freeze(value)`, for a binding shared between modules.
@@ -693,6 +698,11 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
 
     jsi::Value fetch_binding = jsi::Value(
         rt, make_async_binding(rt, "fetch", 101, owner, grants));
+    if (owner->make_fetch.isObject() &&
+        owner->make_fetch.getObject(rt).isFunction(rt)) {
+      fetch_binding = owner->make_fetch.getObject(rt).getFunction(rt).call(
+          rt, std::move(fetch_binding));
+    }
 
     // The fs object, every method carrying the SAME grants as fetch — one
     // grant set, one authority. Built here rather than in JavaScript because
@@ -865,6 +875,28 @@ extern "C" {
 /// call. That is LLP 0060 D1 made concrete: two runtimes — or two bindings —
 /// can be given different authority for identical JavaScript, and neither can
 /// reach the other's.
+/// Evaluate `bindings/fetch.js` (as bytecode) and keep its completion value,
+/// the fetch factory, off the global object.
+int ibex2_hermes_install_fetch_factory(void *handle, const unsigned char *bytes,
+                                       size_t len) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || bytes == nullptr) {
+    return 1;
+  }
+  try {
+    auto buffer = std::make_shared<OwnedBytes>(
+        std::vector<unsigned char>(bytes, bytes + len));
+    jsi::Value factory = rt->runtime->evaluateJavaScript(buffer, "fetch.js");
+    if (!factory.isObject() || !factory.getObject(*rt->runtime).isFunction(*rt->runtime)) {
+      return 1;
+    }
+    rt->make_fetch = std::move(factory);
+    return 0;
+  } catch (const jsi::JSError &) {
+    return 1;
+  }
+}
+
 int ibex2_hermes_install_fetch(void *handle, const void *grants) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr) {
@@ -977,11 +1009,26 @@ int ibex2_hermes_install_stdlib(void *handle) {
     set_binding(runtime, global, "__ibex2_timer_clear", 62, rt->queue);
     set_binding(runtime, global, "__ibex2_performance_now", 63, rt->queue);
 
-    // The delegating tier. One op for now — enough to hold the adapter to its
-    // ordering contract before any transport exists.
-    global.setProperty(runtime,
-                       jsi::PropNameID::forAscii(runtime, "__ibex2_async_echo"),
-                       make_async_binding(runtime, "__ibex2_async_echo", 100, rt, nullptr));
+    return 0;
+  } catch (const std::exception &) {
+    return 1;
+  }
+}
+
+/// The echo op: a delegating operation with no transport behind it, which
+/// holds the adapter to its ordering contract. Tests only — it was in the
+/// standard library and so on every program's global object, which is one
+/// more name than R5 allows.
+int ibex2_hermes_install_async_echo(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr) {
+    return 1;
+  }
+  try {
+    auto &runtime = *rt->runtime;
+    runtime.global().setProperty(
+        runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_async_echo"),
+        make_async_binding(runtime, "__ibex2_async_echo", 100, rt, nullptr));
     return 0;
   } catch (const std::exception &) {
     return 1;

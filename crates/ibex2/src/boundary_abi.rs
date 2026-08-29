@@ -562,6 +562,22 @@ pub unsafe extern "C" fn ibex2_response_field(
             })
         }
         5 => Ok(HostValue::Bool(response.redirected)),
+        // Every header as JSON pairs, so the binding can build a Headers
+        // object once and the record can be released when the body is.
+        7 => Ok(HostValue::Str(format!(
+            "[{}]",
+            response
+                .headers
+                .sorted_entries()
+                .iter()
+                .map(|(name, value)| format!(
+                    "[{},{}]",
+                    crate::stdlib::url::json_string(name),
+                    crate::stdlib::url::json_string(value)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ))),
         other => Err(HostError::InvalidArgument(format!(
             "unknown response field {other}"
         ))),

@@ -62,6 +62,7 @@ fn a_host_function_is_reachable_from_javascript() {
 fn with_stdlib() -> Hermes {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib(), "stdlib install failed");
+    assert!(rt.install_async_echo(), "echo op install failed");
     // Each test gets a clean queue; the console buffer is per-thread and
     // Rust's test harness reuses threads.
     let _ = rt.drain_console();
