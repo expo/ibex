@@ -1,0 +1,49 @@
+# `ibex2 run` SHA-256s the engine framework on every start: 25 ms of a 30 ms budget
+
+**Status:** Open
+**Impact:** 4
+**Urgency:** 4
+**Ease:** 4
+**Confidence:** 5
+**Severity:** P1
+**Systems:** Build, Runtime, Provenance
+**Author:** Claude (Fable 5), directed by Charlie Cheever
+**Date:** 2026-08-29
+**Related:** LLP 0058.000.001 §5 (the receipt), LLP 0063 §2 (the floor), `scripts/metrics.mjs`
+
+Found by the process row of `scripts/metrics.mjs` on its first run, then
+decomposed. A precompiled one-module program, median of 7, spawn included:
+
+| | |
+|---|---|
+| `/usr/bin/true` | 1.7 ms |
+| `ibex2` (prints usage) | 4.4 ms |
+| `ibex2 run hello.js --no-compile` | 7.9 ms |
+| `ibex2 run hello.js --precompiled` | **32.6 ms** |
+
+Everything the runtime does — dyld of a 9 MB binary, construction, stdlib,
+bindings, freeze, loading and running the module — is the 7.9 ms row. The
+other **25 ms** is `Compiler::discover_for_engine`, which `run` calls
+whenever it has a compiler, and which calls `HermesInput::verify_binary`:
+`std::fs::read` of `hermesvm.framework/Versions/1/hermesvm` followed by a
+SHA-256 of the whole file, per process. It also locates `hermesc` on the
+`--precompiled` path, where nothing will ever be compiled.
+
+So the shipping path — bytecode, no compilation, the thing every rule here
+optimizes for — pays 25 ms of provenance ceremony before the 2 ms floor, on
+a 30 ms budget. And it verifies the wrong thing: the runtime links the
+engine *statically* from `macos-static/libhermesvm_a.a`; the dylib being
+hashed is a file beside the receipt, not the engine that is running.
+
+The receipt is right to exist and wrong to be checked here. Verification
+belongs where the engine is *bound*: at build time, with the digest folded
+into the artifact key (which `with_engine` already does with the receipt's
+digest string) and, for the binary itself, into `build.rs` — the engine the
+runtime links is fixed when it is linked. At run time, `--precompiled`
+should read the manifest and the receipt's *digest string* and nothing else;
+a compiler should be discovered only when something is going to be compiled.
+
+**Done when:** `ibex2 run hello.js --precompiled` is within ~1 ms of
+`--no-compile` on `scripts/metrics.mjs`'s process row, the receipt is still
+required for `build`, and an artifact built against one engine is still
+refused by another.
