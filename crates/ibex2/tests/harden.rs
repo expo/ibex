@@ -138,10 +138,8 @@ fn the_global_object_carries_exactly_the_allowed_names() {
         .into_iter()
         .filter(|name| !baseline.contains(name))
         .collect();
-    // `atob`/`btoa` are in ALLOWED_GLOBALS and also in the engine's baseline —
-    // Hermes provides them natively and the standard library replaces them —
-    // so they are not "added". The set to match is what the list allows
-    // beyond what the engine already had.
+    // The set to match is what the list allows beyond what the engine already
+    // had (anything the engine provides natively is in the baseline).
     let allowed: std::collections::BTreeSet<String> = ibex2::loader::ALLOWED_GLOBALS
         .iter()
         .map(|s| s.to_string())

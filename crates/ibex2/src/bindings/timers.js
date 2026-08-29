@@ -73,15 +73,20 @@
   };
 
   // queueMicrotask: the one scheduling primitive the engine's Promise jobs
-  // already provide, given its name. A callback that throws is lost the same
-  // way a throwing timer callback is (see the pump): the error does not stop
-  // the jobs behind it, and nothing reports it yet.
+  // already provide, given its name. A callback that throws is reported as
+  // an uncaught error, as the platform does, rather than becoming a rejected
+  // promise nothing observes.
+  var consoleError = global.console.error;
   global.queueMicrotask = function (callback) {
     if (typeof callback !== "function") {
       throw new TypeError("queueMicrotask requires a function");
     }
     Promise.resolve().then(function () {
-      callback();
+      try {
+        callback();
+      } catch (e) {
+        consoleError("Uncaught " + (e && e.stack ? e.stack : String(e)));
+      }
     });
   };
 

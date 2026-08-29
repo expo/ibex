@@ -18,6 +18,10 @@
 #include <memory>
 #include <string>
 
+// Reports an error that escaped a callback as a console error (Rust side);
+// declared here because the helper that calls it sits above the extern block.
+extern "C" void ibex2_report_uncaught(const char *message);
+
 using namespace facebook;
 
 extern "C" const void *ibex2_queue_create();
@@ -74,6 +78,18 @@ struct Ibex2Runtime {
   // until the bindings are installed, in which case the raw binding is used.
   jsi::Value make_fetch;
 };
+
+// An error that escaped a callback, to the console at error level with its
+// stack, so the application hears about it.
+void report_uncaught(const jsi::JSError &err) {
+  std::string text = err.getMessage();
+  const std::string &stack = err.getStack();
+  if (!stack.empty()) {
+    text += "\n";
+    text += stack;
+  }
+  ibex2_report_uncaught(text.c_str());
+}
 
 // `Object.freeze(value)`, for a binding shared between modules.
 void freeze(jsi::Runtime &rt, const jsi::Value &value) {
@@ -511,9 +527,11 @@ int ibex2_hermes_pump(void *handle) {
       try {
         fire.getObject(runtime).getFunction(runtime).call(
             runtime, static_cast<double>(task_id));
-      } catch (const jsi::JSError &) {
+      } catch (const jsi::JSError &err) {
         // A throwing callback does not stop the tasks behind it, exactly as an
-        // unhandled error in one task does not cancel the next.
+        // unhandled error in one task does not cancel the next — but it is
+        // reported, as a console error, rather than lost.
+        report_uncaught(err);
       }
     }
   } else {
@@ -534,8 +552,9 @@ int ibex2_hermes_pump(void *handle) {
         } else {
           promise.resolve->call(runtime, payload);
         }
-      } catch (const jsi::JSError &) {
-        // A throwing settlement must not abort the cycle.
+      } catch (const jsi::JSError &err) {
+        // A throwing settlement must not abort the cycle; it is reported.
+        report_uncaught(err);
       }
     }
   }
@@ -934,8 +953,9 @@ int ibex2_hermes_install_stdlib(void *handle) {
     global.setProperty(runtime, jsi::PropNameID::forAscii(runtime, "console"),
                        std::move(console));
 
-    set_binding(runtime, global, "btoa", 10, rt->queue);
-    set_binding(runtime, global, "atob", 11, rt->queue);
+    // `btoa`/`atob` are the engine's own (Tier E): Hermes provides both
+    // natively and identically, so the Rust ones behind ops 10/11 are not
+    // bound — they stay for a Rust consumer of the standard library.
     set_binding(runtime, global, "__ibex2_text_encode", 20, rt->queue);
     set_binding(runtime, global, "__ibex2_text_decode", 21, rt->queue);
     set_binding(runtime, global, "__ibex2_text_encode_into", 22, rt->queue);

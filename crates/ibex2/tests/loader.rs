@@ -999,3 +999,24 @@ fn an_es_module_runs_strict_and_a_commonjs_module_does_not() {
     assert!(err.is_some(), "an octal literal in an ES module must not compile");
 }
 
+/// An error escaping a timer or queueMicrotask callback is reported as a
+/// console error with its stack, and the tasks behind it still run. Before
+/// this the pump swallowed it: the timer stopped and nothing said why.
+#[test]
+fn an_uncaught_error_in_a_callback_is_reported_and_does_not_stop_the_loop() {
+    let p = Project::new("uncaught");
+    p.file(
+        "index.js",
+        "setTimeout(() => { throw new Error('timer boom'); }, 0);
+         setTimeout(() => console.log('later timer ran'), 5);
+         queueMicrotask(() => { throw new TypeError('micro boom'); });
+         queueMicrotask(() => console.log('later microtask ran'));",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert!(out.iter().any(|l| l.starts_with("Uncaught TypeError: micro boom")), "{out:?}");
+    assert!(out.iter().any(|l| l.starts_with("Uncaught timer boom") || l.starts_with("Uncaught Error: timer boom")), "{out:?}");
+    assert!(out.iter().any(|l| l == "later microtask ran"), "{out:?}");
+    assert!(out.iter().any(|l| l == "later timer ran"), "{out:?}");
+}
+

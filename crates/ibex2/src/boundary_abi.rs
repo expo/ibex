@@ -218,6 +218,25 @@ pub fn drain_console() -> Vec<console::Record> {
     CONSOLE.with(|c| c.borrow_mut().drain())
 }
 
+/// Report an error that escaped a host task's callback — a timer's, a
+/// settlement's — as a console error. The pump catches so one throwing
+/// callback does not stop the tasks behind it; before this it also said
+/// nothing, and an application whose timer threw saw the timer stop and
+/// nothing else.
+///
+/// # Safety
+/// `message` must be a valid NUL-terminated string or null.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_report_uncaught(message: *const c_char) {
+    let text = if message.is_null() {
+        "uncaught error".to_string()
+    } else {
+        std::ffi::CStr::from_ptr(message).to_string_lossy().into_owned()
+    };
+    let line = format!("Uncaught {text}");
+    CONSOLE.with(|c| c.borrow_mut().write(console::Level::Error, &[HostArg::Str(&line)]));
+}
+
 fn dispatch(
     op: Op,
     args: &[HostArg],
