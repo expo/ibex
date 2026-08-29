@@ -16,6 +16,29 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_shim.cc");
     println!("cargo:rerun-if-env-changed=IBEX2_VANILLA_HERMES_DIR");
 
+    // The Apple platform transport (LLP 0057 §3). Objective-C++ with ARC, so
+    //
+    // Compiled whether or not there is an engine: a Rust consumer of the
+    // standard library (LLP 0068) has no engine in the process and still
+    // needs the platform's `fetch` underneath it.
+    // NSURLSession manages its own object graph and this file does not.
+    if std::env::var("CARGO_CFG_TARGET_VENDOR").as_deref() == Ok("apple") {
+        println!("cargo:rerun-if-changed=src/engine/darwin_http.mm");
+        cc::Build::new()
+            .cpp(true)
+            .file("src/engine/darwin_http.mm")
+            .flag("-std=c++17")
+            .flag("-stdlib=libc++")
+            .flag("-fobjc-arc")
+            .flag("-x")
+            .flag("objective-c++")
+            .compile("ibex2_darwin_http");
+    }
+    if std::env::var("CARGO_CFG_TARGET_VENDOR").as_deref() == Ok("apple") {
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+    }
+
     if std::env::var("CARGO_FEATURE_HERMES").is_err() {
         return;
     }
@@ -52,20 +75,6 @@ fn main() {
         .flag("-stdlib=libc++")
         .compile("ibex2_hermes_shim");
 
-    // The Apple platform transport (LLP 0057 §3). Objective-C++ with ARC, so
-    // NSURLSession manages its own object graph and this file does not.
-    if std::env::var("CARGO_CFG_TARGET_VENDOR").as_deref() == Ok("apple") {
-        println!("cargo:rerun-if-changed=src/engine/darwin_http.mm");
-        cc::Build::new()
-            .cpp(true)
-            .file("src/engine/darwin_http.mm")
-            .flag("-std=c++17")
-            .flag("-stdlib=libc++")
-            .flag("-fobjc-arc")
-            .flag("-x")
-            .flag("objective-c++")
-            .compile("ibex2_darwin_http");
-    }
 
     // The engine this binary links, as a digest baked into it. Artifacts are
     // keyed by it at build time and the manifest is checked against it at run

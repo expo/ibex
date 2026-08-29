@@ -7,7 +7,9 @@ This is the most valuable file in the repository. It is longer than the doing-li
 ibex 2 is a **Rust standard library with JavaScript bindings**. It is done when an Exact
 app boots to an interactive first frame inside its 30ms share of Exact's 100ms budget,
 and when a no-JS consumer — a Rust root, the Linux/DRM path — gets the same standard
-library with no engine in the process at all.
+library with no engine in the process at all. *(The second half exists since 2026-08-29:
+`ibex2::host`, LLP 0068, tested with the engine feature off. The consumer is Exact 2's
+plan runner.)*
 
 Everything not required by that does not exist.
 
