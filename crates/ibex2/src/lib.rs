@@ -7,8 +7,11 @@
 //! It is a strangler, not a fork. The end state is that this crate replaces
 //! the root `ibex-runtime` crate — not that the two coexist indefinitely.
 //!
-//! What is here today is the part that needs no engine: the authority model.
-//! Everything that touches Hermes arrives with the spike.
+//! Two consumers, one standard library. A JavaScript module reaches it through
+//! the engine adapter and the bindings; a Rust consumer — Exact 2's plan
+//! runner — reaches it through `host` (LLP 0068), with no engine in the
+//! process. The `hermes` feature is the engine; everything else builds and
+//! runs without it.
 //!
 //! @ref LLP 0057#2-the-inversion — the three-category split this crate implements
 //! @ref LLP 0067#1-five-properties — authority is carried, not inferred
@@ -19,6 +22,7 @@ pub mod bytecode;
 pub mod engine;
 pub mod esm;
 pub mod grant;
+pub mod host;
 pub mod loader;
 pub mod receipt;
 pub mod stdlib;

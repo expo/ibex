@@ -256,7 +256,7 @@ impl ModuleGrants {
     /// net.fetch https://telemetry.example.com
     ///
     /// [react]                     # every file of a package, every copy
-    /// env NODE_ENV
+    /// env.read NODE_ENV
     /// [@w/ui]                     # a scoped package, workspace or installed
     /// ```
     ///

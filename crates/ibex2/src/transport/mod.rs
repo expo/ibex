@@ -12,9 +12,9 @@
 pub mod dev_tcp;
 pub use dev_tcp::DevTcpTransport;
 
-#[cfg(all(feature = "hermes", target_vendor = "apple"))]
+#[cfg(target_vendor = "apple")]
 pub mod darwin;
-#[cfg(all(feature = "hermes", target_vendor = "apple"))]
+#[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
 
 /// The transport this build uses by default.
@@ -23,11 +23,13 @@ pub use darwin::DarwinTransport;
 /// development transport until its own platform binding exists. The fallback
 /// speaks no TLS, so it is a development convenience and not a shipping story.
 pub fn default_transport() -> Box<dyn crate::stdlib::fetch::Transport> {
-    #[cfg(all(feature = "hermes", target_vendor = "apple"))]
+    // The platform transport, engine or not: a Rust consumer (LLP 0068) has
+    // no engine in the process and gets the same `fetch` underneath.
+    #[cfg(target_vendor = "apple")]
     {
         Box::new(DarwinTransport::new())
     }
-    #[cfg(not(all(feature = "hermes", target_vendor = "apple")))]
+    #[cfg(not(target_vendor = "apple"))]
     {
         Box::new(DevTcpTransport::new())
     }
