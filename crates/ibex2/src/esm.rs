@@ -74,13 +74,24 @@ pub fn is_module(source: &str) -> bool {
 /// and `Invalid expression` for a dynamic import. Oxc parses both, and the
 /// transform already stands between them, so the engine's parser limits are
 /// this file's to route around rather than the application's to work around.
+#[derive(Debug, Clone)]
+struct DynamicImport {
+    start: usize,
+    end: usize,
+    args_start: usize,
+    args_end: usize,
+    literal: Option<String>,
+}
+
 #[derive(Default)]
 struct ExpressionForms {
     /// Spans of `import.meta`.
     meta: Vec<(usize, usize)>,
-    /// Spans of `import(...)`, with the whole expression's range and the
+    /// Each `import(...)`: the whole expression's range, the range of its
+    /// arguments — from the specifier's first byte to the last argument's
+    /// end, by the parser's spans and not by searching for `(` — and the
     /// literal specifier when there is one.
-    dynamic_imports: Vec<(usize, usize, Option<String>)>,
+    dynamic_imports: Vec<DynamicImport>,
 }
 
 impl<'a> Visit<'a> for ExpressionForms {
@@ -99,8 +110,21 @@ impl<'a> Visit<'a> for ExpressionForms {
             oxc_ast::ast::Expression::StringLiteral(s) => Some(s.value.to_string()),
             _ => None,
         };
-        self.dynamic_imports
-            .push((it.span.start as usize, it.span.end as usize, literal));
+        // The argument range comes from the parser. Searching the span for
+        // `(` found the one in `import /*(*/('./x')` first and handed Hermes
+        // an `import` it cannot parse.
+        let args_end = it
+            .options
+            .as_ref()
+            .map(|options| options.span().end)
+            .unwrap_or(it.source.span().end) as usize;
+        self.dynamic_imports.push(DynamicImport {
+            start: it.span.start as usize,
+            end: it.span.end as usize,
+            args_start: it.source.span().start as usize,
+            args_end,
+            literal,
+        });
         // Keep walking: the argument may itself contain another import().
         oxc_ast_visit::walk::walk_import_expression(self, it);
     }
@@ -161,9 +185,7 @@ pub fn dynamic_dependencies(source: &str, specifier: &str) -> Vec<String> {
     let source_type = crate::typescript::source_type_for(specifier);
     let parsed = Parser::new(&allocator, source, source_type).parse();
     expression_forms(&parsed.program)
-        .dynamic_imports
-        .into_iter()
-        .filter_map(|(_, _, literal)| literal)
+        .dynamic_imports.into_iter().filter_map(|import| import.literal)
         .collect()
 }
 
@@ -268,8 +290,9 @@ enum ExpressionForm {
     /// `import(...)`, lowered to the module's OWN require so the specifier
     /// resolves relative to this module and the imported module's grants are
     /// looked up under its own resolved name. The argument expression is kept
-    /// exactly as written, computed specifiers included.
-    DynamicImport,
+    /// exactly as written, computed specifiers included; its range is the
+    /// parser's.
+    DynamicImport { args_start: usize, args_end: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,16 +320,9 @@ fn render(source: &str, start: usize, end: usize, sites: &[ExpressionSite]) -> S
         out.push_str(&source[cursor..site.start]);
         match site.form {
             ExpressionForm::Meta => out.push_str("__ibex2_meta"),
-            ExpressionForm::DynamicImport => {
-                // The argument is whatever lies between the outermost
-                // parentheses; `import (x)` with a space is legal too.
-                let open = source[site.start..site.end]
-                    .find('(')
-                    .map(|at| site.start + at + 1)
-                    .unwrap_or(site.end);
-                let close = site.end.saturating_sub(1).max(open);
+            ExpressionForm::DynamicImport { args_start, args_end } => {
                 out.push_str("__ibex2_dynamic_import(require, ");
-                out.push_str(&render(source, open, close, sites));
+                out.push_str(&render(source, args_start, args_end, sites));
                 out.push(')');
             }
         }
@@ -358,16 +374,14 @@ pub fn lower(source: &str) -> Result<String, String> {
             end: *end,
             form: ExpressionForm::Meta,
         })
-        .chain(
-            forms
-                .dynamic_imports
-                .iter()
-                .map(|(start, end, _)| ExpressionSite {
-                    start: *start,
-                    end: *end,
-                    form: ExpressionForm::DynamicImport,
-                }),
-        )
+        .chain(forms.dynamic_imports.iter().map(|import| ExpressionSite {
+            start: import.start,
+            end: import.end,
+            form: ExpressionForm::DynamicImport {
+                args_start: import.args_start,
+                args_end: import.args_end,
+            },
+        }))
         .collect();
     sites.sort_by_key(|site| site.start);
     if !sites.is_empty() {
@@ -539,6 +553,13 @@ pub fn lower(source: &str) -> Result<String, String> {
     splices.sort_by_key(|splice| splice.start);
 
     let mut out = String::with_capacity(source.len() + 256);
+    // ES module code is strict by definition, and the factory it becomes is
+    // a plain function — which is sloppy unless told otherwise. Without this
+    // an undeclared assignment created a global, `010` was eight, and
+    // `arguments.callee` worked; and the frozen-global failure of LLP 0062 §3
+    // surfaced three modules late instead of as the TypeError strict code
+    // would have thrown at the write. CommonJS stays sloppy, as it is in Node.
+    out.push_str("\"use strict\";\n");
     // Imports first, in source order: every dependency is evaluated before the
     // importing module's own code, as ES modules require.
     for splice in splices.iter().filter(|splice| splice.hoisted) {
@@ -700,7 +721,7 @@ mod tests {
     #[test]
     fn a_side_effect_import_binds_nothing() {
         let out = lowered("import './x';\n");
-        assert_eq!(out.trim(), r#"require("./x");"#);
+        assert_eq!(out.trim(), "\"use strict\";\nrequire(\"./x\");");
     }
 
     #[test]
@@ -749,7 +770,7 @@ mod tests {
     #[test]
     fn an_anonymous_default_export_is_assigned_directly() {
         let out = lowered("export default 42;\n");
-        assert_eq!(out.trim(), "exports.default = 42;");
+        assert_eq!(out.trim(), "\"use strict\";\nexports.default = 42;");
         let out = lowered("export default { a: 1 };\n");
         assert!(out.contains("exports.default = { a: 1 };"), "{out}");
     }
@@ -932,4 +953,28 @@ mod tests {
         assert!(out.contains("const p = __ibex2_dynamic_import(require, './b.js');"), "{out}");
         assert!(out.contains(r#"require("./a")"#), "{out}");
     }
+
+    /// The argument range is the parser's, so a comment before the
+    /// parenthesis — or an options argument — does not derail it.
+    #[test]
+    fn a_dynamic_import_is_lowered_by_span_not_by_searching_for_a_parenthesis() {
+        let out = lowered("export const p = import /*(*/('./x.js');\n");
+        assert!(out.contains("__ibex2_dynamic_import(require, './x.js')"), "{out}");
+        let out = lowered("export const p = import /* ) */ ('./x.js');\n");
+        assert!(out.contains("__ibex2_dynamic_import(require, './x.js')"), "{out}");
+        let out = lowered("export const p = import('./x.json', { with: { type: 'json' } });\n");
+        assert!(
+            out.contains("__ibex2_dynamic_import(require, './x.json', { with: { type: 'json' } })"),
+            "{out}"
+        );
+    }
+
+    /// A lowered ES module is strict; CommonJS is left as written.
+    #[test]
+    fn a_lowered_module_is_strict_and_commonjs_is_not() {
+        let out = lowered("import { a } from './a';\nexport const b = a;\n");
+        assert!(out.starts_with("\"use strict\";\n"), "{out}");
+        assert_eq!(lowered("const a = require('./a');\n"), "const a = require('./a');\n");
+    }
 }
+

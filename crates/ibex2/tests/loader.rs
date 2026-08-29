@@ -129,23 +129,28 @@ fn a_missing_package_is_refused_with_a_useful_message() {
     assert!(out[0].contains("cannot resolve"), "{out:?}");
 }
 
-/// LLP 0067 R1: after boot, no capability-bearing name is on the global object.
+/// LLP 0067 R1, with the loader set: after boot the global object carries the
+/// engine's own names plus exactly `ALLOWED_GLOBALS`. A list of four
+/// forbidden names, which this test used to check, could not see an accessor
+/// over a handle table that was on the global under another name.
 #[test]
 fn no_capability_is_reachable_from_the_global_object() {
     let p = Project::new("r1");
     p.file("index.js", "");
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
     rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none()).expect("loader");
 
-    let globals = rt.global_names();
-    for forbidden in ["fetch", "WebSocket", "localStorage", "process"] {
-        assert!(
-            !globals.iter().any(|n| n == forbidden),
-            "{forbidden} is reachable from globalThis (R1): {globals:?}"
-        );
-    }
+    let added: std::collections::BTreeSet<String> =
+        rt.global_names().into_iter().filter(|n| !baseline.contains(n)).collect();
+    let allowed: std::collections::BTreeSet<String> = ibex2::loader::ALLOWED_GLOBALS
+        .iter()
+        .map(|s| s.to_string())
+        .filter(|n| !baseline.contains(n))
+        .collect();
+    assert_eq!(added, allowed, "left: on globalThis; right: ALLOWED_GLOBALS (R1)");
 }
 
 /// LLP 0067 R2: a module's `fetch` is its own, so one cannot use another's.
@@ -965,5 +970,32 @@ fn a_symlink_inside_a_granted_prefix_does_not_reach_outside_it() {
         out,
         vec!["inside: INSIDE", "through link: denied: fs.read", "via linkdir: INSIDE"]
     );
+}
+
+/// An ES module runs strict, as the specification says it does; a CommonJS
+/// module is left as written. Before this, the lowered factory was a plain
+/// function and every module ran sloppy: an undeclared assignment created a
+/// global and `010` was eight.
+#[test]
+fn an_es_module_runs_strict_and_a_commonjs_module_does_not() {
+    let p = Project::new("strict");
+    p.file(
+        "index.js",
+        "export const x = 1;
+         try { undeclared = 2; console.log('SLOPPY'); } catch (e) { console.log('esm: ' + e.constructor.name); }
+         try { (function () { return arguments.callee; })(); console.log('callee ok'); } catch (e) { console.log('callee: ' + e.constructor.name); }
+         require('./sloppy.js');",
+    )
+    .file("sloppy.js", "alsoUndeclared = 3; console.log('cjs: ' + typeof globalThis.alsoUndeclared);");
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["esm: ReferenceError", "callee: TypeError", "cjs: number"]);
+
+    // A legacy octal literal is a SyntaxError in strict code, so the module
+    // does not load at all rather than quietly meaning eight.
+    let q = Project::new("strict-octal");
+    q.file("index.js", "export const n = 010;");
+    let (_, err) = q.run("./index.js", "");
+    assert!(err.is_some(), "an octal literal in an ES module must not compile");
 }
 

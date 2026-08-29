@@ -81,7 +81,10 @@ pub fn set(href: &str, field: &str, value: &str) -> Result<ParsedUrl, HostError>
                 .map_err(|e| HostError::Failed(format!("TypeError: invalid URL: {e}")))?;
         }
         "protocol" => {
-            let _ = url.set_scheme(value.trim_end_matches(':'));
+            // Scheme start state with a state override: everything before the
+            // first colon is the scheme, and the rest is ignored — so
+            // `http:garbage` sets `http:`.
+            let _ = url.set_scheme(value.split(':').next().unwrap_or(""));
         }
         "username" => {
             let _ = url.set_username(value);
@@ -90,14 +93,20 @@ pub fn set(href: &str, field: &str, value: &str) -> Result<ParsedUrl, HostError>
             let _ = url.set_password(if value.is_empty() { None } else { Some(value) });
         }
         "host" => {
-            // `host:port`, with a bracketed IPv6 host allowed its own colons.
-            let split = value.rfind(':').filter(|&at| {
-                at > value.rfind(']').unwrap_or(0) && value[at + 1..].chars().all(|c| c.is_ascii_digit())
-            });
-            match split {
+            // Host state, then port state, each with a state override: the
+            // host runs to the first colon outside brackets; the port takes
+            // its leading digits and stops — `x:80abc` is host `x`, port 80 —
+            // and an empty port buffer leaves the port as it was, so `x:`
+            // changes the host and nothing else.
+            let after_bracket = if value.starts_with('[') {
+                value.find(']').map(|at| at + 1).unwrap_or(value.len())
+            } else {
+                0
+            };
+            match value[after_bracket..].find(':').map(|at| at + after_bracket) {
                 Some(at) => {
                     if url.set_host(Some(&value[..at])).is_ok() {
-                        set_port_digits(&mut url, &value[at + 1..]);
+                        set_port_prefix(&mut url, &value[at + 1..]);
                     }
                 }
                 None => {
@@ -138,6 +147,12 @@ fn set_port_digits(url: &mut Url, value: &str) {
         let _ = url.set_port(None);
         return;
     }
+    set_port_prefix(url, value);
+}
+
+/// The port state under the host setter: leading digits set the port; no
+/// digits at all leaves it alone, which is what an empty buffer means there.
+fn set_port_prefix(url: &mut Url, value: &str) {
     let digits: String = value.chars().take_while(|c| c.is_ascii_digit()).collect();
     if let Ok(port) = digits.parse::<u16>() {
         let _ = url.set_port(Some(port));
@@ -429,6 +444,14 @@ mod tests {
         assert_eq!(u.port, "8080", "not a port: unchanged");
         let u = set(&u.href, "host", "h2:99").unwrap();
         assert_eq!((u.hostname.as_str(), u.port.as_str()), ("h2", "99"));
+        let u = set(&u.href, "host", "h3:80abc").unwrap();
+        assert_eq!((u.hostname.as_str(), u.port.as_str()), ("h3", "80"), "leading digits");
+        let u = set(&u.href, "host", "h4:").unwrap();
+        assert_eq!((u.hostname.as_str(), u.port.as_str()), ("h4", "80"), "empty port buffer: unchanged");
+        let u = set("https://h/", "host", "[::1]:8080").unwrap();
+        assert_eq!((u.hostname.as_str(), u.port.as_str()), ("[::1]", "8080"));
+        let u = set("https://h/", "protocol", "http:garbage").unwrap();
+        assert_eq!(u.protocol, "http:", "everything after the first colon is ignored");
         let u = set(&u.href, "protocol", "http:").unwrap();
         assert_eq!(u.protocol, "http:");
         let u = set(&u.href, "protocol", "mailto").unwrap();

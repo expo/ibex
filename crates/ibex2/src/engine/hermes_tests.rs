@@ -988,6 +988,9 @@ fn escapes_that_compile_source_are_closed() {
 fn the_return_this_fast_path_is_open_and_yields_no_authority() {
     let (mut rt, _grants) = fetch_rt("net.fetch http://127.0.0.1:1");
     rt.eval("delete globalThis.__ibex2_fetch;").unwrap();
+    // The shipping boot: the bindings capture their helpers and remove them,
+    // so the reachable global carries no accessor over a handle table either.
+    rt.install_bindings().expect("bindings");
 
     // Open — and if a future engine or config closes it, this line fails
     // and the comment above needs revisiting rather than silently rotting.
@@ -1014,6 +1017,16 @@ fn the_return_this_fast_path_is_open_and_yields_no_authority() {
         )
         .unwrap(),
         "0"
+    );
+    // Grok 4.6's finding 1: this used to be a function that read any module's
+    // response by integer handle. The name test above could not see it.
+    assert_eq!(
+        rt.eval(
+            "const g = ({}).constructor.constructor('return this')();
+                 [typeof g.__ibex2_response_field, typeof g.__ibex2_headers, typeof g.__ibex2_timer_clear].join(' ')"
+        )
+        .unwrap(),
+        "undefined undefined undefined"
     );
 }
 

@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (§8 JSON modules, from running Exact's native entry — its boot graph imports two; and the expression-form nesting fix, since 21 of Exact's modules put `import()` inside an exported function)
+**Revised:** 2026-08-29 (§2: strict mode preserved; `import()` arguments by span — both from the Grok 4.6 review) 2026-08-28 (§8 JSON modules, from running Exact's native entry — its boot graph imports two; and the expression-form nesting fix, since 21 of Exact's modules put `import()` inside an exported function)
 **Revised:** 2026-08-28 (§7: `import.meta` and dynamic `import()` are lowered rather than left to the engine, since Oxc parses what Hermes will not and the transform already sits between them — 807 and 759 uses in Exact respectively. §7.1 records why top-level await is deferred rather than joining them.) 2026-08-28 (§4.1: both remaining divergences are now reported by `ibex2 build` rather than left silent. Measurement added — Exact has 3 `export let` against 12,677 immutable exports and 112 barrel files, which is why §3.1 gets a warning and not the §5 fix.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — the parser this uses), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why ESM is required), LLP 0026 (ESM module runner — Ibex 1's prior art), LLP 0058.000.001 (greenfield kernel — the loader this sits in), LLP 0062 (measured engine facts, §3.1 — the `for-of` bug found here), LLP 0058 (the engine seam, OQ3 — the conformance floor this argues for), LLP 0065 (package resolution — how a specifier becomes the module this lowers)
 
@@ -39,6 +39,18 @@ through. A module's own code therefore reaches the engine exactly as written,
 which keeps the transform auditable and leaves source positions recoverable.
 
 ## 2. What is preserved
+
+*(2026-08-29, from the Grok 4.6 review: **strict mode is preserved now.** ES
+module code is strict by definition, and the factory it was lowered into was a
+plain function — so every module ran sloppy: an undeclared assignment created
+a global, `010` was eight, `arguments.callee` worked, and the frozen-global
+failure of LLP 0062 §3 surfaced three modules late instead of as the
+TypeError strict code throws at the write. The lowering now prepends
+`"use strict"` to a module's factory body and leaves CommonJS as written, as
+Node does. Also from that review: the argument range of a lowered `import()`
+comes from the parser's spans rather than from searching the expression for
+`(`, which `import /*(*/('./x')` defeated.)*
+
 
 - **Exports are live.** Each is published as a getter over its binding, so a
   module that reassigns an exported `let` after evaluation has that visible to

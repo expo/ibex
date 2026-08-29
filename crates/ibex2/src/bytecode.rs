@@ -44,9 +44,19 @@ pub struct Compiler {
     /// bytecode built against one engine cannot be found, let alone loaded,
     /// under another.
     engine: Option<String>,
+    /// The engine this binary links (`linked_engine`), as a field so a test
+    /// can build two compilers that differ in it and compare their keys.
+    linked: String,
 }
 
 impl Compiler {
+    /// This compiler with a different linked-engine digest. Tests only.
+    #[cfg(test)]
+    pub(crate) fn with_linked(mut self, digest: &str) -> Self {
+        self.linked = digest.to_string();
+        self
+    }
+
     /// Find `hermesc` beside the vanilla engine, or wherever
     /// `IBEX2_HERMESC` points, binding artifacts to the engine's receipt when
     /// one is installed.
@@ -147,6 +157,7 @@ impl Compiler {
             cache_dir,
             toolchain,
             engine: receipt.map(|receipt| receipt.binary_digest),
+            linked: Self::linked_engine().to_string(),
         })
     }
 
@@ -226,6 +237,7 @@ impl Compiler {
             cache_dir,
             toolchain,
             engine: engine.map(|receipt| receipt.binary_digest),
+            linked: Self::linked_engine().to_string(),
         })
     }
 
@@ -240,7 +252,7 @@ impl Compiler {
     pub fn key(&self, wrapped: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(ARTIFACT_VERSION.to_le_bytes());
-        hasher.update(Self::linked_engine().as_bytes());
+        hasher.update(self.linked.as_bytes());
         hasher.update(self.toolchain.as_bytes());
         hasher.update(
             self.engine
@@ -647,5 +659,14 @@ mod tests {
     fn the_linked_engine_is_part_of_every_key() {
         let linked = Compiler::linked_engine();
         assert!(linked.starts_with("sha256-") || linked == "no-linked-engine", "{linked}");
+        // Two compilers alike in everything but the engine they link key the
+        // same wrapper differently — which is what makes a cache built by one
+        // binary a miss, not a hit, under another.
+        let cache = std::env::temp_dir().join(format!("ibex2-linked-key-{}", std::process::id()));
+        let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let Ok(one) = Compiler::discover(&repo, cache.clone()) else { return };
+        let other = one.clone().with_linked("sha256-another-engine");
+        assert_ne!(one.key("(function () {})"), other.key("(function () {})"));
+        assert_eq!(one.key("(function () {})"), one.clone().key("(function () {})"));
     }
 }
