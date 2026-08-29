@@ -53,9 +53,28 @@ struct Ibex2Runtime {
   // legal CommonJS, and a registry of objects silently handed back the empty
   // original in its place.
   std::unordered_map<std::string, std::shared_ptr<jsi::Value>> modules;
-  // Grant sets handed to module bindings, released when the runtime is.
+  // Grant sets handed to module bindings, released when the runtime is. One
+  // entry per DISTINCT set: Rust interns them, so equal sets are one pointer.
   std::vector<const void *> module_grants;
+  // The capability bindings, built once per grant set and shared by every
+  // module that holds that set. Keyed by the interned grant pointer. Frozen,
+  // so a module cannot alter what another module with the same authority
+  // receives — sharing changes nothing about authority (the binding carries
+  // the grant either way) and must change nothing about integrity.
+  // Declared after `runtime` so it is destroyed before it.
+  struct SharedBindings {
+    jsi::Value fetch;
+    jsi::Value fs;
+    jsi::Value process;
+  };
+  std::unordered_map<const void *, SharedBindings> shared;
 };
+
+// `Object.freeze(value)`, for a binding shared between modules.
+void freeze(jsi::Runtime &rt, const jsi::Value &value) {
+  auto object_ctor = rt.global().getPropertyAsObject(rt, "Object");
+  object_ctor.getPropertyAsFunction(rt, "freeze").call(rt, jsi::Value(rt, value));
+}
 
 // Copy a std::string out to a malloc'd C string the Rust side owns and frees
 // through ibex2_hermes_free_string.
@@ -658,58 +677,83 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
   // denial rather than a TypeError.
   const void *grants =
       ibex2_loader_grants_for(owner->queue, resolved_name.c_str());
-  if (grants != nullptr) {
-    owner->module_grants.push_back(grants);
-  }
 
-  jsi::Value fetch_binding = jsi::Value(
-      rt, make_async_binding(rt, "fetch", 101, owner, grants));
-
-  // The fs object, every method carrying the SAME grants as this module's
-  // fetch — one module, one authority. Built here rather than in JavaScript
-  // because each method is a distinct host op and the grants are captured in
-  // the closure, not passed by the caller.
-  jsi::Object fs(rt);
-  struct FsMethod {
-    const char *name;
-    uint32_t op;
-  };
-  static const FsMethod kFsMethods[] = {
-      {"readFile", 110},  {"writeFile", 111}, {"appendFile", 112},
-      {"readdir", 113},   {"mkdir", 114},     {"rm", 115},
-      {"stat", 116},      {"rename", 117},    {"copyFile", 118},
-      {"realpath", 119},
-  };
-  for (const auto &method : kFsMethods) {
-    fs.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(method.name)),
-                   make_async_binding(rt, method.name, method.op, owner, grants));
-  }
-
-  // `process`, carrying the same grants as this module's fetch and fs.
-  //
-  // `process.env` is a SNAPSHOT of exactly the variables this module was
-  // granted (LLP 0059.000 §3.8), not a live proxy and not the real
-  // environment. There is no read-time check because there is nothing to
-  // check: an ungranted variable is undefined because it is not in the object.
-  // That is the whole capability model in one object — a package reading
-  // AWS_SECRET_ACCESS_KEY finds undefined unless someone said otherwise.
-  //
-  // Frozen, so a module cannot hand a mutated env to one it calls.
-  jsi::Object process(rt);
-  jsi::Object env(rt);
-  size_t env_count = ibex2_grants_env_count(grants);
-  for (size_t i = 0; i < env_count; ++i) {
-    char *name = nullptr;
-    char *value = nullptr;
-    if (ibex2_grants_env_at(grants, i, &name, &value) == 0) {
-      continue;
+  // The bindings for this grant set — built the first time any module holds
+  // it, shared by every module after. Before this, every load built a
+  // `fetch`, ten `fs` methods, `process`, and `env` of its own: a dozen JSI
+  // objects per module, used or not, which doubled the per-module load cost
+  // (issues/20260829-per-module-bindings-doubled-load-cost.md). Authority is
+  // unchanged — a binding carries its grant either way — and integrity is
+  // kept by freezing what is shared.
+  auto shared = owner->shared.find(grants);
+  if (shared == owner->shared.end()) {
+    if (grants != nullptr) {
+      owner->module_grants.push_back(grants);
     }
-    env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
-                    jsi::String::createFromUtf8(rt, std::string(value)));
-    ibex2_string_free(name);
-    ibex2_string_free(value);
+
+    jsi::Value fetch_binding = jsi::Value(
+        rt, make_async_binding(rt, "fetch", 101, owner, grants));
+
+    // The fs object, every method carrying the SAME grants as fetch — one
+    // grant set, one authority. Built here rather than in JavaScript because
+    // each method is a distinct host op and the grants are captured in the
+    // closure, not passed by the caller.
+    jsi::Object fs(rt);
+    struct FsMethod {
+      const char *name;
+      uint32_t op;
+    };
+    static const FsMethod kFsMethods[] = {
+        {"readFile", 110},  {"writeFile", 111}, {"appendFile", 112},
+        {"readdir", 113},   {"mkdir", 114},     {"rm", 115},
+        {"stat", 116},      {"rename", 117},    {"copyFile", 118},
+        {"realpath", 119},
+    };
+    for (const auto &method : kFsMethods) {
+      fs.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(method.name)),
+                     make_async_binding(rt, method.name, method.op, owner, grants));
+    }
+
+    // `process.env` is a SNAPSHOT of exactly the variables this grant set
+    // names (LLP 0059.000 §3.8), not a live proxy and not the real
+    // environment. There is no read-time check because there is nothing to
+    // check: an ungranted variable is undefined because it is not in the
+    // object. That is the whole capability model in one object — a package
+    // reading AWS_SECRET_ACCESS_KEY finds undefined unless someone said
+    // otherwise.
+    jsi::Object process(rt);
+    jsi::Object env(rt);
+    size_t env_count = ibex2_grants_env_count(grants);
+    for (size_t i = 0; i < env_count; ++i) {
+      char *name = nullptr;
+      char *value = nullptr;
+      if (ibex2_grants_env_at(grants, i, &name, &value) == 0) {
+        continue;
+      }
+      env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
+                      jsi::String::createFromUtf8(rt, std::string(value)));
+      ibex2_string_free(name);
+      ibex2_string_free(value);
+    }
+    jsi::Value env_value(rt, env);
+    freeze(rt, env_value);
+    process.setProperty(rt, jsi::PropNameID::forAscii(rt, "env"), env_value);
+
+    jsi::Value fs_value(rt, fs);
+    jsi::Value process_value(rt, process);
+    freeze(rt, fs_value);
+    freeze(rt, process_value);
+    freeze(rt, fetch_binding);
+    shared = owner->shared
+                 .emplace(grants, Ibex2Runtime::SharedBindings{
+                                      std::move(fetch_binding),
+                                      std::move(fs_value),
+                                      std::move(process_value)})
+                 .first;
+  } else if (grants != nullptr) {
+    // The same interned set: one reference is enough to keep it alive.
+    ibex2_grants_destroy(grants);
   }
-  process.setProperty(rt, jsi::PropNameID::forAscii(rt, "env"), env);
 
   // import.meta, per module. LLP 0023 §6 gives a file-backed module the
   // virtual `file:///project/...` URL; that namespace does not exist yet, so
@@ -724,8 +768,8 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
   fn_value.getObject(rt).getFunction(rt).call(
       rt, jsi::Value(rt, *module), jsi::Value(rt, *exports),
       jsi::Value(rt, make_require(rt, owner, resolved_name)),
-      std::move(fetch_binding), std::move(fs), std::move(process),
-      std::move(meta));
+      jsi::Value(rt, shared->second.fetch), jsi::Value(rt, shared->second.fs),
+      jsi::Value(rt, shared->second.process), std::move(meta));
 
   // `module.exports = ...` replaces the value, so re-read it after running.
   // Whatever it is — object, function, string, number — is what `require`

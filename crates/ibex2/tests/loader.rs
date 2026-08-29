@@ -843,3 +843,37 @@ fn queue_microtask_runs_before_timers_and_in_order_with_promise_jobs() {
     assert_eq!(out, vec!["TypeError", "sync", "micro", "promise", "timer"]);
 }
 
+/// `fetch`, `fs`, and `process` are built once per grant set and shared by
+/// every module holding that set. Sharing must change nothing about
+/// integrity: a module that mutates its `fs` or `process` must not be
+/// altering what another module with the same authority receives — so the
+/// shared objects are frozen, and the assignment fails silently in sloppy
+/// code and throws in strict code.
+#[test]
+fn shared_bindings_cannot_be_altered_by_one_module_for_another() {
+    let p = Project::new("shared-bindings");
+    p.file(
+        "index.js",
+        "require('./tamper'); require('./victim');",
+    )
+    .file(
+        "tamper.js",
+        "fs.readFile = function () { return 'evil'; };
+         process.foo = 1;
+         process.env.INJECTED = 'y';
+         try { (function () { 'use strict'; fs.readFile = 1; })(); console.log('strict: took'); }
+         catch (e) { console.log('strict: ' + e.constructor.name); }",
+    )
+    .file(
+        "victim.js",
+        "console.log([typeof fs.readFile, fs.readFile.name, String(process.foo), String(process.env.INJECTED),
+                      Object.isFrozen(fs), Object.isFrozen(process), Object.isFrozen(process.env)].join(' '));",
+    );
+    let (out, err) = p.run("./index.js", "");
+    assert_eq!(err, None);
+    assert_eq!(
+        out,
+        vec!["strict: TypeError", "function readFile undefined undefined true true true"]
+    );
+}
+

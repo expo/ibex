@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 /// Compared by exact tuple equality. Wildcards are deliberately absent: an
 /// origin pattern language is where per-origin grants quietly become
 /// all-origin grants.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Origin {
     pub scheme: String,
     pub host: String,
@@ -52,7 +52,7 @@ impl Origin {
 /// Paths reaching here are expected to be already resolved through the virtual
 /// filesystem namespace (LLP 0059.000 §3.11), so `..` has no meaning at this
 /// layer and is rejected rather than interpreted.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathPrefix(Vec<String>);
 
 impl PathPrefix {
@@ -111,7 +111,7 @@ pub enum Operation {
 }
 
 /// One grant. The parameter is the scope, and there is always a scope.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Grant {
     Fetch(Origin),
     WebSocket(Origin),
@@ -145,7 +145,7 @@ impl Grant {
 /// instantiation and consulted at the boundary. It is never derived from a
 /// frame, a `Domain`, or a job queue, and there is deliberately no constructor
 /// that reads ambient state.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GrantSet {
     grants: BTreeSet<Grant>,
 }
