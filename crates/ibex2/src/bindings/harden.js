@@ -1,4 +1,4 @@
-// The LLP 0062 §3/R4 intrinsic freeze, run after the standard library is
+// The LLP 0067 R4 intrinsic freeze (measured in LLP 0062 §3), run after the standard library is
 // installed and before any module code.
 //
 // Three properties this walk must have, all of which the retired native

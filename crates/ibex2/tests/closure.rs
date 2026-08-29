@@ -1,4 +1,5 @@
-//! The negative guarantees of LLP 0058.000.001 §5.
+//! The negative closure guarantees LLP 0067 §5 keeps from LLP 0058.000.001 §5
+//! (tombstoned).
 //!
 //! A greenfield artifact's value is what it does **not** contain, and that is
 //! exactly the kind of property that decays silently: nothing fails when a

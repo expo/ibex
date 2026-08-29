@@ -1,4 +1,4 @@
-//! LLP 0062 §3/R4: the intrinsic freeze, exercised from the same file the
+//! LLP 0067 R4: the intrinsic freeze, exercised from the same file the
 //! binary runs (`intrinsic_harden.rs` measures a copy; this pins behaviour).
 #![cfg(feature = "hermes")]
 
@@ -87,3 +87,35 @@ fn the_global_object_accepts_new_properties() {
         "truex"
     );
 }
+
+/// The freeze has a budget in rules/RULES.md, and this is where the build
+/// refuses to exceed it. Median of 20 fresh runtimes: a single sample of
+/// anything this small is mostly whatever else the machine was doing.
+#[test]
+fn the_freeze_stays_within_its_budget() {
+    let rules = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../rules/RULES.md"))
+        .expect("rules/RULES.md");
+    let budget_ms: f64 = rules
+        .lines()
+        .find(|line| line.contains("Intrinsic freeze"))
+        .and_then(|line| line.rsplit('|').nth(1))
+        .and_then(|cell| cell.trim().trim_matches('*').trim_end_matches("ms").trim().parse().ok())
+        .expect("a parseable `Intrinsic freeze | <n>ms` row in rules/RULES.md");
+    let mut samples: Vec<f64> = (0..20)
+        .map(|_| {
+            let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+            assert!(rt.install_stdlib());
+            rt.install_bindings().expect("bindings");
+            let t = std::time::Instant::now();
+            rt.eval(HARDEN).expect("harden");
+            t.elapsed().as_secs_f64() * 1000.0
+        })
+        .collect();
+    samples.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+    let median = samples[samples.len() / 2];
+    assert!(
+        median <= budget_ms,
+        "the freeze took {median:.2} ms (median of 20) against the {budget_ms} ms budget in rules/RULES.md"
+    );
+}
+

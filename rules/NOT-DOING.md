@@ -26,24 +26,18 @@ Everything not required by that does not exist.
 - **A large CLI.** `src/bin/` is 137K lines against a 152K-line runtime core. `run`,
   `build`, and probably `repl` is the surface.
 
-## Open — decide before scoping the work
+## Decided (were open until 2026-08-28)
 
-These two are one decision, and they set the size of everything:
+**Node compatibility: deleted.** LLP 0059 §6 removed `http`, `net`, `tls`,
+`child_process`, and `zlib`; `fs` returned as a promise-only subset over the
+capability model. Ibex 2 is an app runtime, not a general JavaScript one.
 
-**Node compatibility.** Port `http`/`net`/`tls`/`fs`/`child_process` to Rust, or delete
-them? An app runtime for web, macOS, iOS, and Linux plausibly needs only `fetch`,
-`WebSocket`, timers, `crypto.subtle`, storage, `URL`, and `TextEncoder`. Deleting is much
-cheaper than porting. *Recommendation: delete, unless `ibex` is meant to stay a general
-JS runtime for tooling. Confidence: moderate — it depends on a product question, not a
-technical one.*
-
-**capsec.** Its enforcement point is JavaScript globals, which is why it needs ~7,700
-lines of engine glue and why LLP 0039 records ~16,628 unresolved rows and "months of
-work, not days" before a default build can arm. Moving the standard library to Rust
-relocates enforcement to the host-call boundary — one chokepoint instead of thousands of
-global references. *Recommendation: do not port the compartment machinery; put the grant
-check at the Rust boundary, and let per-package compartments ride on the npm answer
-above. Confidence: high on the mechanism, low on the timing.*
+**capsec: in, and whole.** Exact 2 is expected to run npm dependencies
+(LLP 0057 OQ2), so the boundary model stays — authority as module parameters,
+grants by package, one check in Rust, the freeze — and is stated on one page,
+LLP 0067, whose §7 says what counts as evidence. The compartment machinery,
+caller attribution, and the proof program (LLP 0058.000.001, tombstoned) are
+not ported and not coming back.
 
 ## Process not doing
 

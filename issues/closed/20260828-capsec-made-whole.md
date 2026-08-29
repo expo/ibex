@@ -1,6 +1,7 @@
 # Capsec in Ibex 2: made whole, and bounded
 
-**Status:** Open
+**Status:** Closed
+**Resolved:** 2026-08-29
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 3
@@ -43,3 +44,17 @@ rather than a failing test. Adding an item here requires removing one.
 **Done when:** a manifest for a real npm dependency graph can be written by
 hand in a few lines, every grant and denial in it has a test, the freeze is
 a `caps` number, and the corpus has one document that says all of this.
+
+## Resolution (2026-08-29)
+
+All four, in two days. (1) LLP 0067 states the model on one page — five
+properties, grants, the check, integrity, engine and artifacts, non-goals,
+evidence, growth — and LLP 0060 and 0058.000 are superseded by it. (2) Package
+grants: LLP 0065 §4.2. (3) `rules/RULES.md` carries `Intrinsic freeze | 2ms`;
+`tests/harden.rs::the_freeze_stays_within_its_budget` fails the build past it
+and `scripts/metrics.mjs` shows it. (4) LLP 0058.000.001 is in
+`llp/tombstones/` with a note saying which of its §7 items are tests and
+which have no call site; 0058.000.000's adapter contract stands with §12
+retired. `rules/NOT-DOING.md` records the decision. The list is closed, not
+extended.
+

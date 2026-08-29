@@ -17,7 +17,7 @@
 //! exists, this operates on real absolute paths and says so.
 //!
 //! @ref LLP 0059.000#311-fs--delegating-capability-bearing-author-required — the surface
-//! @ref LLP 0060#4-what-the-boundary-check-is-still-for — per-prefix is a parameterized grant
+//! @ref LLP 0067#3-the-check — per-prefix is a parameterized grant
 
 use std::path::{Component, Path, PathBuf};
 

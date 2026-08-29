@@ -1,6 +1,6 @@
 //! The authority model: carried, not inferred.
 //!
-//! LLP 0060 D1 binds a capability grant to the identity of the binding a
+//! LLP 0067 R2 binds a capability grant to the identity of the binding a
 //! module was handed at instantiation. Nothing here inspects a call stack,
 //! because nothing in Ibex 2 is permitted to.
 //!
@@ -13,7 +13,7 @@
 //! This is pure Rust and needs no engine, which is why it is the first thing
 //! built.
 //!
-//! @ref LLP 0060#4-what-the-boundary-check-is-still-for — the four parameterized questions
+//! @ref LLP 0067#3-the-check — the parameterized questions the boundary asks
 //! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
 
 use std::collections::BTreeSet;
@@ -194,7 +194,7 @@ impl GrantSet {
     /// Parse a grant spec: one grant per line, `capability target`.
     ///
     /// Fixed at creation, because a grant set that can be added to after the
-    /// fact is ambient authority wearing a struct (LLP 0060 D1). Blank lines
+    /// fact is ambient authority wearing a struct (LLP 0067 §2). Blank lines
     /// and `#` comments are ignored.
     ///
     /// ```text

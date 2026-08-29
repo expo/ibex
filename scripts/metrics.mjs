@@ -121,7 +121,7 @@ const kib = (v) => (Number.isFinite(v) ? `${v.toFixed(0)} KiB` : 'n/a');
 const entryBudget = budgetMs('Process start');
 const rows = [
   ['floor: runtime ready for app code', ms(out.floor_ms),
-    `cold ${ms(out.floor_cold_ms)} · create ${ms(out.floor_create_ms)} · bindings ${ms(out.floor_bindings_ms)} · freeze ${ms(out.floor_freeze_ms)}`],
+    `cold ${ms(out.floor_cold_ms)} · create ${ms(out.floor_create_ms)} · bindings ${ms(out.floor_bindings_ms)} · freeze ${ms(out.floor_freeze_ms)} (budget ${budget('Intrinsic freeze')}: ${out.floor_freeze_ms <= budgetMs('Intrinsic freeze') ? 'ok' : 'OVER'})`],
   ['100 modules from bytecode', ms(out.graph_100_bytecode_ms), `the same graph from source: ${ms(out.graph_100_source_ms)}`],
   ['500 modules from bytecode', ms(out.graph_500_bytecode_ms),
     `min ${ms(out.graph_500_bytecode_min_ms)} = ${us(out.graph_500_bytecode_per_module_us)} per module — track the min`],

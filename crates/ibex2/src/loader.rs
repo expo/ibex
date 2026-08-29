@@ -1,19 +1,19 @@
 //! The module loader: resolution, wrapping, and per-module authority.
 //!
-//! This is where LLP 0062's requirements are actually enforced. R1 (nothing
+//! This is where LLP 0067's properties are actually enforced. R1 (nothing
 //! capability-bearing on the global object), R2 (each module receives its
 //! bindings as parameters of its own scope), and R5 (the global name list is
 //! asserted) are properties of *this* file, not of the boundary below it.
 //!
 //! **v1 is CommonJS-shaped and loads from source.** Not because that is the
-//! destination — LLP 0062 R3 requires wrappers compiled ahead of time, and
+//! destination — LLP 0067 R3 requires wrappers compiled ahead of time, and
 //! LLP 0057 §1 is a complaint about exactly the per-launch parsing this does —
 //! but because it is the smallest loader that makes per-module injection real,
 //! and because the boot measurement it enables is what motivates the AOT step.
 //! ESM waits on a parser; see LLP 0026.
 //!
 //! @ref LLP 0058.000.000#6-module-binding-globals-and-bootstrap — module binding, globals, and bootstrap
-//! @ref LLP 0060#1-the-decision — D2: capability-bearing bindings are injected, never ambient
+//! @ref LLP 0067#1-five-properties — R1 and R2: capability-bearing bindings are parameters, never ambient
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -396,7 +396,7 @@ impl AsRef<Path> for Root {
 /// - *Containment.* Comparing canonical paths is what makes a symlink out of
 ///   the project an escape. A lexical check compares the *spelling*, and a
 ///   spelling can stay inside the root while the bytes come from outside it.
-/// - *Authority.* Grants are keyed by specifier (LLP 0060 D1). If one file has
+/// - *Authority.* Grants are keyed by specifier (LLP 0067 §2). If one file has
 ///   two names it has two grant sets, and a module locked down under one name
 ///   holds the default's authority under the other. That is a capability
 ///   bypass, not a cosmetic inconsistency.
@@ -618,7 +618,7 @@ pub const MODULE_PARAMETERS: &[&str] = &[
 ///
 /// The result is a function *expression*, evaluated by the host to obtain a
 /// callable. `new Function` cannot be used: dynamic code is closed at
-/// construction (LLP 0060 D4), which is also why this cannot be done from
+/// construction (LLP 0067 §4), which is also why this cannot be done from
 /// JavaScript.
 ///
 /// The trailing newline before `})` matters: a module whose last line is a
@@ -891,7 +891,7 @@ mod tests {
             assert!(MODULE_PARAMETERS.contains(&capability));
             assert!(
                 !ALLOWED_GLOBALS.contains(&capability),
-                "{capability} must not be reachable from the global object (LLP 0062 R1)"
+                "{capability} must not be reachable from the global object (LLP 0067 R1)"
             );
         }
     }
