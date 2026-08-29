@@ -140,6 +140,13 @@ pub struct RuntimeState {
     started: std::time::Instant,
     /// Where modules are loaded from, and what each one may reach.
     loader: Mutex<Option<LoaderConfig>>,
+    /// One `Arc` per distinct grant set, for the runtime's life. Two modules
+    /// with equal grants get the same pointer, and the engine side keys the
+    /// bindings it builds — `fetch`, `fs`, `process` — on that pointer, so
+    /// they are built once per grant set rather than once per module. Never
+    /// cleared: a set is immutable, and a binding built for it is right for
+    /// every module that ever receives it.
+    interned_grants: Mutex<std::collections::HashMap<crate::grant::GrantSet, Arc<crate::grant::GrantSet>>>,
     /// True while a drive cycle is running, so a nested request records a
     /// wakeup instead of starting a second host task.
     driving: std::sync::atomic::AtomicBool,
@@ -163,6 +170,7 @@ impl RuntimeState {
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
             loader: Mutex::new(None),
+            interned_grants: Mutex::new(std::collections::HashMap::new()),
             driving: std::sync::atomic::AtomicBool::new(false),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
@@ -409,10 +417,17 @@ impl RuntimeState {
     /// The authority for one module, as an owned handle the binding keeps.
     pub fn grants_for(&self, specifier: &str) -> Arc<crate::grant::GrantSet> {
         let guard = self.loader.lock().expect("loader poisoned");
-        match guard.as_ref() {
-            Some(config) => Arc::new(config.grants.for_module(specifier).clone()),
-            None => Arc::new(crate::grant::GrantSet::none()),
+        let set = match guard.as_ref() {
+            Some(config) => config.grants.for_module(specifier).clone(),
+            None => crate::grant::GrantSet::none(),
+        };
+        let mut interned = self.interned_grants.lock().expect("interned grants poisoned");
+        if let Some(existing) = interned.get(&set) {
+            return Arc::clone(existing);
         }
+        let shared = Arc::new(set.clone());
+        interned.insert(set, Arc::clone(&shared));
+        shared
     }
 }
 
