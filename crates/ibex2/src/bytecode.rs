@@ -370,6 +370,108 @@ impl Compiler {
     }
 }
 
+/// Every artifact of a build in one file, read once at start.
+///
+/// The per-artifact files stay as the compile cache — a rebuild recompiles
+/// only what changed — but a run opened, read, and closed one of them per
+/// module: 14 of the 15 µs a module cost after the resolve cache, five
+/// hundred syscall triples for 5 MB. The bundle is those same bytes in one
+/// file behind an index, read with one call and served from memory. Keys are
+/// the manifest's artifact keys; a key the bundle lacks falls back to its
+/// file, so a bundle is never required, only faster.
+///
+/// Layout: magic, `u32` count, then per entry `u16` key length, the key,
+/// `u64` offset, `u64` length; then the data, offsets relative to its start.
+/// Nothing here is parsed by anything but this file.
+#[derive(Debug, Default)]
+pub struct Bundle {
+    data: Vec<u8>,
+    index: std::collections::HashMap<String, (usize, usize)>,
+}
+
+const BUNDLE_MAGIC: &[u8; 8] = b"IBX2BNDL";
+
+impl Bundle {
+    pub fn path(cache_dir: &Path) -> PathBuf {
+        cache_dir.join("bundle.bin")
+    }
+
+    /// Write `artifacts` — key and bytecode — as one file, atomically.
+    pub fn write(cache_dir: &Path, artifacts: &[(String, Vec<u8>)]) -> Result<(), String> {
+        std::fs::create_dir_all(cache_dir)
+            .map_err(|e| format!("cannot create {}: {e}", cache_dir.display()))?;
+        let mut out = Vec::with_capacity(artifacts.iter().map(|(k, b)| k.len() + b.len() + 18).sum::<usize>() + 12);
+        out.extend_from_slice(BUNDLE_MAGIC);
+        out.extend_from_slice(&(artifacts.len() as u32).to_le_bytes());
+        let mut offset = 0u64;
+        for (key, bytes) in artifacts {
+            let key_len = u16::try_from(key.len()).map_err(|_| format!("artifact key too long: {key}"))?;
+            out.extend_from_slice(&key_len.to_le_bytes());
+            out.extend_from_slice(key.as_bytes());
+            out.extend_from_slice(&offset.to_le_bytes());
+            out.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            offset += bytes.len() as u64;
+        }
+        for (_, bytes) in artifacts {
+            out.extend_from_slice(bytes);
+        }
+        let path = Self::path(cache_dir);
+        let tmp = path.with_extension("bin.tmp");
+        std::fs::write(&tmp, &out).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+
+    /// The bundle under `cache_dir`, or `None` when there is none or it is
+    /// not one this code wrote.
+    pub fn read(cache_dir: &Path) -> Option<Self> {
+        Self::parse(std::fs::read(Self::path(cache_dir)).ok()?)
+    }
+
+    fn parse(data: Vec<u8>) -> Option<Self> {
+        let mut at = 0usize;
+        let take = |at: &mut usize, n: usize| -> Option<&[u8]> {
+            let slice = data.get(*at..*at + n)?;
+            *at += n;
+            Some(slice)
+        };
+        if take(&mut at, 8)? != BUNDLE_MAGIC {
+            return None;
+        }
+        let count = u32::from_le_bytes(take(&mut at, 4)?.try_into().ok()?) as usize;
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            let key_len = u16::from_le_bytes(take(&mut at, 2)?.try_into().ok()?) as usize;
+            let key = std::str::from_utf8(take(&mut at, key_len)?).ok()?.to_string();
+            let offset = u64::from_le_bytes(take(&mut at, 8)?.try_into().ok()?) as usize;
+            let len = u64::from_le_bytes(take(&mut at, 8)?.try_into().ok()?) as usize;
+            entries.push((key, offset, len));
+        }
+        let start = at;
+        let mut index = std::collections::HashMap::with_capacity(count);
+        for (key, offset, len) in entries {
+            let from = start.checked_add(offset)?;
+            let to = from.checked_add(len)?;
+            if to > data.len() {
+                return None;
+            }
+            index.insert(key, (from, to));
+        }
+        Some(Self { data, index })
+    }
+
+    pub fn get(&self, key: &str) -> Option<&[u8]> {
+        self.index.get(key).map(|&(from, to)| &self.data[from..to])
+    }
+
+    pub fn len(&self) -> usize {
+        self.index.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+}
+
 /// Resolved specifier to artifact key, written by the build.
 ///
 /// Without this, finding a module's artifact means hashing its wrapped source —
@@ -669,4 +771,29 @@ mod tests {
         assert_ne!(one.key("(function () {})"), other.key("(function () {})"));
         assert_eq!(one.key("(function () {})"), one.clone().key("(function () {})"));
     }
+
+    #[test]
+    fn a_bundle_round_trips_and_a_missing_key_is_none() {
+        let dir = std::env::temp_dir().join(format!("ibex2-bundle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let artifacts = vec![
+            ("k1".to_string(), b"one".to_vec()),
+            ("k2".to_string(), vec![0u8; 10_000]),
+            ("k3".to_string(), Vec::new()),
+        ];
+        Bundle::write(&dir, &artifacts).unwrap();
+        let bundle = Bundle::read(&dir).unwrap();
+        assert_eq!(bundle.len(), 3);
+        assert_eq!(bundle.get("k1"), Some(&b"one"[..]));
+        assert_eq!(bundle.get("k2").map(|b| b.len()), Some(10_000));
+        assert_eq!(bundle.get("k3"), Some(&[][..]));
+        assert_eq!(bundle.get("nope"), None);
+        // Not ours, or truncated: no bundle, never a panic.
+        std::fs::write(Bundle::path(&dir), b"IBX2BNDL\x01\x00\x00\x00\xff").unwrap();
+        assert!(Bundle::read(&dir).is_none());
+        std::fs::write(Bundle::path(&dir), b"something else").unwrap();
+        assert!(Bundle::read(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
+

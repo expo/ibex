@@ -287,6 +287,11 @@ impl Hermes {
                 manifest = None;
             }
         }
+        // The bundle is read only behind an accepted manifest: its keys are the
+        // manifest's, and a manifest refused above takes its bundle with it.
+        let bundle = manifest
+            .as_ref()
+            .and_then(|_| crate::bytecode::Bundle::read(&cache));
         // SAFETY: `handle` is non-null for the lifetime of self.
         let state = unsafe { ibex2_hermes_state(self.handle) };
         // SAFETY: the state pointer belongs to this runtime and outlives the call.
@@ -298,6 +303,7 @@ impl Hermes {
                 precompiled_only,
                 manifest,
                 cache: Default::default(),
+                bundle,
             });
         }
         Ok(())

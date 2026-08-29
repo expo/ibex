@@ -24,6 +24,7 @@ pub mod esm;
 pub mod grant;
 pub mod host;
 pub mod loader;
+pub mod pool;
 pub mod receipt;
 pub mod stdlib;
 pub mod task;

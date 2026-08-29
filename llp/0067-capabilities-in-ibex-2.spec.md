@@ -114,7 +114,8 @@ runtime hashes nothing at start: the archive it links is digested once at link
 time (`IBEX2_LINKED_ENGINE_DIGEST`), folded into every artifact key, and
 recorded in the manifest, which is checked before any module loads — artifacts
 built by another binary are refused under `--precompiled` and ignored
-otherwise. Resolution is contained: a module cannot resolve outside the
+otherwise. The artifacts themselves are read from one bundle behind that
+manifest, once, and served from memory. Resolution is contained: a module cannot resolve outside the
 declared root, on either arm, after canonicalization (LLP 0065 §3–§5). The
 closure scan (`tests/closure.rs`) keeps the legacy runtime's authority
 machinery out of this crate's source and link closure.

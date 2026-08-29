@@ -1020,3 +1020,35 @@ fn an_uncaught_error_in_a_callback_is_reported_and_does_not_stop_the_loop() {
     assert!(out.iter().any(|l| l == "later timer ran"), "{out:?}");
 }
 
+/// `run --precompiled` reads the bundle, not the files: with every per-artifact
+/// file deleted after the build, the program still runs.
+#[test]
+fn a_precompiled_run_reads_the_bundle_not_the_files() {
+    let p = Project::new("bundle");
+    p.file("index.js", "console.log(require('./a').n + require('./b').n);")
+        .file("a.js", "exports.n = 1;")
+        .file("b.js", "exports.n = 2;");
+    let Some(compiler) = p.compiler() else { return };
+    let cache = p.0.join(".ibex2/cache");
+    let mut manifest =
+        ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
+    let mut artifacts = Vec::new();
+    for spec in ["./index.js", "./a.js", "./b.js"] {
+        let source = std::fs::read_to_string(p.0.join(spec.trim_start_matches("./"))).unwrap();
+        let wrapped = ibex2::loader::lower_and_wrap(&source, spec).unwrap();
+        let bytes = compiler.compile(&wrapped).unwrap();
+        manifest.insert(spec, &compiler.key(&wrapped));
+        artifacts.push((compiler.key(&wrapped), bytes));
+    }
+    manifest.write(&cache).unwrap();
+    ibex2::bytecode::Bundle::write(&cache, &artifacts).unwrap();
+    for entry in std::fs::read_dir(&cache).unwrap().flatten() {
+        if entry.path().extension().is_some_and(|e| e == "hbc") {
+            std::fs::remove_file(entry.path()).unwrap();
+        }
+    }
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), true);
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["3"]);
+}
+
