@@ -62,6 +62,7 @@ fn main() {
             .display()
     );
     let root = Root::Declared(root_path.clone());
+    let cache = loader::ResolveCache::default();
     let out_dir: Option<PathBuf> = args.get(3).map(PathBuf::from);
 
     let mut queue = VecDeque::from([name.clone()]);
@@ -113,7 +114,7 @@ fn main() {
         }
 
         for (dep, required) in dependencies(&javascript, &spec) {
-            let outcome = loader::resolve(&root, &spec, &dep).and_then(|resolved| {
+            let outcome = loader::resolve_in(&cache, &root, &spec, &dep).and_then(|resolved| {
                 if root_path.join(resolved.trim_start_matches("./")).is_file() {
                     Ok(resolved)
                 } else {

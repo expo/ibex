@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Security, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-29 (§4.2: package identity is the install `bind` resolves, never a path's spelling — a reviewer showed `evil/node_modules/react/` holding `[react]`; sections are canonicalized at bind) 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
+**Revised:** 2026-08-29, evening (§3.2: the resolve cache and what it gives up) 2026-08-29 (§4.2: package identity is the install `bind` resolves, never a path's spelling — a reviewer showed `evil/node_modules/react/` holding `[react]`; sections are canonicalized at bind) 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
 **Revised:** 2026-08-28 (§5 — the project root is declared with `--root` and never inferred, which unblocks monorepos and so unblocks Exact; §3 rewritten after self-review found it documenting a tradeoff that did not exist; §1 and §4.1 corrected after an adversarial review confirmed two capability bypasses. See `llp/reviews/0065-*.grok.md`.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — `oxc_resolver` is the same pin), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why bare specifiers are required), LLP 0059 §6 (Node's server surface is deleted — why the `node` condition is absent), LLP 0060 (authority is carried, not inferred — why a package is granted nothing by arriving), LLP 0064 (ESM lowering — what happens to a module once resolution has found it), LLP 0062 (the reachability frame this containment rule belongs to)
 
@@ -136,6 +136,24 @@ That is Exact's shape, and Exact is what Ibex 2 targets (LLP 0057 §5.2), so
 package resolution was not usable for its actual target. The mechanism was
 correct and the containment was correct; the **root** was the wrong one. §5
 resolves it.
+
+### 3.2 What the loader remembers
+
+Added 2026-08-29. Resolution asks the filesystem, and a 500-module graph paid
+two `realpath(3)` and up to five `stat(2)` calls per module — 26 of its 36 µs
+— for answers that do not change while it loads. The loader keeps a
+`ResolveCache` for its life: one `readdir` and one `realpath` per directory
+answer every extension probe in it and give each file its on-disk spelling; a
+full `canonicalize` is kept for a symlink entry and for a spelling that
+differs from the listing's on a case-folding filesystem, so §3 and §4.1 decide
+exactly what they did; the package resolver is one per loader, so its own
+cache of `package.json` reads is kept. Resolution went from 13 ms to under 1
+ms for 500 modules.
+
+The one thing it gives up, stated: a file created after its directory was
+first listed is not seen until the loader is set again. A module graph does
+not grow while it loads; a build that writes modules and then runs them is
+two loaders.
 
 ## 4. A package is granted nothing by being a dependency
 

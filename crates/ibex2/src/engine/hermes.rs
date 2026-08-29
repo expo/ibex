@@ -297,6 +297,7 @@ impl Hermes {
                 compiler,
                 precompiled_only,
                 manifest,
+                cache: Default::default(),
             });
         }
         Ok(())

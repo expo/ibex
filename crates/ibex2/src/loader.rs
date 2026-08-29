@@ -15,8 +15,9 @@
 //! @ref LLP 0058.000.000#6-module-binding-globals-and-bootstrap — module binding, globals, and bootstrap
 //! @ref LLP 0067#1-five-properties — R1 and R2: capability-bearing bindings are parameters, never ambient
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::grant::GrantSet;
 
@@ -399,6 +400,133 @@ impl AsRef<Path> for Root {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntryKind {
+    File,
+    Dir,
+    Symlink,
+    Other,
+}
+
+/// One directory as the filesystem reported it: its real path and its
+/// entries by on-disk spelling.
+#[derive(Debug)]
+struct DirListing {
+    real: Option<PathBuf>,
+    entries: HashMap<String, EntryKind>,
+    /// Lower-cased on-disk name to on-disk name, consulted only when an exact
+    /// lookup misses: a case-folding filesystem may hold the file under
+    /// another spelling, and one `exists` then settles it.
+    folded: HashMap<String, String>,
+}
+
+/// What resolution asks the filesystem, remembered for the life of one loader.
+///
+/// A 500-module graph paid two `realpath(3)` and up to five `stat(2)` calls
+/// per module — 26 of its 36 µs — for answers that do not change while it
+/// loads. One `readdir` and one `realpath` per directory answer every
+/// extension probe in it and give each file its on-disk spelling; a full
+/// `canonicalize` is kept for the cases that need it — a symlink entry, or a
+/// spelling that differs from the listing's on a case-folding filesystem — so
+/// containment (LLP 0065 §4.1) decides exactly what it did. The package
+/// resolver is one per loader too, rather than one per call, so its own cache
+/// of `package.json` reads is kept.
+///
+/// A file created after its directory was first listed is not seen until the
+/// loader is set again. A module graph does not grow while it loads.
+#[derive(Default)]
+pub struct ResolveCache {
+    canonical_root: Mutex<Option<PathBuf>>,
+    dirs: Mutex<HashMap<PathBuf, Arc<DirListing>>>,
+    resolver: OnceLock<oxc_resolver::Resolver>,
+}
+
+impl std::fmt::Debug for ResolveCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let dirs = self.dirs.lock().map(|d| d.len()).unwrap_or(0);
+        f.debug_struct("ResolveCache").field("directories", &dirs).finish()
+    }
+}
+
+impl ResolveCache {
+    fn canonical_root(&self, root: &Path) -> Result<PathBuf, String> {
+        let mut slot = self.canonical_root.lock().expect("resolve cache poisoned");
+        if let Some(canonical) = slot.as_ref() {
+            return Ok(canonical.clone());
+        }
+        let canonical = root
+            .canonicalize()
+            .map_err(|e| format!("project root {} cannot be resolved: {e}", root.display()))?;
+        *slot = Some(canonical.clone());
+        Ok(canonical)
+    }
+
+    fn listing(&self, dir: &Path) -> Arc<DirListing> {
+        if let Some(listing) = self.dirs.lock().expect("resolve cache poisoned").get(dir) {
+            return Arc::clone(listing);
+        }
+        let mut entries = HashMap::new();
+        let mut folded = HashMap::new();
+        if let Ok(read) = std::fs::read_dir(dir) {
+            for entry in read.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let kind = match entry.file_type() {
+                    Ok(kind) if kind.is_symlink() => EntryKind::Symlink,
+                    Ok(kind) if kind.is_file() => EntryKind::File,
+                    Ok(kind) if kind.is_dir() => EntryKind::Dir,
+                    _ => EntryKind::Other,
+                };
+                folded.insert(name.to_lowercase(), name.clone());
+                entries.insert(name, kind);
+            }
+        }
+        let listing = Arc::new(DirListing {
+            real: dir.canonicalize().ok(),
+            entries,
+            folded,
+        });
+        self.dirs
+            .lock()
+            .expect("resolve cache poisoned")
+            .insert(dir.to_path_buf(), Arc::clone(&listing));
+        listing
+    }
+
+    /// The canonical path of the regular file `dir/name`, or `None` when there
+    /// is no such file.
+    fn file_at(&self, dir: &Path, name: &str) -> Option<PathBuf> {
+        let listing = self.listing(dir);
+        match listing.entries.get(name) {
+            Some(EntryKind::File) => listing.real.as_ref().map(|real| real.join(name)),
+            // A link is followed all the way, and may lead out of the root —
+            // containment decides that, not this.
+            Some(EntryKind::Symlink) => {
+                let canonical = std::fs::canonicalize(dir.join(name)).ok()?;
+                canonical.is_file().then_some(canonical)
+            }
+            Some(_) => None,
+            None => match listing.folded.get(&name.to_lowercase()) {
+                Some(on_disk) if on_disk != name && dir.join(name).exists() => {
+                    self.file_at(dir, on_disk)
+                }
+                _ => None,
+            },
+        }
+    }
+
+    fn resolver(&self) -> &oxc_resolver::Resolver {
+        self.resolver.get_or_init(|| {
+            oxc_resolver::Resolver::new(oxc_resolver::ResolveOptions {
+                condition_names: CONDITIONS.iter().map(|c| (*c).to_string()).collect(),
+                extensions: EXTENSIONS.iter().map(|e| (*e).to_string()).collect(),
+                // `module` before `main`: the ESM entry where a package offers one.
+                main_fields: vec!["module".to_string(), "main".to_string()],
+                ..oxc_resolver::ResolveOptions::default()
+            })
+        })
+    }
+}
+
 /// Reduce a resolved path to the project-relative specifier that identifies it,
 /// refusing anything that does not live inside the root.
 ///
@@ -421,13 +549,23 @@ impl AsRef<Path> for Root {
 /// falling back to its spelling.
 ///
 /// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it
-fn contain(root: &Path, path: &Path, specifier: &str) -> Result<String, String> {
-    let canonical_root = root
-        .canonicalize()
-        .map_err(|e| format!("project root {} cannot be resolved: {e}", root.display()))?;
-    let canonical = path
-        .canonicalize()
-        .map_err(|e| format!("cannot resolve {specifier:?}: {e}"))?;
+fn contain(
+    cache: &ResolveCache,
+    root: &Path,
+    path: &Path,
+    specifier: &str,
+) -> Result<String, String> {
+    let canonical_root = cache.canonical_root(root)?;
+    let (dir, name) = match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) => (dir, name.to_string_lossy().into_owned()),
+        _ => return Err(format!("cannot resolve {specifier:?}: not a file path")),
+    };
+    let canonical = cache.file_at(dir, &name).ok_or_else(|| {
+        format!(
+            "cannot resolve {specifier:?}: {} is not a file",
+            path.display()
+        )
+    })?;
     let relative = canonical.strip_prefix(&canonical_root).map_err(|_| {
         format!(
             "{specifier:?} resolves outside the project root: {}",
@@ -441,8 +579,20 @@ fn contain(root: &Path, path: &Path, specifier: &str) -> Result<String, String> 
 }
 
 pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, String> {
+    resolve_in(&ResolveCache::default(), root, from, specifier)
+}
+
+/// `resolve`, remembering what it asked the filesystem in `cache`. The
+/// loader holds one cache for its life; `resolve` above is the same code with
+/// a cache that lives for one call.
+pub fn resolve_in(
+    cache: &ResolveCache,
+    root: &Root,
+    from: &str,
+    specifier: &str,
+) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
-        return resolve_bare(root, from, specifier);
+        return resolve_bare(cache, root, from, specifier);
     }
 
     let from_dir = Path::new(from).parent().unwrap_or(Path::new(""));
@@ -478,13 +628,13 @@ pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, Strin
     // conventionally means `x.ts` too, because TypeScript makes you write the
     // OUTPUT extension in the source. Both have to resolve or a TypeScript
     // codebase cannot import anything.
-    if let Some(resolved) = probe_extensions(root, &relative) {
+    if let Some(resolved) = probe_extensions(cache, root, &relative) {
         // Through `contain`, not straight out: the lexical walk above proves
         // the *spelling* stays inside the root, which says nothing about where
         // a symlink at that spelling points. Returning here directly is how a
         // package could `require('./payload')` and execute bytes from outside
         // the project under an inside name.
-        return contain(root, &root.join(&resolved), specifier);
+        return contain(cache, root, &root.join(&resolved), specifier);
     }
 
     // Nothing on disk. Return the specifier as written so the error names what
@@ -501,7 +651,12 @@ pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, Strin
 ///
 /// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it — containment
 /// still applies, and matters more here because resolution walks upward
-fn resolve_bare(root: &Root, from: &str, specifier: &str) -> Result<String, String> {
+fn resolve_bare(
+    cache: &ResolveCache,
+    root: &Root,
+    from: &str,
+    specifier: &str,
+) -> Result<String, String> {
     // A package name is a question about the project, and without a declared
     // root there is no project to ask — only the directory this file happens
     // to sit in. Refuse, and say what would fix it. Guessing here is how a
@@ -538,14 +693,8 @@ fn resolve_bare(root: &Root, from: &str, specifier: &str) -> Result<String, Stri
             .unwrap_or(Path::new("")),
     );
 
-    let options = oxc_resolver::ResolveOptions {
-        condition_names: CONDITIONS.iter().map(|c| (*c).to_string()).collect(),
-        extensions: EXTENSIONS.iter().map(|e| (*e).to_string()).collect(),
-        // `module` before `main`: the ESM entry where a package offers one.
-        main_fields: vec!["module".to_string(), "main".to_string()],
-        ..oxc_resolver::ResolveOptions::default()
-    };
-    let resolved = oxc_resolver::Resolver::new(options)
+    let resolved = cache
+        .resolver()
         .resolve(&from_dir, specifier)
         .map_err(|e| format!("cannot resolve {specifier:?} from {from}: {e}"))?;
 
@@ -558,7 +707,7 @@ fn resolve_bare(root: &Root, from: &str, specifier: &str) -> Result<String, Stri
     // Containment matters more on this arm than the other: Node resolution
     // walks UP the directory tree, so without it a package could resolve to a
     // node_modules outside the project entirely.
-    contain(root, resolved.path(), specifier)
+    contain(cache, root, resolved.path(), specifier)
 }
 
 /// Extensions tried, in order. TypeScript first: in a project that has both,
@@ -572,11 +721,12 @@ pub const EXTENSIONS: &[&str] = &[".ts", ".tsx", ".mts", ".js", ".mjs", ".jsx", 
 
 /// Find the file a specifier names, allowing for an omitted or rewritten
 /// extension.
-fn probe_extensions(root: &Path, relative: &str) -> Option<String> {
+fn probe_extensions(cache: &ResolveCache, root: &Path, relative: &str) -> Option<String> {
     let exists = |candidate: &str| {
-        root.join(candidate)
-            .is_file()
-            .then(|| candidate.to_string())
+        let path = root.join(candidate);
+        let dir = path.parent()?;
+        let name = path.file_name()?.to_string_lossy().into_owned();
+        cache.file_at(dir, &name).map(|_| candidate.to_string())
     };
 
     // Exactly as written.
@@ -1147,4 +1297,46 @@ mod tests {
         assert!(err.contains("\"nope\"") && err.contains("not installed"), "{err}");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// The cache answers as the filesystem does — extension probing, a
+    /// directory index, a symlinked directory, a symlink out of the root, a
+    /// case-different spelling — and says what it does not: a file created
+    /// after its directory was listed is unseen until the loader is set again.
+    #[test]
+    fn the_resolve_cache_answers_as_the_filesystem_does() {
+        let root = std::env::temp_dir().join(format!("ibex2-resolve-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src/dir")).unwrap();
+        for file in ["src/a.ts", "src/b.js", "src/dir/index.ts", "index.js"] {
+            std::fs::write(root.join(file), "").unwrap();
+        }
+        std::os::unix::fs::symlink("/etc/hosts", root.join("src/out.js")).unwrap();
+        std::os::unix::fs::symlink(root.join("src"), root.join("link")).unwrap();
+        let declared = Root::Declared(root.clone());
+        let cache = ResolveCache::default();
+        let r = |spec: &str, from: &str| resolve_in(&cache, &declared, from, spec);
+
+        assert_eq!(r("./a", "./src/x.js").unwrap(), "./src/a.ts");
+        assert_eq!(r("./a.js", "./src/x.js").unwrap(), "./src/a.ts", "the .js -> .ts rewrite");
+        assert_eq!(r("./b.js", "./src/x.js").unwrap(), "./src/b.js");
+        assert_eq!(r("./dir", "./src/x.js").unwrap(), "./src/dir/index.ts");
+        assert_eq!(r("./link/a.ts", "./index.js").unwrap(), "./src/a.ts", "a symlinked directory resolves to its real path");
+        let err = r("./out.js", "./src/x.js").unwrap_err();
+        assert!(err.contains("outside the project root"), "{err}");
+        // A different spelling: settled to the on-disk one where the filesystem
+        // folds case, refused where it does not — either way, one file, one name.
+        match r("./A.ts", "./src/x.js") {
+            Ok(spec) => assert_eq!(spec, "./src/a.ts"),
+            Err(err) => assert!(err.contains("is not a file"), "{err}"),
+        }
+        // The stated limit: a file created after its directory was listed is
+        // unseen by this cache — resolution falls to the `.js` spelling a
+        // missing file gets, so the error names what was asked — and seen by
+        // a fresh one.
+        std::fs::write(root.join("src/late.ts"), "").unwrap();
+        assert_eq!(r("./late", "./src/x.js").unwrap(), "./src/late.js");
+        assert_eq!(resolve(&declared, "./src/x.js", "./late").unwrap(), "./src/late.ts");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
+

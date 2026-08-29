@@ -358,6 +358,8 @@ pub struct LoaderConfig {
     /// Resolved specifier to artifact key, written by the build. When present,
     /// a module is found without reading or hashing its source.
     pub manifest: Option<crate::bytecode::Manifest>,
+    /// What resolution asked the filesystem, for this loader's life.
+    pub cache: crate::loader::ResolveCache,
 }
 
 impl RuntimeState {
@@ -375,7 +377,7 @@ impl RuntimeState {
     pub fn load_module(&self, from: &str, specifier: &str) -> Result<(String, Vec<u8>), String> {
         let guard = self.loader.lock().expect("loader poisoned");
         let config = guard.as_ref().ok_or("no loader configured")?;
-        let resolved = crate::loader::resolve(&config.root, from, specifier)?;
+        let resolved = crate::loader::resolve_in(&config.cache, &config.root, from, specifier)?;
 
         // The fast path: the build already said which artifact this is, so the
         // source file is never opened.
