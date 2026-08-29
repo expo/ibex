@@ -11,7 +11,11 @@
 (function (global) {
   "use strict";
 
+  // Captured, then removed from the global object: the ops take integer
+  // handles, and a module that could reach them could read any header list
+  // in the runtime by guessing one.
   var h = global.__ibex2_headers;
+  delete global.__ibex2_headers;
 
   function requireValidName(name) {
     if (!h.validName(name)) {

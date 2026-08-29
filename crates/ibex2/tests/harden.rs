@@ -117,3 +117,33 @@ fn the_freeze_stays_within_its_budget() {
     );
 }
 
+/// LLP 0067 R5, mechanically: after the standard library, the bindings, and
+/// the freeze, the global object carries the engine's own names plus exactly
+/// `ALLOWED_GLOBALS` — nothing more. This is the assertion `ibex2 run` makes
+/// before any module runs, and it is what turns R1 from a property of a list
+/// into a property of the runtime. A helper the bindings forgot to remove, or
+/// an accessor over a handle table, fails it by name.
+#[test]
+fn the_global_object_carries_exactly_the_allowed_names() {
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
+    assert!(rt.install_stdlib());
+    rt.install_bindings().expect("bindings");
+    rt.harden().expect("harden");
+    let added: std::collections::BTreeSet<String> = rt
+        .global_names()
+        .into_iter()
+        .filter(|name| !baseline.contains(name))
+        .collect();
+    // `atob`/`btoa` are in ALLOWED_GLOBALS and also in the engine's baseline —
+    // Hermes provides them natively and the standard library replaces them —
+    // so they are not "added". The set to match is what the list allows
+    // beyond what the engine already had.
+    let allowed: std::collections::BTreeSet<String> = ibex2::loader::ALLOWED_GLOBALS
+        .iter()
+        .map(|s| s.to_string())
+        .filter(|name| !baseline.contains(name))
+        .collect();
+    assert_eq!(added, allowed, "left: on the global object; right: ALLOWED_GLOBALS minus the engine's own");
+}
+

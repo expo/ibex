@@ -14,6 +14,8 @@
 (function (global) {
   "use strict";
 
+  // Captured, then removed from the global object, so that after boot the
+  // global carries the classes and nothing underneath them.
   var parse = global.__ibex2_url_parse;
   var setField = global.__ibex2_url_set;
   var sp = {
@@ -27,6 +29,12 @@
     sort: global.__ibex2_search_params_sort,
     entries: global.__ibex2_search_params_entries,
   };
+  [
+    "__ibex2_url_parse", "__ibex2_url_set", "__ibex2_search_params_normalize",
+    "__ibex2_search_params_get", "__ibex2_search_params_get_all", "__ibex2_search_params_has",
+    "__ibex2_search_params_set", "__ibex2_search_params_append", "__ibex2_search_params_delete",
+    "__ibex2_search_params_sort", "__ibex2_search_params_entries",
+  ].forEach(function (name) { delete global[name]; });
 
   var FIELDS = [
     "href", "origin", "protocol", "username", "password", "host", "hostname",
