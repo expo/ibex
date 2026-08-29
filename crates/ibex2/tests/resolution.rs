@@ -783,3 +783,98 @@ fn a_manifest_naming_an_uninstalled_package_is_refused() {
     assert!(err.contains("\"nope\"") && err.contains("not installed"), "{err}");
 }
 
+/// Grok 4.6's finding 2, as a test: a dependency vendors a directory *named*
+/// `react` inside itself. Identity from the path's spelling gave it
+/// `[react]`'s authority; identity from the install `bind` resolved does not.
+#[test]
+fn a_directory_named_after_a_granted_package_inside_another_package_gets_nothing() {
+    let p = Project::new("pkg-impostor");
+    let probe = |tag: &str| {
+        format!(
+            "exports.probe = () => fetch('https://example.com/').then(
+               () => console.log('{tag}: ALLOWED'), e => console.log('{tag}: ' + e.message));"
+        )
+    };
+    p.file("index.js", "require('evil'); require('react').probe();")
+        .file("node_modules/react/package.json", r#"{"name":"react","main":"index.js"}"#)
+        .file("node_modules/react/index.js", &probe("real react"))
+        .file("node_modules/evil/package.json", r#"{"name":"evil","main":"index.js"}"#)
+        .file(
+            "node_modules/evil/index.js",
+            "require('react').probe();",
+        )
+        // Node's own resolution finds this copy first from inside `evil`.
+        .file("node_modules/evil/node_modules/react/package.json", r#"{"name":"not-react","main":"index.js"}"#)
+        .file("node_modules/evil/node_modules/react/index.js", &probe("nested impostor"));
+    let (out, err) = p.run("./index.js", "[*]\n[react]\nnet.fetch https://example.com\n");
+    assert_eq!(err, None);
+    assert!(out.iter().any(|l| l == "nested impostor: denied: net.fetch"), "{out:?}");
+    assert!(out.iter().any(|l| l == "real react: ALLOWED"), "{out:?}");
+}
+
+/// Codex's finding, as a test: a package section outranks a directory section
+/// for a workspace package too. The first version bound the package to a
+/// directory section and let the author's own directory section win.
+#[test]
+fn a_package_section_beats_a_directory_section_for_a_workspace_package() {
+    let p = Project::new("pkg-workspace-precedence");
+    let secret = p.0.join("secret.txt");
+    std::fs::write(&secret, "secret").unwrap();
+    p.file("index.js", "require('@w/ui');")
+        .file("packages/ui/package.json", r#"{"name":"@w/ui","main":"index.js"}"#)
+        .file(
+            "packages/ui/index.js",
+            &format!(
+                "fs.readFile({:?}).then(() => console.log('ui: directory grant won'), e => console.log('ui: ' + e.message));",
+                secret.to_string_lossy()
+            ),
+        );
+    std::fs::create_dir_all(p.0.join("node_modules/@w")).unwrap();
+    std::os::unix::fs::symlink(p.0.join("packages/ui"), p.0.join("node_modules/@w/ui")).unwrap();
+    let manifest = format!("[./packages/ui/]\nfs.read {}\n[@w/ui]\n", p.0.to_string_lossy());
+    let (out, err) = p.run("./index.js", &manifest);
+    assert_eq!(err, None);
+    assert_eq!(out, vec!["ui: denied: fs.read"]);
+}
+
+/// Codex's finding, as a test: on a case-insensitive filesystem `./LOCKED.js`
+/// and `./locked.js` are one file, and a section spelt one way must govern
+/// the module however it is reached. Sections are canonicalized at bind.
+#[test]
+fn a_section_spelt_in_another_case_still_names_the_file() {
+    let p = Project::new("case-manifest");
+    let secret = p.0.join("secret.txt");
+    std::fs::write(&secret, "secret").unwrap();
+    p.file("index.js", "require('./locked.js');").file(
+        "locked.js",
+        &format!(
+            "fs.readFile({:?}).then(() => console.log('locked: default grant leaked'), e => console.log('locked: ' + e.message));",
+            secret.to_string_lossy()
+        ),
+    );
+    // Only meaningful where the filesystem folds case; elsewhere the section
+    // names a file that does not exist and bind refuses it, which is also right.
+    let folds_case = p.0.join("LOCKED.js").exists();
+    let manifest = format!("[*]\nfs.read {}\n[./LOCKED.js]\n", p.0.to_string_lossy());
+    if folds_case {
+        let (out, err) = p.run("./index.js", &manifest);
+        assert_eq!(err, None);
+        assert_eq!(out, vec!["locked: denied: fs.read"]);
+    } else {
+        let mut grants = ModuleGrants::parse(&manifest).unwrap();
+        assert!(grants.bind(&p.0).is_err());
+    }
+}
+
+/// A section naming a file or directory that does not exist is refused at
+/// bind, like a package that is not installed.
+#[test]
+fn a_section_naming_a_missing_file_is_refused() {
+    let p = Project::new("missing-section");
+    p.file("index.js", "console.log('ran');");
+    let err = ModuleGrants::parse("[./nope.js]\n").unwrap().bind(&p.0).unwrap_err();
+    assert!(err.contains("[./nope.js]") && err.contains("does not exist"), "{err}");
+    let err = ModuleGrants::parse("[./nope/]\n").unwrap().bind(&p.0).unwrap_err();
+    assert!(err.contains("[./nope/]"), "{err}");
+}
+

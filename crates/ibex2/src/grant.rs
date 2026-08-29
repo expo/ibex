@@ -167,6 +167,28 @@ impl GrantSet {
     /// and the snapshot is built from exactly this list — so a module cannot
     /// see a variable it was not granted, with no check at read time. The
     /// capability is the object's contents.
+    /// This set with every filesystem prefix realized — symlinks followed,
+    /// case settled — for checking a realized request path against
+    /// (`stdlib::fs::realize`). Other families are unchanged.
+    pub fn realized_fs(&self) -> GrantSet {
+        let realize = |prefix: &PathPrefix| {
+            let spelt = format!("/{}", prefix.0.join("/"));
+            let real = crate::stdlib::fs::realize(std::path::Path::new(&spelt));
+            PathPrefix::new(&real.to_string_lossy()).unwrap_or_else(|| prefix.clone())
+        };
+        GrantSet {
+            grants: self
+                .grants
+                .iter()
+                .map(|grant| match grant {
+                    Grant::FsRead(prefix) => Grant::FsRead(realize(prefix)),
+                    Grant::FsWrite(prefix) => Grant::FsWrite(realize(prefix)),
+                    other => other.clone(),
+                })
+                .collect(),
+        }
+    }
+
     pub fn readable_env(&self) -> Vec<&str> {
         self.grants
             .iter()

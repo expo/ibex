@@ -25,9 +25,13 @@ use crate::grant::GrantSet;
 pub struct ModuleGrants {
     /// Grants keyed by module specifier, resolved relative to the root.
     per_module: BTreeMap<String, GrantSet>,
-    /// Grants keyed by package name: every file of the package, in every
-    /// installed copy. See `package_of` for what names a package.
+    /// Grants keyed by package name. Which files those are is decided by
+    /// `bind`, from the install the project actually has — never from a
+    /// path's spelling, and never from a package's own `package.json`.
     per_package: BTreeMap<String, GrantSet>,
+    /// Canonical directory prefix -> package name, filled by `bind`: the
+    /// install `<root>/node_modules/<name>` resolves to, after symlinks.
+    bound_packages: BTreeMap<String, String>,
     /// Grants keyed by directory (`./src/`): every module under it, the
     /// longest prefix winning. How first-party trees and workspace packages
     /// are granted.
@@ -88,39 +92,6 @@ fn is_package_name(name: &str) -> bool {
     }
 }
 
-/// The package a module belongs to, from its canonical specifier alone.
-///
-/// The innermost `node_modules/<name>/` segment names it: `react` for
-/// `./node_modules/react/cjs/react.js`, for a nested copy under another
-/// package, and for pnpm's `.pnpm/react@19/node_modules/react/`. The name
-/// comes from the *path*, never from the package's own `package.json` — a
-/// package that declares itself `react` gets nothing by saying so.
-///
-/// A module outside `node_modules` belongs to no package here. It is
-/// first-party and is granted by path; a workspace package, whose symlink
-/// canonicalizes outside `node_modules`, is bound to its real directory by
-/// `ModuleGrants::bind`.
-///
-/// @ref LLP 0065#42-packages-are-granted-by-name-first-party-code-by-path
-pub fn package_of(specifier: &str) -> Option<String> {
-    const MARKER: &str = "node_modules/";
-    let at = specifier
-        .rmatch_indices(MARKER)
-        .map(|(i, _)| i)
-        .find(|&i| i == 0 || specifier.as_bytes()[i - 1] == b'/')?;
-    let mut segments = specifier[at + MARKER.len()..].split('/');
-    let first = segments.next().filter(|s| !s.is_empty())?;
-    let name = if first.starts_with('@') {
-        let second = segments.next().filter(|s| !s.is_empty())?;
-        format!("{first}/{second}")
-    } else {
-        first.to_string()
-    };
-    // A package directory is not a module; there has to be a file inside it.
-    segments.next().filter(|s| !s.is_empty())?;
-    Some(name)
-}
-
 impl ModuleGrants {
     /// Nothing granted to anyone. The correct default: a module that was not
     /// named in the manifest reaches nothing, rather than inheriting whatever
@@ -129,6 +100,7 @@ impl ModuleGrants {
         Self {
             per_module: BTreeMap::new(),
             per_package: BTreeMap::new(),
+            bound_packages: BTreeMap::new(),
             per_directory: BTreeMap::new(),
             default_grants: GrantSet::none(),
         }
@@ -159,14 +131,27 @@ impl ModuleGrants {
     /// default. Replacement, not union — a module has one grant set, from the
     /// most specific section that names it, so an explicit empty section still
     /// means "nothing".
+    ///
+    /// A package section applies to the files under the install `bind`
+    /// resolved for it and to nothing else. The first version of this matched
+    /// any path with a `node_modules/<name>/` segment — so a dependency could
+    /// vendor a directory *named* `react` inside itself and hold `[react]`'s
+    /// authority. Identity by spelling was the same mistake §4.1 had already
+    /// fixed for files, one level up.
+    ///
+    /// @ref LLP 0065#42-packages-are-granted-by-name-first-party-code-by-path
     pub fn for_module(&self, specifier: &str) -> &GrantSet {
         if let Some(grants) = self.per_module.get(specifier) {
             return grants;
         }
-        if let Some(name) = package_of(specifier) {
-            if let Some(grants) = self.per_package.get(&name) {
-                return grants;
-            }
+        if let Some(grants) = self
+            .bound_packages
+            .iter()
+            .filter(|(prefix, _)| specifier.starts_with(prefix.as_str()))
+            .max_by_key(|(prefix, _)| prefix.len())
+            .and_then(|(_, name)| self.per_package.get(name))
+        {
+            return grants;
         }
         self.per_directory
             .iter()
@@ -181,49 +166,77 @@ impl ModuleGrants {
         self.per_package.keys().map(String::as_str)
     }
 
-    /// Bind the manifest to a project.
+    /// Where each package section was bound, after `bind`: canonical
+    /// directory prefix to package name.
+    pub fn bound_packages(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.bound_packages.iter().map(|(dir, name)| (dir.as_str(), name.as_str()))
+    }
+
+    /// Bind the manifest to a project: every section is resolved to the file,
+    /// directory, or install it names, canonically, before any module loads.
     ///
-    /// Every package section must name a package installed under `root`. One
-    /// that is a workspace symlink — whose files canonicalize outside
-    /// `node_modules`, so `package_of` cannot name them — is bound here to its
-    /// real directory, so `[@w/ui]` reaches the package whether it is imported
-    /// by name or by relative path (LLP 0065 §4.1: one file, one name).
+    /// - A **package** section binds to the directory
+    ///   `<root>/node_modules/<name>` resolves to after symlinks — the same
+    ///   place for an in-place install, pnpm's store for a pnpm one, the
+    ///   project's own tree for a workspace package. Files under that
+    ///   directory hold the grant; nothing else does. A copy of the package
+    ///   nested under another package is a different install and is granted
+    ///   by its directory, if at all.
+    /// - **File** and **directory** sections are re-keyed by their canonical
+    ///   path, because module identity is canonical (LLP 0065 §4.1) and a
+    ///   section spelt `./LOCKED.js` on a case-insensitive filesystem named
+    ///   `./locked.js` in every respect but the one that decided its grants.
     ///
-    /// Refusing an uninstalled name is a usability property, not a safety one:
-    /// a misspelt section grants nothing either way. It is refused because a
-    /// manifest that silently does nothing is the worst kind of wrong.
+    /// Anything a section names that does not exist is refused. That is a
+    /// usability rule, not a safety one — a section that matches nothing
+    /// grants nothing — kept because a manifest that silently does nothing is
+    /// the worst kind of wrong.
     pub fn bind(&mut self, root: &Path) -> Result<(), String> {
         let canonical_root = root
             .canonicalize()
             .map_err(|e| format!("project root {} cannot be resolved: {e}", root.display()))?;
-        let names: Vec<String> = self.per_package.keys().cloned().collect();
-        for name in names {
-            let installed = canonical_root.join("node_modules").join(&name);
-            let canonical = installed.canonicalize().map_err(|_| {
-                format!(
-                    "the manifest grants package {name:?}, which is not installed under {}/node_modules. \
-                     Install it, or grant a nested copy by its directory \
-                     ([./node_modules/<parent>/node_modules/{name}/])",
-                    canonical_root.display()
-                )
-            })?;
+        let relative_to_root = |path: &Path, what: &str| -> Result<String, String> {
+            let canonical = path
+                .canonicalize()
+                .map_err(|_| format!("the manifest names {what}, which does not exist"))?;
             let relative = canonical.strip_prefix(&canonical_root).map_err(|_| {
                 format!(
-                    "the manifest grants package {name:?}, which resolves outside the project root: {}",
+                    "the manifest names {what}, which resolves outside the project root: {}",
                     canonical.display()
                 )
             })?;
-            let relative = relative.to_string_lossy().replace('\\', "/");
-            // Installed in place: the path names it, and every nested copy too.
-            if relative.split('/').any(|segment| segment == "node_modules") {
-                continue;
-            }
-            // A workspace package: first-party files under a name. An explicit
-            // directory section for the same tree, if the author wrote one, wins.
-            let grants = self.per_package[&name].clone();
-            self.per_directory
-                .entry(format!("./{relative}/"))
-                .or_insert(grants);
+            Ok(relative.to_string_lossy().replace('\\', "/"))
+        };
+
+        let names: Vec<String> = self.per_package.keys().cloned().collect();
+        for name in names {
+            let installed = canonical_root.join("node_modules").join(&name);
+            let relative = relative_to_root(&installed, &format!("package {name:?}")).map_err(|_| {
+                format!(
+                    "the manifest grants package {name:?}, which is not installed under {}/node_modules. \
+                     Install it, or grant a copy nested under another package by its directory",
+                    canonical_root.display()
+                )
+            })?;
+            self.bound_packages.insert(format!("./{relative}/"), name);
+        }
+
+        let files: Vec<(String, GrantSet)> = std::mem::take(&mut self.per_module).into_iter().collect();
+        for (key, grants) in files {
+            let relative = relative_to_root(
+                &canonical_root.join(key.trim_start_matches("./")),
+                &format!("module [{key}]"),
+            )?;
+            self.per_module.insert(format!("./{relative}"), grants);
+        }
+        let directories: Vec<(String, GrantSet)> =
+            std::mem::take(&mut self.per_directory).into_iter().collect();
+        for (key, grants) in directories {
+            let relative = relative_to_root(
+                &canonical_root.join(key.trim_start_matches("./")),
+                &format!("directory [{key}]"),
+            )?;
+            self.per_directory.insert(format!("./{relative}/"), grants);
         }
         Ok(())
     }
@@ -967,67 +980,102 @@ mod tests {
         }));
     }
 
-    /// The package is named by its path, and only by its path.
-    #[test]
-    fn a_package_is_named_by_its_innermost_node_modules_segment() {
-        assert_eq!(package_of("./node_modules/react/index.js").as_deref(), Some("react"));
-        assert_eq!(package_of("./node_modules/react/cjs/react.js").as_deref(), Some("react"));
-        assert_eq!(package_of("./node_modules/@w/ui/index.js").as_deref(), Some("@w/ui"));
-        // A nested copy, and pnpm's layout, are still `react`.
-        assert_eq!(
-            package_of("./node_modules/a/node_modules/react/y.js").as_deref(),
-            Some("react")
-        );
-        assert_eq!(
-            package_of("./node_modules/.pnpm/react@19.0.0/node_modules/react/z.js").as_deref(),
-            Some("react")
-        );
-        // A package directory is not a module; a first-party file has no package.
-        assert_eq!(package_of("./node_modules/react"), None);
-        assert_eq!(package_of("./node_modules/@w/ui"), None);
-        assert_eq!(package_of("./src/index.js"), None);
-        assert_eq!(package_of("./packages/ui/index.js"), None);
-        // A directory that merely ends in the marker is not node_modules.
-        assert_eq!(package_of("./xnode_modules/react/index.js"), None);
+    /// A temp project with an in-place install, a look-alike, a scoped pair,
+    /// a workspace package, and a directory named after a granted package
+    /// nested inside another package.
+    fn bound(manifest: &str) -> (ModuleGrants, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "ibex2-bind-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("t").replace("::", "-")
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in [
+            "node_modules/react/cjs",
+            "node_modules/react-dom",
+            "node_modules/@w/ui",
+            "node_modules/@w/ui-extra",
+            "node_modules/evil/node_modules/react",
+            "node_modules/lodash",
+            "packages/wsp",
+            "src/deep",
+        ] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        for file in [
+            "node_modules/react/index.js",
+            "node_modules/react/cjs/react.production.js",
+            "node_modules/react/locked.js",
+            "node_modules/react-dom/index.js",
+            "node_modules/@w/ui/index.js",
+            "node_modules/@w/ui-extra/index.js",
+            "node_modules/evil/index.js",
+            "node_modules/evil/node_modules/react/index.js",
+            "node_modules/lodash/index.js",
+            "packages/wsp/index.js",
+            "src/a.js",
+            "src/deep/b.js",
+            "other.js",
+        ] {
+            std::fs::write(root.join(file), "").unwrap();
+        }
+        std::os::unix::fs::symlink(root.join("packages/wsp"), root.join("node_modules/@w/wsp")).unwrap();
+        let mut grants = ModuleGrants::parse(manifest).unwrap();
+        grants.bind(&root).unwrap();
+        (grants, root)
     }
 
-    /// `[react]` covers every file of react and nothing beside it: not
-    /// `react-dom`, not a sibling, not the module that imported it.
+    /// `[react]` covers the install `bind` resolved and nothing beside it: not
+    /// `react-dom`, not a sibling, not the module that imported it — and not
+    /// a directory named `react` nested inside another package, which is a
+    /// different install however it is spelt.
     #[test]
-    fn a_package_section_covers_the_package_and_nothing_beside_it() {
-        let grants = ModuleGrants::parse(
-            "[*]\n[react]\nnet.fetch https://api.example.com\n[@w/ui]\nfs.read /data\n",
-        )
-        .unwrap();
+    fn a_package_section_covers_its_install_and_nothing_beside_it() {
+        let (grants, root) = bound(
+            "[*]\n[react]\nnet.fetch https://api.example.com\n[@w/ui]\nfs.read /data\n[@w/wsp]\nfs.read /data\n",
+        );
         let api = Operation::Fetch {
             origin: Origin::new("https", "api.example.com", 443),
         };
         assert!(grants.for_module("./node_modules/react/index.js").permits(&api));
         assert!(grants.for_module("./node_modules/react/cjs/react.production.js").permits(&api));
-        assert!(grants.for_module("./node_modules/x/node_modules/react/index.js").permits(&api));
         assert!(!grants.for_module("./node_modules/react-dom/index.js").permits(&api));
         assert!(!grants.for_module("./node_modules/evil/index.js").permits(&api));
+        assert!(
+            !grants.for_module("./node_modules/evil/node_modules/react/index.js").permits(&api),
+            "a directory named after a granted package, nested in another package, is not that package"
+        );
         assert!(!grants.for_module("./index.js").permits(&api));
         let data = Operation::FsRead { path: "/data/x".into() };
         assert!(grants.for_module("./node_modules/@w/ui/index.js").permits(&data));
         assert!(!grants.for_module("./node_modules/@w/ui-extra/index.js").permits(&data));
         assert!(!grants.for_module("./node_modules/react/index.js").permits(&data));
+        // The workspace package is bound to its real directory.
+        assert!(grants.for_module("./packages/wsp/index.js").permits(&data));
+        assert!(
+            grants.bound_packages().any(|(dir, name)| dir == "./packages/wsp/" && name == "@w/wsp"),
+            "{:?}",
+            grants.bound_packages().collect::<Vec<_>>()
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Most specific wins, and nothing is combined: a file section beats its
-    /// package's, a package section beats a directory covering it, the
+    /// package's, a package section beats a directory covering it — a
+    /// workspace package's too, which the first version got backwards — the
     /// longest directory beats a shorter one, and `*` is last.
     #[test]
     fn the_most_specific_section_names_a_module_and_nothing_is_combined() {
-        let grants = ModuleGrants::parse(
+        let (grants, root) = bound(
             "[*]\nnet.fetch https://star.test\n\
              [./src/]\nnet.fetch https://src.test\n\
              [./src/deep/]\nnet.fetch https://deep.test\n\
              [./node_modules/]\nnet.fetch https://nm.test\n\
+             [./packages/]\nnet.fetch https://dir.test\n\
              [react]\nnet.fetch https://react.test\n\
+             [@w/wsp]\n\
              [./node_modules/react/locked.js]\n",
-        )
-        .unwrap();
+        );
         let reaches = |module: &str, host: &str| {
             grants.for_module(module).permits(&Operation::Fetch {
                 origin: Origin::new("https", host, 443),
@@ -1043,6 +1091,11 @@ mod tests {
             !reaches("./node_modules/react/locked.js", "react.test"),
             "an explicit empty file section inside a granted package still means nothing"
         );
+        assert!(
+            !reaches("./packages/wsp/index.js", "dir.test"),
+            "an empty package section beats a directory section covering the same workspace tree"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
