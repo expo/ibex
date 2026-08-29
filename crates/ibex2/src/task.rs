@@ -360,6 +360,9 @@ pub struct LoaderConfig {
     pub manifest: Option<crate::bytecode::Manifest>,
     /// What resolution asked the filesystem, for this loader's life.
     pub cache: crate::loader::ResolveCache,
+    /// The build's artifacts in one file, read once. A key it lacks falls
+    /// back to the artifact's own file.
+    pub bundle: Option<crate::bytecode::Bundle>,
 }
 
 impl RuntimeState {
@@ -383,6 +386,9 @@ impl RuntimeState {
         // source file is never opened.
         if let (Some(compiler), Some(manifest)) = (&config.compiler, &config.manifest) {
             if let Some(key) = manifest.get(&resolved) {
+                if let Some(bytes) = config.bundle.as_ref().and_then(|bundle| bundle.get(key)) {
+                    return Ok((resolved, bytes.to_vec()));
+                }
                 let bytes = compiler
                     .by_key(key)
                     .map_err(|e| format!("{resolved}: {e}"))?;

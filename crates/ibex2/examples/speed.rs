@@ -147,13 +147,16 @@ fn compiler_for(root: &Path) -> Option<ibex2::bytecode::Compiler> {
 fn build_bytecode(graph: &Graph, count: usize, compiler: &ibex2::bytecode::Compiler) -> Duration {
     let t = Instant::now();
     let mut manifest = ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
+    let mut artifacts = Vec::new();
     for spec in graph.specifiers(count) {
         let source = std::fs::read_to_string(graph.dir.join(spec.trim_start_matches("./"))).expect("read");
         let wrapped = ibex2::loader::lower_and_wrap(&source, &spec).expect("lower");
-        compiler.compile(&wrapped).expect("compile");
+        let bytes = compiler.compile(&wrapped).expect("compile");
         manifest.insert(&spec, &compiler.key(&wrapped));
+        artifacts.push((compiler.key(&wrapped), bytes));
     }
     manifest.write(&graph.dir.join(".ibex2/cache")).expect("manifest");
+    ibex2::bytecode::Bundle::write(&graph.dir.join(".ibex2/cache"), &artifacts).expect("bundle");
     t.elapsed()
 }
 
@@ -311,7 +314,21 @@ fn main() {
                     .collect(),
             );
             let keys: Vec<String> = (0..500).map(|i| manifest.get(&format!("./m{i}.js")).expect("key").to_string()).collect();
+            // The bundle read once plus one lookup and copy per module — what
+            // a run pays now — beside the per-file reads it replaced.
             let read_ms = median(
+                (0..5)
+                    .map(|_| {
+                        let t = Instant::now();
+                        let bundle = ibex2::bytecode::Bundle::read(&large.dir.join(".ibex2/cache")).expect("bundle");
+                        for key in &keys {
+                            let _ = bundle.get(key).expect("artifact").to_vec();
+                        }
+                        ms(t.elapsed())
+                    })
+                    .collect(),
+            );
+            let files_ms = median(
                 (0..5)
                     .map(|_| {
                         let t = Instant::now();
@@ -322,6 +339,7 @@ fn main() {
                     })
                     .collect(),
             );
+            put("graph_500_read_files_ms", num(files_ms));
             let artifacts: Vec<Vec<u8>> = keys.iter().map(|k| compiler.by_key(k).expect("artifact")).collect();
             let eval_ms = median(
                 (0..5)

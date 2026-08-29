@@ -199,6 +199,7 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     // Bound to the engine this binary links, so another binary refuses it.
     let mut manifest =
         ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
+    let mut artifacts: Vec<(String, Vec<u8>)> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     let mut built = 0usize;
 
@@ -215,12 +216,13 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
         // an incomplete graph that only failed later, at `run --precompiled`.
         let javascript = ibex2::loader::to_javascript(&source, &specifier)?;
         let wrapped = ibex2::loader::lower_and_wrap(&source, &specifier)?;
-        compiler
+        let bytes = compiler
             .compile(&wrapped)
             .map_err(|e| format!("{specifier}: {e}"))?;
         // Recorded so the runtime finds this artifact without opening, reading,
-        // or hashing the source again.
+        // or hashing the source again — and bundled, so it reads them all at once.
         manifest.insert(&specifier, &compiler.key(&wrapped));
+        artifacts.push((compiler.key(&wrapped), bytes));
         built += 1;
 
         // LLP 0064 §3.1: an importer writing `import { n }` snapshots, so a
@@ -299,6 +301,7 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     }
 
     manifest.write(&cache_dir(&root))?;
+    ibex2::bytecode::Bundle::write(&cache_dir(&root), &artifacts)?;
     println!("built {built} modules into {}", cache_dir(&root).display());
     Ok(())
 }

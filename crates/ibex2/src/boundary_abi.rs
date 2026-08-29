@@ -667,7 +667,7 @@ pub unsafe extern "C" fn ibex2_async_begin(
     // Counted before the thread starts, so the loop cannot see an idle moment
     // between "started" and "running".
     state.task_started();
-    std::thread::spawn(move || {
+    crate::pool::run(move || {
         let result = run_async(op, &owned, &state, &grants);
         state.queue.complete(task_id, result);
         state.task_finished();
