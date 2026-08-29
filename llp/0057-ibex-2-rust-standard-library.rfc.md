@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Module Loader, CapSec, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
+**Revised:** 2026-08-28 (OQ2 answered — in, whole — with the bounded list; OQ4 on third-party Rust) 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
 **Related:** LLP 0063 (where startup time goes — the measurement §7 said had not been taken), LLP 0000 (Ibex — the root this amends), LLP 0002 (host embedding ABI — the boundary this generalizes), LLP 0004 (module loading and builtins — the JS standard library this inverts), LLP 0013 (per-package capability compartments — the enforcement point this relocates), LLP 0039 (secure and insecure modes — the cost record this cites), LLP 0058 (the engine seam)
 
 ## Summary
@@ -268,8 +268,63 @@ Recommendation, given Exact 2's shape — no npm graph, no application JS
 before first pixel, Contract-first: *no, door open*. Undecided; the author
 decides.
 
+**Answered, later on 2026-08-28: *in, whole.*** The author expects Exact 2 to
+run JavaScript it did not write — npm dependencies, most likely — and
+possibly third-party Rust (OQ4). The recommendation above was conditional on
+the opposite, and it flips: the mechanism is cheaper to keep than to re-grow.
+"Whole" is bounded, and `issues/20260828-capsec-made-whole.md` carries the
+list:
+
+1. **One page states the model.** Authority arrives as module parameters,
+   never on the global object; grants are keyed by *package*; three families
+   today (origin, path prefix, environment name) and more only with a
+   measured call site; checked at the Rust boundary against the grant the
+   call carries, never against who is calling; intrinsics frozen at boot;
+   the global name list asserted before any module runs. Non-goals stay as
+   LLP 0062 §4 has them: not a sandbox — no defense against exhaustion,
+   voluntary handoff, or timing.
+2. **Package-level grants** (LLP 0065 OQ2). Grants key on file paths today,
+   so a real dependency manifest is unwritable. A package is a prefix of its
+   canonical path — `./node_modules/react/` — which §4.1's one-file-one-name
+   rule already makes exact.
+3. **The freeze under `caps`**, at its measured 1.7 ms, so the tax is a
+   number the build refuses to exceed rather than a fact remembered.
+4. **The proof is the test suite** — grants honoured, denials, the
+   adversarial fixtures that exist, R5, the closure scan — plus the artifact
+   keyed to the engine receipt. No graduation manifest, no tier
+   definitions, no five-platform ceremony, no policy generations, no
+   revocation ancestry until something needs revoking. LLP 0058.000.001's
+   G1–G6 program is tombstoned; what its §7 wanted as *tests* is kept as
+   tests.
+
+The line that keeps it whole rather than endless: the claim is supply-chain
+integrity against packages that were not granted, and the evidence is tests
+that fail. The moment the ask becomes "prove no path bypasses the boundary
+on five platforms," it is Ibex 1 again, and the answer is no.
+
 **OQ3 — The event loop.** How the Rust executor and the engine's job queue
 interleave, and who owns the microtask drain. Owned by LLP 0058.
+
+**OQ4 — Third-party Rust.** Raised 2026-08-28: Exact 2 may run Rust code its
+author did not write, as well as JavaScript. The JavaScript model does not
+extend to native Rust: a Rust crate linked into the process has ambient
+authority and no boundary to check at. Two honest shapes, and they are
+different problems:
+
+- *Rust dependencies of the runtime itself* are the ordinary supply chain —
+  trusted at build time, audited with `cargo vet` / `cargo deny`, never
+  loaded at run time. Not capsec.
+- *Rust loaded at run time* — plugins, extensions, app data crates from a
+  registry — should be **wasm modules with explicit imports**. Exact 2
+  already builds its kernel for `wasm32`; a wasm module can reach only what
+  its host hands it, which is the same rule as the module parameters above,
+  enforced by the wasm runtime rather than by this one. One model for both:
+  code you did not write gets only what it is handed — JavaScript through
+  parameters, Rust through imports.
+
+Whether Exact 2 wants the second shape is Exact 2's decision; this document
+only says that native Rust is not a capability boundary and should not be
+described as one.
 
 ## 7. What this does not claim
 
