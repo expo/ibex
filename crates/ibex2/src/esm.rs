@@ -257,6 +257,65 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
+/// An expression-level module form. Lowered wherever the text containing it
+/// is copied, never as a top-level splice — see `render`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpressionForm {
+    /// `import.meta`, injected per module so `import.meta.url` is this
+    /// module's URL while the wrapper text stays identical across modules —
+    /// which is what keeps one artifact per distinct source.
+    Meta,
+    /// `import(...)`, lowered to the module's OWN require so the specifier
+    /// resolves relative to this module and the imported module's grants are
+    /// looked up under its own resolved name. The argument expression is kept
+    /// exactly as written, computed specifiers included.
+    DynamicImport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExpressionSite {
+    start: usize,
+    end: usize,
+    form: ExpressionForm,
+}
+
+/// Copy `source[start..end]`, lowering every expression form inside it.
+///
+/// Recursive, because the forms nest: `import(new URL('./z', import.meta.url))`
+/// is a dynamic import whose argument contains `import.meta`. `sites` is
+/// sorted by start, so an outer form is reached before anything inside it,
+/// and the inner forms are rendered by the outer form's own recursion — the
+/// `site.start < cursor` skip is what keeps this loop from rendering them a
+/// second time.
+fn render(source: &str, start: usize, end: usize, sites: &[ExpressionSite]) -> String {
+    let mut out = String::with_capacity(end - start + 32);
+    let mut cursor = start;
+    for site in sites {
+        if site.start < start || site.end > end || site.start < cursor {
+            continue;
+        }
+        out.push_str(&source[cursor..site.start]);
+        match site.form {
+            ExpressionForm::Meta => out.push_str("__ibex2_meta"),
+            ExpressionForm::DynamicImport => {
+                // The argument is whatever lies between the outermost
+                // parentheses; `import (x)` with a space is legal too.
+                let open = source[site.start..site.end]
+                    .find('(')
+                    .map(|at| site.start + at + 1)
+                    .unwrap_or(site.end);
+                let close = site.end.saturating_sub(1).max(open);
+                out.push_str("__ibex2_dynamic_import(require, ");
+                out.push_str(&render(source, open, close, sites));
+                out.push(')');
+            }
+        }
+        cursor = site.end;
+    }
+    out.push_str(&source[cursor..end]);
+    out
+}
+
 /// Lower ES module syntax to the CommonJS-shaped factory body the loader runs.
 ///
 /// Returns the source unchanged when it uses no module syntax, so a CommonJS
@@ -280,35 +339,39 @@ pub fn lower(source: &str) -> Result<String, String> {
     // visitor rather than the statement walk below. Neither parses in Hermes;
     // both parse in Oxc, and lowering them here is what makes that difference
     // invisible to application code.
+    //
+    // They are not splices of their own. An expression lives INSIDE something
+    // — an exported function's body, a default export's initializer, another
+    // dynamic import's argument — and a module declaration's rewrite copies
+    // its span verbatim. As top-level splices they collided with the
+    // declaration containing them, and every
+    // `export async function load() { return import('./x') }` in Exact was
+    // refused as "overlapping module declarations". So every copy of source
+    // text goes through `render`, which lowers the expression sites the copied
+    // range contains.
     let forms = expression_forms(&parsed.program);
-    for (start, end) in &forms.meta {
-        saw_module_syntax = true;
-        splices.push(Splice {
+    let mut sites: Vec<ExpressionSite> = forms
+        .meta
+        .iter()
+        .map(|(start, end)| ExpressionSite {
             start: *start,
             end: *end,
-            // Injected per module, so `import.meta.url` is this module's URL
-            // while the wrapper text stays identical across modules — which is
-            // what keeps one artifact per distinct source.
-            replacement: "__ibex2_meta".to_string(),
-            hoisted: false,
-        });
-    }
-    for (start, end, _) in &forms.dynamic_imports {
+            form: ExpressionForm::Meta,
+        })
+        .chain(
+            forms
+                .dynamic_imports
+                .iter()
+                .map(|(start, end, _)| ExpressionSite {
+                    start: *start,
+                    end: *end,
+                    form: ExpressionForm::DynamicImport,
+                }),
+        )
+        .collect();
+    sites.sort_by_key(|site| site.start);
+    if !sites.is_empty() {
         saw_module_syntax = true;
-        // The module's OWN require, so the specifier resolves relative to this
-        // module and the imported module's grants are looked up under its own
-        // resolved name. Wrapping rather than replacing keeps the argument
-        // expression exactly as written, computed specifiers included.
-        let argument = &source[*start + "import".len()..*end];
-        splices.push(Splice {
-            start: *start,
-            end: *end,
-            replacement: format!(
-                "__ibex2_dynamic_import(require, {})",
-                &argument[1..argument.len() - 1]
-            ),
-            hoisted: false,
-        });
     }
 
     for statement in &parsed.program.body {
@@ -378,8 +441,12 @@ pub fn lower(source: &str) -> Result<String, String> {
                 if let Some(inner) = &declaration.declaration {
                     // `export const x = 1` / `export function f() {}` — keep the
                     // declaration exactly as written and publish it after.
-                    let text = &source[inner.span().start as usize..inner.span().end as usize];
-                    parts.push(text.to_string());
+                    parts.push(render(
+                        source,
+                        inner.span().start as usize,
+                        inner.span().end as usize,
+                        &sites,
+                    ));
                     for name in declared_names(inner) {
                         parts.push(live_export(&name, &name));
                     }
@@ -413,14 +480,14 @@ pub fn lower(source: &str) -> Result<String, String> {
                     // A named function or class keeps its name, so recursion and
                     // self-reference still work.
                     ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
-                        let text = &source[f.span.start as usize..f.span.end as usize];
+                        let text = render(source, f.span.start as usize, f.span.end as usize, &sites);
                         match &f.id {
                             Some(id) => format!("{text} exports.default = {};", id.name),
                             None => format!("exports.default = {text};"),
                         }
                     }
                     ExportDefaultDeclarationKind::ClassDeclaration(c) => {
-                        let text = &source[c.span.start as usize..c.span.end as usize];
+                        let text = render(source, c.span.start as usize, c.span.end as usize, &sites);
                         match &c.id {
                             Some(id) => format!("{text} exports.default = {};", id.name),
                             None => format!("exports.default = {text};"),
@@ -428,7 +495,7 @@ pub fn lower(source: &str) -> Result<String, String> {
                     }
                     other => {
                         let span = other.span();
-                        let text = &source[span.start as usize..span.end as usize];
+                        let text = render(source, span.start as usize, span.end as usize, &sites);
                         format!("exports.default = {text};")
                     }
                 };
@@ -484,7 +551,7 @@ pub fn lower(source: &str) -> Result<String, String> {
         if splice.start < cursor {
             return Err("overlapping module declarations".into());
         }
-        out.push_str(&source[cursor..splice.start]);
+        out.push_str(&render(source, cursor, splice.start, &sites));
         // A hoisted import leaves nothing behind, so line structure is
         // preserved for anything that later maps positions.
         if !splice.hoisted {
@@ -492,7 +559,7 @@ pub fn lower(source: &str) -> Result<String, String> {
         }
         cursor = splice.end;
     }
-    out.push_str(&source[cursor..]);
+    out.push_str(&render(source, cursor, source.len(), &sites));
     Ok(out)
 }
 
@@ -801,5 +868,68 @@ mod tests {
     fn a_syntax_error_is_reported_rather_than_mangled() {
         let err = lower("import { from './x';").unwrap_err();
         assert!(!err.is_empty());
+    }
+
+    /// Exact's route loaders are `export async function load() { return
+    /// import('./x') }`: an expression form inside a declaration whose span
+    /// the export rewrite copies verbatim. Lowered as two top-level splices
+    /// over one range they were refused as overlapping, and 21 of Exact's
+    /// modules failed to lower at all.
+    #[test]
+    fn expression_forms_inside_an_exported_declaration_are_lowered() {
+        let out = lowered(
+            "export async function load() { return import('./x.js'); }\n\
+             export const here = import.meta.url;\n",
+        );
+        assert!(
+            out.contains("__ibex2_dynamic_import(require, './x.js')"),
+            "{out}"
+        );
+        assert!(out.contains("const here = __ibex2_meta.url;"), "{out}");
+        assert!(
+            out.contains(r#"Object.defineProperty(exports, "load""#),
+            "{out}"
+        );
+        assert!(!out.contains("return import("), "{out}");
+        assert!(!out.contains("import.meta"), "{out}");
+    }
+
+    #[test]
+    fn expression_forms_inside_a_default_export_are_lowered() {
+        let out = lowered("export default function f() { return import.meta.url; }\n");
+        assert!(out.contains("return __ibex2_meta.url;"), "{out}");
+        assert!(out.contains("exports.default = f;"), "{out}");
+
+        let out = lowered("export default () => import('./y.js');\n");
+        assert!(
+            out.contains("exports.default = () => __ibex2_dynamic_import(require, './y.js');"),
+            "{out}"
+        );
+    }
+
+    /// The forms nest: a dynamic import whose specifier is built from
+    /// `import.meta`. The inner form is rendered inside the outer's argument,
+    /// once.
+    #[test]
+    fn nested_expression_forms_are_lowered_inside_out() {
+        let out = lowered(
+            "export const p = import(new URL('./z.js', import.meta.url).href);\n",
+        );
+        assert!(
+            out.contains(
+                "__ibex2_dynamic_import(require, new URL('./z.js', __ibex2_meta.url).href)"
+            ),
+            "{out}"
+        );
+        assert_eq!(out.matches("__ibex2_meta").count(), 1, "{out}");
+    }
+
+    /// A form outside any declaration still lowers, and at top level a
+    /// dynamic import alone is enough to need the wrapper's helpers.
+    #[test]
+    fn expression_forms_between_declarations_are_lowered() {
+        let out = lowered("import { a } from './a';\nconst p = import('./b.js');\nexport { a };\n");
+        assert!(out.contains("const p = __ibex2_dynamic_import(require, './b.js');"), "{out}");
+        assert!(out.contains(r#"require("./a")"#), "{out}");
     }
 }

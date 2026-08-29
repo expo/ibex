@@ -238,8 +238,26 @@ fn contain(root: &Path, path: &Path, specifier: &str) -> Result<String, String> 
 }
 
 pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, String> {
+    resolve_for(root, None, from, specifier)
+}
+
+/// `resolve`, for a declared platform.
+///
+/// The platform is an input to resolution, not a filter applied after it: a
+/// file with a platform suffix shadows the unsuffixed one, on both arms.
+/// Declared, like the root (LLP 0065 §5) — there is nothing on disk that says
+/// which platform a program is being run for, and guessing one would select
+/// modules the author never chose.
+///
+/// @ref LLP 0065#8-platform-variants — the rule and what it does not cover
+pub fn resolve_for(
+    root: &Root,
+    platform: Option<&str>,
+    from: &str,
+    specifier: &str,
+) -> Result<String, String> {
     if !specifier.starts_with("./") && !specifier.starts_with("../") {
-        return resolve_bare(root, from, specifier);
+        return resolve_bare(root, platform, from, specifier);
     }
 
     let from_dir = Path::new(from).parent().unwrap_or(Path::new(""));
@@ -276,12 +294,14 @@ pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, Strin
     // OUTPUT extension in the source. Both have to resolve or a TypeScript
     // codebase cannot import anything.
     if let Some(resolved) = probe_extensions(root, &relative) {
+        let path = root.join(&resolved);
+        let path = platform_variant(&path, platform).unwrap_or(path);
         // Through `contain`, not straight out: the lexical walk above proves
         // the *spelling* stays inside the root, which says nothing about where
         // a symlink at that spelling points. Returning here directly is how a
         // package could `require('./payload')` and execute bytes from outside
         // the project under an inside name.
-        return contain(root, &root.join(&resolved), specifier);
+        return contain(root, &path, specifier);
     }
 
     // Nothing on disk. Return the specifier as written so the error names what
@@ -298,7 +318,12 @@ pub fn resolve(root: &Root, from: &str, specifier: &str) -> Result<String, Strin
 ///
 /// @ref LLP 0065#2-node_modules-is-inside-the-project-not-a-hole-in-it — containment
 /// still applies, and matters more here because resolution walks upward
-fn resolve_bare(root: &Root, from: &str, specifier: &str) -> Result<String, String> {
+fn resolve_bare(
+    root: &Root,
+    platform: Option<&str>,
+    from: &str,
+    specifier: &str,
+) -> Result<String, String> {
     // A package name is a question about the project, and without a declared
     // root there is no project to ask — only the directory this file happens
     // to sit in. Refuse, and say what would fix it. Guessing here is how a
@@ -355,12 +380,65 @@ fn resolve_bare(root: &Root, from: &str, specifier: &str) -> Result<String, Stri
     // Containment matters more on this arm than the other: Node resolution
     // walks UP the directory tree, so without it a package could resolve to a
     // node_modules outside the project entirely.
-    contain(root, resolved.path(), specifier)
+    //
+    // The variant applies here too: a workspace package's `exports` names an
+    // unsuffixed source file, and `scheduler` ships an `index.native.js`
+    // beside its `index.js` for exactly this rule.
+    let path = platform_variant(resolved.path(), platform)
+        .unwrap_or_else(|| resolved.path().to_path_buf());
+    contain(root, &path, specifier)
+}
+
+/// The suffixes a platform selects, most specific first: `mac` tries
+/// `x.mac.ext`, then `x.native.ext`, then `x.ext`. This is Metro's rule —
+/// `preferNativePlatform` — and Exact's `platformVariantPriority` table agrees
+/// with it for every platform Ibex 2 targets. `web` is the exception in both:
+/// a web build never wants a native file.
+pub fn platform_variants(platform: &str) -> Vec<String> {
+    if platform == "web" || platform == "native" {
+        vec![platform.to_string()]
+    } else {
+        vec![platform.to_string(), "native".to_string()]
+    }
+}
+
+/// The platform-suffixed sibling that shadows `path`, if one exists.
+///
+/// Only script files are varianted — a `.json` has no platform — and a file
+/// that already carries one of the chain's suffixes is left alone, so
+/// `./x.native.ts` asked for by name is what is returned.
+fn platform_variant(path: &Path, platform: Option<&str>) -> Option<PathBuf> {
+    let platform = platform?;
+    let file = path.file_name()?.to_str()?;
+    let (stem, ext) = file.rsplit_once('.')?;
+    let ext = format!(".{ext}");
+    if ext == ".json" || !EXTENSIONS.contains(&ext.as_str()) {
+        return None;
+    }
+    let variants = platform_variants(platform);
+    if variants.iter().any(|v| stem.ends_with(&format!(".{v}"))) {
+        return None;
+    }
+    let dir = path.parent()?;
+    for variant in &variants {
+        for candidate_ext in EXTENSIONS.iter().filter(|e| **e != ".json") {
+            let candidate = dir.join(format!("{stem}.{variant}{candidate_ext}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// Extensions tried, in order. TypeScript first: in a project that has both,
 /// the `.ts` is the source and the `.js` is build output.
-pub const EXTENSIONS: &[&str] = &[".ts", ".tsx", ".mts", ".js", ".mjs", ".jsx", ".cjs"];
+/// `.json` is last, as in Node: a `.js` sibling wins for an extensionless
+/// specifier. It is here at all because Exact's boot graph imports JSON —
+/// `@exact/core`'s colour policy is the first module `main.tsx` reaches that
+/// is not JavaScript — and a resolver that cannot find `data.json` behind
+/// `require('pkg/data')` reports a missing module for a file that exists.
+pub const EXTENSIONS: &[&str] = &[".ts", ".tsx", ".mts", ".js", ".mjs", ".jsx", ".cjs", ".json"];
 
 /// Find the file a specifier names, allowing for an omitted or rewritten
 /// extension.
@@ -442,9 +520,12 @@ pub fn wrap(source: &str) -> String {
 /// the wrapper must therefore be the LOWERED form. Two call sites producing the
 /// wrapper differently would produce two keys for one module.
 pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
-    Ok(wrap(&crate::esm::lower(&to_javascript(
-        source, specifier,
-    )?)?))
+    let javascript = to_javascript(source, specifier)?;
+    // Named, because the error reaches the author through a dynamic import's
+    // rejection or a build failure, and "overlapping module declarations"
+    // with no module is a search rather than a diagnosis.
+    let lowered = crate::esm::lower(&javascript).map_err(|e| format!("{specifier}: {e}"))?;
+    Ok(wrap(&lowered))
 }
 
 /// A module's source as JavaScript, before ESM lowering.
@@ -459,11 +540,60 @@ pub fn lower_and_wrap(source: &str, specifier: &str) -> Result<String, String> {
 /// original source cannot see that edge, so the module never gets compiled and
 /// `run --precompiled` fails on a graph the build reported as complete.
 pub fn to_javascript(source: &str, specifier: &str) -> Result<String, String> {
-    if crate::typescript::needs_stripping(specifier) {
+    if specifier.ends_with(".json") {
+        Ok(json_module(source))
+    } else if crate::typescript::needs_stripping(specifier) {
         crate::typescript::strip(source, specifier)
     } else {
         Ok(source.to_string())
     }
+}
+
+/// A JSON module: a CommonJS module whose `module.exports` is the parsed
+/// value, so `import data from './x.json'` binds it through the default
+/// interop and `require('./x.json')` returns it directly.
+///
+/// Parsed with `JSON.parse` at load rather than pasted in as an object
+/// literal, because the two disagree: a literal `{"__proto__": …}` sets the
+/// prototype where JSON gives an own property, and JSON's grammar is not a
+/// subset of an expression's in every engine. Compiled to bytecode like any
+/// other module, so a large JSON file is a string constant in the artifact and
+/// costs one parse at load — the same as it would in Node.
+///
+/// Import attributes (`with { type: 'json' }`) are accepted and not required.
+/// Node and the browser require them; Exact's own imports are split between
+/// the two forms, and a bundler-targeted codebase does not get to be strict
+/// about what its bundler never enforced. Named imports from a JSON module
+/// are permitted for the same reason — the lowering destructures
+/// `module.exports` — where the specification allows only `default`.
+fn json_module(text: &str) -> String {
+    format!("module.exports = JSON.parse({});", js_string_literal(text))
+}
+
+/// `text` as a double-quoted JavaScript string literal.
+///
+/// U+2028 and U+2029 are escaped even though ES2019 admits them in literals,
+/// because the same text is also a build-time scan target and a bytecode
+/// constant, and a line terminator inside a literal is what every tool that
+/// splits on lines gets wrong.
+fn js_string_literal(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// The global names a module may see. Anything outside this list on
@@ -605,6 +735,30 @@ mod tests {
             resolve(&Root::Declared(root()), "./index.js", "./a.js").unwrap(),
             "./a.js"
         );
+    }
+
+    /// A JSON module becomes `module.exports = JSON.parse("…")`: the text is
+    /// carried as a string literal and parsed at load, never pasted in as an
+    /// object literal. The text passes through the ESM lowering and the build
+    /// walk's dependency scan untouched, however much it looks like code.
+    #[test]
+    fn a_json_module_is_parsed_not_evaluated() {
+        let text = "{\"a\": \"line\\nbreak\"}\n";
+        let out = to_javascript(text, "./x.json").unwrap();
+        assert_eq!(
+            out,
+            "module.exports = JSON.parse(\"{\\\"a\\\": \\\"line\\\\nbreak\\\"}\\n\");"
+        );
+        assert!(
+            to_javascript("\"\u{2028}\"", "./x.json").unwrap().contains("\\u2028"),
+            "a line terminator inside the literal is escaped"
+        );
+
+        let looks_like_code = "{\"k\": \"import a from './b'; require('./c')\"}";
+        let javascript = to_javascript(looks_like_code, "./x.json").unwrap();
+        assert!(crate::esm::dependencies(&javascript, "./x.json").is_empty());
+        assert_eq!(crate::esm::lower(&javascript).unwrap(), javascript);
+        assert!(lower_and_wrap(looks_like_code, "./x.json").unwrap().contains("JSON.parse("));
     }
 
     #[test]

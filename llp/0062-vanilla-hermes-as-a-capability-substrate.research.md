@@ -5,6 +5,7 @@
 **Systems:** CapSec, Runtime, Engine, Module Loader
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
+**Revised:** 2026-08-28 (§3: the global object is no longer frozen, only its bindings locked — running Exact showed 193 `globalThis.__exact*` anchors silently failing)
 **Revised:** 2026-08-28 (Ibex 2's measured engine is `IBEX_HERMES_VANILLA_SOURCE_COMMIT` `6badada762121682b5481b6124e6c3a991ae6046`; the numbers below were taken on the previous vanilla checkout of the patched pin `e639a7ba` and should be re-read if they drift)
 **Revised:** 2026-08-28 (rescoped from Spec to Research after LLP 0058.000 and 0058.000.000 landed from a dual-model review: they own the requirements normatively, and this measures the engine facts they state as conditionals. §1 now points at them rather than competing.) 2026-08-28 (initial draft)
 **Related:** LLP 0058.000 (vanilla Hermes and the Rust capability boundary — **normative**; this measures what it assumes), LLP 0058.000.000 (capability-context and adapter protocol — normative for §1's requirements), LLP 0060 (superseded; the independently-derived decision), LLP 0057 (Ibex 2 §4 — where capsec moves), LLP 0059.000 (the host-call boundary this sits above), LLP 0013 (per-package compartments — the retired mechanism), LLP 0023 (the virtual filesystem namespace the loader addresses)
@@ -122,6 +123,23 @@ cap, and it tracks **visited** so cycles terminate.
 **This discharges LLP 0060 OQ1.** Freeze at boot and pay ~2 ms. Patch 0006's
 native deep-freeze was worth about that much wall clock — a performance
 optimization, not a capability requirement.
+
+**The global object itself is not frozen** (2026-08-28). The first freeze walked
+from `globalThis` and froze it along with everything under it. Running Exact
+showed what that costs: its runtime anchors shared state on the global object
+under 193 distinct `__exact*` names, plus `process`, `window`, `self`,
+`global`, and `navigator`, and with the object frozen every one of those
+writes silently did nothing — the symptom was a `TypeError` three modules
+later, reading a registry that had never been created. The freeze now locks
+each existing global binding (non-writable, non-configurable, so `Array`
+cannot be pointed elsewhere) and freezes everything reachable from them, but
+leaves the object extensible. That is the SES lockdown shape — shared
+intrinsics immutable, the global object a compartment's own — and it gives up
+nothing R1 or this section claims: a property an application adds is state,
+not authority. What it does give up is a channel: two modules can now
+communicate through a global they both name. §4 already declines to defend
+against voluntary handoff, and this is that with an extra step.
+`crates/ibex2/tests/harden.rs` pins both halves.
 
 ## 3.1 A language conformance gap that reaches ordinary code
 

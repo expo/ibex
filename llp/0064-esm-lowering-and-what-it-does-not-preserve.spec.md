@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
+**Revised:** 2026-08-28 (§8 JSON modules, from running Exact's native entry — its boot graph imports two; and the expression-form nesting fix, since 21 of Exact's modules put `import()` inside an exported function)
 **Revised:** 2026-08-28 (§7: `import.meta` and dynamic `import()` are lowered rather than left to the engine, since Oxc parses what Hermes will not and the transform already sits between them — 807 and 759 uses in Exact respectively. §7.1 records why top-level await is deferred rather than joining them.) 2026-08-28 (§4.1: both remaining divergences are now reported by `ibex2 build` rather than left silent. Measurement added — Exact has 3 `export let` against 12,677 immutable exports and 112 barrel files, which is why §3.1 gets a warning and not the §5 fix.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — the parser this uses), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why ESM is required), LLP 0026 (ESM module runner — Ibex 1's prior art), LLP 0058.000.001 (greenfield kernel — the loader this sits in), LLP 0062 (measured engine facts, §3.1 — the `for-of` bug found here), LLP 0058 (the engine seam, OQ3 — the conformance floor this argues for), LLP 0065 (package resolution — how a specifier becomes the module this lowers)
 
@@ -210,3 +211,30 @@ and this document says what belongs in it — closure capture in loops, live
 bindings across modules, cycle behaviour. A runtime that gets these wrong
 miscomputes silently, which is the failure mode a test suite is worth the most
 against.
+
+## 8. JSON modules
+
+A `.json` module is a CommonJS module whose `module.exports` is the parsed
+value: `import data from './x.json'` binds it through the default interop and
+`require('./x.json')` returns it. Exact's native boot graph reaches two —
+`@exact/core`'s colour policy is the first module `main.tsx` loads that is not
+JavaScript — and the repository has eight, three of them written with
+`with { type: 'json' }`.
+
+Parsed with `JSON.parse` at load rather than pasted in as an object literal: a
+literal `{"__proto__": …}` sets the prototype where JSON gives an own property.
+The text is a string constant in the bytecode artifact, so a JSON module
+compiles ahead of time like any other and costs one parse at load, as it does
+in Node.
+
+Two divergences, both permissive. Import attributes are accepted and not
+required, where Node and the browser require them; Exact's imports are split
+between the two forms and its bundler never enforced either. Named imports
+(`import { a } from './x.json'`) work, because the lowering destructures
+`module.exports`, where the specification allows only `default`. Neither can
+make a working program fail; both let a program work here that would fail
+elsewhere, which is the opposite direction from the divergences in §3.
+
+`.json` is last in the extension probe (LLP 0065), so a `.js` sibling wins for
+an extensionless specifier, as in Node.
+

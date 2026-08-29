@@ -48,7 +48,11 @@ struct Ibex2Runtime {
   // Loaded modules, by resolved specifier. Held here rather than on the global
   // object: a module registry reachable from JavaScript would let any module
   // read any other's exports without requiring it (LLP 0062 R1).
-  std::unordered_map<std::string, std::shared_ptr<jsi::Object>> modules;
+  // What `require` returns for each loaded module, keyed by resolved
+  // specifier. A VALUE, not an object: `module.exports = 'text'` or `= 42` is
+  // legal CommonJS, and a registry of objects silently handed back the empty
+  // original in its place.
+  std::unordered_map<std::string, std::shared_ptr<jsi::Value>> modules;
   // Grant sets handed to module bindings, released when the runtime is.
   std::vector<const void *> module_grants;
 };
@@ -578,9 +582,9 @@ private:
   std::vector<unsigned char> bytes_;
 };
 
-std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
-                                         const std::string &from,
-                                         const std::string &specifier);
+std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
+                                        const std::string &from,
+                                        const std::string &specifier);
 
 // `require`, closed over the specifier of the module that holds it — so a
 // relative path resolves against the right file, and a module cannot claim to
@@ -600,9 +604,9 @@ jsi::Function make_require(jsi::Runtime &runtime, Ibex2Runtime *owner,
       });
 }
 
-std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
-                                         const std::string &from,
-                                         const std::string &specifier) {
+std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
+                                        const std::string &from,
+                                        const std::string &specifier) {
   Ibex2AbiValue resolved{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
   Ibex2AbiValue source{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
   int status = ibex2_loader_load(owner->queue, from.c_str(), specifier.c_str(),
@@ -632,7 +636,8 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
   auto exports = std::make_shared<jsi::Object>(rt);
   module->setProperty(rt, "exports", jsi::Value(rt, *exports));
   // Registered BEFORE evaluation, so a cycle finds this entry.
-  owner->modules[resolved_name] = exports;
+  auto partial = std::make_shared<jsi::Value>(rt, *exports);
+  owner->modules[resolved_name] = partial;
 
   // A function EXPRESSION, evaluated by the host. new Function cannot be used
   // — dynamic code is closed at construction (LLP 0060 D4) — which is why the
@@ -722,14 +727,15 @@ std::shared_ptr<jsi::Object> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
       std::move(fetch_binding), std::move(fs), std::move(process),
       std::move(meta));
 
-  // `module.exports = ...` replaces the object, so re-read it after running.
-  jsi::Value final_exports = module->getProperty(rt, "exports");
-  if (final_exports.isObject()) {
-    auto replaced = std::make_shared<jsi::Object>(final_exports.getObject(rt));
-    owner->modules[resolved_name] = replaced;
-    return replaced;
-  }
-  return exports;
+  // `module.exports = ...` replaces the value, so re-read it after running.
+  // Whatever it is — object, function, string, number — is what `require`
+  // returns; the only thing that must not be lost is the identity of the
+  // original object when it was kept, so a cycle's partial view stays the
+  // same object as the final one.
+  auto final_exports =
+      std::make_shared<jsi::Value>(rt, module->getProperty(rt, "exports"));
+  owner->modules[resolved_name] = final_exports;
+  return final_exports;
 }
 
 } // namespace

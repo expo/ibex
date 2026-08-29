@@ -1,6 +1,7 @@
 # `require('pkg/data')` cannot reach a `.json` file
 
-**Status:** Open
+**Status:** Closed
+**Resolved:** 2026-08-28
 **Impact:** 2
 **Urgency:** 2
 **Ease:** 3
@@ -32,3 +33,24 @@ the right answer may be to keep refusing it with a message that says so.
 
 **Done when:** either `.json` imports work with a decided ESM shape, or the
 refusal names JSON explicitly instead of reporting a missing module.
+
+## Resolution (2026-08-28)
+
+Measured against Exact's graph, as the ticket asked: the native boot graph
+imports two JSON modules, and `@exact/core`'s `color-v1.policy.json` is the
+first non-JavaScript module `main.tsx` reaches — the run stopped on it. So
+JSON is a module format, not a refusal to word better.
+
+Both halves landed. `.json` is last in `loader::EXTENSIONS`, so `require('pkg/data')`
+and an extensionless relative specifier find it and a `.js` sibling still wins.
+`loader::to_javascript` turns a `.json` module into
+`module.exports = JSON.parse("…")` — parsed, not evaluated as a literal, so
+`__proto__` keys are own properties — and from there it is an ordinary
+CommonJS module: lowered, wrapped, compiled to bytecode, keyed like any other.
+Default import, `require`, and the `with { type: 'json' }` attribute all work;
+the attribute is accepted rather than required, and named imports are
+permitted, both recorded as permissive divergences in LLP 0064 §8.
+
+Tests: `a_json_module_is_parsed_not_evaluated` (unit) and
+`json_modules_load_as_their_parsed_value` (engine).
+

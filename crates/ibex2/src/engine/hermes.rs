@@ -210,16 +210,18 @@ impl Hermes {
     /// Without a compiler the loader falls back to source, which
     /// `rules/RULES.md` forbids for anything shippable; see `set_loader_with`.
     pub fn set_loader(&mut self, root: crate::loader::Root, grants: crate::loader::ModuleGrants) {
-        self.set_loader_with(root, grants, None, false)
+        self.set_loader_with(root, grants, None, false, None)
     }
 
-    /// Point the loader at a root, with ahead-of-time compilation.
+    /// Point the loader at a root, with ahead-of-time compilation and, when
+    /// declared, the platform whose file variants shadow unsuffixed modules.
     pub fn set_loader_with(
         &mut self,
         root: crate::loader::Root,
         grants: crate::loader::ModuleGrants,
         compiler: Option<crate::bytecode::Compiler>,
         precompiled_only: bool,
+        platform: Option<String>,
     ) {
         let manifest = compiler
             .as_ref()
@@ -233,6 +235,7 @@ impl Hermes {
                 grants,
                 compiler,
                 precompiled_only,
+                platform,
                 manifest,
             });
         }
