@@ -178,10 +178,16 @@ fn load(root: &Path, compiler: Option<ibex2::bytecode::Compiler>, precompiled: b
     ms(t.elapsed())
 }
 
-fn load_median(root: &Path, compiler: Option<&ibex2::bytecode::Compiler>, precompiled: bool, runs: usize) -> f64 {
+/// (median, minimum) over `runs`. The minimum is the number to track: it is
+/// the cost with the least of the machine's other work in it, and LLP 0063
+/// §2 says to take it for exactly that reason. The median says how noisy
+/// the run was.
+fn load_stats(root: &Path, compiler: Option<&ibex2::bytecode::Compiler>, precompiled: bool, runs: usize) -> (f64, f64) {
     // One warm run first: the point is steady-state cost, not page cache.
     let _ = load(root, compiler.cloned(), precompiled);
-    median((0..runs).map(|_| load(root, compiler.cloned(), precompiled)).collect())
+    let samples: Vec<f64> = (0..runs).map(|_| load(root, compiler.cloned(), precompiled)).collect();
+    let min = samples.iter().cloned().fold(f64::INFINITY, f64::min);
+    (median(samples), min)
 }
 
 // --- the boundary ----------------------------------------------------------
@@ -265,22 +271,23 @@ fn main() {
 
     // A 100-module graph from source: the cost bytecode exists to remove.
     let small = Graph::build(100);
-    put("graph_100_source_ms", num(load_median(&small.dir, None, false, 3)));
+    put("graph_100_source_ms", num(load_stats(&small.dir, None, false, 3).0));
 
     // The same graph, and a 500-module one, from ahead-of-time bytecode.
     match compiler_for(&small.dir) {
         Some(compiler) => {
             build_bytecode(&small, 100, &compiler);
-            put("graph_100_bytecode_ms", num(load_median(&small.dir, Some(&compiler), true, 5)));
+            put("graph_100_bytecode_ms", num(load_stats(&small.dir, Some(&compiler), true, 5).0));
             drop(small);
             let large = Graph::build(500);
             let compiler = compiler_for(&large.dir).expect("compiler");
             let build = build_bytecode(&large, 500, &compiler);
             put("graph_500_build_ms", num(ms(build)));
             put("graph_500_bytes", large.bytes.to_string());
-            let loaded = load_median(&large.dir, Some(&compiler), true, 5);
+            let (loaded, best) = load_stats(&large.dir, Some(&compiler), true, 7);
             put("graph_500_bytecode_ms", num(loaded));
-            put("graph_500_bytecode_per_module_us", num(loaded * 1000.0 / 500.0));
+            put("graph_500_bytecode_min_ms", num(best));
+            put("graph_500_bytecode_per_module_us", num(best * 1000.0 / 500.0));
             put("hermesc", "true".to_string());
         }
         None => {

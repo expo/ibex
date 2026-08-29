@@ -72,6 +72,7 @@ step('process', () => {
     }
     samples.sort((a, b) => a - b);
     out.process_start_ms = +samples[3].toFixed(2);
+    out.process_start_min_ms = +samples[0].toFixed(2);
     if (process.platform === 'darwin') {
       const r = run('/usr/bin/time', ['-l', BIN, ...args]);
       const m = r.stderr.match(/(\d+)\s+maximum resident set size/);
@@ -122,17 +123,18 @@ const rows = [
   ['floor: runtime ready for app code', ms(out.floor_ms),
     `cold ${ms(out.floor_cold_ms)} · create ${ms(out.floor_create_ms)} · bindings ${ms(out.floor_bindings_ms)} · freeze ${ms(out.floor_freeze_ms)}`],
   ['100 modules from bytecode', ms(out.graph_100_bytecode_ms), `the same graph from source: ${ms(out.graph_100_source_ms)}`],
-  ['500 modules from bytecode', ms(out.graph_500_bytecode_ms), `${us(out.graph_500_bytecode_per_module_us)} per module`],
+  ['500 modules from bytecode', ms(out.graph_500_bytecode_ms),
+    `min ${ms(out.graph_500_bytecode_min_ms)} = ${us(out.graph_500_bytecode_per_module_us)} per module — track the min`],
   ['floor + 500 modules', ms(out.boot_500_ms),
     `budget ${budget('Process start')} to app entry: ${out.boot_500_ms <= entryBudget ? 'ok' : 'OVER'}`],
   ['500 modules, AOT build', ms(out.graph_500_build_ms), 'hermesc, one module at a time — the dev-loop cost'],
   ['process: cold start, precompiled', ms(out.process_start_ms),
-    out.process_note ?? `one module, spawn included · RSS ${kib(out.process_rss_kib)}`],
+    out.process_note ?? `min ${ms(out.process_start_min_ms)} · one module, spawn included · RSS ${kib(out.process_rss_kib)}`],
   ['sync host call', ns(out.sync_host_call_ns), 'performance.now() through its binding'],
   ['async host task round trip', us(out.async_fs_roundtrip_us), 'fs.readFile of one byte, back through the loop'],
   ['binary', kib(out.binary_bytes / 1024), `runtime ${out.runtime_lines} lines · JS bindings ${kib(out.bindings_js_bytes / 1024)}`],
 ];
-console.log(`ibex2 metrics — ${out.date}, ${out.commit}, warm build, medians`);
+console.log(`ibex2 metrics — ${out.date}, ${out.commit}, warm build, medians (min where noise matters)`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);
 console.log(
   `  ${'total'.padEnd(34)} ${`${out.total_s} s`.padStart(11)}   build ${out._build_s} s · in-process ${out._inprocess_s} s · process ${out._process_s} s` +
