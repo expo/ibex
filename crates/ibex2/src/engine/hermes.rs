@@ -133,11 +133,25 @@ impl Hermes {
     /// global object. That is the whole argument for R5 — R1 is a property of a
     /// list, and a list nothing checks drifts.
     pub fn install_bindings(&mut self) -> Result<(), JsError> {
-        self.eval(include_str!("../bindings/esm.js"))?;
-        self.eval(include_str!("../bindings/headers.js"))?;
-        self.eval(include_str!("../bindings/timers.js"))?;
-        self.eval(include_str!("../bindings/url.js"))?;
+        // Bytecode, compiled by build.rs from src/bindings/*.js with the
+        // engine's own hermesc: the runtime parses nothing of its own at
+        // start, which is the rule application code already lives under.
+        for binding in [
+            &include_bytes!(concat!(env!("OUT_DIR"), "/esm.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/timers.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc"))[..],
+        ] {
+            self.eval_bytes(binding)?;
+        }
         Ok(())
+    }
+
+    /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
+    /// bindings are installed and before any module code runs.
+    pub fn harden(&mut self) -> Result<(), JsError> {
+        self.eval_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/harden.hbc")))
+            .map(|_| ())
     }
 
     /// The WPT test harness. Tests only; never installed by the binary.

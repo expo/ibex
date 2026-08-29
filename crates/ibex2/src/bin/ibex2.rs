@@ -12,9 +12,6 @@ use ibex2::loader::Root;
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 use ibex2::loader::ModuleGrants;
 
-/// The intrinsic freeze, LLP 0067 R4 (measured in LLP 0062 §3) — under 2 ms, before any module runs.
-const HARDEN: &str = include_str!("../bindings/harden.js");
-
 fn usage() -> &'static str {
     "usage: ibex2 run   <entry.js> [--root <dir>] [--grants <file>] [--budget-ms <n>]\n\
     \x20                        [--precompiled] [--no-compile]\n\
@@ -417,7 +414,7 @@ fn run(
 
     // R4: intrinsics frozen after the standard library is installed and before
     // any module code runs.
-    rt.eval(HARDEN).map_err(|e| e.0)?;
+    rt.harden().map_err(|e| e.0)?;
 
     // R5: assert what the global object carries, before running anything.
     let unexpected: Vec<String> = rt

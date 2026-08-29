@@ -82,6 +82,42 @@ fn main() {
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DIGEST=sha256-{hex}");
 
+    // The runtime's own JavaScript — the ESM helpers, Headers, timers, URL,
+    // and the freeze — compiled to bytecode here so a runtime never parses
+    // them: rules/RULES.md says the boot path compiles nothing, and that was
+    // true of application code while the bindings were still evaluated from
+    // source at every start (~0.7 ms of a 1.8 ms floor, LLP 0063 §2). The
+    // hermesc is the one beside the vanilla engine, from the same install as
+    // the archive linked above, so the bytecode version matches the VM.
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "arm64",
+        _ => "x64",
+    };
+    println!("cargo:rerun-if-env-changed=IBEX2_HERMESC");
+    let hermesc = std::env::var("IBEX2_HERMESC")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| repo_root.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}")));
+    assert!(
+        hermesc.exists(),
+        "hermesc not found at {}\n\
+         build it with: ./scripts/build-hermes.sh --vanilla\n\
+         (or point IBEX2_HERMESC at one)",
+        hermesc.display()
+    );
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    for name in ["esm", "headers", "timers", "url", "harden"] {
+        let source = format!("src/bindings/{name}.js");
+        println!("cargo:rerun-if-changed={source}");
+        let artifact = out_dir.join(format!("{name}.hbc"));
+        let status = std::process::Command::new(&hermesc)
+            .args(["-emit-binary", "-O", "-out"])
+            .arg(&artifact)
+            .arg(&source)
+            .status()
+            .unwrap_or_else(|e| panic!("cannot run {}: {e}", hermesc.display()));
+        assert!(status.success(), "hermesc failed on {source}");
+    }
+
     println!("cargo:rustc-link-search=native={}", static_dir.display());
     println!("cargo:rustc-link-lib=static=hermesvm_a");
     println!("cargo:rustc-link-lib=static=jsi");

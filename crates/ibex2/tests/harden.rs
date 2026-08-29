@@ -4,13 +4,11 @@
 
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 
-const HARDEN: &str = include_str!("../src/bindings/harden.js");
-
 fn hardened() -> Hermes {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.eval(HARDEN).expect("harden");
+    rt.harden().expect("harden");
     rt
 }
 
@@ -107,7 +105,7 @@ fn the_freeze_stays_within_its_budget() {
             assert!(rt.install_stdlib());
             rt.install_bindings().expect("bindings");
             let t = std::time::Instant::now();
-            rt.eval(HARDEN).expect("harden");
+            rt.harden().expect("harden");
             t.elapsed().as_secs_f64() * 1000.0
         })
         .collect();

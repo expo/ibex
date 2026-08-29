@@ -15,33 +15,6 @@ use std::time::{Duration, Instant};
 
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 
-/// The SES-style freeze from LLP 0062 §3, as a real boot step would run it.
-const HARDEN: &str = r#"
-  (function () {
-    const seen = new Set();
-    const queue = [globalThis];
-    while (queue.length) {
-      const obj = queue.pop();
-      if (obj === null || (typeof obj !== 'object' && typeof obj !== 'function')) continue;
-      if (seen.has(obj)) continue;
-      seen.add(obj);
-      try { Object.freeze(obj); } catch (e) {}
-      const names = Object.getOwnPropertyNames(obj);
-      for (let i = 0; i < names.length; i++) {
-        let d;
-        try { d = Object.getOwnPropertyDescriptor(obj, names[i]); } catch (e) { continue; }
-        if (!d) continue;
-        if ('value' in d) queue.push(d.value);
-        else { queue.push(d.get); queue.push(d.set); }
-      }
-      try { queue.push(Object.getPrototypeOf(obj)); } catch (e) {}
-    }
-  })();
-"#;
-
-/// Only the real binding, not the test harness — the harness never ships.
-const HEADERS_BINDING: &str = include_str!("../src/bindings/headers.js");
-
 struct Phases {
     create: Duration,
     stdlib: Duration,
@@ -66,11 +39,11 @@ fn boot() -> Phases {
     let stdlib = t.elapsed();
 
     let t = Instant::now();
-    rt.eval(HEADERS_BINDING).expect("headers binding");
+    rt.install_bindings().expect("bindings");
     let bindings = t.elapsed();
 
     let t = Instant::now();
-    rt.eval(HARDEN).expect("harden");
+    rt.harden().expect("harden");
     let freeze = t.elapsed();
 
     // The first thing application code would do. Included because a runtime
@@ -136,7 +109,7 @@ fn boot_floor() {
     );
     println!(
         "  {:<22} {:>9.3}ms {:>9.3}ms",
-        "JS bindings (headers)",
+        "JS bindings (bytecode)",
         ms(cold.bindings),
         ms(mean.bindings)
     );
