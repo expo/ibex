@@ -117,10 +117,12 @@ fn btoa_and_atob_round_trip_from_javascript() {
 fn a_rust_error_becomes_a_catchable_javascript_throw() {
     let mut rt = with_stdlib();
     let caught = rt
-        .eval("try { btoa('€'); 'no throw' } catch (e) { 'caught: ' + e.message }")
+        .eval("try { __ibex2_url_parse('::not a url::'); 'no throw' } catch (e) { 'caught: ' + e.message }")
         .unwrap();
+    // `btoa('€')` used to be the Rust error here; the engine's own btoa took
+    // that name over, so a Rust op that refuses is the URL parser now.
     assert!(
-        caught.starts_with("caught: InvalidCharacterError"),
+        caught.starts_with("caught: TypeError: invalid URL"),
         "unexpected: {caught}"
     );
 }

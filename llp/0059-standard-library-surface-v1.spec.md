@@ -68,7 +68,7 @@ The v1 surface. Everything here is measured in the boot graph.
 | `process.env` | 12 / 6 | read-only view is sufficient |
 | `fetch` | 12 / 8 (+13 vendored) | see §5 |
 | `AbortController` `AbortSignal` | 12 / 5 | |
-| `atob` `btoa` | 5 / 3 | |
+| `atob` `btoa` | 5 / 3 | the engine's (Tier E, found 2026-08-29); the Rust base64 stays for the Rust consumer |
 | `crypto.randomUUID` `crypto.getRandomValues` | 2 / 2 | |
 | `structuredClone` | 1 / 1 | |
 | `CustomEvent` `EventTarget` | 2 / 2 | |

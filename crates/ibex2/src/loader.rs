@@ -897,8 +897,6 @@ pub const ALLOWED_GLOBALS: &[&str] = &[
     "Headers",
     "URL",
     "URLSearchParams",
-    "atob",
-    "btoa",
 ];
 
 #[cfg(test)]
