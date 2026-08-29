@@ -32,17 +32,7 @@ impl Project {
     }
 
     pub fn run(&self, entry: &str, manifest: &str) -> (Vec<String>, Option<String>) {
-        self.run_with(entry, manifest, None, false, None)
-    }
-
-    /// `run`, for a declared platform.
-    pub fn run_for(
-        &self,
-        platform: &str,
-        entry: &str,
-        manifest: &str,
-    ) -> (Vec<String>, Option<String>) {
-        self.run_with(entry, manifest, None, false, Some(platform.to_string()))
+        self.run_with(entry, manifest, None, false)
     }
 
     pub fn compiler(&self) -> Option<ibex2::bytecode::Compiler> {
@@ -64,7 +54,6 @@ impl Project {
         manifest: &str,
         compiler: Option<ibex2::bytecode::Compiler>,
         precompiled_only: bool,
-        platform: Option<String>,
     ) -> (Vec<String>, Option<String>) {
         let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
         assert!(rt.install_stdlib());
@@ -74,7 +63,6 @@ impl Project {
             ModuleGrants::parse(manifest).expect("manifest"),
             compiler,
             precompiled_only,
-            platform,
         );
         let error = rt.run_entry(entry).err().map(|e| e.0);
         // Not a network budget. In a *debug* test binary the first

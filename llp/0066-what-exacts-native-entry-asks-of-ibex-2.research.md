@@ -30,8 +30,8 @@ survives of this document: the three runtime defects and their fixes (§2), the
 `URL` binding gap (§3), the floor and the one number (§6), and the graph walk
 as an instrument. What does not: §4 as a work list, and §7's order — the JS
 surface is now measured from Exact 2, with the counts in §3 a ceiling. The
-`--platform` policy from §2 serves a convention Exact 2 bans and is a deletion
-candidate. Kept whole rather than rewritten, because the measurement is what a
+`--platform` policy from §2 served a convention Exact 2 bans and was deleted
+the same evening, as was `MessageChannel`. Kept whole rather than rewritten, because the measurement is what a
 research document is for.
 
 ## 1. Method

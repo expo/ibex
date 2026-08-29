@@ -184,7 +184,7 @@ fn bytecode_and_source_produce_identical_behaviour() {
 
     let (source_out, source_err) = p.run("./index.js", "");
     let Some(compiler) = p.compiler() else { return };
-    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false, None);
+    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false);
 
     assert_eq!(source_err, None);
     assert_eq!(hbc_err, None);
@@ -211,7 +211,7 @@ fn a_callback_still_works_after_its_module_has_finished_loading() {
          console.log('module body ran');",
     );
     let Some(compiler) = p.compiler() else { return };
-    let (out, err) = p.run_with("./index.js", "", Some(compiler), false, None);
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), false);
     assert_eq!(err, None);
     assert_eq!(
         out,
@@ -227,7 +227,7 @@ fn precompiled_only_refuses_what_was_not_built() {
     p.file("index.js", "console.log('ran');");
     let Some(compiler) = p.compiler() else { return };
 
-    let (_, err) = p.run_with("./index.js", "", Some(compiler.clone()), true, None);
+    let (_, err) = p.run_with("./index.js", "", Some(compiler.clone()), true);
     assert!(
         err.is_some_and(|e| e.contains("no precompiled artifact")),
         "strict mode compiled on demand"
@@ -238,7 +238,7 @@ fn precompiled_only_refuses_what_was_not_built() {
     compiler
         .compile(&ibex2::loader::wrap(&source))
         .expect("build");
-    let (out, err) = p.run_with("./index.js", "", Some(compiler), true, None);
+    let (out, err) = p.run_with("./index.js", "", Some(compiler), true);
     assert_eq!(err, None);
     assert_eq!(out, vec!["ran"]);
 }
@@ -251,7 +251,7 @@ fn the_artifact_does_not_depend_on_the_modules_grants() {
     p.file("index.js", "console.log(typeof fetch);");
     let Some(compiler) = p.compiler() else { return };
 
-    p.run_with("./index.js", "", Some(compiler.clone()), false, None);
+    p.run_with("./index.js", "", Some(compiler.clone()), false);
     let after_empty: Vec<_> = std::fs::read_dir(p.0.join(".ibex2/cache"))
         .unwrap()
         .filter_map(|e| e.ok().map(|e| e.file_name()))
@@ -262,7 +262,6 @@ fn the_artifact_does_not_depend_on_the_modules_grants() {
         "[*]\nnet.fetch https://example.com\n",
         Some(compiler),
         false,
-        None,
     );
     let after_granted: Vec<_> = std::fs::read_dir(p.0.join(".ibex2/cache"))
         .unwrap()
@@ -548,7 +547,7 @@ fn es_modules_behave_identically_from_bytecode() {
 
     let (source_out, source_err) = p.run("./index.js", "");
     let Some(compiler) = p.compiler() else { return };
-    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false, None);
+    let (hbc_out, hbc_err) = p.run_with("./index.js", "", Some(compiler), false);
     assert_eq!(source_err, None);
     assert_eq!(hbc_err, None);
     assert_eq!(hbc_out, source_out);
@@ -740,7 +739,7 @@ fn typescript_behaves_identically_from_bytecode() {
         .file("d.ts", "export const v: number = 5;");
     let (source_out, source_err) = p.run("./index.ts", "");
     let Some(compiler) = p.compiler() else { return };
-    let (hbc_out, hbc_err) = p.run_with("./index.ts", "", Some(compiler), false, None);
+    let (hbc_out, hbc_err) = p.run_with("./index.ts", "", Some(compiler), false);
     assert_eq!(source_err, None);
     assert_eq!(hbc_err, None);
     assert_eq!(hbc_out, source_out);

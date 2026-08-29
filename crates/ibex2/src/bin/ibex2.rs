@@ -16,9 +16,9 @@ use ibex2::loader::ModuleGrants;
 const HARDEN: &str = include_str!("../bindings/harden.js");
 
 fn usage() -> &'static str {
-    "usage: ibex2 run   <entry.js> [--root <dir>] [--platform <name>] [--grants <file>]\n\
-    \x20                        [--budget-ms <n>] [--precompiled] [--no-compile]\n\
-    \x20      ibex2 build <entry.js> [--root <dir>] [--platform <name>]\n\
+    "usage: ibex2 run   <entry.js> [--root <dir>] [--grants <file>] [--budget-ms <n>]\n\
+    \x20                        [--precompiled] [--no-compile]\n\
+    \x20      ibex2 build <entry.js> [--root <dir>]\n\
      \n\
      run    Runs <entry.js>. Each module receives only the capabilities its\n\
      \x20      grant manifest names; without --grants, nothing is granted.\n\
@@ -38,13 +38,7 @@ fn usage() -> &'static str {
      \x20      containment boundary quietly becomes your home directory.\n\
      \x20      Without it the boundary is the entry file's own directory, which\n\
      \x20      runs a self-contained program fine. Grant manifest keys are paths\n\
-     \x20      from the root, so moving it changes what they name.\n\
-     \n\
-     --platform <name>\n\
-     \x20      The platform whose file variants shadow unsuffixed modules:\n\
-     \x20      `x.<name>.ts` over `x.ts`, then `x.native.ts` over `x.ts` for\n\
-     \x20      any name but web. Declared for the same reason the root is:\n\
-     \x20      nothing on disk says what a program is being run for."
+     \x20      from the root, so moving it changes what they name."
 }
 
 fn main() -> ExitCode {
@@ -61,7 +55,6 @@ fn main() -> ExitCode {
     let mut precompiled_only = false;
     let mut compile = true;
     let mut declared_root: Option<PathBuf> = None;
-    let mut platform: Option<String> = None;
     let mut rest = args[2..].iter();
     while let Some(flag) = rest.next() {
         match flag.as_str() {
@@ -86,13 +79,6 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
-            "--platform" => match rest.next() {
-                Some(name) => platform = Some(name.to_string()),
-                None => {
-                    eprintln!("--platform needs a name");
-                    return ExitCode::from(2);
-                }
-            },
             "--precompiled" => precompiled_only = true,
             "--no-compile" => compile = false,
             other => {
@@ -103,11 +89,10 @@ fn main() -> ExitCode {
     }
 
     let outcome = match command {
-        "build" => build(&entry, declared_root.as_deref(), platform.as_deref()),
+        "build" => build(&entry, declared_root.as_deref()),
         _ => run(
             &entry,
             declared_root.as_deref(),
-            platform,
             grants_path.as_deref(),
             budget_ms,
             compile,
@@ -196,7 +181,7 @@ fn compiler_for(root: &Path, require_receipt: bool) -> Result<ibex2::bytecode::C
 }
 
 /// Compile the whole reachable graph ahead of time.
-fn build(entry: &Path, declared_root: Option<&Path>, platform: Option<&str>) -> Result<(), String> {
+fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     let (root, name) = project_root(entry, declared_root)?;
     // A build produces artifacts others will trust, so it requires the receipt.
     let compiler = compiler_for(&root, true)?;
@@ -272,7 +257,7 @@ fn build(entry: &Path, declared_root: Option<&Path>, platform: Option<&str>) -> 
         );
 
         for (dependency, required) in dependencies {
-            match ibex2::loader::resolve_for(&root, platform, &specifier, &dependency) {
+            match ibex2::loader::resolve(&root, &specifier, &dependency) {
                 Ok(resolved) => {
                     if !required && !root.join(resolved.trim_start_matches("./")).exists() {
                         warnings.push(format!(
@@ -386,7 +371,6 @@ fn requires_in(source: &str) -> Vec<String> {
 fn run(
     entry: &Path,
     declared_root: Option<&Path>,
-    platform: Option<String>,
     grants_path: Option<&Path>,
     budget_ms: u64,
     compile: bool,
@@ -425,7 +409,7 @@ fn run(
     } else {
         None
     };
-    rt.set_loader_with(root, grants, compiler, precompiled_only, platform);
+    rt.set_loader_with(root, grants, compiler, precompiled_only);
 
     // R4: intrinsics frozen after the standard library is installed and before
     // any module code runs.

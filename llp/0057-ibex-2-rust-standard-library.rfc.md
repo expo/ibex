@@ -190,8 +190,9 @@ What Exact 2 says, and what follows for Ibex 2:
   specification; the list shrinks from there, one measured call site at a
   time, per LLP 0059 §7.
 - **Exact 2 forbids platform-suffixed route files and has no React tier**
-  (`rules/NOT-DOING.md` there). LLP 0065 §8's `--platform` serves a convention
-  the target bans; it is cheap and harmless and is a deletion candidate.
+  (`rules/NOT-DOING.md` there). LLP 0065 §8's `--platform` served a convention
+  the target bans and was deleted the same evening, with `MessageChannel`,
+  whose only call site was React's renderer.
   `WebAssembly` and `requestAnimationFrame` are no longer requirements of the
   JS tier.
 - ESM and TypeScript remain required: whatever JavaScript Exact 2 does run
