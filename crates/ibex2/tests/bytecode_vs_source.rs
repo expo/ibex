@@ -14,7 +14,7 @@
 //!
 //!     cargo test -p ibex2 --features hermes --release --test bytecode_vs_source -- --ignored --nocapture
 
-#![cfg(feature = "hermes")]
+#![cfg(all(feature = "hermes", feature = "loader"))]
 
 use std::path::PathBuf;
 use std::process::Command;

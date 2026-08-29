@@ -169,6 +169,7 @@ fn engine_dir() -> PathBuf {
 /// The build's compiler: receipt required and verified against the engine
 /// and hermesc on disk, artifacts keyed to the engine this binary links
 /// (LLP 0058.000.001 §5).
+#[cfg(feature = "loader")]
 fn compiler_for_build(root: &Path) -> Result<ibex2::bytecode::Compiler, String> {
     ibex2::bytecode::Compiler::discover_for_engine(&repo_root(), cache_dir(root), &engine_dir(), true)
 }
@@ -180,6 +181,12 @@ fn compiler_for_run(root: &Path, precompiled_only: bool) -> Result<ibex2::byteco
 }
 
 /// Compile the whole reachable graph ahead of time.
+#[cfg(not(feature = "loader"))]
+fn build(_entry: &Path, _declared_root: Option<&Path>) -> Result<(), String> {
+    Err("this build has no loader and cannot build; use a full build of ibex2".into())
+}
+
+#[cfg(feature = "loader")]
 fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     let (root, name) = project_root(entry, declared_root)?;
     // A build produces artifacts others will trust, so it requires the receipt.
@@ -200,6 +207,8 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
     let mut manifest =
         ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
     let mut artifacts: Vec<(String, Vec<u8>)> = Vec::new();
+    // The entry is loaded from "./" — the runtime's name for "no importer".
+    manifest.insert_edge("./", &name, &name);
     let mut warnings: Vec<String> = Vec::new();
     let mut built = 0usize;
 
@@ -270,6 +279,8 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
                         ));
                         continue;
                     }
+                    // Recorded, so a run resolves nothing the build already did.
+                    manifest.insert_edge(&specifier, &dependency, &resolved);
                     edges
                         .entry(specifier.clone())
                         .or_default()
@@ -307,6 +318,7 @@ fn build(entry: &Path, declared_root: Option<&Path>) -> Result<(), String> {
 }
 
 /// Every import cycle in the graph, each reported once from its entry point.
+#[cfg(feature = "loader")]
 fn find_cycles(edges: &std::collections::BTreeMap<String, Vec<String>>) -> Vec<Vec<String>> {
     let mut found = Vec::new();
     let mut reported = std::collections::BTreeSet::new();
@@ -349,6 +361,7 @@ fn find_cycles(edges: &std::collections::BTreeMap<String, Vec<String>>) -> Vec<V
     found
 }
 
+#[cfg(feature = "loader")]
 /// Find `require('...')` specifiers by scanning.
 ///
 /// A scanner, not a parser: it can see a require inside a comment or a string
@@ -382,6 +395,10 @@ fn run(
     precompiled_only: bool,
 ) -> Result<(), String> {
     let (root, name) = project_root(entry, declared_root)?;
+    #[cfg(not(feature = "loader"))]
+    if !precompiled_only {
+        return Err("this build has no loader: run with --precompiled, on a graph built by a full build".into());
+    }
 
     let grants = match grants_path {
         Some(path) => {

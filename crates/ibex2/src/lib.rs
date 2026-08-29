@@ -20,6 +20,7 @@ pub mod boundary;
 pub mod boundary_abi;
 pub mod bytecode;
 pub mod engine;
+#[cfg(feature = "loader")]
 pub mod esm;
 pub mod grant;
 pub mod host;
@@ -29,4 +30,5 @@ pub mod receipt;
 pub mod stdlib;
 pub mod task;
 pub mod transport;
+#[cfg(feature = "loader")]
 pub mod typescript;

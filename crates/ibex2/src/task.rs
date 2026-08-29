@@ -380,7 +380,16 @@ impl RuntimeState {
     pub fn load_module(&self, from: &str, specifier: &str) -> Result<(String, Vec<u8>), String> {
         let guard = self.loader.lock().expect("loader poisoned");
         let config = guard.as_ref().ok_or("no loader configured")?;
-        let resolved = crate::loader::resolve_in(&config.cache, &config.root, from, specifier)?;
+        // The build already resolved this edge, if there was a build: no
+        // resolver, no directory listing, no realpath. Otherwise resolve.
+        let resolved = match config
+            .manifest
+            .as_ref()
+            .and_then(|manifest| manifest.edge(from, specifier))
+        {
+            Some(resolved) => resolved.to_string(),
+            None => crate::loader::resolve_in(&config.cache, &config.root, from, specifier)?,
+        };
 
         // The fast path: the build already said which artifact this is, so the
         // source file is never opened.
@@ -399,26 +408,38 @@ impl RuntimeState {
             }
         }
 
+        #[cfg(not(feature = "loader"))]
+        #[allow(clippy::needless_return)]
+        {
+            return Err(format!(
+                "{resolved}: not in the build manifest, and this build has no loader — it runs precompiled artifacts only"
+            ));
+        }
+        #[cfg(feature = "loader")]
         let path = config.root.join(resolved.trim_start_matches("./"));
+        #[cfg(feature = "loader")]
         let source = std::fs::read_to_string(&path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-
-        // The wrapper is built HERE, once, because it is what gets compiled —
-        // the artifact is the wrapper, so a second definition of it elsewhere
-        // would be a second definition of the thing the cache is keyed on.
-        let wrapped = crate::loader::lower_and_wrap(&source, &resolved)?;
-
-        match &config.compiler {
-            Some(compiler) => {
-                let bytes = if config.precompiled_only {
-                    compiler.cached_only(&wrapped)
-                } else {
-                    compiler.compile(&wrapped)
+        #[cfg(feature = "loader")]
+        {
+    
+            // The wrapper is built HERE, once, because it is what gets compiled —
+            // the artifact is the wrapper, so a second definition of it elsewhere
+            // would be a second definition of the thing the cache is keyed on.
+            let wrapped = crate::loader::lower_and_wrap(&source, &resolved)?;
+    
+            match &config.compiler {
+                Some(compiler) => {
+                    let bytes = if config.precompiled_only {
+                        compiler.cached_only(&wrapped)
+                    } else {
+                        compiler.compile(&wrapped)
+                    }
+                    .map_err(|e| format!("{resolved}: {e}"))?;
+                    Ok((resolved, bytes))
                 }
-                .map_err(|e| format!("{resolved}: {e}"))?;
-                Ok((resolved, bytes))
+                None => Ok((resolved, wrapped.into_bytes())),
             }
-            None => Ok((resolved, wrapped.into_bytes())),
         }
     }
 

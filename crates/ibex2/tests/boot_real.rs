@@ -11,7 +11,7 @@
 //!
 //!     cargo test -p ibex2 --features hermes --release --test boot_real -- --ignored --nocapture
 
-#![cfg(feature = "hermes")]
+#![cfg(all(feature = "hermes", feature = "loader"))]
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

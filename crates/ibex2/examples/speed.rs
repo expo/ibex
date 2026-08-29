@@ -148,6 +148,11 @@ fn build_bytecode(graph: &Graph, count: usize, compiler: &ibex2::bytecode::Compi
     let t = Instant::now();
     let mut manifest = ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
     let mut artifacts = Vec::new();
+    manifest.insert_edge("./", "./index.js", "./index.js");
+    manifest.insert_edge("./index.js", "./m0", "./m0.js");
+    for i in 0..count.saturating_sub(1) {
+        manifest.insert_edge(&format!("./m{i}.js"), &format!("./m{}", i + 1), &format!("./m{}.js", i + 1));
+    }
     for spec in graph.specifiers(count) {
         let source = std::fs::read_to_string(graph.dir.join(spec.trim_start_matches("./"))).expect("read");
         let wrapped = ibex2::loader::lower_and_wrap(&source, &spec).expect("lower");

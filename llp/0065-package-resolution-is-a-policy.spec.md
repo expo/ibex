@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Security, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-28
-**Revised:** 2026-08-29, evening (§3.2: the resolve cache and what it gives up) 2026-08-29 (§4.2: package identity is the install `bind` resolves, never a path's spelling — a reviewer showed `evil/node_modules/react/` holding `[react]`; sections are canonicalized at bind) 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
+**Revised:** 2026-08-29, night (§3.3: edges recorded at build, and the `loader` feature) 2026-08-29, evening (§3.2: the resolve cache and what it gives up) 2026-08-29 (§4.2: package identity is the install `bind` resolves, never a path's spelling — a reviewer showed `evil/node_modules/react/` holding `[react]`; sections are canonicalized at bind) 2026-08-28 (§4.2 package-level grants — sections by package name, directory, or file, most specific wins; OQ2 resolved) 2026-08-28 (§8 platform variants removed the same evening — the target moved to Exact 2, which forbids the convention; OQ6 with it)
 **Revised:** 2026-08-28 (§5 — the project root is declared with `--root` and never inferred, which unblocks monorepos and so unblocks Exact; §3 rewritten after self-review found it documenting a tradeoff that did not exist; §1 and §4.1 corrected after an adversarial review confirmed two capability bypasses. See `llp/reviews/0065-*.grok.md`.) 2026-08-28 (initial draft)
 **Related:** LLP 0028 (Oxc-only transform authority — `oxc_resolver` is the same pin), LLP 0057 (Ibex 2 §5.2 — targeting Exact is why bare specifiers are required), LLP 0059 §6 (Node's server surface is deleted — why the `node` condition is absent), LLP 0060 (authority is carried, not inferred — why a package is granted nothing by arriving), LLP 0064 (ESM lowering — what happens to a module once resolution has found it), LLP 0062 (the reachability frame this containment rule belongs to)
 
@@ -154,6 +154,29 @@ The one thing it gives up, stated: a file created after its directory was
 first listed is not seen until the loader is set again. A module graph does
 not grow while it loads; a build that writes modules and then runs them is
 two loaders.
+
+### 3.3 Resolution happens at build time
+
+Added 2026-08-29. `ibex2 build` walks the graph and resolves every edge; it
+now records each one in the manifest — importer, specifier as written,
+resolved specifier — and a run with a manifest takes the edge before it
+resolves anything. With the edges and the bundle (LLP 0067 §5), a
+`--precompiled` run resolves nothing, lists no directory, and opens one file:
+500 modules load in under a millisecond, 1.6 µs each.
+
+That is also what makes a **run-only binary** possible. The `loader` feature
+— on by default — is everything that turns source into a wrapper and a
+specifier into a file: Oxc's parser, transformer, and resolver. Off, the
+binary carries none of it, refuses `build`, refuses `run` without
+`--precompiled`, refuses a TypeScript source and an ES module it is handed,
+and refuses a bare specifier the manifest does not name rather than searching
+for it. It is 5.6 MB against 9.6 MB, and a Rust consumer of the standard
+library (LLP 0068) depends on the crate the same way, `default-features =
+false`, and compiles none of the loader either.
+
+What still resolves at run time: a dynamic `import()` with a computed
+specifier (LLP 0064 §7), and every module in a run that was not built. Both
+need the full binary.
 
 ## 4. A package is granted nothing by being a dependency
 

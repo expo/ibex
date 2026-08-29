@@ -486,6 +486,11 @@ pub struct Manifest {
     /// the running binary's own at load, so a cache built by one engine is
     /// refused by another rather than found by key and fed to it.
     engine: Option<String>,
+    /// Every edge the build resolved: (importer, specifier as written) to the
+    /// resolved specifier. A run that has the edge resolves nothing — no
+    /// resolver, no directory listing, no `realpath` — which is what lets a
+    /// run-only binary carry no resolver at all (LLP 0065 §3.3).
+    edges: std::collections::BTreeMap<(String, String), String>,
 }
 
 impl Manifest {
@@ -498,11 +503,29 @@ impl Manifest {
         Self {
             entries: Default::default(),
             engine: Some(engine.to_string()),
+            edges: Default::default(),
         }
     }
 
     pub fn engine(&self) -> Option<&str> {
         self.engine.as_deref()
+    }
+
+    /// Record that `specifier`, written inside `from`, resolved to `resolved`.
+    pub fn insert_edge(&mut self, from: &str, specifier: &str, resolved: &str) {
+        self.edges
+            .insert((from.to_string(), specifier.to_string()), resolved.to_string());
+    }
+
+    /// What the build resolved `specifier` to, inside `from`, if it did.
+    pub fn edge(&self, from: &str, specifier: &str) -> Option<&str> {
+        self.edges
+            .get(&(from.to_string(), specifier.to_string()))
+            .map(String::as_str)
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
     }
 
     pub fn insert(&mut self, specifier: &str, key: &str) {
@@ -532,6 +555,11 @@ impl Manifest {
             .unwrap_or_default();
         header
             + &self
+                .edges
+                .iter()
+                .map(|((from, specifier), resolved)| format!("#edge\t{from}\t{specifier}\t{resolved}\n"))
+                .collect::<String>()
+            + &self
                 .entries
                 .iter()
                 .map(|(specifier, key)| format!("{specifier}\t{key}\n"))
@@ -541,11 +569,19 @@ impl Manifest {
     pub fn parse(text: &str) -> Self {
         let mut manifest = Manifest::new();
         for line in text.lines() {
-            if let Some((specifier, key)) = line.split_once('\t') {
+            if let Some((specifier, rest)) = line.split_once('\t') {
                 match specifier.trim() {
-                    "#engine" => manifest.engine = Some(key.trim().to_string()),
+                    "#engine" => manifest.engine = Some(rest.trim().to_string()),
+                    "#edge" => {
+                        let mut parts = rest.split('\t');
+                        if let (Some(from), Some(specifier), Some(resolved)) =
+                            (parts.next(), parts.next(), parts.next())
+                        {
+                            manifest.insert_edge(from.trim(), specifier.trim(), resolved.trim());
+                        }
+                    }
                     header if header.starts_with('#') => {}
-                    specifier => manifest.insert(specifier, key.trim()),
+                    specifier => manifest.insert(specifier, rest.trim()),
                 }
             }
         }
@@ -750,6 +786,15 @@ mod tests {
         assert_eq!(back.engine(), Some("sha256-abc"));
         assert_eq!(back.get("./a.js"), Some("k1"));
         assert_eq!(back.len(), 2, "the header is not an entry");
+        // Edges round-trip too, and are not entries either.
+        manifest.insert_edge("./a.js", "./b", "./b.js");
+        manifest.insert_edge("./", "./a.js", "./a.js");
+        let back = Manifest::parse(&manifest.serialize());
+        assert_eq!(back.edge("./a.js", "./b"), Some("./b.js"));
+        assert_eq!(back.edge("./", "./a.js"), Some("./a.js"));
+        assert_eq!(back.edge("./a.js", "./c"), None);
+        assert_eq!(back.len(), 2);
+        assert_eq!(back.edge_count(), 2);
         // A manifest from before engine binding has no engine, and says so.
         assert_eq!(Manifest::parse("./a.js\tk1\n").engine(), None);
     }
