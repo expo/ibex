@@ -36,13 +36,19 @@ pub trait SecretStore: Send + Sync {
     fn forget(&self, name: &str) -> Result<(), HostError>;
 }
 
-/// Whether `name` is a secret name: `[A-Za-z0-9._-]+`. Refused at grant
-/// parse and again at the store, so a name can never spell a path.
+/// Whether `name` is a secret name: `[a-z0-9._-]{1,64}`, and never only
+/// dots — `.` and `..` are directory hops, not names. Lowercase, because a
+/// name becomes a path component and a case-insensitive filesystem would
+/// fold two exactly-granted case variants into one file; bounded, because a
+/// filesystem bounds its components. Refused at grant parse and again at
+/// the store, so a name can never spell a path.
 pub fn is_valid_name(name: &str) -> bool {
     !name.is_empty()
+        && name.len() <= 64
         && name
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-'))
+        && !name.bytes().all(|b| b == b'.')
 }
 
 fn check_name(name: &str) -> Result<(), HostError> {
@@ -50,7 +56,7 @@ fn check_name(name: &str) -> Result<(), HostError> {
         Ok(())
     } else {
         Err(HostError::InvalidArgument(format!(
-            "`{name}` is not a secret name ([A-Za-z0-9._-]+)"
+            "`{name}` is not a secret name ([a-z0-9._-]{{1,64}})"
         )))
     }
 }
@@ -157,7 +163,15 @@ impl SecretStore for FileStore {
     fn set(&self, name: &str, value: &str) -> Result<(), HostError> {
         let path = self.path(name)?;
         self.ensure_dir()?;
-        let tmp = self.dir.join(format!(".{name}.{}", std::process::id()));
+        // Unique per call — pid and a counter — so concurrent writers of one
+        // name can never truncate each other's temporary and rename a torn
+        // value into place.
+        static NEXT_TMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let tmp = self.dir.join(format!(
+            ".{name}.{}.{}",
+            std::process::id(),
+            NEXT_TMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         {
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create(true).truncate(true);
@@ -291,7 +305,20 @@ mod tests {
     fn a_name_that_could_spell_a_path_is_refused_everywhere() {
         assert!(is_valid_name("castle.session"));
         assert!(is_valid_name("a_b-c.9"));
-        for bad in ["", "../x", "a/b", "a b", "ünïcode", "a\n"] {
+        let overlong = "a".repeat(65);
+        for bad in [
+            "",
+            ".",
+            "..",
+            "...",
+            "../x",
+            "a/b",
+            "a b",
+            "Upper",
+            overlong.as_str(),
+            "ünïcode",
+            "a\n",
+        ] {
             assert!(!is_valid_name(bad), "{bad:?}");
             let dir = temp_dir();
             let store = FileStore::new(&dir);

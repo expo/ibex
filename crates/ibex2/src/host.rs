@@ -21,21 +21,24 @@ use std::sync::Arc;
 
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
+use crate::kv::{self, KvStore};
 use crate::secrets::{self, SecretStore};
 use crate::stdlib::fetch::{self, Request, Response, Transport};
 use crate::stdlib::fs::{self, FsOp, FsResult, Stat};
 
-/// The host: the platform's transport and its secret store, and nothing
-/// else. One per process is the expected shape; it is the analogue of the
-/// runtime, without an engine.
+/// The host: the platform's transport, its secret store, and its kv store,
+/// and nothing else. One per process is the expected shape; it is the
+/// analogue of the runtime, without an engine.
 pub struct Host {
     transport: Arc<dyn Transport>,
     secrets: Arc<dyn SecretStore>,
+    kv: Arc<dyn KvStore>,
 }
 
 impl Host {
-    /// The platform's transport (`NSURLSession` on Apple platforms) and its
-    /// secret store (the Keychain there; a file per secret elsewhere).
+    /// The platform's transport (`NSURLSession` on Apple platforms), its
+    /// secret store (the Keychain there; a file per secret elsewhere), and
+    /// its kv store (a file per key under the app-state directory).
     pub fn new() -> Self {
         Self::with_transport(crate::transport::default_transport())
     }
@@ -44,6 +47,7 @@ impl Host {
         Self {
             transport: Arc::from(transport),
             secrets: Arc::from(secrets::default_store()),
+            kv: Arc::from(kv::default_store()),
         }
     }
 
@@ -51,6 +55,13 @@ impl Host {
     /// that must leave no trace, a test's own (LLP 0069 §3).
     pub fn with_secret_store(mut self, store: Box<dyn SecretStore>) -> Self {
         self.secrets = Arc::from(store);
+        self
+    }
+
+    /// This host over another kv store — the memory store, or a directory the
+    /// consumer chose (LLP 0070 §3).
+    pub fn with_kv_store(mut self, store: Box<dyn KvStore>) -> Self {
+        self.kv = Arc::from(store);
         self
     }
 
@@ -70,6 +81,10 @@ impl Host {
                 store: Arc::clone(&self.secrets),
                 grants: Arc::clone(&grants),
             },
+            kv: Kv {
+                store: Arc::clone(&self.kv),
+                grants: Arc::clone(&grants),
+            },
             env: Env { grants },
         }
     }
@@ -81,12 +96,13 @@ impl Default for Host {
     }
 }
 
-/// What a consumer holds: `fetch`, `fs`, `secrets`, and `process.env`, as a
-/// module has them, over one grant set.
+/// What a consumer holds: `fetch`, `fs`, `secrets`, `kv`, and `process.env`,
+/// as a module has them, over one grant set.
 pub struct Bindings {
     pub fetch: Fetch,
     pub fs: Fs,
     pub secrets: Secrets,
+    pub kv: Kv,
     pub env: Env,
 }
 
@@ -131,6 +147,80 @@ impl Secrets {
     pub fn forget(&self, name: &str) -> Result<(), HostError> {
         self.admit(name)?;
         self.store.forget(name)
+    }
+}
+
+/// Durable state a consumer keeps that is not a secret, carrying its grant
+/// (`storage.kv <scope>`, LLP 0070). Every call admits the scope first; a
+/// denial never reaches the store.
+#[derive(Clone)]
+pub struct Kv {
+    store: Arc<dyn KvStore>,
+    grants: Arc<GrantSet>,
+}
+
+impl Kv {
+    /// Admission first — an ungranted scope is `Denied` whatever else is
+    /// wrong with the call — then the family grammar, here rather than in
+    /// each store, so a consumer-supplied `KvStore` never sees a scope or
+    /// key the family would refuse (a `GrantSet` built with `with` rather
+    /// than parsed can hold a scope `parse` would not admit).
+    fn admit(&self, scope: &str, key: Option<&str>) -> Result<(), HostError> {
+        crate::boundary::admit(
+            &self.grants,
+            &Operation::StorageKv {
+                scope: scope.to_string(),
+            },
+        )?;
+        kv::check_scope(scope)?;
+        if let Some(key) = key {
+            kv::check_key(key)?;
+        }
+        Ok(())
+    }
+
+    /// The scopes this binding may use, in a stable order.
+    pub fn scopes(&self) -> Vec<&str> {
+        self.grants.kv_scopes()
+    }
+
+    /// The kept bytes under `key`; `None` when nothing is kept.
+    pub fn get(&self, scope: &str, key: &str) -> Result<Option<Vec<u8>>, HostError> {
+        self.admit(scope, Some(key))?;
+        self.store.get(scope, key)
+    }
+
+    /// The kept value as text; an error if what is kept is not UTF-8.
+    pub fn get_text(&self, scope: &str, key: &str) -> Result<Option<String>, HostError> {
+        match self.get(scope, key)? {
+            None => Ok(None),
+            Some(bytes) => String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| HostError::Failed(format!("kv: {scope}/{key} is not UTF-8"))),
+        }
+    }
+
+    /// Keep `value` under `key`, replacing what was there.
+    pub fn set(&self, scope: &str, key: &str, value: &[u8]) -> Result<(), HostError> {
+        self.admit(scope, Some(key))?;
+        self.store.set(scope, key, value)
+    }
+
+    /// Keep `value` under `key` as UTF-8 bytes.
+    pub fn set_text(&self, scope: &str, key: &str, value: &str) -> Result<(), HostError> {
+        self.set(scope, key, value.as_bytes())
+    }
+
+    /// Delete `key`; deleting what was never kept is not an error.
+    pub fn delete(&self, scope: &str, key: &str) -> Result<(), HostError> {
+        self.admit(scope, Some(key))?;
+        self.store.delete(scope, key)
+    }
+
+    /// Every key kept under `scope`, in a stable order.
+    pub fn keys(&self, scope: &str) -> Result<Vec<String>, HostError> {
+        self.admit(scope, None)?;
+        self.store.keys(scope)
     }
 }
 
@@ -318,9 +408,147 @@ mod secrets_tests {
                 })
             );
         }
-        // Two consumers over one host share the store but not the authority.
-        let other = host().endow(GrantSet::none());
+        // Two consumers over one host share the store but not the authority:
+        // the granted one keeps a value in the very store the ungranted one
+        // is denied.
+        let shared = host();
+        let keeper = shared.endow(GrantSet::parse("secret.keep castle.session\n").unwrap());
+        keeper.secrets.set("castle.session", "t0k").unwrap();
+        let other = shared.endow(GrantSet::none());
         assert!(other.secrets.names().is_empty());
-        assert!(other.secrets.get("castle.session").is_err());
+        assert_eq!(
+            other.secrets.get("castle.session"),
+            Err(HostError::Denied {
+                capability: "secret.keep"
+            })
+        );
+        assert_eq!(
+            keeper.secrets.get("castle.session").unwrap().as_deref(),
+            Some("t0k")
+        );
+    }
+}
+
+#[cfg(test)]
+mod kv_tests {
+    use super::*;
+    use crate::kv::MemoryStore;
+    use crate::stdlib::fetch::Transport;
+
+    struct NoTransport;
+    impl Transport for NoTransport {
+        fn send(&self, _request: &Request) -> Result<Response, HostError> {
+            Err(HostError::Failed("no transport in this test".into()))
+        }
+    }
+
+    fn host() -> Host {
+        Host::with_transport(Box::new(NoTransport)).with_kv_store(Box::new(MemoryStore::new()))
+    }
+
+    /// A store that must never be reached: every method is a test failure.
+    struct UntouchableStore;
+    impl KvStore for UntouchableStore {
+        fn get(&self, s: &str, k: &str) -> Result<Option<Vec<u8>>, HostError> {
+            panic!("a denied call reached the store: get {s}/{k}")
+        }
+        fn set(&self, s: &str, k: &str, _v: &[u8]) -> Result<(), HostError> {
+            panic!("a denied call reached the store: set {s}/{k}")
+        }
+        fn delete(&self, s: &str, k: &str) -> Result<(), HostError> {
+            panic!("a denied call reached the store: delete {s}/{k}")
+        }
+        fn keys(&self, s: &str) -> Result<Vec<String>, HostError> {
+            panic!("a denied call reached the store: keys {s}")
+        }
+    }
+
+    #[test]
+    fn a_granted_scope_is_read_written_listed_and_deleted() {
+        let app = host().endow(GrantSet::parse("storage.kv castle.state\n").unwrap());
+        assert_eq!(app.kv.scopes(), vec!["castle.state"]);
+        assert_eq!(app.kv.get("castle.state", "cursor").unwrap(), None);
+        app.kv.set("castle.state", "cursor", b"42").unwrap();
+        app.kv.set_text("castle.state", "rooms", "[1,2]").unwrap();
+        assert_eq!(
+            app.kv.get("castle.state", "cursor").unwrap().as_deref(),
+            Some(&b"42"[..])
+        );
+        assert_eq!(
+            app.kv.get_text("castle.state", "rooms").unwrap().as_deref(),
+            Some("[1,2]")
+        );
+        assert_eq!(
+            app.kv.keys("castle.state").unwrap(),
+            vec!["cursor".to_string(), "rooms".to_string()]
+        );
+        app.kv.delete("castle.state", "cursor").unwrap();
+        assert_eq!(app.kv.get("castle.state", "cursor").unwrap(), None);
+        // An empty value is a kept value, not a missing one.
+        app.kv.set("castle.state", "empty", b"").unwrap();
+        assert_eq!(
+            app.kv.get("castle.state", "empty").unwrap().as_deref(),
+            Some(&b""[..])
+        );
+        // Kept bytes that are not UTF-8 are an error as text, not a value.
+        app.kv.set("castle.state", "raw", b"\xff\xfe").unwrap();
+        assert!(app.kv.get_text("castle.state", "raw").is_err());
+    }
+
+    #[test]
+    fn an_ungranted_scope_is_denied_and_no_store_is_ever_asked() {
+        // The store panics on any touch, so this test fails if admission is
+        // ever moved after dispatch — not only if a denial's value leaks.
+        let app = host()
+            .with_kv_store(Box::new(UntouchableStore))
+            .endow(GrantSet::parse("storage.kv castle.state\n").unwrap());
+        for result in [
+            app.kv.get("other", "k").map(|_| ()),
+            app.kv.set("other", "k", b"x"),
+            app.kv.delete("other", "k"),
+            app.kv.keys("other").map(|_| ()),
+        ] {
+            assert_eq!(
+                result,
+                Err(HostError::Denied {
+                    capability: "storage.kv"
+                })
+            );
+        }
+        // Ungranted wins over ill-formed: the denial reveals nothing, not
+        // even that the scope could never have been granted.
+        assert_eq!(
+            app.kv.get("../escape", "k"),
+            Err(HostError::Denied {
+                capability: "storage.kv"
+            })
+        );
+        // A granted scope with a key the family refuses is invalid before
+        // the store sees it — the panic store proves the store never does.
+        assert!(matches!(
+            app.kv.get("castle.state", ""),
+            Err(HostError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn two_consumers_over_one_host_share_the_store_but_not_the_authority() {
+        let shared = host();
+        let app = shared.endow(GrantSet::parse("storage.kv castle.state\n").unwrap());
+        app.kv.set("castle.state", "cursor", b"42").unwrap();
+        // Same host, so the same store: the granted consumer sees the value,
+        // the ungranted one is denied the very same scope.
+        let other = shared.endow(GrantSet::none());
+        assert!(other.kv.scopes().is_empty());
+        assert_eq!(
+            other.kv.get("castle.state", "cursor"),
+            Err(HostError::Denied {
+                capability: "storage.kv"
+            })
+        );
+        assert_eq!(
+            app.kv.get("castle.state", "cursor").unwrap().as_deref(),
+            Some(&b"42"[..])
+        );
     }
 }

@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, CapSec, Host ABI, Platform
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
+**Revised:** 2026-08-30 (§1: the name grammar tightened to `[a-z0-9._-]{1,64}`, never only dots — LLP 0070 adopted one rule for names that become path components, and its review found the original grammar admitted `.`, `..`, unbounded length, and case variants a case-insensitive filesystem folds into one file)
 **Related:** LLP 0067 (§2 the families, §3 the check, §8 "a family is added with a measured call site and a test, never ahead of one"), LLP 0068 (`Host`, `endow`, `Bindings`; §2 synchronous by design; §4 Exact 2), LLP 0059.000 §4 (`storage.local` — a different thing, see §4 below), LLP 0057 §3 (Rust owns semantics, the platform owns the mechanism), exact2 LLP 1018 (the call site: a session token that survives a launch, read before the first frame), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library)
 
 ## Summary
@@ -51,8 +52,10 @@ secret the consumer *keeps* is its own — a consumer that may read the token
 may replace it on the next login and forget it on logout, and no case named a
 read-only secret. Names are exact matches, one per line, as `env.read` is: no
 prefixes, because a prefix grammar is where a per-name grant becomes an
-all-names grant. A name is `[A-Za-z0-9._-]+`; anything else is refused at
-parse.
+all-names grant. A name is `[a-z0-9._-]{1,64}` and never only dots; anything
+else is refused at parse. Lowercase and bounded because a name becomes a path
+component (LLP 0070 §1 states the shared rule and the case-insensitive
+filesystem that forces it).
 
 The grant is also the **load list**: `Secrets::names()` is what a host reads
 into a snapshot before its consumer boots (exact2 LLP 1018 D3), so an

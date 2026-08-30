@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -55,19 +55,23 @@ because of how it is spelt, and never to a package because of what its own
 naming something that does not exist is refused before any module runs. No
 manifest means no authority.
 
-Three families exist, each a parameterized question:
+Five families exist, each a parameterized question:
 
 | family | grant | the question |
 |---|---|---|
 | `net.fetch` | origin | may this request go to this origin? |
 | `fs.read` / `fs.write` | path prefix | may this path be read, or written? |
 | `env.read` | variable name | is this variable in the snapshot? |
+| `secret.keep` | name | may this secret be read, replaced, and forgotten? (LLP 0069) |
+| `storage.kv` | scope | may this scope be read, written, listed, and deleted from? (LLP 0070) |
 
 `process.env` is the model in one object: a snapshot of exactly the granted
 variables, so an ungranted one is undefined because it is absent, not because
-a check refused it. LLP 0059.000 §4 specifies three more (`net.websocket`,
-`storage.local`, `sqlite.open`); each arrives with a measured call site
-(LLP 0059 §7), not before.
+a check refused it. LLP 0059.000 §4 specifies two more (`net.websocket`,
+`sqlite.open`); each arrives with a measured call site (LLP 0059 §7), not
+before — and `storage.local`, when its JavaScript call site arrives, binds
+over a `storage.kv` scope rather than becoming a family of its own
+(LLP 0070 §4).
 
 ## 3. The check
 
@@ -154,6 +158,10 @@ item to this section requires removing one; the moment the claim becomes
 
 ## 8. How it grows
 
-A family is added with a measured call site and a test, never ahead of one.
+A family is added with a measured call site and a test, never ahead of one —
+where the author naming a need as something to build on counts as the call
+site, stated rather than measured (LLP 0059.000 §6's *author-required*; that
+is how `secret.keep` and `storage.kv` arrived, each with its consumer named
+in exact2 LLP 1018).
 Revocation arrives when something needs revoking. Package grants exist because
 a real manifest was unwritable without them. Nothing else is planned.
