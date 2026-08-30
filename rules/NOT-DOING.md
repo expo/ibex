@@ -4,12 +4,18 @@ This is the most valuable file in the repository. It is longer than the doing-li
 
 ## The bar that makes this list derivable
 
-ibex 2 is a **Rust standard library with JavaScript bindings**. It is done when an Exact
-app boots to an interactive first frame inside its 30ms share of Exact's 100ms budget,
-and when a no-JS consumer — a Rust root, the Linux/DRM path — gets the same standard
-library with no engine in the process at all. *(The second half exists since 2026-08-29:
-`ibex2::host`, LLP 0068, tested with the engine feature off. The consumer is Exact 2's
-plan runner.)*
+ibex 2 is a **Rust standard library with JavaScript bindings**. It is done when its two
+consumers get what they reach for at their seams, and nothing more (LLP 0057 §5.2,
+2026-08-30): Snapback 2 runs an *effect* — JavaScript, with the grants its manifest
+section carries — through `snapback2-effects` and sees only the result, and its queries
+and mutations never come here; Exact 2 reaches for it only where the plan and Rust are
+not sufficient, which no case has yet named; and a no-JS consumer — a Rust root, the
+Linux/DRM path, Exact 2's plan runner — gets the same standard library with no engine in
+the process at all *(exists since 2026-08-29: `ibex2::host`, LLP 0068, tested with the
+engine feature off)*. Neither application runs *on* ibex 2, and no first-pixel path is
+its. *(Until 2026-08-30 the bar was "an Exact app boots to an interactive first frame
+inside its 30ms share of Exact's 100ms budget"; Exact 2 runs no app JS before first
+pixel, so that bar named a path ibex 2 is not on.)*
 
 Everything not required by that does not exist.
 

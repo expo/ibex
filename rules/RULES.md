@@ -45,10 +45,13 @@ pending their first measurement on this repository; tighten them once measured.
 | **Process start to app entry evaluated** | **30ms** |
 | Intrinsic freeze at boot (LLP 0067 §4) | 2ms |
 
-The product row is derived, not invented: Exact budgets 100ms from launch to an
-interactive first frame, and ibex sits underneath layout and paint. Thirty milliseconds is
-ibex's share. Today the boot path transpiles ESM to CommonJS per module at runtime, so
-this row is aspirational until modules ship as bytecode.
+The product row was derived, not invented: Exact budgeted 100ms from launch to an
+interactive first frame, and thirty milliseconds was ibex's share underneath layout and
+paint. Since LLP 0057 §5.2 (2026-08-30) neither consumer puts ibex 2 on its first-pixel
+path — Snapback 2 reaches it for effects, Exact 2 only where the plan and Rust are not
+sufficient — so the row keeps its number as ibex 2's own floor (LLP 0057 §3.1), not as a
+share of anyone's first frame. Today the boot path transpiles ESM to CommonJS per module
+at runtime, so this row is aspirational until modules ship as bytecode.
 
 ## Scope
 
