@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Module Loader, CapSec, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-28 (OQ2 answered — in, whole — with the bounded list; OQ4 on third-party Rust) 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
+**Revised:** 2026-08-30 (§5.2: two consumers, each at a seam — Snapback 2 for effects only, Exact 2 only where the plan and Rust are not sufficient; neither runs on Ibex 2) 2026-08-28 (OQ2 answered — in, whole — with the bounded list; OQ4 on third-party Rust) 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
 **Related:** LLP 0063 (where startup time goes — the measurement §7 said had not been taken), LLP 0000 (Ibex — the root this amends), LLP 0002 (host embedding ABI — the boundary this generalizes), LLP 0004 (module loading and builtins — the JS standard library this inverts), LLP 0013 (per-package capability compartments — the enforcement point this relocates), LLP 0039 (secure and insecure modes — the cost record this cites), LLP 0058 (the engine seam)
 
 ## Summary
@@ -171,6 +171,54 @@ registry in its current shape. And, separately but in the same window, most of
 *(Numbered 5.2, not 5.1: LLP 0058.000.001 §1 cites "LLP 0057 §5.1" as the
 superseded incremental-in-place strategy, and a section carrying two meanings
 is worse than a gap in the numbering.)*
+
+**Revised 2026-08-30: two consumers, each at a seam; neither runs on
+Ibex 2.** The author's decision of 2026-08-30 names who uses Ibex 2 and
+bounds each use:
+
+- **Snapback 2 — effects only, not queries.** `snapback2-effects` (Snapback
+  LLP 1000, decision 3) pins the `ibex2` crate at `174c94fb7` with
+  `default-features = false` and links vanilla Hermes through it behind a
+  `hermes` feature. An effect is JavaScript that Ibex 2 evaluates with the
+  grants its manifest section carries; the data plane sees only the result,
+  through the outbox. Queries and mutations never reach it — they are
+  bounded data programs (Snapback LLP 0329.014.004), Rust, with no engine in
+  the process. The crate's default build links no engine and refuses loudly.
+- **Exact 2 — only where the plan and Rust are not sufficient.** Exact 2's
+  logic lives in the plan (a Rust VM, Exact 2 LLP 1005) and its data in a
+  Rust data source (Exact 2 LLP 1004 D4: "expressions call the roster; data
+  comes from a Rust data source; nothing else crosses"). Ibex 2 is the
+  fallback for what neither expresses, not a tier the application is written
+  in. No such case has been named, and Exact 2 links nothing from this
+  repository today (2026-08-30: no `ibex2` in its `Cargo.lock`). When one
+  is named, LLP 0068's `ibex2::host` is the first thing it should reach for
+  — the plan runner is Rust — and the JavaScript bindings only if the need
+  is JavaScript.
+
+What follows for Ibex 2:
+
+- **It is a component reached at a seam, not the runtime either application
+  runs on.** Each consumer declares one trait (`EffectHost`; `DataSource`)
+  and Ibex 2 sits behind it. No consumer's first-pixel path, module graph,
+  or boot is Ibex 2's. `rules/NOT-DOING.md`'s bar — "an Exact app boots to
+  an interactive first frame inside its 30 ms share" — named a path Ibex 2
+  is not on and is restated; `rules/RULES.md`'s 30 ms row keeps its number
+  as Ibex 2's own floor (§3.1), not as a share of anyone's first frame.
+- **JavaScript is the exception in both.** LLP 0059's ceiling shrinks again:
+  the v1 JavaScript surface is what an effect, or a named Exact 2 fallback,
+  measurably calls. The Rust surface (LLP 0068) is the norm.
+- **Both consumers are Rust processes that link the crate with the engine
+  off by default.** "Links no engine" is a supported configuration, not a
+  test-only one; `default-features = false` in a consumer's `Cargo.toml` is
+  the shape, and the engine is a feature the consumer turns on.
+- **A pin is the consumer's choice.** Snapback 2 pins a revision; nothing
+  here promises the crate's API is stable across one. What a pin bump costs
+  a consumer is a measurement to take before any stability claim is made.
+
+What this does not decide: which Exact 2 need first crosses into
+JavaScript — none has been named — or whether Snapback 2's effects grow a
+Rust form. Both are the consumers' decisions and are recorded in their
+corpora, not here.
 
 **Revised, later on 2026-08-28: Ibex 2 targets Exact 2** — the from-scratch
 rewrite in the `exact2` repository (its LLP 1000 is the root map), not the
