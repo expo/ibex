@@ -16,12 +16,16 @@ pub use dev_tcp::DevTcpTransport;
 pub mod darwin;
 #[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
+#[cfg(not(target_vendor = "apple"))]
+pub mod rustls_http;
+#[cfg(not(target_vendor = "apple"))]
+pub use rustls_http::RustlsHttpTransport;
 
 /// The transport this build uses by default.
 ///
-/// Apple platforms get `NSURLSession`; everything else falls back to the
-/// development transport until its own platform binding exists. The fallback
-/// speaks no TLS, so it is a development convenience and not a shipping story.
+/// Apple platforms get `NSURLSession`; everything else gets rustls through
+/// `ureq` (the development TCP transport stays for tests that want plaintext
+/// and no dependency).
 pub fn default_transport() -> Box<dyn crate::stdlib::fetch::Transport> {
     // The platform transport, engine or not: a Rust consumer (LLP 0068) has
     // no engine in the process and gets the same `fetch` underneath.
@@ -31,6 +35,7 @@ pub fn default_transport() -> Box<dyn crate::stdlib::fetch::Transport> {
     }
     #[cfg(not(target_vendor = "apple"))]
     {
-        Box::new(DevTcpTransport::new())
+        // rustls through `ureq` (OQ2, 2026-08-30): TLS off Apple, in Rust.
+        Box::new(RustlsHttpTransport::new())
     }
 }
