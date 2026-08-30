@@ -146,6 +146,7 @@ fn capability_name(operation: &Operation) -> &'static str {
         Operation::FsWrite { .. } => "fs.write",
         Operation::EnvRead { .. } => "env.read",
         Operation::SqliteOpen { .. } => "sqlite.open",
+        Operation::SecretKeep { .. } => "secret.keep",
     }
 }
 

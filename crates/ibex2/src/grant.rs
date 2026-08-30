@@ -108,6 +108,9 @@ pub enum Operation {
     EnvRead { name: String },
     /// Open a database by path. Capability `sqlite.open`.
     SqliteOpen { path: String },
+    /// Keep — read, replace, forget — one secret by name. Capability
+    /// `secret.keep` (LLP 0069 §1).
+    SecretKeep { name: String },
 }
 
 /// One grant. The parameter is the scope, and there is always a scope.
@@ -119,6 +122,7 @@ pub enum Grant {
     FsWrite(PathPrefix),
     EnvRead(String),
     SqliteOpen(PathPrefix),
+    SecretKeep(String),
 }
 
 impl Grant {
@@ -130,6 +134,7 @@ impl Grant {
             (Grant::FsWrite(prefix), Operation::FsWrite { path }) => prefix.covers(path),
             (Grant::EnvRead(granted), Operation::EnvRead { name }) => granted == name,
             (Grant::SqliteOpen(prefix), Operation::SqliteOpen { path }) => prefix.covers(path),
+            (Grant::SecretKeep(granted), Operation::SecretKeep { name }) => granted == name,
             // Cross-kind pairs are not merely false, they are the whole point:
             // an `fs.read` grant admits no network operation, and the match
             // above is exhaustive over kinds so a new capability cannot be
@@ -187,6 +192,18 @@ impl GrantSet {
                 })
                 .collect(),
         }
+    }
+
+    /// The secrets this set may keep, in a stable order: the load list a
+    /// host reads into a snapshot before its consumer boots (LLP 0069 §1).
+    pub fn kept_secrets(&self) -> Vec<&str> {
+        self.grants
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::SecretKeep(name) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn readable_env(&self) -> Vec<&str> {
@@ -267,6 +284,15 @@ impl GrantSet {
                     }
                 }
                 "env.read" => Grant::EnvRead(target.to_string()),
+                "secret.keep" => {
+                    if !crate::secrets::is_valid_name(target) {
+                        return Err(format!(
+                            "line {}: `{target}` is not a secret name ([A-Za-z0-9._-]+)",
+                            index + 1
+                        ));
+                    }
+                    Grant::SecretKeep(target.to_string())
+                }
                 other => return Err(format!("line {}: unknown capability `{other}`", index + 1)),
             };
             set = set.with(grant);
@@ -390,6 +416,26 @@ mod tests {
         assert!(!set.permits(&Operation::EnvRead {
             name: "NODE_ENV_EXTRA".into()
         }));
+    }
+
+    #[test]
+    fn secret_keep_is_per_name_and_crosses_no_kind() {
+        let set = GrantSet::parse("secret.keep castle.session\nenv.read HOME\n").unwrap();
+        assert!(set.permits(&Operation::SecretKeep {
+            name: "castle.session".into()
+        }));
+        assert!(!set.permits(&Operation::SecretKeep {
+            name: "castle.session.old".into()
+        }));
+        assert!(!set.permits(&Operation::SecretKeep {
+            name: "HOME".into()
+        }));
+        assert!(!set.permits(&Operation::EnvRead {
+            name: "castle.session".into()
+        }));
+        assert_eq!(set.kept_secrets(), vec!["castle.session"]);
+        assert!(GrantSet::parse("secret.keep ../x").is_err());
+        assert!(GrantSet::parse("secret.keep").is_err());
     }
 
     #[test]
