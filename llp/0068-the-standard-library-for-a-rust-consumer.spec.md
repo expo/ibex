@@ -5,7 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page)
+**Revised:** 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
 **Related:** LLP 0057 (§3.1 — the split, and the reason for a Rust standard library that survived: the non-JS consumer), LLP 0067 (the capability model this states in Rust), LLP 0059.000 (§4 — the families; §3.8 — the env snapshot), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library with no engine in the process)
 
 ## Summary
@@ -57,9 +57,12 @@ because the consumer's clock is its own. The JavaScript path's task queue
 ## 3. No engine in the process
 
 The `hermes` feature is the engine. With it off — the crate's default — no
-Hermes is linked, and `cargo test -p ibex2 --test rust_consumer` runs the
-whole surface: a fetch through `NSURLSession`, filesystem operations inside
-and outside a granted prefix, an env snapshot, the pure tier. The platform
+Hermes is linked, and `cargo test -p ibex2 --no-default-features` runs the
+whole surface: `--test rust_consumer` covers a fetch through `NSURLSession`,
+filesystem operations inside and outside a granted prefix, an env snapshot,
+and the pure tier; the fourth and fifth bindings run beside it — secrets in
+the crate's `--lib` suite (LLP 0069 §5), kv there and end-to-end in
+`--test kv` (LLP 0070 §5). The platform
 transport is compiled whether or not there is an engine; it had been gated
 on the engine by accident of `build.rs`, which would have left a Rust
 consumer with the development TCP transport and no TLS.

@@ -79,13 +79,21 @@ impl MemoryStore {
         Self::default()
     }
 
-    /// With these values already kept, as `(scope, key, value)`.
+    /// With these values already kept, as `(scope, key, value)`. Panics on
+    /// a scope or key the family refuses: this constructor takes handed
+    /// literals (tests, trace-free consumers), and refusing loudly at
+    /// construction beats a store whose `keys()` lists what `get` refuses.
     pub fn with(values: impl IntoIterator<Item = (String, String, Vec<u8>)>) -> Self {
         Self {
             values: Mutex::new(
                 values
                     .into_iter()
-                    .map(|(scope, key, value)| ((scope, key), value))
+                    .map(|(scope, key, value)| {
+                        check_scope(&scope)
+                            .and_then(|()| check_key(&key))
+                            .unwrap_or_else(|e| panic!("MemoryStore::with: {e}"));
+                        ((scope, key), value)
+                    })
                     .collect(),
             ),
         }
@@ -147,8 +155,9 @@ pub struct UnavailableStore;
 impl UnavailableStore {
     fn refuse<T>(&self) -> Result<T, HostError> {
         Err(HostError::Failed(
-            "kv: no durable base directory (neither HOME nor XDG_DATA_HOME is set); \
-             construct FileStore::new(dir) with a directory of your own"
+            "kv: no durable base directory (neither HOME nor XDG_DATA_HOME provides \
+             an absolute path); construct FileStore::new(dir) with a directory of \
+             your own"
                 .into(),
         ))
     }
@@ -210,16 +219,31 @@ impl FileStore {
         Some(Self::new(base.join(app).join("kv")))
     }
 
-    /// The scope's directory. A symlink where the scope directory should be
-    /// is refused: a kv grant must not be a way to read or write wherever a
-    /// planted link points (LLP 0070 §3).
+    /// The scope's directory. A symlink where the store root or the scope
+    /// directory should be is refused — a kv grant must not be a way to
+    /// read or write wherever a planted link points — and so is a scope
+    /// directory stored under another spelling, which only a
+    /// case-insensitive filesystem can produce (LLP 0070 §3).
     fn scope_dir(&self, scope: &str) -> Result<PathBuf, HostError> {
         check_scope(scope)?;
+        if let Ok(meta) = std::fs::symlink_metadata(&self.dir) {
+            if meta.file_type().is_symlink() {
+                return Err(HostError::Failed(format!(
+                    "kv: the store root {} is a symlink, refusing",
+                    self.dir.display()
+                )));
+            }
+        }
         let dir = self.dir.join(scope);
         if let Ok(meta) = std::fs::symlink_metadata(&dir) {
             if meta.file_type().is_symlink() {
                 return Err(HostError::Failed(format!(
                     "kv: scope {scope} is a symlink, refusing"
+                )));
+            }
+            if !occupies_canonical_name(&dir) {
+                return Err(HostError::Failed(format!(
+                    "kv: scope {scope} exists under another spelling, refusing"
                 )));
             }
         }
@@ -233,6 +257,18 @@ impl FileStore {
     }
 
     fn ensure_dir(&self, scope_dir: &Path) -> Result<(), HostError> {
+        // Find the deepest ancestor that already exists before creating
+        // anything: first-write durability needs every *created* entry's
+        // parent synced, all the way up — syncing only the leaves would let
+        // a crash drop the whole new subtree while `set` had reported
+        // success.
+        let mut preexisting = scope_dir.to_path_buf();
+        while !preexisting.exists() {
+            match preexisting.parent() {
+                Some(parent) => preexisting = parent.to_path_buf(),
+                None => break,
+            }
+        }
         std::fs::create_dir_all(scope_dir).map_err(|e| failed("create", scope_dir, e))?;
         #[cfg(unix)]
         {
@@ -242,16 +278,42 @@ impl FileStore {
             }
         }
         // Make the new directory entries themselves survive a crash, not
-        // just the files later renamed into them. Best effort, like the
-        // permission bits: not every filesystem lets a directory sync.
-        sync_dir(&self.dir);
-        sync_dir(scope_dir);
+        // just the files later renamed into them: sync from the scope up to
+        // and including the first directory that already existed (its entry
+        // list changed). Best effort, like the permission bits: not every
+        // filesystem lets a directory sync.
+        if preexisting != *scope_dir {
+            let mut dir = scope_dir.to_path_buf();
+            loop {
+                sync_dir(&dir);
+                if dir == preexisting {
+                    break;
+                }
+                match dir.parent() {
+                    Some(parent) => dir = parent.to_path_buf(),
+                    None => break,
+                }
+            }
+        }
         Ok(())
     }
 }
 
 fn failed(what: &str, path: &Path, e: std::io::Error) -> HostError {
     HostError::Failed(format!("kv: {what} {}: {e}", path.display()))
+}
+
+/// Does the entry at `path` carry exactly `path`'s final component as its
+/// stored spelling? On a case-insensitive filesystem a lookup resolves any
+/// case variant of a name, so opening the canonical path can reach a file
+/// `keys()` would refuse; the stored name is the one that decides
+/// (LLP 0070 §3). An entry that vanished under us counts as canonical — the
+/// caller's next step sees `NotFound` and answers for itself.
+fn occupies_canonical_name(path: &Path) -> bool {
+    match std::fs::canonicalize(path) {
+        Ok(real) => real.file_name() == path.file_name(),
+        Err(_) => true,
+    }
 }
 
 /// Best-effort fsync of a directory, so a rename or unlink inside it is on
@@ -328,6 +390,12 @@ impl KvStore for FileStore {
             }
             Ok(_) => {}
         }
+        // A case-variant occupant (case-insensitive filesystems only) is
+        // not this key — `keys()` refuses its spelling, so `get` must not
+        // read it.
+        if !occupies_canonical_name(&path) {
+            return Ok(None);
+        }
         match std::fs::read(&path) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -343,37 +411,61 @@ impl KvStore for FileStore {
         // refuses to follow a planted symlink) under a name unique to this
         // call — pid, a timestamp, a counter — so concurrent writers, in
         // this process or another, can never truncate each other's file and
-        // rename a torn value into place. Encoded names never start with `.`
-        // (the alphabet has no dot), so a dotted temporary can never collide
-        // with a key and `keys()` skips it.
+        // rename a torn value into place. A name somehow taken (a
+        // PID-namespace twin, a crash leftover) is another writer's file and
+        // never ours to delete: take the next name instead, and clean up
+        // only the file this call created. Encoded names never start with
+        // `.` (the alphabet has no dot), so a dotted temporary can never
+        // collide with a key and `keys()` skips it.
         static NEXT_TMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let tmp = scope_dir.join(format!(
-            ".tmp.{}.{}.{}",
-            std::process::id(),
-            nanos,
-            NEXT_TMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let written = (|| {
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
+        let (mut file, tmp) = {
+            let mut attempts = 0u32;
+            loop {
+                let tmp = scope_dir.join(format!(
+                    ".tmp.{}.{}.{}",
+                    std::process::id(),
+                    nanos,
+                    NEXT_TMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                let mut options = std::fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                match options.open(&tmp) {
+                    Ok(file) => break (file, tmp),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempts < 16 => {
+                        attempts += 1;
+                    }
+                    Err(e) => return Err(failed("write", &tmp, e)),
+                }
             }
+        };
+        let written = {
             use std::io::Write as _;
-            let mut file = options.open(&tmp).map_err(|e| failed("write", &tmp, e))?;
-            file.write_all(value)
-                .and_then(|()| file.sync_all())
-                .map_err(|e| failed("write", &tmp, e))
-        })();
-        if let Err(error) = written {
+            file.write_all(value).and_then(|()| file.sync_all())
+        };
+        drop(file);
+        if let Err(e) = written {
+            let error = failed("write", &tmp, e);
             let _ = std::fs::remove_file(&tmp);
             return Err(error);
+        }
+        // A case-variant occupant of this key's slot (case-insensitive
+        // filesystems only) is evicted under its stored spelling first, so
+        // the rename lands the canonical name rather than feeding the
+        // occupant's — otherwise this very write could come back invisible
+        // to `get`.
+        if std::fs::symlink_metadata(&path).is_ok() && !occupies_canonical_name(&path) {
+            if let Ok(real) = std::fs::canonicalize(&path) {
+                let _ = std::fs::remove_file(&real);
+            }
         }
         std::fs::rename(&tmp, &path).map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
@@ -385,6 +477,16 @@ impl KvStore for FileStore {
 
     fn delete(&self, scope: &str, key: &str) -> Result<(), HostError> {
         let path = self.key_path(scope, key)?;
+        // What occupies this slot under another spelling or as a non-file is
+        // not this key (`keys()` refuses it): deleting the absent is not an
+        // error, and a foreign occupant is not ours to remove.
+        match std::fs::symlink_metadata(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(failed("stat", &path, e)),
+            Ok(meta) if !meta.file_type().is_file() => return Ok(()),
+            Ok(_) if !occupies_canonical_name(&path) => return Ok(()),
+            Ok(_) => {}
+        }
         match std::fs::remove_file(&path) {
             Ok(()) => {
                 sync_dir(&self.dir.join(scope));
@@ -474,9 +576,23 @@ mod tests {
             assert_eq!(decode_key(&encoded).as_deref(), Some(key));
         }
         // Fixed vectors, so the encoding cannot drift silently: "a" is
-        // 01100001, whose 5-bit groups are 01100 001(00) — "me".
+        // 01100001, whose 5-bit groups are 01100 001(00) — "me"; the rest
+        // are RFC 4648 §10's own vectors, lowercased and unpadded, decoded
+        // independently of the encoder so a shared multi-byte defect cannot
+        // hide behind a round trip.
         assert_eq!(encode_key("a"), "me");
         assert_eq!(decode_key("me").as_deref(), Some("a"));
+        for (key, spelling) in [
+            ("f", "my"),
+            ("fo", "mzxq"),
+            ("foo", "mzxw6"),
+            ("foob", "mzxw6yq"),
+            ("fooba", "mzxw6ytb"),
+            ("foobar", "mzxw6ytboi"),
+        ] {
+            assert_eq!(encode_key(key), spelling);
+            assert_eq!(decode_key(spelling).as_deref(), Some(key));
+        }
         // Non-canonical spellings — trailing bits set — are not keys:
         // "mf" also decodes to the byte of "a", and must be refused.
         assert_eq!(decode_key("mf"), None);
@@ -673,6 +789,29 @@ mod tests {
             .filter(|name| name.starts_with('.'))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_case_variant_occupant_is_never_this_key_and_set_reclaims_the_slot() {
+        // "a" canonically encodes as "me". Plant "ME": on a case-insensitive
+        // filesystem the canonical path resolves it; on a case-sensitive one
+        // it is simply another file. The observable behavior must be the
+        // same on both: not a key, not read, not deleted — and a `set`
+        // reclaims the slot under the canonical spelling.
+        let dir = temp_dir();
+        let store = FileStore::new(&dir);
+        store.set("state", "anchor", b"x").unwrap(); // creates the scope dir
+        std::fs::write(dir.join("state").join("ME"), b"foreign").unwrap();
+        assert_eq!(store.keys("state").unwrap(), vec!["anchor"]);
+        assert_eq!(store.get("state", "a").unwrap(), None);
+        store.delete("state", "a").unwrap();
+        store.set("state", "a", b"mine").unwrap();
+        assert_eq!(store.get("state", "a").unwrap().as_deref(), Some(&b"mine"[..]));
+        assert_eq!(
+            store.keys("state").unwrap(),
+            vec!["a".to_string(), "anchor".to_string()]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

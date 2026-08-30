@@ -7,8 +7,9 @@
 //! Under D1 and D2 the binary question — *may this module reach the network at
 //! all?* — is answered structurally: a module that was not injected `fetch`
 //! has no expression that evaluates to one. So what lives here is only the
-//! **parameterized** half of LLP 0059.000 §4: the four questions asked against
-//! a grant the caller already provably holds.
+//! **parameterized** half of LLP 0059.000 §4: the per-family questions asked
+//! against a grant the caller already provably holds (LLP 0067 §2 keeps the
+//! current list).
 //!
 //! This is pure Rust and needs no engine, which is why it is the first thing
 //! built.
@@ -321,6 +322,15 @@ impl GrantSet {
                 }
                 other => return Err(format!("line {}: unknown capability `{other}`", index + 1)),
             };
+            // One capability and one target per line. Anything after the
+            // target refuses the line: a manifest typo that split a target
+            // must stop a deployment, not silently grant its first word.
+            if let Some(extra) = parts.next() {
+                return Err(format!(
+                    "line {}: unexpected `{extra}` after the target",
+                    index + 1
+                ));
+            }
             set = set.with(grant);
         }
         Ok(set)
@@ -545,6 +555,21 @@ mod tests {
         assert!(GrantSet::parse("nonsense.cap x").is_err());
         assert!(GrantSet::parse("fs.read relative/path").is_err());
         assert!(GrantSet::parse("net.fetch not-a-url").is_err());
+    }
+
+    #[test]
+    fn a_line_with_anything_after_the_target_is_refused_not_truncated() {
+        // The typo class this refuses: a split target silently granting its
+        // first word.
+        assert!(GrantSet::parse("storage.kv payments cache").is_err());
+        assert!(GrantSet::parse("secret.keep castle.session old").is_err());
+        assert!(GrantSet::parse("fs.read /data /backup").is_err());
+        assert!(GrantSet::parse("net.fetch http://a.example # prod").is_err());
+        assert!(GrantSet::parse("env.read HOME PATH").is_err());
+        // A full-line comment is still a comment.
+        assert!(GrantSet::parse("# net.fetch http://a.example extra")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

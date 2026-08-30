@@ -77,7 +77,7 @@ impl KeychainStore {
     fn account(name: &str) -> Result<CString, HostError> {
         if !is_valid_name(name) {
             return Err(HostError::InvalidArgument(format!(
-                "`{name}` is not a secret name ([A-Za-z0-9._-]+)"
+                "`{name}` is not a secret name ([a-z0-9._-]{{1,64}})"
             )));
         }
         CString::new(name).map_err(|_| HostError::InvalidArgument("a NUL in a secret name".into()))
