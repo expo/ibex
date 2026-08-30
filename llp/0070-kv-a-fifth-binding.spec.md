@@ -5,7 +5,7 @@
 **Systems:** Rust Stdlib, CapSec, Host ABI, Platform
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revised:** 2026-08-30 (after the Grok 4.6 / Codex review, same day: keys spelt in lowercase base32 rather than base64url and the shared name grammar lowercased and bounded — a case-insensitive filesystem folds mixed-case spellings into one file, so exact grants and distinct keys were not exact on default APFS; symlinks refused as scopes and keys; directory entries synced; no temp-directory fallback; scope and key grammar enforced in the binding so a consumer's store never sees what the family refuses; review artifacts under `llp/reviews/0070-*`)
+**Revised:** 2026-08-30 (round 2 — Grok 4.6 xhigh / gpt-5.6-sol ultra over the landed commit: the canonical rule now governs lookup as well as listing (a case-variant occupant is invisible to `get`/`delete` and evicted by `set`); symlinks refused at the store root too, with the check-vs-use race scoped out by the threat model; first-write durability syncs every created directory entry; grant lines refuse trailing tokens instead of granting their first word; a colliding temporary is retried, never deleted; RFC 4648 vectors pin the codec; `tests/kv.rs` runs the binding end-to-end with no engine) 2026-08-30 (after the Grok 4.6 / Codex review, same day: keys spelt in lowercase base32 rather than base64url and the shared name grammar lowercased and bounded — a case-insensitive filesystem folds mixed-case spellings into one file, so exact grants and distinct keys were not exact on default APFS; symlinks refused as scopes and keys; directory entries synced; no temp-directory fallback; scope and key grammar enforced in the binding so a consumer's store never sees what the family refuses; review artifacts under `llp/reviews/0070-*`)
 **Related:** LLP 0067 (§2 the families, §3 the check, §8 "a family is added with a measured call site and a test, never ahead of one" — here the author named it, 2026-08-30), LLP 0068 (`Host`, `endow`, `Bindings`; §2 synchronous by design; §4 Exact 2), LLP 0069 (the fourth binding this one is shaped after, and what a *secret* is that this is not), LLP 0059.000 §3.7 and §4 (`storage.local` — the JS surface this will back, still waiting for its call site), exact2 LLP 1018 (durable client state — the program; its D6, secrets, was the first slice and this is the rest)
 
 ## Summary
@@ -115,18 +115,30 @@ KvStore>)` replaces it.
   everywhere *including case-insensitive filesystems*, where a mixed-case
   encoding would fold two keys into one file, and that decodes back to
   exactly the key for `keys()` — so a key can never spell a path. Only the
-  **canonical** spelling of an acceptable key is a key: `keys()` refuses a
-  name whose trailing bits are set or whose decoding `get` would refuse, so
-  filenames and keys stay one-to-one and a foreign file can neither shadow
-  nor duplicate one. Only a **regular file** is a key, and a symlink is
-  followed nowhere — not as a key (`get` refuses it) and not as a scope
-  directory (every operation refuses) — so a planted link cannot turn a kv
-  grant into a read or write of wherever it points. Files are `0600` in
-  `0700` directories; each write goes whole to a temporary created fresh
-  (`create_new`, a name unique to the call), is synced, renamed into place,
-  and the directory entry is synced best-effort behind it — so a torn value
-  is never renamed in and a crash after `set` returns keeps what was set,
-  where the platform allows a directory sync. The same posture as the
+  **canonical** spelling of an acceptable key is a key, and the *stored*
+  spelling is what decides, on the way out and on the way in: `keys()`
+  refuses a name whose trailing bits are set or whose decoding `get` would
+  refuse, and because a case-insensitive filesystem resolves any case
+  variant of a path, `get` and `delete` verify the on-disk spelling — a
+  case-variant occupant is absent, not read and not removed — while `set`
+  evicts one so its own write cannot come back invisible. Filenames and
+  keys stay one-to-one and a foreign file can neither shadow nor duplicate
+  one — though one planted *under* a canonical spelling is indistinguishable
+  from a key by construction; the directory is the store. Only a **regular file** is a key, and a symlink is refused wherever
+  the store looks — the store root, the scope directory, the key entry — so
+  a planted link cannot turn a kv grant into a read or write of wherever it
+  points; a same-user race between that check and the operation's own open
+  is out of scope, because the threat model here is LLP 0062 §4's —
+  supply-chain integrity, not a sandbox against a local adversary who can
+  already write the app's own state directory. Files are `0600` in `0700`
+  directories; each write goes whole to a temporary created fresh
+  (`create_new`, a per-call name, the next name if a twin process somehow
+  holds it — another writer's temporary is never ours to delete), is
+  synced, renamed into place, and the directory entries are synced
+  best-effort behind it — on a first write, every entry the write created,
+  up to the first pre-existing ancestor — so a torn value is never renamed
+  in and a crash after `set` returns keeps what was set, where the platform
+  allows a directory sync. The same posture as the
   secrets `FileStore`, *without the claim* — owner-only is hygiene here, not
   protection, and nothing in a kv scope may need protection (§4). No
   Keychain and no platform credential store on any platform: that is the
@@ -177,7 +189,15 @@ leaves no temporary behind; eight concurrent writers over one key never
 leave a torn value or a temporary; a symlink is refused as a key and as a
 scope; a refused scope or key creates nothing; listing an absent scope is
 empty and foreign files — wrong alphabet, dotted, directories — are not
-keys; the unavailable store refuses everything.
+keys; the unavailable store refuses everything. Round 2 added: the codec
+pinned against RFC 4648 §10's own vectors, decoded independently of the
+encoder; a planted case-variant occupant is invisible to `get`/`delete`,
+reclaimed by `set`, and the test asserts the same observable behavior on
+case-sensitive and case-insensitive filesystems; a grant line with anything
+after its target refuses, for every family; `tests/kv.rs` runs the binding
+end-to-end — a real `Host`, the file store on disk, grants from the
+manifest grammar, two endowments sharing the store and not the authority,
+and a value surviving a second store over the same directory.
 `cargo test -p ibex2 --no-default-features` runs them all — the consumer's
 build shape (0068 OQ1).
 

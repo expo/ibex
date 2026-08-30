@@ -30,8 +30,8 @@ app.secrets.set("castle.session", r#"{"token":"…"}"#)?;
 app.secrets.forget("castle.session")?;
 ```
 
-`Secrets` is the fourth field of `Bindings`, beside `fetch`, `fs`, and `env`,
-and carries the grant set like the others. Behind it is one trait,
+`Secrets` is the fourth field of `Bindings`, beside `fetch`, `fs`, and `env`
+(and, since LLP 0070, `kv`), and carries the grant set like the others. Behind it is one trait,
 `SecretStore`, with the platform's credential store: the **Keychain** on
 Apple platforms (through an Objective-C++ shim beside the `NSURLSession`
 one), a **`0600` file per secret** under `$XDG_DATA_HOME/<app>/secrets/`
