@@ -27,6 +27,7 @@ pub mod host;
 pub mod loader;
 pub mod pool;
 pub mod receipt;
+pub mod secrets;
 pub mod stdlib;
 pub mod task;
 pub mod transport;

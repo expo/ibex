@@ -34,9 +34,24 @@ fn main() {
             .flag("objective-c++")
             .compile("ibex2_darwin_http");
     }
+    // The Keychain behind `SecretStore` (LLP 0069 §3): the same shape, one
+    // more framework.
+    if std::env::var("CARGO_CFG_TARGET_VENDOR").as_deref() == Ok("apple") {
+        println!("cargo:rerun-if-changed=src/engine/darwin_keychain.mm");
+        cc::Build::new()
+            .cpp(true)
+            .file("src/engine/darwin_keychain.mm")
+            .flag("-std=c++17")
+            .flag("-stdlib=libc++")
+            .flag("-fobjc-arc")
+            .flag("-x")
+            .flag("objective-c++")
+            .compile("ibex2_darwin_keychain");
+    }
     if std::env::var("CARGO_CFG_TARGET_VENDOR").as_deref() == Ok("apple") {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Foundation");
+        println!("cargo:rustc-link-lib=framework=Security");
     }
 
     if std::env::var("CARGO_FEATURE_HERMES").is_err() {
@@ -74,7 +89,6 @@ fn main() {
         .flag("-std=c++17")
         .flag("-stdlib=libc++")
         .compile("ibex2_hermes_shim");
-
 
     // The engine this binary links, as a digest baked into it. Artifacts are
     // keyed by it at build time and the manifest is checked against it at run
