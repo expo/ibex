@@ -111,6 +111,10 @@ pub enum Operation {
     /// Keep — read, replace, forget — one secret by name. Capability
     /// `secret.keep` (LLP 0069 §1).
     SecretKeep { name: String },
+    /// Read, write, delete, and list durable state under one scope.
+    /// Capability `storage.kv` (LLP 0070 §1): keys are free within the
+    /// scope, and the scope is the grant.
+    StorageKv { scope: String },
 }
 
 /// One grant. The parameter is the scope, and there is always a scope.
@@ -123,6 +127,7 @@ pub enum Grant {
     EnvRead(String),
     SqliteOpen(PathPrefix),
     SecretKeep(String),
+    StorageKv(String),
 }
 
 impl Grant {
@@ -135,6 +140,7 @@ impl Grant {
             (Grant::EnvRead(granted), Operation::EnvRead { name }) => granted == name,
             (Grant::SqliteOpen(prefix), Operation::SqliteOpen { path }) => prefix.covers(path),
             (Grant::SecretKeep(granted), Operation::SecretKeep { name }) => granted == name,
+            (Grant::StorageKv(granted), Operation::StorageKv { scope }) => granted == scope,
             // Cross-kind pairs are not merely false, they are the whole point:
             // an `fs.read` grant admits no network operation, and the match
             // above is exhaustive over kinds so a new capability cannot be
@@ -192,6 +198,17 @@ impl GrantSet {
                 })
                 .collect(),
         }
+    }
+
+    /// The kv scopes this set may use, in a stable order (LLP 0070 §1).
+    pub fn kv_scopes(&self) -> Vec<&str> {
+        self.grants
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::StorageKv(scope) => Some(scope.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The secrets this set may keep, in a stable order: the load list a
@@ -287,11 +304,20 @@ impl GrantSet {
                 "secret.keep" => {
                     if !crate::secrets::is_valid_name(target) {
                         return Err(format!(
-                            "line {}: `{target}` is not a secret name ([A-Za-z0-9._-]+)",
+                            "line {}: `{target}` is not a secret name ([a-z0-9._-]{{1,64}})",
                             index + 1
                         ));
                     }
                     Grant::SecretKeep(target.to_string())
+                }
+                "storage.kv" => {
+                    if !crate::kv::is_valid_scope(target) {
+                        return Err(format!(
+                            "line {}: `{target}` is not a kv scope ([a-z0-9._-]{{1,64}})",
+                            index + 1
+                        ));
+                    }
+                    Grant::StorageKv(target.to_string())
                 }
                 other => return Err(format!("line {}: unknown capability `{other}`", index + 1)),
             };
@@ -436,6 +462,56 @@ mod tests {
         assert_eq!(set.kept_secrets(), vec!["castle.session"]);
         assert!(GrantSet::parse("secret.keep ../x").is_err());
         assert!(GrantSet::parse("secret.keep").is_err());
+    }
+
+    #[test]
+    fn storage_kv_is_per_scope() {
+        let set = GrantSet::parse("storage.kv castle.state\n").unwrap();
+        assert_eq!(set.kv_scopes(), vec!["castle.state"]);
+        assert!(set.permits(&Operation::StorageKv {
+            scope: "castle.state".into()
+        }));
+        // Neither direction of a prefix admits the other.
+        assert!(!set.permits(&Operation::StorageKv {
+            scope: "castle.state.old".into()
+        }));
+        assert!(!GrantSet::parse("storage.kv castle\n")
+            .unwrap()
+            .permits(&Operation::StorageKv {
+                scope: "castle.state".into()
+            }));
+        for bad in [
+            "storage.kv ../x",
+            "storage.kv .",
+            "storage.kv ..",
+            "storage.kv ...",
+            "storage.kv Castle.state",
+            "storage.kv",
+        ] {
+            assert!(GrantSet::parse(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn storage_kv_crosses_no_kind_in_either_direction() {
+        // Single-family sets, so each assertion can actually witness the
+        // isolation: a combined set would admit both operations and prove
+        // nothing.
+        let kv_only = GrantSet::parse("storage.kv castle.state\n").unwrap();
+        assert!(!kv_only.permits(&Operation::SecretKeep {
+            name: "castle.state".into()
+        }));
+        assert!(!kv_only.permits(&Operation::EnvRead {
+            name: "castle.state".into()
+        }));
+        let secret_only = GrantSet::parse("secret.keep castle.state\n").unwrap();
+        assert!(!secret_only.permits(&Operation::StorageKv {
+            scope: "castle.state".into()
+        }));
+        let fs_only = GrantSet::parse("fs.write /tmp\n").unwrap();
+        assert!(!fs_only.permits(&Operation::StorageKv {
+            scope: "tmp".into()
+        }));
     }
 
     #[test]

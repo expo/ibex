@@ -147,6 +147,7 @@ fn capability_name(operation: &Operation) -> &'static str {
         Operation::EnvRead { .. } => "env.read",
         Operation::SqliteOpen { .. } => "sqlite.open",
         Operation::SecretKeep { .. } => "secret.keep",
+        Operation::StorageKv { .. } => "storage.kv",
     }
 }
 

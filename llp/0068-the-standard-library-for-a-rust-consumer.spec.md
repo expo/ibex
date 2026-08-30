@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page)
 **Related:** LLP 0057 (§3.1 — the split, and the reason for a Rust standard library that survived: the non-JS consumer), LLP 0067 (the capability model this states in Rust), LLP 0059.000 (§4 — the families; §3.8 — the env snapshot), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library with no engine in the process)
 
 ## Summary
@@ -28,10 +29,11 @@ let bytes    = app.fs.read_file("/data/things.json")?;            // checked as 
 let home     = app.env.get("HOME");                               // None if not granted: absent, not refused
 ```
 
-`Host` is the runtime without an engine: the platform transport and nothing
-else. `endow` is instantiation: `Bindings { fetch, fs, env }` is the module
-parameter list as a struct, each binding holding an `Arc` of the grant set for
-its whole life. A binding handed from one consumer to another carries the
+`Host` is the runtime without an engine: the platform transport, the secret
+store, the kv store, and nothing else. `endow` is instantiation:
+`Bindings { fetch, fs, env, secrets, kv }` (the last two are LLP 0069 and
+LLP 0070) is the module parameter list as a struct, each binding holding an
+`Arc` of the grant set for its whole life. A binding handed from one consumer to another carries the
 first's authority, as LLP 0067 §3 says a JavaScript binding does. A consumer
 granted nothing holds bindings that refuse — not absent bindings — so the
 failure is a denial rather than a panic.
