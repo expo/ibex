@@ -60,6 +60,12 @@ sha2 = "0.10"
 # the rest of `fetch` stay above it, in Rust, as on Apple.
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
+# The trust store is the platform's (LLP 0057 §3): the distro's CA bundle
+# through rustls-native-certs; the compiled-in webpki roots only where the
+# machine has none. The same rustls ureq pins, so one copy is linked.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.7"
+webpki-roots = "0.26"
 
 [features]
 default = ["loader"]

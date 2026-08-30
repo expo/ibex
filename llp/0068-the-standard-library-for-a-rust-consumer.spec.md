@@ -88,9 +88,16 @@ roots compiled in, a thirty-second timeout, no redirect following (that is
 `fetch`'s, above, as on Apple). Pure Rust: a builder with no system TLS and no
 -dev packages runs it as is. It is a transport and not a second `fetch`: every
 status is a response, and what never connected is `TypeError: Failed to
-fetch`. The development TCP transport stays for tests that want plaintext and
-no dependency. A `cfg(not(target_vendor = "apple"))` dependency, so an Apple
-build carries none of it.
+fetch`. **Trust is the platform's**, as §3 of LLP 0057 says and as
+`NSURLSession` has it on Apple: the roots are the machine's CA bundle
+(`rustls-native-certs`: `/etc/ssl/certs`, `SSL_CERT_FILE`/`SSL_CERT_DIR`), so
+an enterprise CA or a development proxy works there as everywhere else; only a
+machine with no bundle at all gets the compiled-in webpki roots — Mozilla's
+set, the one a distro installs — and `RustlsHttpTransport::roots` says which,
+for the consumer's journal (Charlie, 2026-08-30). The development TCP transport
+stays for tests that want plaintext and no dependency. A
+`cfg(not(target_vendor = "apple"))` dependency, so an Apple build carries none
+of it.
 
 **OQ3 — Async.** If every consumer ends up wrapping these in the same future
 type, that type belongs here. Not before.
