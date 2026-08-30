@@ -81,9 +81,16 @@ default. A Rust consumer depends on `ibex2` with `default-features = false`
 and compiles none of it; the same cut is the run-only binary of LLP 0065
 §3.3, 5.6 MB against 9.6 MB.
 
-**OQ2 — Linux.** The default transport off Apple platforms is the development
-TCP transport, which speaks no TLS. A Linux transport is owed before the
-Linux/DRM path is a consumer, and it is a transport, not a second `fetch`.
+**OQ2 — Linux.** *Resolved 2026-08-30, for Exact 2's Linux host (its LLP
+1016 D2):* the default transport off Apple platforms is
+`transport::rustls_http` — HTTP/1.1 over rustls through `ureq`, the webpki
+roots compiled in, a thirty-second timeout, no redirect following (that is
+`fetch`'s, above, as on Apple). Pure Rust: a builder with no system TLS and no
+-dev packages runs it as is. It is a transport and not a second `fetch`: every
+status is a response, and what never connected is `TypeError: Failed to
+fetch`. The development TCP transport stays for tests that want plaintext and
+no dependency. A `cfg(not(target_vendor = "apple"))` dependency, so an Apple
+build carries none of it.
 
 **OQ3 — Async.** If every consumer ends up wrapping these in the same future
 type, that type belongs here. Not before.
