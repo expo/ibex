@@ -102,9 +102,12 @@ impl Compiler {
         }
         let hermesc = Self::find_hermesc(repo_root)?;
         if let Some(expected) = receipt.as_ref().and_then(|r| r.compiler_digest.as_deref()) {
-            let actual = format!("sha256-{}", hex(&Sha256::digest(std::fs::read(&hermesc).map_err(
-                |e| format!("cannot read {}: {e}", hermesc.display()),
-            )?)));
+            let actual = format!(
+                "sha256-{}",
+                hex(&Sha256::digest(std::fs::read(&hermesc).map_err(
+                    |e| format!("cannot read {}: {e}", hermesc.display()),
+                )?))
+            );
             if actual != expected {
                 return Err(format!(
                     "the receipt describes a different hermesc than the one present\n  \
@@ -400,12 +403,19 @@ impl Bundle {
     pub fn write(cache_dir: &Path, artifacts: &[(String, Vec<u8>)]) -> Result<(), String> {
         std::fs::create_dir_all(cache_dir)
             .map_err(|e| format!("cannot create {}: {e}", cache_dir.display()))?;
-        let mut out = Vec::with_capacity(artifacts.iter().map(|(k, b)| k.len() + b.len() + 18).sum::<usize>() + 12);
+        let mut out = Vec::with_capacity(
+            artifacts
+                .iter()
+                .map(|(k, b)| k.len() + b.len() + 18)
+                .sum::<usize>()
+                + 12,
+        );
         out.extend_from_slice(BUNDLE_MAGIC);
         out.extend_from_slice(&(artifacts.len() as u32).to_le_bytes());
         let mut offset = 0u64;
         for (key, bytes) in artifacts {
-            let key_len = u16::try_from(key.len()).map_err(|_| format!("artifact key too long: {key}"))?;
+            let key_len =
+                u16::try_from(key.len()).map_err(|_| format!("artifact key too long: {key}"))?;
             out.extend_from_slice(&key_len.to_le_bytes());
             out.extend_from_slice(key.as_bytes());
             out.extend_from_slice(&offset.to_le_bytes());
@@ -441,7 +451,9 @@ impl Bundle {
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             let key_len = u16::from_le_bytes(take(&mut at, 2)?.try_into().ok()?) as usize;
-            let key = std::str::from_utf8(take(&mut at, key_len)?).ok()?.to_string();
+            let key = std::str::from_utf8(take(&mut at, key_len)?)
+                .ok()?
+                .to_string();
             let offset = u64::from_le_bytes(take(&mut at, 8)?.try_into().ok()?) as usize;
             let len = u64::from_le_bytes(take(&mut at, 8)?.try_into().ok()?) as usize;
             entries.push((key, offset, len));
@@ -513,8 +525,10 @@ impl Manifest {
 
     /// Record that `specifier`, written inside `from`, resolved to `resolved`.
     pub fn insert_edge(&mut self, from: &str, specifier: &str, resolved: &str) {
-        self.edges
-            .insert((from.to_string(), specifier.to_string()), resolved.to_string());
+        self.edges.insert(
+            (from.to_string(), specifier.to_string()),
+            resolved.to_string(),
+        );
     }
 
     /// What the build resolved `specifier` to, inside `from`, if it did.
@@ -557,7 +571,9 @@ impl Manifest {
             + &self
                 .edges
                 .iter()
-                .map(|((from, specifier), resolved)| format!("#edge\t{from}\t{specifier}\t{resolved}\n"))
+                .map(|((from, specifier), resolved)| {
+                    format!("#edge\t{from}\t{specifier}\t{resolved}\n")
+                })
                 .collect::<String>()
             + &self
                 .entries
@@ -613,8 +629,7 @@ pub fn is_hermes_bytecode(bytes: &[u8]) -> bool {
 
 /// `sha256-<hex>` of a file, the receipt's own convention.
 fn hash_file(path: &Path) -> Result<String, String> {
-    let bytes =
-        std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     Ok(format!("sha256-{}", hex(&Sha256::digest(&bytes))))
 }
 
@@ -707,7 +722,10 @@ mod tests {
             return;
         };
         let bound = Compiler::with_engine(
-            plain.hermesc.clone().expect("a discovered compiler has hermesc"),
+            plain
+                .hermesc
+                .clone()
+                .expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
                 binary_digest: "sha256-engine-a".into(),
@@ -719,7 +737,10 @@ mod tests {
         )
         .expect("compiler");
         let other = Compiler::with_engine(
-            plain.hermesc.clone().expect("a discovered compiler has hermesc"),
+            plain
+                .hermesc
+                .clone()
+                .expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
                 binary_digest: "sha256-engine-b".into(),
@@ -805,16 +826,24 @@ mod tests {
     #[test]
     fn the_linked_engine_is_part_of_every_key() {
         let linked = Compiler::linked_engine();
-        assert!(linked.starts_with("sha256-") || linked == "no-linked-engine", "{linked}");
+        assert!(
+            linked.starts_with("sha256-") || linked == "no-linked-engine",
+            "{linked}"
+        );
         // Two compilers alike in everything but the engine they link key the
         // same wrapper differently — which is what makes a cache built by one
         // binary a miss, not a hit, under another.
         let cache = std::env::temp_dir().join(format!("ibex2-linked-key-{}", std::process::id()));
         let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let Ok(one) = Compiler::discover(&repo, cache.clone()) else { return };
+        let Ok(one) = Compiler::discover(&repo, cache.clone()) else {
+            return;
+        };
         let other = one.clone().with_linked("sha256-another-engine");
         assert_ne!(one.key("(function () {})"), other.key("(function () {})"));
-        assert_eq!(one.key("(function () {})"), one.clone().key("(function () {})"));
+        assert_eq!(
+            one.key("(function () {})"),
+            one.clone().key("(function () {})")
+        );
     }
 
     #[test]
@@ -841,4 +870,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
-

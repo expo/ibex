@@ -39,34 +39,64 @@ fn a_rust_consumer_gets_the_same_standard_library_under_the_same_grants() {
     assert!(response.headers.get("content-type").is_some());
     assert!(matches!(
         bindings.fetch.get("https://example.org/"),
-        Err(HostError::Denied { capability: "net.fetch" })
+        Err(HostError::Denied {
+            capability: "net.fetch"
+        })
     ));
 
     // fs: inside the prefix, and refused outside it; a write, a listing, a stat.
     let inside = allowed.join("inside.txt");
-    assert_eq!(bindings.fs.read_file(inside.to_str().unwrap()).unwrap(), b"INSIDE");
+    assert_eq!(
+        bindings.fs.read_file(inside.to_str().unwrap()).unwrap(),
+        b"INSIDE"
+    );
     assert!(matches!(
-        bindings.fs.read_file(dir.join("outside.txt").to_str().unwrap()),
-        Err(HostError::Denied { capability: "fs.read" })
+        bindings
+            .fs
+            .read_file(dir.join("outside.txt").to_str().unwrap()),
+        Err(HostError::Denied {
+            capability: "fs.read"
+        })
     ));
     let written = allowed.join("written.txt");
-    bindings.fs.write_file(written.to_str().unwrap(), b"hello").unwrap();
-    assert_eq!(bindings.fs.read_file(written.to_str().unwrap()).unwrap(), b"hello");
+    bindings
+        .fs
+        .write_file(written.to_str().unwrap(), b"hello")
+        .unwrap();
+    assert_eq!(
+        bindings.fs.read_file(written.to_str().unwrap()).unwrap(),
+        b"hello"
+    );
     let mut names = bindings.fs.read_dir(allowed.to_str().unwrap()).unwrap();
     names.sort();
     assert_eq!(names, vec!["inside.txt", "written.txt"]);
     assert!(bindings.fs.stat(inside.to_str().unwrap()).unwrap().is_file);
     // Traversal is lexical and refused before the filesystem is asked.
     let climb = format!("{}/../outside.txt", allowed.display());
-    assert!(matches!(bindings.fs.read_file(&climb), Err(HostError::Denied { .. })));
+    assert!(matches!(
+        bindings.fs.read_file(&climb),
+        Err(HostError::Denied { .. })
+    ));
 
     // env: a snapshot of exactly the granted names.
     assert!(bindings.env.get("HOME").is_some());
-    assert_eq!(bindings.env.get("PATH"), None, "not granted: absent, not refused");
-    assert_eq!(bindings.env.snapshot().keys().collect::<Vec<_>>(), vec!["HOME"]);
+    assert_eq!(
+        bindings.env.get("PATH"),
+        None,
+        "not granted: absent, not refused"
+    );
+    assert_eq!(
+        bindings.env.snapshot().keys().collect::<Vec<_>>(),
+        vec!["HOME"]
+    );
 
     // The pure tier is plain Rust, the same functions the bindings wrap.
-    assert_eq!(ibex2::stdlib::url::parse("/settings", Some("https://exact.local")).unwrap().pathname, "/settings");
+    assert_eq!(
+        ibex2::stdlib::url::parse("/settings", Some("https://exact.local"))
+            .unwrap()
+            .pathname,
+        "/settings"
+    );
     assert_eq!(ibex2::stdlib::base64::btoa("hi").unwrap(), "aGk=");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -78,7 +108,13 @@ fn a_rust_consumer_gets_the_same_standard_library_under_the_same_grants() {
 fn an_ungranted_consumer_is_refused_not_absent() {
     let host = Host::new();
     let bindings = host.endow(GrantSet::none());
-    assert!(matches!(bindings.fetch.get("https://example.com/"), Err(HostError::Denied { .. })));
-    assert!(matches!(bindings.fs.read_file("/etc/hosts"), Err(HostError::Denied { .. })));
+    assert!(matches!(
+        bindings.fetch.get("https://example.com/"),
+        Err(HostError::Denied { .. })
+    ));
+    assert!(matches!(
+        bindings.fs.read_file("/etc/hosts"),
+        Err(HostError::Denied { .. })
+    ));
     assert_eq!(bindings.env.get("HOME"), None);
 }

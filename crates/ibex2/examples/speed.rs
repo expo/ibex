@@ -146,21 +146,29 @@ fn compiler_for(root: &Path) -> Option<ibex2::bytecode::Compiler> {
 /// build` does. Returns the wall time, which is the dev-loop cost of a build.
 fn build_bytecode(graph: &Graph, count: usize, compiler: &ibex2::bytecode::Compiler) -> Duration {
     let t = Instant::now();
-    let mut manifest = ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
+    let mut manifest =
+        ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
     let mut artifacts = Vec::new();
     manifest.insert_edge("./", "./index.js", "./index.js");
     manifest.insert_edge("./index.js", "./m0", "./m0.js");
     for i in 0..count.saturating_sub(1) {
-        manifest.insert_edge(&format!("./m{i}.js"), &format!("./m{}", i + 1), &format!("./m{}.js", i + 1));
+        manifest.insert_edge(
+            &format!("./m{i}.js"),
+            &format!("./m{}", i + 1),
+            &format!("./m{}.js", i + 1),
+        );
     }
     for spec in graph.specifiers(count) {
-        let source = std::fs::read_to_string(graph.dir.join(spec.trim_start_matches("./"))).expect("read");
+        let source =
+            std::fs::read_to_string(graph.dir.join(spec.trim_start_matches("./"))).expect("read");
         let wrapped = ibex2::loader::lower_and_wrap(&source, &spec).expect("lower");
         let bytes = compiler.compile(&wrapped).expect("compile");
         manifest.insert(&spec, &compiler.key(&wrapped));
         artifacts.push((compiler.key(&wrapped), bytes));
     }
-    manifest.write(&graph.dir.join(".ibex2/cache")).expect("manifest");
+    manifest
+        .write(&graph.dir.join(".ibex2/cache"))
+        .expect("manifest");
     ibex2::bytecode::Bundle::write(&graph.dir.join(".ibex2/cache"), &artifacts).expect("bundle");
     t.elapsed()
 }
@@ -188,10 +196,17 @@ fn load(root: &Path, compiler: Option<ibex2::bytecode::Compiler>, precompiled: b
 /// the cost with the least of the machine's other work in it, and LLP 0063
 /// §2 says to take it for exactly that reason. The median says how noisy
 /// the run was.
-fn load_stats(root: &Path, compiler: Option<&ibex2::bytecode::Compiler>, precompiled: bool, runs: usize) -> (f64, f64) {
+fn load_stats(
+    root: &Path,
+    compiler: Option<&ibex2::bytecode::Compiler>,
+    precompiled: bool,
+    runs: usize,
+) -> (f64, f64) {
     // One warm run first: the point is steady-state cost, not page cache.
     let _ = load(root, compiler.cloned(), precompiled);
-    let samples: Vec<f64> = (0..runs).map(|_| load(root, compiler.cloned(), precompiled)).collect();
+    let samples: Vec<f64> = (0..runs)
+        .map(|_| load(root, compiler.cloned(), precompiled))
+        .collect();
     let min = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     (median(samples), min)
 }
@@ -203,7 +218,8 @@ fn sync_host_call_ns() -> f64 {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.eval("for (let i = 0; i < 1000; i++) performance.now();").expect("warm");
+    rt.eval("for (let i = 0; i < 1000; i++) performance.now();")
+        .expect("warm");
     let n = 200_000u32;
     let program = format!("for (let i = 0; i < {n}; i++) performance.now();");
     let samples: Vec<f64> = (0..5)
@@ -277,13 +293,19 @@ fn main() {
 
     // A 100-module graph from source: the cost bytecode exists to remove.
     let small = Graph::build(100);
-    put("graph_100_source_ms", num(load_stats(&small.dir, None, false, 3).0));
+    put(
+        "graph_100_source_ms",
+        num(load_stats(&small.dir, None, false, 3).0),
+    );
 
     // The same graph, and a 500-module one, from ahead-of-time bytecode.
     match compiler_for(&small.dir) {
         Some(compiler) => {
             build_bytecode(&small, 100, &compiler);
-            put("graph_100_bytecode_ms", num(load_stats(&small.dir, Some(&compiler), true, 5).0));
+            put(
+                "graph_100_bytecode_ms",
+                num(load_stats(&small.dir, Some(&compiler), true, 5).0),
+            );
             drop(small);
             let large = Graph::build(500);
             let compiler = compiler_for(&large.dir).expect("compiler");
@@ -293,7 +315,10 @@ fn main() {
             let (loaded, best) = load_stats(&large.dir, Some(&compiler), true, 7);
             put("graph_500_bytecode_ms", num(loaded));
             put("graph_500_bytecode_min_ms", num(best));
-            put("graph_500_bytecode_per_module_us", num(best * 1000.0 / 500.0));
+            put(
+                "graph_500_bytecode_per_module_us",
+                num(best * 1000.0 / 500.0),
+            );
             // Where the per-module cost goes, each stage alone, best of 5:
             // resolving the specifier (containment canonicalizes, the probe
             // stats candidates), reading the artifact by key, and evaluating
@@ -301,7 +326,8 @@ fn main() {
             // is the loader's own work: the registry, require, the bindings,
             // the module and exports objects, and the call.
             let root = Root::Declared(large.dir.clone());
-            let manifest = ibex2::bytecode::Manifest::read(&large.dir.join(".ibex2/cache")).expect("manifest");
+            let manifest =
+                ibex2::bytecode::Manifest::read(&large.dir.join(".ibex2/cache")).expect("manifest");
             let specs: Vec<(String, String)> = (1..500)
                 .map(|i| (format!("./m{}.js", i - 1), format!("./m{i}")))
                 .collect();
@@ -318,14 +344,22 @@ fn main() {
                     })
                     .collect(),
             );
-            let keys: Vec<String> = (0..500).map(|i| manifest.get(&format!("./m{i}.js")).expect("key").to_string()).collect();
+            let keys: Vec<String> = (0..500)
+                .map(|i| {
+                    manifest
+                        .get(&format!("./m{i}.js"))
+                        .expect("key")
+                        .to_string()
+                })
+                .collect();
             // The bundle read once plus one lookup and copy per module — what
             // a run pays now — beside the per-file reads it replaced.
             let read_ms = median(
                 (0..5)
                     .map(|_| {
                         let t = Instant::now();
-                        let bundle = ibex2::bytecode::Bundle::read(&large.dir.join(".ibex2/cache")).expect("bundle");
+                        let bundle = ibex2::bytecode::Bundle::read(&large.dir.join(".ibex2/cache"))
+                            .expect("bundle");
                         for key in &keys {
                             let _ = bundle.get(key).expect("artifact").to_vec();
                         }
@@ -345,7 +379,10 @@ fn main() {
                     .collect(),
             );
             put("graph_500_read_files_ms", num(files_ms));
-            let artifacts: Vec<Vec<u8>> = keys.iter().map(|k| compiler.by_key(k).expect("artifact")).collect();
+            let artifacts: Vec<Vec<u8>> = keys
+                .iter()
+                .map(|k| compiler.by_key(k).expect("artifact"))
+                .collect();
             let eval_ms = median(
                 (0..5)
                     .map(|_| {
@@ -373,9 +410,6 @@ fn main() {
     put("sync_host_call_ns", num(sync_host_call_ns()));
     put("async_fs_roundtrip_us", num(async_fs_roundtrip_us()));
 
-    let body: Vec<String> = out
-        .iter()
-        .map(|(k, v)| format!("\"{k}\": {v}"))
-        .collect();
+    let body: Vec<String> = out.iter().map(|(k, v)| format!("\"{k}\": {v}")).collect();
     println!("{{{}}}", body.join(", "));
 }

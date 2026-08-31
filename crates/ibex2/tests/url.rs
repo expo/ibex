@@ -13,7 +13,8 @@ fn runtime() -> Hermes {
 }
 
 fn eval(rt: &mut Hermes, program: &str) -> String {
-    rt.eval(program).unwrap_or_else(|e| panic!("{program}: {}", e.0))
+    rt.eval(program)
+        .unwrap_or_else(|e| panic!("{program}: {}", e.0))
 }
 
 #[test]
@@ -42,9 +43,21 @@ fn a_url_exposes_the_components_the_parser_normalized() {
 #[test]
 fn a_relative_url_resolves_against_its_base() {
     let mut rt = runtime();
-    assert_eq!(eval(&mut rt, "new URL('/settings', 'https://exact.local').pathname"), "/settings");
-    assert_eq!(eval(&mut rt, "new URL('../c?q#h', 'https://h/a/b/').href"), "https://h/a/c?q#h");
-    assert_eq!(eval(&mut rt, "new URL('//other/x', 'https://h/').host"), "other");
+    assert_eq!(
+        eval(
+            &mut rt,
+            "new URL('/settings', 'https://exact.local').pathname"
+        ),
+        "/settings"
+    );
+    assert_eq!(
+        eval(&mut rt, "new URL('../c?q#h', 'https://h/a/b/').href"),
+        "https://h/a/c?q#h"
+    );
+    assert_eq!(
+        eval(&mut rt, "new URL('//other/x', 'https://h/').host"),
+        "other"
+    );
 }
 
 #[test]
@@ -55,9 +68,15 @@ fn an_invalid_url_is_a_type_error_and_can_parse_says_so_without_throwing() {
         "TypeError: true"
     );
     assert_eq!(eval(&mut rt, "String(URL.canParse('not a url'))"), "false");
-    assert_eq!(eval(&mut rt, "String(URL.canParse('/x', 'https://h'))"), "true");
+    assert_eq!(
+        eval(&mut rt, "String(URL.canParse('/x', 'https://h'))"),
+        "true"
+    );
     assert_eq!(eval(&mut rt, "String(URL.parse('nope'))"), "null");
-    assert_eq!(eval(&mut rt, "URL.parse('/x', 'https://h').href"), "https://h/x");
+    assert_eq!(
+        eval(&mut rt, "URL.parse('/x', 'https://h').href"),
+        "https://h/x"
+    );
     assert_eq!(
         eval(&mut rt, "(function () { try { URL('https://h'); return 'no throw'; } catch (e) { return e.constructor.name; } })()"),
         "TypeError"
@@ -95,7 +114,10 @@ fn setters_rewrite_the_url_with_the_specs_semantics() {
          https://me:pw@h4/q%20r?b=2|https://z|TypeError|https://z/"
     );
     assert_eq!(
-        eval(&mut rt, "(function () { const u = new URL('https://h/'); u.origin = 'x'; return u.origin; })()"),
+        eval(
+            &mut rt,
+            "(function () { const u = new URL('https://h/'); u.origin = 'x'; return u.origin; })()"
+        ),
         "https://h",
         "origin is read-only"
     );

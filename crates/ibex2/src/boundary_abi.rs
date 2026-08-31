@@ -231,10 +231,15 @@ pub unsafe extern "C" fn ibex2_report_uncaught(message: *const c_char) {
     let text = if message.is_null() {
         "uncaught error".to_string()
     } else {
-        std::ffi::CStr::from_ptr(message).to_string_lossy().into_owned()
+        std::ffi::CStr::from_ptr(message)
+            .to_string_lossy()
+            .into_owned()
     };
     let line = format!("Uncaught {text}");
-    CONSOLE.with(|c| c.borrow_mut().write(console::Level::Error, &[HostArg::Str(&line)]));
+    CONSOLE.with(|c| {
+        c.borrow_mut()
+            .write(console::Level::Error, &[HostArg::Str(&line)])
+    });
 }
 
 fn dispatch(
@@ -327,15 +332,19 @@ fn dispatch(
         }
         Op::UrlSearchParamsGetAll => {
             let params = url::SearchParams::parse(first_str("URLSearchParams")?);
-            Ok(HostValue::Str(params.get_all_json(str_at(args, 1, "a name")?)))
+            Ok(HostValue::Str(
+                params.get_all_json(str_at(args, 1, "a name")?),
+            ))
         }
         Op::UrlSearchParamsHas => {
             let params = url::SearchParams::parse(first_str("URLSearchParams")?);
             let name = str_at(args, 1, "a name")?;
-            Ok(HostValue::Bool(match args.get(2).and_then(HostArg::as_str) {
-                Some(value) => params.has_pair(name, value),
-                None => params.has(name),
-            }))
+            Ok(HostValue::Bool(
+                match args.get(2).and_then(HostArg::as_str) {
+                    Some(value) => params.has_pair(name, value),
+                    None => params.has(name),
+                },
+            ))
         }
         Op::UrlSearchParamsSet | Op::UrlSearchParamsAppend => {
             let mut params = url::SearchParams::parse(first_str("URLSearchParams")?);

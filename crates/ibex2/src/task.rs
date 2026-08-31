@@ -146,7 +146,8 @@ pub struct RuntimeState {
     /// they are built once per grant set rather than once per module. Never
     /// cleared: a set is immutable, and a binding built for it is right for
     /// every module that ever receives it.
-    interned_grants: Mutex<std::collections::HashMap<crate::grant::GrantSet, Arc<crate::grant::GrantSet>>>,
+    interned_grants:
+        Mutex<std::collections::HashMap<crate::grant::GrantSet, Arc<crate::grant::GrantSet>>>,
     /// True while a drive cycle is running, so a nested request records a
     /// wakeup instead of starting a second host task.
     driving: std::sync::atomic::AtomicBool,
@@ -422,12 +423,11 @@ impl RuntimeState {
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         #[cfg(feature = "loader")]
         {
-    
             // The wrapper is built HERE, once, because it is what gets compiled —
             // the artifact is the wrapper, so a second definition of it elsewhere
             // would be a second definition of the thing the cache is keyed on.
             let wrapped = crate::loader::lower_and_wrap(&source, &resolved)?;
-    
+
             match &config.compiler {
                 Some(compiler) => {
                     let bytes = if config.precompiled_only {
@@ -450,7 +450,10 @@ impl RuntimeState {
             Some(config) => config.grants.for_module(specifier).clone(),
             None => crate::grant::GrantSet::none(),
         };
-        let mut interned = self.interned_grants.lock().expect("interned grants poisoned");
+        let mut interned = self
+            .interned_grants
+            .lock()
+            .expect("interned grants poisoned");
         if let Some(existing) = interned.get(&set) {
             return Arc::clone(existing);
         }

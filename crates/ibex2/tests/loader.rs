@@ -141,16 +141,23 @@ fn no_capability_is_reachable_from_the_global_object() {
     let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none()).expect("loader");
+    rt.set_loader(Root::Declared(p.0.clone()), ModuleGrants::none())
+        .expect("loader");
 
-    let added: std::collections::BTreeSet<String> =
-        rt.global_names().into_iter().filter(|n| !baseline.contains(n)).collect();
+    let added: std::collections::BTreeSet<String> = rt
+        .global_names()
+        .into_iter()
+        .filter(|n| !baseline.contains(n))
+        .collect();
     let allowed: std::collections::BTreeSet<String> = ibex2::loader::ALLOWED_GLOBALS
         .iter()
         .map(|s| s.to_string())
         .filter(|n| !baseline.contains(n))
         .collect();
-    assert_eq!(added, allowed, "left: on globalThis; right: ALLOWED_GLOBALS (R1)");
+    assert_eq!(
+        added, allowed,
+        "left: on globalThis; right: ALLOWED_GLOBALS (R1)"
+    );
 }
 
 /// LLP 0067 R2: a module's `fetch` is its own, so one cannot use another's.
@@ -819,9 +826,17 @@ fn a_manifest_built_for_another_engine_is_refused_under_precompiled() {
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
     let err = rt
-        .set_loader_with(Root::Declared(p.0.clone()), ModuleGrants::none(), Some(compiler.clone()), true)
+        .set_loader_with(
+            Root::Declared(p.0.clone()),
+            ModuleGrants::none(),
+            Some(compiler.clone()),
+            true,
+        )
         .unwrap_err();
-    assert!(err.contains("another engine") && err.contains("someone-elses-engine"), "{err}");
+    assert!(
+        err.contains("another engine") && err.contains("someone-elses-engine"),
+        "{err}"
+    );
 
     // Not precompiled-only: the stale manifest is ignored and the module is
     // compiled on demand, so the program still runs.
@@ -878,7 +893,10 @@ fn shared_bindings_cannot_be_altered_by_one_module_for_another() {
     assert_eq!(err, None);
     assert_eq!(
         out,
-        vec!["strict: TypeError", "function readFile undefined undefined true true true"]
+        vec![
+            "strict: TypeError",
+            "function readFile undefined undefined true true true"
+        ]
     );
 }
 
@@ -903,10 +921,20 @@ fn a_module_cannot_read_another_modules_response() {
                           typeof g.__ibex2_headers, typeof g.__ibex2_timer_clear, typeof g.__ibex2_text_decode,
                           typeof g.__ibex2_async_echo].join(' '));",
         );
-    let (out, err) = p.run("./index.js", "[*]\n[./net.js]\nnet.fetch https://example.com\n");
+    let (out, err) = p.run(
+        "./index.js",
+        "[*]\n[./net.js]\nnet.fetch https://example.com\n",
+    );
     assert_eq!(err, None);
-    assert!(out.iter().any(|l| l == "thief: undefined undefined undefined undefined undefined undefined"), "{out:?}");
-    assert!(out.iter().any(|l| l == "net: 200 [object Response]"), "{out:?}");
+    assert!(
+        out.iter()
+            .any(|l| l == "thief: undefined undefined undefined undefined undefined undefined"),
+        "{out:?}"
+    );
+    assert!(
+        out.iter().any(|l| l == "net: 200 [object Response]"),
+        "{out:?}"
+    );
 }
 
 /// What a granted module gets back from fetch: a Response with the web's
@@ -924,9 +952,15 @@ fn fetch_resolves_to_a_response_object() {
                         r.headers.has('nope'), text.length > 100, r.bodyUsed, again, ctor].join(' '));
          });",
     );
-    let (out, err) = p.run("./index.js", "[./index.js]\nnet.fetch https://example.com\n");
+    let (out, err) = p.run(
+        "./index.js",
+        "[./index.js]\nnet.fetch https://example.com\n",
+    );
     assert_eq!(err, None);
-    assert_eq!(out, vec!["200 true https://example.com/ false string false true true TypeError TypeError"]);
+    assert_eq!(
+        out,
+        vec!["200 true https://example.com/ false string false true true TypeError TypeError"]
+    );
 }
 
 /// Codex's finding, as a test: a symlink *inside* a granted prefix must not
@@ -968,7 +1002,11 @@ fn a_symlink_inside_a_granted_prefix_does_not_reach_outside_it() {
     assert_eq!(err, None);
     assert_eq!(
         out,
-        vec!["inside: INSIDE", "through link: denied: fs.read", "via linkdir: INSIDE"]
+        vec![
+            "inside: INSIDE",
+            "through link: denied: fs.read",
+            "via linkdir: INSIDE"
+        ]
     );
 }
 
@@ -989,14 +1027,20 @@ fn an_es_module_runs_strict_and_a_commonjs_module_does_not() {
     .file("sloppy.js", "alsoUndeclared = 3; console.log('cjs: ' + typeof globalThis.alsoUndeclared);");
     let (out, err) = p.run("./index.js", "");
     assert_eq!(err, None);
-    assert_eq!(out, vec!["esm: ReferenceError", "callee: TypeError", "cjs: number"]);
+    assert_eq!(
+        out,
+        vec!["esm: ReferenceError", "callee: TypeError", "cjs: number"]
+    );
 
     // A legacy octal literal is a SyntaxError in strict code, so the module
     // does not load at all rather than quietly meaning eight.
     let q = Project::new("strict-octal");
     q.file("index.js", "export const n = 010;");
     let (_, err) = q.run("./index.js", "");
-    assert!(err.is_some(), "an octal literal in an ES module must not compile");
+    assert!(
+        err.is_some(),
+        "an octal literal in an ES module must not compile"
+    );
 }
 
 /// An error escaping a timer or queueMicrotask callback is reported as a
@@ -1014,8 +1058,17 @@ fn an_uncaught_error_in_a_callback_is_reported_and_does_not_stop_the_loop() {
     );
     let (out, err) = p.run("./index.js", "");
     assert_eq!(err, None);
-    assert!(out.iter().any(|l| l.starts_with("Uncaught TypeError: micro boom")), "{out:?}");
-    assert!(out.iter().any(|l| l.starts_with("Uncaught timer boom") || l.starts_with("Uncaught Error: timer boom")), "{out:?}");
+    assert!(
+        out.iter()
+            .any(|l| l.starts_with("Uncaught TypeError: micro boom")),
+        "{out:?}"
+    );
+    assert!(
+        out.iter()
+            .any(|l| l.starts_with("Uncaught timer boom")
+                || l.starts_with("Uncaught Error: timer boom")),
+        "{out:?}"
+    );
     assert!(out.iter().any(|l| l == "later microtask ran"), "{out:?}");
     assert!(out.iter().any(|l| l == "later timer ran"), "{out:?}");
 }
@@ -1025,9 +1078,12 @@ fn an_uncaught_error_in_a_callback_is_reported_and_does_not_stop_the_loop() {
 #[test]
 fn a_precompiled_run_reads_the_bundle_not_the_files() {
     let p = Project::new("bundle");
-    p.file("index.js", "console.log(require('./a').n + require('./b').n);")
-        .file("a.js", "exports.n = 1;")
-        .file("b.js", "exports.n = 2;");
+    p.file(
+        "index.js",
+        "console.log(require('./a').n + require('./b').n);",
+    )
+    .file("a.js", "exports.n = 1;")
+    .file("b.js", "exports.n = 2;");
     let Some(compiler) = p.compiler() else { return };
     let cache = p.0.join(".ibex2/cache");
     let mut manifest =
@@ -1051,4 +1107,3 @@ fn a_precompiled_run_reads_the_bundle_not_the_files() {
     assert_eq!(err, None);
     assert_eq!(out, vec!["3"]);
 }
-

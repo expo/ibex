@@ -13,7 +13,8 @@ fn hardened() -> Hermes {
 }
 
 fn eval(rt: &mut Hermes, program: &str) -> String {
-    rt.eval(program).unwrap_or_else(|e| panic!("{program}: {}", e.0))
+    rt.eval(program)
+        .unwrap_or_else(|e| panic!("{program}: {}", e.0))
 }
 
 #[test]
@@ -65,7 +66,10 @@ fn intrinsics_are_frozen_and_global_bindings_are_locked() {
 #[test]
 fn the_global_object_accepts_new_properties() {
     let mut rt = hardened();
-    assert_eq!(eval(&mut rt, "String(Object.isExtensible(globalThis))"), "true");
+    assert_eq!(
+        eval(&mut rt, "String(Object.isExtensible(globalThis))"),
+        "true"
+    );
     assert_eq!(
         eval(
             &mut rt,
@@ -94,13 +98,21 @@ fn the_global_object_accepts_new_properties() {
 /// reason — it is the cost with the least of everything else in it.
 #[test]
 fn the_freeze_stays_within_its_budget() {
-    let rules = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../rules/RULES.md"))
-        .expect("rules/RULES.md");
+    let rules =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../rules/RULES.md"))
+            .expect("rules/RULES.md");
     let budget_ms: f64 = rules
         .lines()
         .find(|line| line.contains("Intrinsic freeze"))
         .and_then(|line| line.rsplit('|').nth(1))
-        .and_then(|cell| cell.trim().trim_matches('*').trim_end_matches("ms").trim().parse().ok())
+        .and_then(|cell| {
+            cell.trim()
+                .trim_matches('*')
+                .trim_end_matches("ms")
+                .trim()
+                .parse()
+                .ok()
+        })
         .expect("a parseable `Intrinsic freeze | <n>ms` row in rules/RULES.md");
     let mut samples: Vec<f64> = (0..20)
         .map(|_| {
@@ -145,7 +157,10 @@ fn the_global_object_carries_exactly_the_allowed_names() {
         .map(|s| s.to_string())
         .filter(|name| !baseline.contains(name))
         .collect();
-    assert_eq!(added, allowed, "left: on the global object; right: ALLOWED_GLOBALS minus the engine's own");
+    assert_eq!(
+        added, allowed,
+        "left: on the global object; right: ALLOWED_GLOBALS minus the engine's own"
+    );
 }
 
 /// Grok 4.6's finding 5: the walk went by name, so functions reachable only
@@ -197,4 +212,3 @@ fn every_object_reachable_from_the_global_bindings_is_frozen() {
     );
     assert_eq!(open, "", "reachable and not frozen: {open}");
 }
-

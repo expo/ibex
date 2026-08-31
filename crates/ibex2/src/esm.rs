@@ -185,7 +185,9 @@ pub fn dynamic_dependencies(source: &str, specifier: &str) -> Vec<String> {
     let source_type = crate::typescript::source_type_for(specifier);
     let parsed = Parser::new(&allocator, source, source_type).parse();
     expression_forms(&parsed.program)
-        .dynamic_imports.into_iter().filter_map(|import| import.literal)
+        .dynamic_imports
+        .into_iter()
+        .filter_map(|import| import.literal)
         .collect()
 }
 
@@ -320,7 +322,10 @@ fn render(source: &str, start: usize, end: usize, sites: &[ExpressionSite]) -> S
         out.push_str(&source[cursor..site.start]);
         match site.form {
             ExpressionForm::Meta => out.push_str("__ibex2_meta"),
-            ExpressionForm::DynamicImport { args_start, args_end } => {
+            ExpressionForm::DynamicImport {
+                args_start,
+                args_end,
+            } => {
                 out.push_str("__ibex2_dynamic_import(require, ");
                 out.push_str(&render(source, args_start, args_end, sites));
                 out.push(')');
@@ -494,14 +499,16 @@ pub fn lower(source: &str) -> Result<String, String> {
                     // A named function or class keeps its name, so recursion and
                     // self-reference still work.
                     ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
-                        let text = render(source, f.span.start as usize, f.span.end as usize, &sites);
+                        let text =
+                            render(source, f.span.start as usize, f.span.end as usize, &sites);
                         match &f.id {
                             Some(id) => format!("{text} exports.default = {};", id.name),
                             None => format!("exports.default = {text};"),
                         }
                     }
                     ExportDefaultDeclarationKind::ClassDeclaration(c) => {
-                        let text = render(source, c.span.start as usize, c.span.end as usize, &sites);
+                        let text =
+                            render(source, c.span.start as usize, c.span.end as usize, &sites);
                         match &c.id {
                             Some(id) => format!("{text} exports.default = {};", id.name),
                             None => format!("exports.default = {text};"),
@@ -933,9 +940,7 @@ mod tests {
     /// once.
     #[test]
     fn nested_expression_forms_are_lowered_inside_out() {
-        let out = lowered(
-            "export const p = import(new URL('./z.js', import.meta.url).href);\n",
-        );
+        let out = lowered("export const p = import(new URL('./z.js', import.meta.url).href);\n");
         assert!(
             out.contains(
                 "__ibex2_dynamic_import(require, new URL('./z.js', __ibex2_meta.url).href)"
@@ -950,7 +955,10 @@ mod tests {
     #[test]
     fn expression_forms_between_declarations_are_lowered() {
         let out = lowered("import { a } from './a';\nconst p = import('./b.js');\nexport { a };\n");
-        assert!(out.contains("const p = __ibex2_dynamic_import(require, './b.js');"), "{out}");
+        assert!(
+            out.contains("const p = __ibex2_dynamic_import(require, './b.js');"),
+            "{out}"
+        );
         assert!(out.contains(r#"require("./a")"#), "{out}");
     }
 
@@ -959,9 +967,15 @@ mod tests {
     #[test]
     fn a_dynamic_import_is_lowered_by_span_not_by_searching_for_a_parenthesis() {
         let out = lowered("export const p = import /*(*/('./x.js');\n");
-        assert!(out.contains("__ibex2_dynamic_import(require, './x.js')"), "{out}");
+        assert!(
+            out.contains("__ibex2_dynamic_import(require, './x.js')"),
+            "{out}"
+        );
         let out = lowered("export const p = import /* ) */ ('./x.js');\n");
-        assert!(out.contains("__ibex2_dynamic_import(require, './x.js')"), "{out}");
+        assert!(
+            out.contains("__ibex2_dynamic_import(require, './x.js')"),
+            "{out}"
+        );
         let out = lowered("export const p = import('./x.json', { with: { type: 'json' } });\n");
         assert!(
             out.contains("__ibex2_dynamic_import(require, './x.json', { with: { type: 'json' } })"),
@@ -974,7 +988,9 @@ mod tests {
     fn a_lowered_module_is_strict_and_commonjs_is_not() {
         let out = lowered("import { a } from './a';\nexport const b = a;\n");
         assert!(out.starts_with("\"use strict\";\n"), "{out}");
-        assert_eq!(lowered("const a = require('./a');\n"), "const a = require('./a');\n");
+        assert_eq!(
+            lowered("const a = require('./a');\n"),
+            "const a = require('./a');\n"
+        );
     }
 }
-

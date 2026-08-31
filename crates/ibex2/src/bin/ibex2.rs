@@ -171,13 +171,26 @@ fn engine_dir() -> PathBuf {
 /// (LLP 0058.000.001 §5).
 #[cfg(feature = "loader")]
 fn compiler_for_build(root: &Path) -> Result<ibex2::bytecode::Compiler, String> {
-    ibex2::bytecode::Compiler::discover_for_engine(&repo_root(), cache_dir(root), &engine_dir(), true)
+    ibex2::bytecode::Compiler::discover_for_engine(
+        &repo_root(),
+        cache_dir(root),
+        &engine_dir(),
+        true,
+    )
 }
 
 /// A run's compiler: nothing hashed, and no compiler at all under
 /// `--precompiled`, where a module missing from the manifest is refused.
-fn compiler_for_run(root: &Path, precompiled_only: bool) -> Result<ibex2::bytecode::Compiler, String> {
-    ibex2::bytecode::Compiler::for_run(&repo_root(), cache_dir(root), &engine_dir(), precompiled_only)
+fn compiler_for_run(
+    root: &Path,
+    precompiled_only: bool,
+) -> Result<ibex2::bytecode::Compiler, String> {
+    ibex2::bytecode::Compiler::for_run(
+        &repo_root(),
+        cache_dir(root),
+        &engine_dir(),
+        precompiled_only,
+    )
 }
 
 /// Compile the whole reachable graph ahead of time.
@@ -397,7 +410,10 @@ fn run(
     let (root, name) = project_root(entry, declared_root)?;
     #[cfg(not(feature = "loader"))]
     if !precompiled_only {
-        return Err("this build has no loader: run with --precompiled, on a graph built by a full build".into());
+        return Err(
+            "this build has no loader: run with --precompiled, on a graph built by a full build"
+                .into(),
+        );
     }
 
     let grants = match grants_path {
@@ -468,7 +484,6 @@ fn run(
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

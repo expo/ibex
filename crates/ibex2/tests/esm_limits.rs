@@ -20,7 +20,8 @@ impl P {
         let mut rt = Hermes::new(DynamicCode::Closed).unwrap();
         rt.install_stdlib();
         rt.install_bindings().unwrap();
-        rt.set_loader(Root::Declared(self.0.clone()), ModuleGrants::none()).expect("loader");
+        rt.set_loader(Root::Declared(self.0.clone()), ModuleGrants::none())
+            .expect("loader");
         let e = rt.run_entry("./index.js").err().map(|e| e.0);
         rt.run_to_quiescence(std::time::Duration::from_secs(5));
         (

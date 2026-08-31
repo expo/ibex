@@ -158,7 +158,9 @@ impl Hermes {
         let status =
             unsafe { ibex2_hermes_install_fetch_factory(self.handle, fetch.as_ptr(), fetch.len()) };
         if status != 0 {
-            return Err(JsError("the fetch binding did not evaluate to its factory".into()));
+            return Err(JsError(
+                "the fetch binding did not evaluate to its factory".into(),
+            ));
         }
         Ok(())
     }
@@ -280,7 +282,9 @@ impl Hermes {
                      built for: {}\n  this runtime links: {linked}\n\
                      Run `ibex2 build` again with this binary.",
                     cache.display(),
-                    found.engine().unwrap_or("(a build that predates engine binding)")
+                    found
+                        .engine()
+                        .unwrap_or("(a build that predates engine binding)")
                 ));
             }
             if stale {

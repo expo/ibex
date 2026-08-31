@@ -369,7 +369,8 @@ fn a_package_above_the_project_root_is_refused() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
-    rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none()).expect("loader");
+    rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none())
+        .expect("loader");
     let err = rt.run_entry("./index.js").err().map(|e| e.0);
     let _ = std::fs::remove_dir_all(&outer);
     let err = err.expect("a package above the root must not resolve");
@@ -722,23 +723,42 @@ fn a_package_grant_covers_every_file_of_the_package_and_no_other() {
            () => console.log('index: LEAKED'), e => console.log('index: ' + e.message));
          needy.probe(); other.probe();",
     )
-    .file("node_modules/needy/package.json", r#"{"name":"needy","main":"index.js"}"#)
-    .file("node_modules/needy/index.js", "module.exports = require('./lib/inner.js');")
+    .file(
+        "node_modules/needy/package.json",
+        r#"{"name":"needy","main":"index.js"}"#,
+    )
+    .file(
+        "node_modules/needy/index.js",
+        "module.exports = require('./lib/inner.js');",
+    )
     .file(
         "node_modules/needy/lib/inner.js",
         "exports.probe = () => fetch('https://example.com/').then(
            () => console.log('needy: allowed'), e => console.log('needy: ' + e.message));",
     )
-    .file("node_modules/other/package.json", r#"{"name":"other","main":"index.js"}"#)
+    .file(
+        "node_modules/other/package.json",
+        r#"{"name":"other","main":"index.js"}"#,
+    )
     .file(
         "node_modules/other/index.js",
         "exports.probe = () => fetch('https://example.com/').then(
            () => console.log('other: LEAKED'), e => console.log('other: ' + e.message));",
     );
-    let (out, err) = p.run("./index.js", "[*]\n[needy]\nnet.fetch https://example.com\n");
+    let (out, err) = p.run(
+        "./index.js",
+        "[*]\n[needy]\nnet.fetch https://example.com\n",
+    );
     assert_eq!(err, None);
-    for expected in ["index: denied: net.fetch", "needy: allowed", "other: denied: net.fetch"] {
-        assert!(out.iter().any(|l| l == expected), "missing {expected:?} in {out:?}");
+    for expected in [
+        "index: denied: net.fetch",
+        "needy: allowed",
+        "other: denied: net.fetch",
+    ] {
+        assert!(
+            out.iter().any(|l| l == expected),
+            "missing {expected:?} in {out:?}"
+        );
     }
 }
 
@@ -754,7 +774,10 @@ fn a_workspace_package_section_binds_to_its_real_directory() {
         "index.js",
         "require('@w/ui').probe('by name'); require('./packages/ui/index.js').probe('by path');",
     )
-    .file("packages/ui/package.json", r#"{"name":"@w/ui","main":"index.js"}"#)
+    .file(
+        "packages/ui/package.json",
+        r#"{"name":"@w/ui","main":"index.js"}"#,
+    )
     .file(
         "packages/ui/index.js",
         "exports.probe = how => fetch('https://example.com/').then(
@@ -762,10 +785,16 @@ fn a_workspace_package_section_binds_to_its_real_directory() {
     );
     std::fs::create_dir_all(p.0.join("node_modules/@w")).unwrap();
     std::os::unix::fs::symlink(p.0.join("packages/ui"), p.0.join("node_modules/@w/ui")).unwrap();
-    let (out, err) = p.run("./index.js", "[*]\n[@w/ui]\nnet.fetch https://example.com\n");
+    let (out, err) = p.run(
+        "./index.js",
+        "[*]\n[@w/ui]\nnet.fetch https://example.com\n",
+    );
     assert_eq!(err, None);
     for expected in ["by name: allowed", "by path: allowed"] {
-        assert!(out.iter().any(|l| l == expected), "missing {expected:?} in {out:?}");
+        assert!(
+            out.iter().any(|l| l == expected),
+            "missing {expected:?} in {out:?}"
+        );
     }
 }
 
@@ -779,8 +808,13 @@ fn a_manifest_naming_an_uninstalled_package_is_refused() {
     assert!(rt.install_stdlib());
     rt.install_bindings().expect("bindings");
     let manifest = ModuleGrants::parse("[nope]\nnet.fetch https://example.com\n").unwrap();
-    let err = rt.set_loader(Root::Declared(p.0.clone()), manifest).unwrap_err();
-    assert!(err.contains("\"nope\"") && err.contains("not installed"), "{err}");
+    let err = rt
+        .set_loader(Root::Declared(p.0.clone()), manifest)
+        .unwrap_err();
+    assert!(
+        err.contains("\"nope\"") && err.contains("not installed"),
+        "{err}"
+    );
 }
 
 /// Grok 4.6's finding 2, as a test: a dependency vendors a directory *named*
@@ -796,19 +830,35 @@ fn a_directory_named_after_a_granted_package_inside_another_package_gets_nothing
         )
     };
     p.file("index.js", "require('evil'); require('react').probe();")
-        .file("node_modules/react/package.json", r#"{"name":"react","main":"index.js"}"#)
-        .file("node_modules/react/index.js", &probe("real react"))
-        .file("node_modules/evil/package.json", r#"{"name":"evil","main":"index.js"}"#)
         .file(
-            "node_modules/evil/index.js",
-            "require('react').probe();",
+            "node_modules/react/package.json",
+            r#"{"name":"react","main":"index.js"}"#,
         )
+        .file("node_modules/react/index.js", &probe("real react"))
+        .file(
+            "node_modules/evil/package.json",
+            r#"{"name":"evil","main":"index.js"}"#,
+        )
+        .file("node_modules/evil/index.js", "require('react').probe();")
         // Node's own resolution finds this copy first from inside `evil`.
-        .file("node_modules/evil/node_modules/react/package.json", r#"{"name":"not-react","main":"index.js"}"#)
-        .file("node_modules/evil/node_modules/react/index.js", &probe("nested impostor"));
-    let (out, err) = p.run("./index.js", "[*]\n[react]\nnet.fetch https://example.com\n");
+        .file(
+            "node_modules/evil/node_modules/react/package.json",
+            r#"{"name":"not-react","main":"index.js"}"#,
+        )
+        .file(
+            "node_modules/evil/node_modules/react/index.js",
+            &probe("nested impostor"),
+        );
+    let (out, err) = p.run(
+        "./index.js",
+        "[*]\n[react]\nnet.fetch https://example.com\n",
+    );
     assert_eq!(err, None);
-    assert!(out.iter().any(|l| l == "nested impostor: denied: net.fetch"), "{out:?}");
+    assert!(
+        out.iter()
+            .any(|l| l == "nested impostor: denied: net.fetch"),
+        "{out:?}"
+    );
     assert!(out.iter().any(|l| l == "real react: ALLOWED"), "{out:?}");
 }
 
@@ -831,7 +881,10 @@ fn a_package_section_beats_a_directory_section_for_a_workspace_package() {
         );
     std::fs::create_dir_all(p.0.join("node_modules/@w")).unwrap();
     std::os::unix::fs::symlink(p.0.join("packages/ui"), p.0.join("node_modules/@w/ui")).unwrap();
-    let manifest = format!("[./packages/ui/]\nfs.read {}\n[@w/ui]\n", p.0.to_string_lossy());
+    let manifest = format!(
+        "[./packages/ui/]\nfs.read {}\n[@w/ui]\n",
+        p.0.to_string_lossy()
+    );
     let (out, err) = p.run("./index.js", &manifest);
     assert_eq!(err, None);
     assert_eq!(out, vec!["ui: denied: fs.read"]);
@@ -872,9 +925,17 @@ fn a_section_spelt_in_another_case_still_names_the_file() {
 fn a_section_naming_a_missing_file_is_refused() {
     let p = Project::new("missing-section");
     p.file("index.js", "console.log('ran');");
-    let err = ModuleGrants::parse("[./nope.js]\n").unwrap().bind(&p.0).unwrap_err();
-    assert!(err.contains("[./nope.js]") && err.contains("does not exist"), "{err}");
-    let err = ModuleGrants::parse("[./nope/]\n").unwrap().bind(&p.0).unwrap_err();
+    let err = ModuleGrants::parse("[./nope.js]\n")
+        .unwrap()
+        .bind(&p.0)
+        .unwrap_err();
+    assert!(
+        err.contains("[./nope.js]") && err.contains("does not exist"),
+        "{err}"
+    );
+    let err = ModuleGrants::parse("[./nope/]\n")
+        .unwrap()
+        .bind(&p.0)
+        .unwrap_err();
     assert!(err.contains("[./nope/]"), "{err}");
 }
-

@@ -625,7 +625,9 @@ mod tests {
         assert_eq!(store.get("state", "cursor").unwrap(), None);
         store.set("state", "cursor", b"41").unwrap();
         store.set("state", "cursor", b"42").unwrap();
-        store.set("state", "args:{\"id\":7}", b"\x00\x01\xff").unwrap();
+        store
+            .set("state", "args:{\"id\":7}", b"\x00\x01\xff")
+            .unwrap();
         assert_eq!(
             store.get("state", "cursor").unwrap().as_deref(),
             Some(&b"42"[..])
@@ -762,7 +764,9 @@ mod tests {
                     // width, so a torn or interleaved file cannot decode.
                     let value = format!("writer-{writer:02}-iteration-{i:04}");
                     store.set("state", "contended", value.as_bytes()).unwrap();
-                    store.set("state", &format!("own-{writer}"), value.as_bytes()).unwrap();
+                    store
+                        .set("state", &format!("own-{writer}"), value.as_bytes())
+                        .unwrap();
                 }
             }));
         }
@@ -776,7 +780,10 @@ mod tests {
             "the last write is one writer's whole final value: {text}"
         );
         for writer in 0..8u32 {
-            let own = store.get("state", &format!("own-{writer}")).unwrap().unwrap();
+            let own = store
+                .get("state", &format!("own-{writer}"))
+                .unwrap()
+                .unwrap();
             assert_eq!(
                 String::from_utf8(own).unwrap(),
                 format!("writer-{writer:02}-iteration-0024")
@@ -807,7 +814,10 @@ mod tests {
         assert_eq!(store.get("state", "a").unwrap(), None);
         store.delete("state", "a").unwrap();
         store.set("state", "a", b"mine").unwrap();
-        assert_eq!(store.get("state", "a").unwrap().as_deref(), Some(&b"mine"[..]));
+        assert_eq!(
+            store.get("state", "a").unwrap().as_deref(),
+            Some(&b"mine"[..])
+        );
         assert_eq!(
             store.keys("state").unwrap(),
             vec!["a".to_string(), "anchor".to_string()]
