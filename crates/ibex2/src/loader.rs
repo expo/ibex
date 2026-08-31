@@ -17,9 +17,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
 #[cfg(feature = "loader")]
 use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
 use crate::grant::GrantSet;
 
@@ -63,7 +63,9 @@ impl Section {
         }
         if let Some(rest) = name.strip_prefix("./") {
             if rest.is_empty() || rest.split('/').any(|s| s == "..") {
-                return Err(format!("manifest section [{name}] is not a path inside the project"));
+                return Err(format!(
+                    "manifest section [{name}] is not a path inside the project"
+                ));
             }
             return Ok(if name.ends_with('/') {
                 Section::Directory(name.to_string())
@@ -84,13 +86,11 @@ impl Section {
 fn is_package_name(name: &str) -> bool {
     let ok_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
     let parts: Vec<&str> = name.split('/').collect();
-    let unscoped = |part: &str| !part.is_empty() && !part.starts_with('.') && part.chars().all(ok_char);
+    let unscoped =
+        |part: &str| !part.is_empty() && !part.starts_with('.') && part.chars().all(ok_char);
     match parts.as_slice() {
         [bare] => !bare.starts_with('@') && unscoped(bare),
-        [scope, bare] => scope
-            .strip_prefix('@')
-            .is_some_and(unscoped)
-            && unscoped(bare),
+        [scope, bare] => scope.strip_prefix('@').is_some_and(unscoped) && unscoped(bare),
         _ => false,
     }
 }
@@ -172,7 +172,9 @@ impl ModuleGrants {
     /// Where each package section was bound, after `bind`: canonical
     /// directory prefix to package name.
     pub fn bound_packages(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.bound_packages.iter().map(|(dir, name)| (dir.as_str(), name.as_str()))
+        self.bound_packages
+            .iter()
+            .map(|(dir, name)| (dir.as_str(), name.as_str()))
     }
 
     /// Bind the manifest to a project: every section is resolved to the file,
@@ -224,7 +226,8 @@ impl ModuleGrants {
             self.bound_packages.insert(format!("./{relative}/"), name);
         }
 
-        let files: Vec<(String, GrantSet)> = std::mem::take(&mut self.per_module).into_iter().collect();
+        let files: Vec<(String, GrantSet)> =
+            std::mem::take(&mut self.per_module).into_iter().collect();
         for (key, grants) in files {
             let relative = relative_to_root(
                 &canonical_root.join(key.trim_start_matches("./")),
@@ -232,8 +235,9 @@ impl ModuleGrants {
             )?;
             self.per_module.insert(format!("./{relative}"), grants);
         }
-        let directories: Vec<(String, GrantSet)> =
-            std::mem::take(&mut self.per_directory).into_iter().collect();
+        let directories: Vec<(String, GrantSet)> = std::mem::take(&mut self.per_directory)
+            .into_iter()
+            .collect();
         for (key, grants) in directories {
             let relative = relative_to_root(
                 &canonical_root.join(key.trim_start_matches("./")),
@@ -279,7 +283,9 @@ impl ModuleGrants {
                      section: &Option<Section>,
                      buffer: &str|
          -> Result<(), String> {
-            let Some(section) = section else { return Ok(()) };
+            let Some(section) = section else {
+                return Ok(());
+            };
             let parsed = GrantSet::parse(buffer)?;
             match section {
                 Section::Default => grants.default_grants = parsed,
@@ -447,7 +453,9 @@ pub struct ResolveCache {
 impl std::fmt::Debug for ResolveCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let dirs = self.dirs.lock().map(|d| d.len()).unwrap_or(0);
-        f.debug_struct("ResolveCache").field("directories", &dirs).finish()
+        f.debug_struct("ResolveCache")
+            .field("directories", &dirs)
+            .finish()
     }
 }
 
@@ -697,7 +705,6 @@ fn resolve_bare(
         ));
     }
 
-
     let from_dir = root.join(
         Path::new(from.trim_start_matches("./"))
             .parent()
@@ -744,7 +751,9 @@ fn resolve_bare(
 /// `@exact/core`'s colour policy is the first module `main.tsx` reaches that
 /// is not JavaScript — and a resolver that cannot find `data.json` behind
 /// `require('pkg/data')` reports a missing module for a file that exists.
-pub const EXTENSIONS: &[&str] = &[".ts", ".tsx", ".mts", ".js", ".mjs", ".jsx", ".cjs", ".json"];
+pub const EXTENSIONS: &[&str] = &[
+    ".ts", ".tsx", ".mts", ".js", ".mjs", ".jsx", ".cjs", ".json",
+];
 
 /// Find the file a specifier names, allowing for an omitted or rewritten
 /// extension.
@@ -860,7 +869,9 @@ pub fn to_javascript(source: &str, specifier: &str) -> Result<String, String> {
     if specifier.ends_with(".json") {
         return Ok(json_module(source));
     }
-    let typescript = [".ts", ".tsx", ".mts"].iter().any(|ext| specifier.ends_with(ext));
+    let typescript = [".ts", ".tsx", ".mts"]
+        .iter()
+        .any(|ext| specifier.ends_with(ext));
     if typescript {
         #[cfg(feature = "loader")]
         {
@@ -868,7 +879,9 @@ pub fn to_javascript(source: &str, specifier: &str) -> Result<String, String> {
         }
         #[cfg(not(feature = "loader"))]
         {
-            return Err(format!("{specifier}: this build has no loader and cannot strip TypeScript"));
+            return Err(format!(
+                "{specifier}: this build has no loader and cannot strip TypeScript"
+            ));
         }
     }
     Ok(source.to_string())
@@ -985,7 +998,8 @@ mod tests {
     /// Both shapes are covered because the transform emits different ones: a
     /// module gets an `import`, a script gets a `require`. A test over only one
     /// would leave half the walk unguarded.
-    #[cfg(feature = "loader")]    #[test]
+    #[cfg(feature = "loader")]
+    #[test]
     fn the_jsx_transform_injects_a_dependency_the_source_does_not_contain() {
         // Module form: the injected edge is an import.
         let module_source = "import { useState } from 'react';\nconst el = <div/>;";
@@ -1067,7 +1081,8 @@ mod tests {
     /// carried as a string literal and parsed at load, never pasted in as an
     /// object literal. The text passes through the ESM lowering and the build
     /// walk's dependency scan untouched, however much it looks like code.
-    #[cfg(feature = "loader")]    #[test]
+    #[cfg(feature = "loader")]
+    #[test]
     fn a_json_module_is_parsed_not_evaluated() {
         let text = "{\"a\": \"line\\nbreak\"}\n";
         let out = to_javascript(text, "./x.json").unwrap();
@@ -1076,7 +1091,9 @@ mod tests {
             "module.exports = JSON.parse(\"{\\\"a\\\": \\\"line\\\\nbreak\\\"}\\n\");"
         );
         assert!(
-            to_javascript("\"\u{2028}\"", "./x.json").unwrap().contains("\\u2028"),
+            to_javascript("\"\u{2028}\"", "./x.json")
+                .unwrap()
+                .contains("\\u2028"),
             "a line terminator inside the literal is escaped"
         );
 
@@ -1084,7 +1101,9 @@ mod tests {
         let javascript = to_javascript(looks_like_code, "./x.json").unwrap();
         assert!(crate::esm::dependencies(&javascript, "./x.json").is_empty());
         assert_eq!(crate::esm::lower(&javascript).unwrap(), javascript);
-        assert!(lower_and_wrap(looks_like_code, "./x.json").unwrap().contains("JSON.parse("));
+        assert!(lower_and_wrap(looks_like_code, "./x.json")
+            .unwrap()
+            .contains("JSON.parse("));
     }
 
     #[test]
@@ -1180,7 +1199,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "ibex2-bind-{}-{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("t").replace("::", "-")
+            std::thread::current()
+                .name()
+                .unwrap_or("t")
+                .replace("::", "-")
         ));
         let _ = std::fs::remove_dir_all(&root);
         for dir in [
@@ -1212,7 +1234,8 @@ mod tests {
         ] {
             std::fs::write(root.join(file), "").unwrap();
         }
-        std::os::unix::fs::symlink(root.join("packages/wsp"), root.join("node_modules/@w/wsp")).unwrap();
+        std::os::unix::fs::symlink(root.join("packages/wsp"), root.join("node_modules/@w/wsp"))
+            .unwrap();
         let mut grants = ModuleGrants::parse(manifest).unwrap();
         grants.bind(&root).unwrap();
         (grants, root)
@@ -1230,23 +1253,41 @@ mod tests {
         let api = Operation::Fetch {
             origin: Origin::new("https", "api.example.com", 443),
         };
-        assert!(grants.for_module("./node_modules/react/index.js").permits(&api));
-        assert!(grants.for_module("./node_modules/react/cjs/react.production.js").permits(&api));
-        assert!(!grants.for_module("./node_modules/react-dom/index.js").permits(&api));
-        assert!(!grants.for_module("./node_modules/evil/index.js").permits(&api));
+        assert!(grants
+            .for_module("./node_modules/react/index.js")
+            .permits(&api));
+        assert!(grants
+            .for_module("./node_modules/react/cjs/react.production.js")
+            .permits(&api));
+        assert!(!grants
+            .for_module("./node_modules/react-dom/index.js")
+            .permits(&api));
+        assert!(!grants
+            .for_module("./node_modules/evil/index.js")
+            .permits(&api));
         assert!(
             !grants.for_module("./node_modules/evil/node_modules/react/index.js").permits(&api),
             "a directory named after a granted package, nested in another package, is not that package"
         );
         assert!(!grants.for_module("./index.js").permits(&api));
-        let data = Operation::FsRead { path: "/data/x".into() };
-        assert!(grants.for_module("./node_modules/@w/ui/index.js").permits(&data));
-        assert!(!grants.for_module("./node_modules/@w/ui-extra/index.js").permits(&data));
-        assert!(!grants.for_module("./node_modules/react/index.js").permits(&data));
+        let data = Operation::FsRead {
+            path: "/data/x".into(),
+        };
+        assert!(grants
+            .for_module("./node_modules/@w/ui/index.js")
+            .permits(&data));
+        assert!(!grants
+            .for_module("./node_modules/@w/ui-extra/index.js")
+            .permits(&data));
+        assert!(!grants
+            .for_module("./node_modules/react/index.js")
+            .permits(&data));
         // The workspace package is bound to its real directory.
         assert!(grants.for_module("./packages/wsp/index.js").permits(&data));
         assert!(
-            grants.bound_packages().any(|(dir, name)| dir == "./packages/wsp/" && name == "@w/wsp"),
+            grants
+                .bound_packages()
+                .any(|(dir, name)| dir == "./packages/wsp/" && name == "@w/wsp"),
             "{:?}",
             grants.bound_packages().collect::<Vec<_>>()
         );
@@ -1278,7 +1319,10 @@ mod tests {
         assert!(reaches("./src/deep/b.js", "deep.test") && !reaches("./src/deep/b.js", "src.test"));
         assert!(reaches("./other.js", "star.test"));
         assert!(reaches("./node_modules/react/index.js", "react.test"));
-        assert!(!reaches("./node_modules/react/index.js", "nm.test"), "package beats directory");
+        assert!(
+            !reaches("./node_modules/react/index.js", "nm.test"),
+            "package beats directory"
+        );
         assert!(reaches("./node_modules/lodash/index.js", "nm.test"));
         assert!(
             !reaches("./node_modules/react/locked.js", "react.test"),
@@ -1293,14 +1337,33 @@ mod tests {
 
     #[test]
     fn a_section_that_names_nothing_is_refused() {
-        for bad in ["[../x.js]", "[/etc/x.js]", "[node_modules/react]", "[react/]", "[@w]", "[@w/ui/x]", "[./]", "[./a/../b.js]"] {
+        for bad in [
+            "[../x.js]",
+            "[/etc/x.js]",
+            "[node_modules/react]",
+            "[react/]",
+            "[@w]",
+            "[@w/ui/x]",
+            "[./]",
+            "[./a/../b.js]",
+        ] {
             assert!(
                 ModuleGrants::parse(&format!("{bad}\n")).is_err(),
                 "{bad} should be refused"
             );
         }
-        for good in ["[*]", "[./x.js]", "[./src/]", "[react]", "[@w/ui]", "[lodash.merge]"] {
-            assert!(ModuleGrants::parse(&format!("{good}\n")).is_ok(), "{good} should parse");
+        for good in [
+            "[*]",
+            "[./x.js]",
+            "[./src/]",
+            "[react]",
+            "[@w/ui]",
+            "[lodash.merge]",
+        ] {
+            assert!(
+                ModuleGrants::parse(&format!("{good}\n")).is_ok(),
+                "{good} should parse"
+            );
         }
     }
 
@@ -1316,7 +1379,8 @@ mod tests {
         std::fs::create_dir_all(root.join("packages/ui")).unwrap();
         std::fs::write(root.join("packages/ui/index.js"), "").unwrap();
         std::fs::create_dir_all(root.join("node_modules/@w")).unwrap();
-        std::os::unix::fs::symlink(root.join("packages/ui"), root.join("node_modules/@w/ui")).unwrap();
+        std::os::unix::fs::symlink(root.join("packages/ui"), root.join("node_modules/@w/ui"))
+            .unwrap();
 
         let api = Operation::Fetch {
             origin: Origin::new("https", "api.example.com", 443),
@@ -1330,14 +1394,19 @@ mod tests {
         );
         grants.bind(&root).unwrap();
         assert!(grants.for_module("./packages/ui/index.js").permits(&api));
-        assert!(grants.for_module("./node_modules/react/index.js").permits(&api));
+        assert!(grants
+            .for_module("./node_modules/react/index.js")
+            .permits(&api));
         assert!(!grants.for_module("./packages/other/index.js").permits(&api));
 
         let err = ModuleGrants::parse("[nope]\nnet.fetch https://api.example.com\n")
             .unwrap()
             .bind(&root)
             .unwrap_err();
-        assert!(err.contains("\"nope\"") && err.contains("not installed"), "{err}");
+        assert!(
+            err.contains("\"nope\"") && err.contains("not installed"),
+            "{err}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1360,10 +1429,18 @@ mod tests {
         let r = |spec: &str, from: &str| resolve_in(&cache, &declared, from, spec);
 
         assert_eq!(r("./a", "./src/x.js").unwrap(), "./src/a.ts");
-        assert_eq!(r("./a.js", "./src/x.js").unwrap(), "./src/a.ts", "the .js -> .ts rewrite");
+        assert_eq!(
+            r("./a.js", "./src/x.js").unwrap(),
+            "./src/a.ts",
+            "the .js -> .ts rewrite"
+        );
         assert_eq!(r("./b.js", "./src/x.js").unwrap(), "./src/b.js");
         assert_eq!(r("./dir", "./src/x.js").unwrap(), "./src/dir/index.ts");
-        assert_eq!(r("./link/a.ts", "./index.js").unwrap(), "./src/a.ts", "a symlinked directory resolves to its real path");
+        assert_eq!(
+            r("./link/a.ts", "./index.js").unwrap(),
+            "./src/a.ts",
+            "a symlinked directory resolves to its real path"
+        );
         let err = r("./out.js", "./src/x.js").unwrap_err();
         assert!(err.contains("outside the project root"), "{err}");
         // A different spelling: settled to the on-disk one where the filesystem
@@ -1378,8 +1455,10 @@ mod tests {
         // a fresh one.
         std::fs::write(root.join("src/late.ts"), "").unwrap();
         assert_eq!(r("./late", "./src/x.js").unwrap(), "./src/late.js");
-        assert_eq!(resolve(&declared, "./src/x.js", "./late").unwrap(), "./src/late.ts");
+        assert_eq!(
+            resolve(&declared, "./src/x.js", "./late").unwrap(),
+            "./src/late.ts"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
-

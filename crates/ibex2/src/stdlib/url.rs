@@ -73,8 +73,8 @@ pub fn parse(input: &str, base: Option<&str>) -> Result<ParsedUrl, HostError> {
 /// `hash` drop one leading sigil, `protocol` one trailing colon, and `port`
 /// takes its leading digits, as the spec's state overrides do.
 pub fn set(href: &str, field: &str, value: &str) -> Result<ParsedUrl, HostError> {
-    let mut url = Url::parse(href)
-        .map_err(|e| HostError::Failed(format!("TypeError: invalid URL: {e}")))?;
+    let mut url =
+        Url::parse(href).map_err(|e| HostError::Failed(format!("TypeError: invalid URL: {e}")))?;
     match field {
         "href" => {
             url = Url::parse(value)
@@ -103,7 +103,10 @@ pub fn set(href: &str, field: &str, value: &str) -> Result<ParsedUrl, HostError>
             } else {
                 0
             };
-            match value[after_bracket..].find(':').map(|at| at + after_bracket) {
+            match value[after_bracket..]
+                .find(':')
+                .map(|at| at + after_bracket)
+            {
                 Some(at) => {
                     if url.set_host(Some(&value[..at])).is_ok() {
                         set_port_prefix(&mut url, &value[at + 1..]);
@@ -129,7 +132,11 @@ pub fn set(href: &str, field: &str, value: &str) -> Result<ParsedUrl, HostError>
         }
         "hash" => {
             let fragment = value.strip_prefix('#').unwrap_or(value);
-            url.set_fragment(if fragment.is_empty() { None } else { Some(fragment) });
+            url.set_fragment(if fragment.is_empty() {
+                None
+            } else {
+                Some(fragment)
+            });
         }
         other => {
             return Err(HostError::InvalidArgument(format!(
@@ -289,9 +296,8 @@ impl SearchParams {
     /// — which is what a JavaScript string comparison would do, done here so
     /// there is one answer.
     pub fn sort(&mut self) {
-        self.pairs.sort_by(|(a, _), (b, _)| {
-            a.encode_utf16().cmp(b.encode_utf16())
-        });
+        self.pairs
+            .sort_by(|(a, _), (b, _)| a.encode_utf16().cmp(b.encode_utf16()));
     }
 
     /// The pairs as a JSON array of `[name, value]` arrays, for one crossing
@@ -445,18 +451,32 @@ mod tests {
         let u = set(&u.href, "host", "h2:99").unwrap();
         assert_eq!((u.hostname.as_str(), u.port.as_str()), ("h2", "99"));
         let u = set(&u.href, "host", "h3:80abc").unwrap();
-        assert_eq!((u.hostname.as_str(), u.port.as_str()), ("h3", "80"), "leading digits");
+        assert_eq!(
+            (u.hostname.as_str(), u.port.as_str()),
+            ("h3", "80"),
+            "leading digits"
+        );
         let u = set(&u.href, "host", "h4:").unwrap();
-        assert_eq!((u.hostname.as_str(), u.port.as_str()), ("h4", "80"), "empty port buffer: unchanged");
+        assert_eq!(
+            (u.hostname.as_str(), u.port.as_str()),
+            ("h4", "80"),
+            "empty port buffer: unchanged"
+        );
         let u = set("https://h/", "host", "[::1]:8080").unwrap();
         assert_eq!((u.hostname.as_str(), u.port.as_str()), ("[::1]", "8080"));
         let u = set("https://h/", "protocol", "http:garbage").unwrap();
-        assert_eq!(u.protocol, "http:", "everything after the first colon is ignored");
+        assert_eq!(
+            u.protocol, "http:",
+            "everything after the first colon is ignored"
+        );
         let u = set(&u.href, "protocol", "http:").unwrap();
         assert_eq!(u.protocol, "http:");
         let u = set(&u.href, "protocol", "mailto").unwrap();
         assert_eq!(u.protocol, "http:", "special to non-special is refused");
-        assert!(set(&u.href, "href", "nope").is_err(), "href is the one that throws");
+        assert!(
+            set(&u.href, "href", "nope").is_err(),
+            "href is the one that throws"
+        );
         let u = set("mailto:a@b", "pathname", "x").unwrap();
         assert_eq!(u.pathname, "a@b", "cannot-be-a-base: no-op");
     }
@@ -469,6 +489,9 @@ mod tests {
         assert!(p.has_pair("a", "3") && !p.has_pair("a", "2"));
         p.delete_pair("a", "1");
         assert_eq!(p.get_all_json("a"), r#"["3"]"#);
-        assert_eq!(p.entries_json(), r#"[["\"q\"","x\ty"],["a","3"],["b","2"]]"#);
+        assert_eq!(
+            p.entries_json(),
+            r#"[["\"q\"","x\ty"],["a","3"],["b","2"]]"#
+        );
     }
 }

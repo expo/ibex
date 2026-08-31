@@ -7,9 +7,9 @@
 //! must not serialize behind a fixed count, since a transport blocks its
 //! worker while the request is in flight — and lets the extra workers go
 //! after a quiet spell. Process-wide: a job carries its own runtime state.
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
@@ -109,9 +109,14 @@ mod tests {
             });
         }
         for _ in 0..12 {
-            rx.recv_timeout(Duration::from_secs(5)).expect("a job finished");
+            rx.recv_timeout(Duration::from_secs(5))
+                .expect("a job finished");
         }
         assert_eq!(done.load(Ordering::SeqCst), 12);
-        assert!(start.elapsed() < Duration::from_millis(250), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_millis(250),
+            "{:?}",
+            start.elapsed()
+        );
     }
 }

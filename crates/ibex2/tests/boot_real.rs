@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 use ibex2::engine::hermes::{DynamicCode, Hermes};
 use ibex2::loader::{ModuleGrants, Root};
 
-
 /// Roughly the per-module size of Exact's measured graph.
 const TARGET_MODULE_BYTES: usize = 9_600;
 
@@ -171,7 +170,8 @@ fn real_boot_by_graph_size() {
         };
         // Build first — including the manifest, so the measured runs never
         // open a source file.
-        let mut manifest = ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
+        let mut manifest =
+            ibex2::bytecode::Manifest::for_engine(ibex2::bytecode::Compiler::linked_engine());
         for i in 0..count {
             let specifier = format!("./m{i}.js");
             let source = std::fs::read_to_string(graph.dir.join(format!("m{i}.js"))).expect("read");

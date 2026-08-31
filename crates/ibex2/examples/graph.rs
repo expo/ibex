@@ -124,7 +124,10 @@ fn main() {
             match outcome {
                 Ok(resolved) => {
                     if required {
-                        edges.entry(spec.clone()).or_default().push(resolved.clone());
+                        edges
+                            .entry(spec.clone())
+                            .or_default()
+                            .push(resolved.clone());
                     }
                     queue.push_back(resolved);
                 }
@@ -134,7 +137,10 @@ fn main() {
                     } else {
                         &mut dyn_unresolved
                     };
-                    bucket.entry(dep.clone()).or_default().push((spec.clone(), e));
+                    bucket
+                        .entry(dep.clone())
+                        .or_default()
+                        .push((spec.clone(), e));
                 }
             }
         }
@@ -189,7 +195,12 @@ fn main() {
         resolve_errors.len()
     );
     for (dep, sites) in &resolve_errors {
-        println!("  {dep}  [{} importer(s)]  e.g. {} -> {}", sites.len(), sites[0].0, sites[0].1);
+        println!(
+            "  {dep}  [{} importer(s)]  e.g. {} -> {}",
+            sites.len(),
+            sites[0].0,
+            sites[0].1
+        );
     }
     println!();
     println!(
@@ -197,6 +208,11 @@ fn main() {
         dyn_unresolved.len()
     );
     for (dep, sites) in &dyn_unresolved {
-        println!("  {dep}  [{} importer(s)]  e.g. {} -> {}", sites.len(), sites[0].0, sites[0].1);
+        println!(
+            "  {dep}  [{} importer(s)]  e.g. {} -> {}",
+            sites.len(),
+            sites[0].0,
+            sites[0].1
+        );
     }
 }
