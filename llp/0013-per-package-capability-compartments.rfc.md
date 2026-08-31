@@ -634,7 +634,7 @@ each point; anything stronger is overclaiming (Risk 3):
 - **Deliverable**: findings appended to this LLP; go/no-go for Phase 1.
 - **Kill criterion**: SES fundamentally cannot run and the gaps are not
   small patches → stop; instance-level isolation remains the model, and this
-  RFC moves to `llp/tombstones/` with the findings recorded.
+  RFC is marked `Tombstoned` in the header with the findings recorded.
 
 ### Phase 1 — Userland compartments, audit mode (2–6 weeks, no fork)
 

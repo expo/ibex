@@ -31,7 +31,7 @@ the fourth is done the list is closed, not extended.
    refuses a regression past 2 ms.
 4. **Tombstone LLP 0058.000.001's program.** G1–G6, graduation manifest,
    tier definitions, five-platform receipts, policy generations, revocation
-   ancestry: moved to `llp/tombstones/` with a note saying why. Its §7
+   ancestry: marked `Tombstoned` (file stays at `llp/0058.000.001-greenfield-ibex-2-runtime-kernel.spec.md`) with a note saying why. Its §7
    vertical-slice items that are good *tests* (timers ordering, `fs`
    refusal/cancellation, teardown with queued jobs) become tests, not gates.
    LLP 0058.000 and 0058.000.000 get a pass for what still applies once
@@ -52,8 +52,9 @@ properties, grants, the check, integrity, engine and artifacts, non-goals,
 evidence, growth — and LLP 0060 and 0058.000 are superseded by it. (2) Package
 grants: LLP 0065 §4.2. (3) `rules/RULES.md` carries `Intrinsic freeze | 2ms`;
 `tests/harden.rs::the_freeze_stays_within_its_budget` fails the build past it
-and `scripts/metrics.mjs` shows it. (4) LLP 0058.000.001 is in
-`llp/tombstones/` with a note saying which of its §7 items are tests and
+and `scripts/metrics.mjs` shows it. (4) LLP 0058.000.001 is
+`Tombstoned` at `llp/0058.000.001-greenfield-ibex-2-runtime-kernel.spec.md`
+with a note saying which of its §7 items are tests and
 which have no call site; 0058.000.000's adapter contract stands with §12
 retired. `rules/NOT-DOING.md` records the decision. The list is closed, not
 extended.

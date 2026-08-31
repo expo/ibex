@@ -4,11 +4,12 @@ This project uses **Linked Literate Programming (LLP)** as defined in [LLP 0000]
 
 ## LLP documents
 
-- LLP documents live in `llp/` and follow the numbering convention `NNNN-slug.type.md` (e.g. `0001-target-platforms-and-ci-matrix.rfc.md`). Numbers are never reused.
+- LLP documents live in `llp/` and follow the numbering convention `NNNN-slug.type.md` (e.g. `0001-target-platforms-and-ci-matrix.rfc.md`). Sub-LLPs nest by dotted number: `0058.000-…` is the first child of LLP 0058. Numbers are never reused and a document is never renamed to re-parent it.
+- `llp/current/` and `llp/foundation/` hold relative links only (symlinks, or regular files containing the relative path). `current/` is the declared working set: link a document when work starts and remove the link when it is done. `foundation/` is the kernel from which the design could be recreated; it may be empty. Orient by reading `foundation/`, then `current/`, then the `@ref`s in scope.
 - When creating a new LLP, use the next available number and include the standard metadata header (`Type`, `Status`, `Systems`, `Author`, `Date`; optional `Role`, `Revised`, `Related`).
 - Standard types: **RFC**, **Spec**, **Decision**, **Plan**, **Explainer**, **Principles**, **Guide**, **Issue**, **Research**.
 - Review intensity is stakes-scaled and author-judged ([LLP 0005 in ccheever/llp](https://github.com/ccheever/llp/blob/main/llp/0005-rfc-process.guide.md)): setting `Status: Review` opts into a formal multi-model loop; honesty rules (never fabricate a review, artifacts under `llp/reviews/`, the author decides) always apply.
-- LLP documents are living documents. Update them as the system evolves; move historical-but-useful ones to `llp/tombstones/`. Don't leave stale docs unmarked.
+- LLP documents are living documents. Update them as the system evolves; mark wrong or replaced ones `Tombstoned`/`Superseded` in the header (files never move). Don't leave stale docs unmarked.
 
 ## @ref annotations
 
@@ -35,9 +36,10 @@ The managed upstream sources are, in precedence order:
 - `ccheever/llp` — LLP workflow skills under its `skills/` directory.
 - `ccheever/cdcstack` — the working-posture skills (`orchestrate`) under its
   `skills/` directory. cdcstack also owns `scripts/caps.mjs`,
-  `scripts/issue.mjs`, and `docs/issues.md`, which are adopted by copy rather
-  than linked; `rules/RULES.md` and `rules/NOT-DOING.md` are this project's own
-  instantiation of its templates and are expected to differ.
+  `scripts/caps.test.mjs`, `scripts/issue.mjs`, and `docs/issues.md`, which
+  are adopted by copy rather than linked; `rules/RULES.md` and
+  `rules/NOT-DOING.md` are this project's own instantiation of its templates
+  and are expected to differ.
 
 `ccheever/skills` was dropped as a source on 2026-08-27. A project shares a few
 prebaked lanes, not a general skill library: it shipped `cdc-linear-do`, which
@@ -60,7 +62,7 @@ Before editing a subsystem with documented design, orient first: read its
 governing LLP, and for non-trivial work invoke `llp-orient` to assemble a
 context pack of the constraints the change must respect.
 
-Skills: orient = context before coding · create = author one LLP · review = LLP 0005 loop, scaled to stakes · adopt = set up LLP in any repo · maintain = drift / pre-PR / reconcile / retire checks
+Skills: orient = context before coding · create = author one LLP · review = LLP 0005 loop, scaled to stakes · adopt = set up LLP in any repo or package, interview-first retrofit, install/update the skills · maintain = drift / pre-PR / reconcile / retire / curate (promote → archive → realign, LLP 0011.000) · super-refine = dual-model refine-until-ready · ship = tasks done end to end
 <!-- END LLP SKILLS MANAGED BLOCK -->
 
 ## Working on this project
