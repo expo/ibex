@@ -20,7 +20,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 
 use crate::boundary::HostError;
-use crate::stdlib::fetch::{Headers, Request, Response, Transport};
+use crate::stdlib::fetch::{over_limit, Headers, Request, Response, Transport};
 
 /// Plaintext HTTP/1.1, one connection per request.
 #[derive(Debug, Default)]
@@ -36,10 +36,10 @@ impl DevTcpTransport {
     }
 }
 
-/// Cap on a response we will buffer. v1 buffers bodies whole
-/// (LLP 0059.000 §5), so there must be a ceiling — an unbounded read from a
-/// remote peer is a denial-of-service the runtime hands out for free.
-const MAX_BODY: usize = 64 * 1024 * 1024;
+/// Head and body arrive down one socket here, so the read loop cannot bound
+/// the body alone; it bounds the head separately and lets the body's own
+/// ceiling (`Request::body_limit`) apply to what follows the blank line.
+const MAX_HEAD: usize = 64 * 1024;
 
 impl Transport for DevTcpTransport {
     fn send(&self, request: &Request) -> Result<Response, HostError> {
@@ -95,18 +95,46 @@ impl Transport for DevTcpTransport {
             .and_then(|_| stream.flush())
             .map_err(|e| HostError::Failed(format!("TypeError: Failed to fetch — {e}")))?;
 
+        // Stop reading at the ceiling rather than discovering afterwards that
+        // it was passed: `raw` holds head and body together, so the bound is
+        // the caller's body limit plus what a head may cost, and returning
+        // here drops the stream and closes the connection on the peer.
+        let limit = request.body_limit();
+        let ceiling = limit.saturating_add(MAX_HEAD);
         let mut raw = Vec::new();
         let mut buffer = [0u8; 16 * 1024];
+        let mut head_seen = false;
         loop {
             match stream.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => {
                     raw.extend_from_slice(&buffer[..n]);
-                    if raw.len() > MAX_BODY {
-                        return Err(HostError::Failed(
-                            "TypeError: Failed to fetch — response exceeded the buffer limit"
-                                .into(),
-                        ));
+                    if !head_seen {
+                        match raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                            // The head is complete: a declared length over the
+                            // ceiling is refused now, before the body it
+                            // announces is read.
+                            Some(split) => {
+                                head_seen = true;
+                                let head = String::from_utf8_lossy(&raw[..split]);
+                                if declared_length(&head).is_some_and(|d| d > limit as u64) {
+                                    return Err(over_limit(limit));
+                                }
+                            }
+                            // A head that never ends is a response that never
+                            // starts, and searching a growing buffer for the
+                            // terminator is quadratic if it is allowed to grow.
+                            None if raw.len() > MAX_HEAD => {
+                                return Err(HostError::Failed(
+                                    "TypeError: Failed to fetch — response head exceeded the limit"
+                                        .into(),
+                                ))
+                            }
+                            None => {}
+                        }
+                    }
+                    if raw.len() > ceiling {
+                        return Err(over_limit(limit));
                     }
                 }
                 Err(e) => {
@@ -117,8 +145,24 @@ impl Transport for DevTcpTransport {
             }
         }
 
-        parse_response(&raw, &request.url)
+        let response = parse_response(&raw, &request.url)?;
+        // The head was not free: a 63 KB head under a 64 KB limit would
+        // otherwise let a 64 KB body through the ceiling above.
+        if response.body.len() > limit {
+            return Err(over_limit(limit));
+        }
+        Ok(response)
     }
+}
+
+/// What the head says the body will be, if it says. The peer's claim, worth
+/// acting on only to refuse early — what arrives is checked either way.
+fn declared_length(head: &str) -> Option<u64> {
+    head.split("\r\n")
+        .skip(1)
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse().ok())
 }
 
 pub(crate) fn parse_response(raw: &[u8], url: &str) -> Result<Response, HostError> {

@@ -91,6 +91,12 @@ system proxy settings, VPN awareness, and the OS certificate store come for
 free. Inverting this gives four platforms four different `fetch`es, which is
 the failure mode a cross-platform runtime exists to prevent.
 
+A limit is a third thing, and it belongs on both sides at once: Rust sets the
+response ceiling and words the refusal, the platform enforces it because the
+platform is what holds the socket (LLP 0059.000 §3.5). Neither half can do it
+alone — a ceiling chosen by the transport is not the caller's, and a ceiling
+checked above the transport is checked after the memory is already spent.
+
 Two properties the boundary must have, both of which are cheap to state now and
 expensive to retrofit:
 
