@@ -30,6 +30,9 @@ extern "C" {
         header_block: *const c_char,
         body: *const c_uchar,
         body_len: usize,
+        // The response ceiling, already resolved by Rust: the platform
+        // enforces it, it does not choose it.
+        max_body: usize,
         out_status: *mut c_int,
         out_headers: *mut *mut c_char,
         out_body: *mut *mut c_uchar,
@@ -172,6 +175,7 @@ impl Transport for DarwinTransport {
                 header_block.as_ptr(),
                 body_ptr,
                 body_len,
+                request.body_limit(),
                 &mut status,
                 &mut headers_raw,
                 &mut body_raw,

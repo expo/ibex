@@ -41,12 +41,61 @@ char *dup_utf8(NSString *value) {
 
 } // namespace
 
+/// One in-flight request: what came back, and the ceiling it may not pass.
+///
+/// Every field is written on the session's delegate queue — which is serial,
+/// so the callbacks below need no lock among themselves — and read by the
+/// calling thread only after `done` is signalled, which is the happens-before
+/// edge that makes the handoff safe.
+@interface Ibex2Exchange : NSObject
+@property(nonatomic, assign) NSUInteger limit;
+@property(nonatomic, strong) NSMutableData *body;
+@property(nonatomic, strong) NSHTTPURLResponse *response;
+@property(nonatomic, strong) NSString *failure;
+@property(nonatomic, assign) BOOL finished;
+@property(nonatomic, strong) dispatch_semaphore_t done;
+@end
+
+@implementation Ibex2Exchange
+- (instancetype)initWithLimit:(NSUInteger)limit {
+  if ((self = [super init])) {
+    _limit = limit;
+    _body = [NSMutableData data];
+    _done = dispatch_semaphore_create(0);
+  }
+  return self;
+}
+
+/// First finish wins, and nothing after it may touch the exchange. A refusal
+/// and the cancellation error it causes both arrive here; the refusal is the
+/// one the caller should see.
+- (void)finishWith:(NSString *)failure {
+  if (self.finished) {
+    return;
+  }
+  if (failure != nil) {
+    self.failure = failure;
+  }
+  self.finished = YES;
+  dispatch_semaphore_signal(self.done);
+}
+@end
+
 /// Refuses redirects so Rust keeps redirect policy and the per-hop capability
-/// check. Nothing else is overridden — the rest of NSURLSession's behaviour is
-/// exactly what we want from the platform.
-@interface Ibex2NoRedirect : NSObject <NSURLSessionTaskDelegate>
+/// check, and holds each in-flight request to the byte ceiling it was given.
+///
+/// **The ceiling is why the body arrives through delegate callbacks instead of
+/// a completion handler.** `dataTaskWithRequest:completionHandler:` hands over
+/// one `NSData` that is already fully buffered: by the time it can be measured
+/// the memory has been spent, which is the whole of what the ceiling exists to
+/// prevent. `didReceiveData:` is the rung where a response can still be
+/// refused, so that is the rung the limit is enforced at.
+@interface Ibex2NoRedirect : NSObject <NSURLSessionDataDelegate>
 /// taskIdentifier -> whether that task rode an already-open connection.
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSNumber *> *reused;
+/// taskIdentifier -> the in-flight exchange, entered before `resume`.
+@property(nonatomic, strong)
+    NSMutableDictionary<NSNumber *, Ibex2Exchange *> *exchanges;
 @property(nonatomic, strong) NSLock *lock;
 @end
 
@@ -54,9 +103,104 @@ char *dup_utf8(NSString *value) {
 - (instancetype)init {
   if ((self = [super init])) {
     _reused = [NSMutableDictionary dictionary];
+    _exchanges = [NSMutableDictionary dictionary];
     _lock = [[NSLock alloc] init];
   }
   return self;
+}
+
+/// Registered from the calling thread before the task is resumed, so no
+/// callback can arrive for a task the delegate does not yet know about.
+- (void)track:(Ibex2Exchange *)exchange for:(NSUInteger)identifier {
+  [self.lock lock];
+  self.exchanges[@(identifier)] = exchange;
+  [self.lock unlock];
+}
+
+- (Ibex2Exchange *)exchangeFor:(NSUInteger)identifier {
+  [self.lock lock];
+  Ibex2Exchange *exchange = self.exchanges[@(identifier)];
+  [self.lock unlock];
+  return exchange;
+}
+
+- (void)forget:(NSUInteger)identifier {
+  [self.lock lock];
+  [self.exchanges removeObjectForKey:@(identifier)];
+  [self.lock unlock];
+}
+
+/// A declared length already over the ceiling is refused before the body is
+/// read at all — `NSURLSessionResponseCancel` means the bytes never come.
+- (void)URLSession:(NSURLSession *)session
+              dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveResponse:(NSURLResponse *)response
+     completionHandler:
+         (void (^)(NSURLSessionResponseDisposition))completionHandler {
+  Ibex2Exchange *exchange = [self exchangeFor:dataTask.taskIdentifier];
+  if (exchange == nil) {
+    completionHandler(NSURLSessionResponseAllow);
+    return;
+  }
+  if (![response isKindOfClass:[NSHTTPURLResponse class]]) {
+    [exchange finishWith:@"TypeError: Failed to fetch — no response"];
+    completionHandler(NSURLSessionResponseCancel);
+    return;
+  }
+  exchange.response = (NSHTTPURLResponse *)response;
+  if (response.expectedContentLength != NSURLResponseUnknownLength &&
+      response.expectedContentLength > (long long)exchange.limit) {
+    [exchange
+        finishWith:[NSString stringWithFormat:
+                                 @"TypeError: Failed to fetch — response "
+                                 @"exceeded the %lu-byte limit",
+                                 (unsigned long)exchange.limit]];
+    completionHandler(NSURLSessionResponseCancel);
+    return;
+  }
+  completionHandler(NSURLSessionResponseAllow);
+}
+
+/// And again on what actually arrives: Content-Length is the peer's claim, and
+/// a chunked response makes no claim at all. Cancelling here stops the
+/// transfer rather than merely declining to keep the rest of it.
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveData:(NSData *)data {
+  Ibex2Exchange *exchange = [self exchangeFor:dataTask.taskIdentifier];
+  if (exchange == nil || exchange.finished) {
+    return;
+  }
+  if (exchange.body.length + data.length > exchange.limit) {
+    [exchange
+        finishWith:[NSString stringWithFormat:
+                                 @"TypeError: Failed to fetch — response "
+                                 @"exceeded the %lu-byte limit",
+                                 (unsigned long)exchange.limit]];
+    [dataTask cancel];
+    return;
+  }
+  [exchange.body appendData:data];
+}
+
+- (void)URLSession:(NSURLSession *)session
+                    task:(NSURLSessionTask *)task
+    didCompleteWithError:(NSError *)error {
+  Ibex2Exchange *exchange = [self exchangeFor:task.taskIdentifier];
+  if (exchange == nil) {
+    return;
+  }
+  if (error != nil && !exchange.finished) {
+    [exchange finishWith:[NSString stringWithFormat:
+                                       @"TypeError: Failed to fetch — %@",
+                                       error.localizedDescription]];
+    return;
+  }
+  if (exchange.response == nil && !exchange.finished) {
+    [exchange finishWith:@"TypeError: Failed to fetch — no response"];
+    return;
+  }
+  [exchange finishWith:nil];
 }
 
 /// Records whether the connection was reused, so "the pool works" can be
@@ -203,7 +347,7 @@ void ibex2_darwin_session_destroy(void *handle) {
 int ibex2_darwin_http_send(void *session_handle, const char *method,
                            const char *url,
                            const char *header_block, const unsigned char *body,
-                           size_t body_len, int *out_status,
+                           size_t body_len, size_t max_body, int *out_status,
                            char **out_headers, unsigned char **out_body,
                            size_t *out_body_len, char **out_error,
                            int *out_reused) {
@@ -250,37 +394,32 @@ int ibex2_darwin_http_send(void *session_handle, const char *method,
       return 1;
     }
 
-    __block NSData *resultData = nil;
-    __block NSHTTPURLResponse *resultResponse = nil;
-    __block NSError *resultError = nil;
-    dispatch_semaphore_t done = dispatch_semaphore_create(0);
-
-    NSURLSessionDataTask *task = [session
-        dataTaskWithRequest:request
-          completionHandler:^(NSData *data, NSURLResponse *response,
-                              NSError *error) {
-            resultData = data;
-            resultResponse = [response isKindOfClass:[NSHTTPURLResponse class]]
-                                 ? (NSHTTPURLResponse *)response
-                                 : nil;
-            resultError = error;
-            dispatch_semaphore_signal(done);
-          }];
-    [task resume];
-    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
-    if (out_reused != nullptr && [session.delegate isKindOfClass:[Ibex2NoRedirect class]]) {
-      *out_reused = [(Ibex2NoRedirect *)session.delegate takeReusedFor:task.taskIdentifier];
+    if (![session.delegate isKindOfClass:[Ibex2NoRedirect class]]) {
+      *out_error = dup_utf8(@"TypeError: Failed to fetch — no session delegate");
+      return 1;
     }
+    Ibex2NoRedirect *delegate = (Ibex2NoRedirect *)session.delegate;
+
+    // The exchange is registered before `resume`, never after: a cached or
+    // failed-fast response can call back before this thread reaches the wait.
+    Ibex2Exchange *exchange = [[Ibex2Exchange alloc] initWithLimit:max_body];
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request];
+    NSUInteger identifier = task.taskIdentifier;
+    [delegate track:exchange for:identifier];
+    [task resume];
+    dispatch_semaphore_wait(exchange.done, DISPATCH_TIME_FOREVER);
+    if (out_reused != nullptr) {
+      *out_reused = [delegate takeReusedFor:identifier];
+    }
+    [delegate forget:identifier];
     // No finishTasksAndInvalidate here: the session outlives the request and
     // is released by ibex2_darwin_session_destroy when the runtime goes away.
 
-    if (resultError != nil && resultResponse == nil) {
-      NSString *message = [NSString
-          stringWithFormat:@"TypeError: Failed to fetch — %@",
-                           resultError.localizedDescription];
-      *out_error = dup_utf8(message);
+    if (exchange.failure != nil) {
+      *out_error = dup_utf8(exchange.failure);
       return 1;
     }
+    NSHTTPURLResponse *resultResponse = exchange.response;
     if (resultResponse == nil) {
       *out_error = dup_utf8(@"TypeError: Failed to fetch — no response");
       return 1;
@@ -295,6 +434,7 @@ int ibex2_darwin_http_send(void *session_handle, const char *method,
         }];
     *out_headers = dup_utf8(headers);
 
+    NSData *resultData = exchange.body;
     if (resultData != nil && resultData.length > 0) {
       unsigned char *bytes =
           static_cast<unsigned char *>(std::malloc(resultData.length));

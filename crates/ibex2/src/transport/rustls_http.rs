@@ -18,7 +18,7 @@
 //! was used so the consumer can say so in its journal.
 
 use crate::boundary::HostError;
-use crate::stdlib::fetch::{Headers, Request, Response, Transport};
+use crate::stdlib::fetch::{over_limit, Headers, Request, Response, Transport};
 use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,13 +48,23 @@ pub struct RustlsHttpTransport {
 }
 
 impl RustlsHttpTransport {
-    /// A thirty-second timeout per request, no redirects, the platform's
-    /// roots (or the compiled-in ones where there are none).
+    /// Three deadlines, no redirects, the platform's roots (or the compiled-in
+    /// ones where there are none).
+    ///
+    /// The overall thirty seconds is the one that was always here. The other
+    /// two bound the shapes it does not: a peer that accepts the connection
+    /// and never answers (`timeout_connect`, `timeout_read` — the read
+    /// deadline is what caps time-to-first-byte), and one that answers and
+    /// then drips a byte at a time to hold the socket open. Without them a
+    /// request that never overflows the byte ceiling can still hold a thread
+    /// for as long as the peer likes.
     pub fn new() -> Self {
         let (config, roots) = tls_config();
         Self {
             agent: ureq::AgentBuilder::new()
                 .redirects(0)
+                .timeout_connect(Duration::from_secs(10))
+                .timeout_read(Duration::from_secs(15))
                 .timeout(Duration::from_secs(30))
                 .tls_config(Arc::new(config))
                 .build(),
@@ -97,9 +107,6 @@ fn tls_config() -> (rustls::ClientConfig, Roots) {
     (config, roots)
 }
 
-/// The largest body kept in memory (the development transport's bound).
-const MAX_BODY: usize = 64 * 1024 * 1024;
-
 impl Transport for RustlsHttpTransport {
     fn send(&self, request: &Request) -> Result<Response, HostError> {
         let mut req = self.agent.request(&request.method, &request.url);
@@ -128,15 +135,29 @@ impl Transport for RustlsHttpTransport {
                 headers.set_response(&name, value);
             }
         }
+        // The ceiling the caller asked for, refused twice: once on the
+        // declared length, so a peer that announces five gigabytes is turned
+        // away before a byte of it is read, and again on what actually
+        // arrives, because Content-Length is the peer's claim and a chunked
+        // response makes no claim at all. `take` is what makes the second one
+        // a bound rather than an observation — the read stops one byte past
+        // the limit, and dropping the reader closes the connection under it.
+        let limit = request.body_limit();
+        if let Some(declared) = resp
+            .header("content-length")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+        {
+            if declared > limit as u64 {
+                return Err(over_limit(limit));
+            }
+        }
         let mut body = Vec::new();
         resp.into_reader()
-            .take(MAX_BODY as u64 + 1)
+            .take(limit as u64 + 1)
             .read_to_end(&mut body)
             .map_err(|e| HostError::Failed(format!("TypeError: Failed to fetch — {e}")))?;
-        if body.len() > MAX_BODY {
-            return Err(HostError::Failed(
-                "TypeError: Failed to fetch — response exceeded the buffer limit".into(),
-            ));
+        if body.len() > limit {
+            return Err(over_limit(limit));
         }
         Ok(Response {
             status,

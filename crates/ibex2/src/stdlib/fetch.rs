@@ -21,6 +21,24 @@ use crate::grant::{GrantSet, Operation, Origin};
 /// How many redirects to follow before giving up. The web platform's limit.
 pub const MAX_REDIRECTS: u32 = 20;
 
+/// The response ceiling a transport applies when the caller names none.
+///
+/// v1 buffers bodies whole (LLP 0059.000 §5), so a ceiling is not a tuning
+/// knob: without one, a peer that answers a request and never stops sending
+/// exhausts the process, and the runtime handed that out for free. Sixty-four
+/// megabytes is the number every transport already used privately; it lives
+/// here now so the three of them cannot drift apart.
+pub const DEFAULT_MAX_BODY: usize = 64 * 1024 * 1024;
+
+/// The one spelling of "the response was too big", so a caller sees the same
+/// failure whichever transport is underneath. The error taxonomy is Rust's
+/// (LLP 0057 §3); a transport reports the overflow, it does not word it.
+pub fn over_limit(limit: usize) -> HostError {
+    HostError::Failed(format!(
+        "TypeError: Failed to fetch — response exceeded the {limit}-byte limit"
+    ))
+}
+
 /// Header names are case-insensitive; values are not.
 ///
 /// Stored folded so lookup and duplicate detection are exact, and so two
@@ -217,6 +235,20 @@ pub struct Request {
     pub headers: Headers,
     pub body: Option<Vec<u8>>,
     pub redirect: RedirectMode,
+    /// The largest response body this request will accept, in bytes;
+    /// [`DEFAULT_MAX_BODY`] when `None`.
+    ///
+    /// **Per request, because only the caller knows what it asked for.** A
+    /// 64 KB envelope and a 64 MB plan want different numbers, and a consumer
+    /// that must fetch both cannot say so with one process-wide constant —
+    /// which is what made a bounded read impossible from outside this crate.
+    ///
+    /// **Enforced while the bytes arrive, never after.** A check on a body
+    /// already in memory has paid for the attack it was meant to refuse, so a
+    /// transport that cannot stop mid-response cannot honor this field.
+    /// Nothing here contradicts §5's "bodies buffer whole": the body is still
+    /// delivered whole, the buffer just has a lid the caller chose.
+    pub max_body: Option<usize>,
 }
 
 impl Request {
@@ -227,7 +259,13 @@ impl Request {
             headers: Headers::new(),
             body: None,
             redirect: RedirectMode::Follow,
+            max_body: None,
         }
+    }
+
+    /// The ceiling this request asked for, resolved.
+    pub fn body_limit(&self) -> usize {
+        self.max_body.unwrap_or(DEFAULT_MAX_BODY)
     }
 }
 
@@ -257,6 +295,12 @@ impl Response {
 pub trait Transport: Send + Sync {
     /// Perform exactly one request. **No redirect following** — that is
     /// semantics and belongs to Rust, above.
+    ///
+    /// **`request.body_limit()` binds.** An implementation must stop receiving
+    /// and fail with [`over_limit`] the moment the body would exceed it, and a
+    /// declared length already over it is refused before the body is read at
+    /// all. Only the transport holds the socket, so this is the one rung where
+    /// the ceiling can be enforced rather than observed after the fact.
     fn send(&self, request: &Request) -> Result<Response, HostError>;
 }
 
