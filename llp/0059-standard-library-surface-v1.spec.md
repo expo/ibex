@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-28 (LLP 0057 §5.2: the target is Exact 2. This inventory was measured from Exact 1 and is now a *ceiling*, not a specification — nothing in it is built without a measured call site in Exact 2's own JavaScript, which today is none. `MessageChannel` removed under that rule.) 2026-08-27 (§6 amended — `fs`, `WebSocket`, `Buffer`, and `crypto.subtle` move into v1 by the author's decision, as APIs he intends to build on. The measurement is unchanged and stands: none are used by Exact's runtime today. LLP 0059.000 specifies them and marks them *author-required*.) 2026-08-27 (initial draft)
+**Revised:** 2026-09-03 (§8: the ceiling restated against WinterTC and the Expo-shaped platform layer — LLP 0057.000 carries the tables, the packaging decision, and the lanes; nothing in the measurement changed) 2026-08-28 (LLP 0057 §5.2: the target is Exact 2. This inventory was measured from Exact 1 and is now a *ceiling*, not a specification — nothing in it is built without a measured call site in Exact 2's own JavaScript, which today is none. `MessageChannel` removed under that rule.) 2026-08-27 (§6 amended — `fs`, `WebSocket`, `Buffer`, and `crypto.subtle` move into v1 by the author's decision, as APIs he intends to build on. The measurement is unchanged and stands: none are used by Exact's runtime today. LLP 0059.000 specifies them and marks them *author-required*.) 2026-08-27 (initial draft)
 **Related:** LLP 0057 (Ibex 2 — this discharges its OQ1 with measurement), LLP 0058 (the engine seam — the intrinsics tier below), LLP 0004 (module loading and builtins — the surface this replaces)
 
 ## Summary
@@ -153,3 +153,14 @@ lines of JavaScript for a surface this small.
 
 Web and Node APIs beyond this list are filled in on demand, one at a time,
 with the same evidence standard.
+
+## 8. Restated against WinterTC, 2026-09-03
+
+The inventory above was measured from Exact 1 and has been a ceiling since
+2026-08-28. LLP 0057.000 restates that ceiling against the WinterTC Minimum
+Common Web Platform API — item by item, what is built, what is specified, and
+which side of LLP 0057 §3.1's split each item falls on — and maps the Expo
+SDK's module catalog onto LLP 0067's grant families for the platform layer
+this document never covered. §7's rule is unchanged: that document orders the
+work; a measured call site, or the author naming an item, is still what
+starts it.
