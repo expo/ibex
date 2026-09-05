@@ -739,7 +739,7 @@ fn run_async(
     }
     match op {
         AsyncOp::Fetch => {
-            use crate::stdlib::fetch::{RedirectMode, Request};
+            use crate::stdlib::fetch::{is_valid_name, is_valid_value, RedirectMode, Request};
             let url = match args.first() {
                 Some(HostValue::Str(url)) => url.clone(),
                 _ => return Err(HostError::InvalidArgument("fetch expects a URL".into())),
@@ -759,6 +759,34 @@ fn run_async(
                     "error" => RedirectMode::Error,
                     _ => RedirectMode::Follow,
                 };
+            }
+            // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — request headers cross by handle, validated before transport
+            match args.get(4) {
+                None | Some(HostValue::Undefined) => {}
+                Some(HostValue::Number(handle))
+                    if handle.fract() == 0.0
+                        && (1.0..=9_007_199_254_740_991.0).contains(handle) =>
+                {
+                    request.headers = state
+                        .with_headers(*handle as u64, |headers| {
+                            for (name, value) in headers.entries() {
+                                if !is_valid_name(name) || !is_valid_value(value) {
+                                    return Err(HostError::InvalidArgument(
+                                        "fetch headers contain an invalid name or value".into(),
+                                    ));
+                                }
+                            }
+                            Ok(headers.clone())
+                        })
+                        .ok_or_else(|| {
+                            HostError::InvalidArgument("unknown fetch headers handle".into())
+                        })??;
+                }
+                _ => {
+                    return Err(HostError::InvalidArgument(
+                        "fetch expects a headers handle".into(),
+                    ));
+                }
             }
             let response = crate::stdlib::fetch::fetch(state.transport(), grants, request)?;
             // The handle, not the response. §1.1.
@@ -1145,5 +1173,53 @@ pub unsafe extern "C" fn ibex2_grants_env_at(
 pub unsafe extern "C" fn ibex2_string_free(value: *mut std::ffi::c_char) {
     if !value.is_null() {
         drop(std::ffi::CString::from_raw(value));
+    }
+}
+
+#[cfg(test)]
+mod fetch_header_tests {
+    use super::*;
+    use crate::stdlib::fetch::{Headers, Request, Response, Transport};
+    use crate::task::RuntimeState;
+
+    struct NoRequests;
+    impl Transport for NoRequests {
+        fn send(&self, _: &Request) -> Result<Response, HostError> {
+            panic!("invalid headers reached the transport");
+        }
+    }
+
+    #[test]
+    fn fetch_validates_the_contents_of_a_registered_header_list() {
+        // The engine normally validates on append. Native embedders can
+        // populate the same registry, so a known handle is not validation.
+        let state = RuntimeState::new(Box::new(NoRequests));
+        let grants = GrantSet::parse("net.fetch http://127.0.0.1:80").unwrap();
+        let mut failures = Vec::new();
+        for (name, value) in [
+            ("", "value"),
+            ("bad name", "value"),
+            ("colon:", "value"),
+            ("x", "bad\r\ninjection"),
+            ("x", "bad\rvalue"),
+            ("x", "bad\nvalue"),
+            ("x", "bad\0value"),
+            ("x", "\u{100}"),
+        ] {
+            let mut headers = Headers::new();
+            headers.set(name, value);
+            let args = [
+                HostValue::Str("http://127.0.0.1/".into()),
+                HostValue::Undefined,
+                HostValue::Undefined,
+                HostValue::Undefined,
+                HostValue::Number(state.store_headers(headers) as f64),
+            ];
+            let result = run_async(AsyncOp::Fetch, &args, &state, &grants);
+            if !matches!(result, Err(HostError::InvalidArgument(_))) {
+                failures.push(format!("{name:?}: {value:?}: {result:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }
