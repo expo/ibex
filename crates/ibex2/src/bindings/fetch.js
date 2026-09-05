@@ -16,6 +16,9 @@
 
   var field = global.__ibex2_response_field;
   var decode = global.__ibex2_text_decode;
+  var Headers = global.Headers;
+  var freeHeaders = global.__ibex2_headers_free;
+  delete global.__ibex2_headers_free;
   delete global.__ibex2_response_field;
   // Pure helpers nothing outside the bindings needs: the engine provides
   // TextEncoder and TextDecoder itself.
@@ -47,7 +50,7 @@
       ok: field(handle, 1),
       url: field(handle, 2),
       redirected: field(handle, 5),
-      headers: new global.Headers(JSON.parse(field(handle, 7))),
+      headers: new Headers(JSON.parse(field(handle, 7))),
     });
     return r;
   }
@@ -87,7 +90,27 @@
   // object.
   return function makeFetch(raw) {
     return function fetch(input, init) {
-      return raw.apply(undefined, arguments).then(response);
+      try {
+        if (arguments.length === 0) throw new TypeError("fetch expects a URL");
+        init = init || {};
+        var url = String(input);
+        var method = init.method === undefined ? "" : String(init.method);
+        var body = init.body;
+        if (typeof body === "string") body = new TextEncoder().encode(body);
+        var redirect = init.redirect === undefined ? "follow" : String(init.redirect);
+        // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — snapshot before crossing; release our list after settlement
+        var headers = new Headers(init.headers);
+        return raw(url, method, body, redirect, headers._handle).then(function (handle) {
+          freeHeaders(headers._handle);
+          return response(handle);
+        }, function (e) {
+          freeHeaders(headers._handle);
+          throw e;
+        });
+      } catch (e) {
+        if (headers) freeHeaders(headers._handle);
+        return Promise.reject(e);
+      }
     };
   };
 })(globalThis);

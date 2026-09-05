@@ -16,6 +16,10 @@
   // in the runtime by guessing one.
   var h = global.__ibex2_headers;
   delete global.__ibex2_headers;
+  // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — the JS binding owns request-snapshot cleanup
+  // fetch.js captures and removes this during binding installation, before
+  // any module runs. Only that binding may free its temporary request list.
+  global.__ibex2_headers_free = h.free;
 
   function requireValidName(name) {
     if (!h.validName(name)) {
@@ -71,7 +75,12 @@
       enumerable: false,
       writable: false,
     });
-    fill(this, init);
+    try {
+      fill(this, init);
+    } catch (e) {
+      h.free(this._handle);
+      throw e;
+    }
   }
 
   Headers.prototype.append = function (name, value) {
