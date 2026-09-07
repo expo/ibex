@@ -638,6 +638,21 @@ fn fetch_rt(grant_spec: &str) -> (Hermes, Grants) {
     let mut rt = with_stdlib();
     let grants = Grants::parse(grant_spec).expect("grant spec parses");
     assert!(rt.install_fetch(&grants), "fetch install failed");
+    rt.eval(
+        "globalThis.readBody = async function(handle) {
+      const chunks = []; let length = 0;
+      for (;;) {
+        const raw = await __ibex2_response_read(handle);
+        if (raw === null) break;
+        const chunk = new Uint8Array(raw);
+        chunks.push(chunk); length += chunk.length;
+      }
+      const bytes = new Uint8Array(length); let offset = 0;
+      chunks.forEach(chunk => { bytes.set(chunk, offset); offset += chunk.length; });
+      return __ibex2_text_decode(bytes);
+    };",
+    )
+    .unwrap();
     (rt, grants)
 }
 
@@ -648,17 +663,17 @@ fn fetch_reaches_a_real_server_and_returns_a_response_handle() {
 
     rt.eval(&format!(
         "globalThis.status = 0; globalThis.body = '';
-             __ibex2_fetch('{}/thing').then(h => {{
+             __ibex2_fetch('{}/thing').then(async h => {{
                status = __ibex2_response_field(h, 0);
                globalThis.okFlag = __ibex2_response_field(h, 1);
                globalThis.ct = __ibex2_response_field(h, 3, 'content-type');
                globalThis.custom = __ibex2_response_field(h, 3, 'X-IBEX');
-               body = __ibex2_text_decode(__ibex2_response_field(h, 4));
+               body = await readBody(h);
              }});",
         server.origin()
     ))
     .unwrap();
-    assert_eq!(rt.pump_until(1), 1);
+    rt.run_to_quiescence(std::time::Duration::from_secs(5));
 
     assert_eq!(rt.eval("status").unwrap(), "200");
     assert_eq!(rt.eval("String(okFlag)").unwrap(), "true");
@@ -734,11 +749,11 @@ fn a_post_body_crosses_to_the_server() {
     rt.eval(&format!(
         "globalThis.echoed = '';
              __ibex2_fetch('{}/submit', 'POST', __ibex2_text_encode('name=ibex'))
-               .then(h => {{ echoed = __ibex2_text_decode(__ibex2_response_field(h, 4)); }});",
+               .then(async h => {{ echoed = await readBody(h); }});",
         server.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.run_to_quiescence(std::time::Duration::from_secs(5));
 
     assert_eq!(rt.eval("echoed").unwrap(), "name=ibex");
     assert!(server.hits()[0].starts_with("POST /submit"));
@@ -751,15 +766,15 @@ fn a_body_can_only_be_consumed_once() {
 
     rt.eval(&format!(
         "globalThis.second = 'not-run';
-             __ibex2_fetch('{}/x').then(h => {{
-               __ibex2_response_field(h, 4);
-               try {{ __ibex2_response_field(h, 4); second = 'no throw'; }}
+             __ibex2_fetch('{}/x').then(async h => {{
+               await readBody(h);
+               try {{ await __ibex2_response_read(h); second = 'no throw'; }}
                catch (e) {{ second = 'threw'; }}
              }});",
         server.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.run_to_quiescence(std::time::Duration::from_secs(5));
     assert_eq!(rt.eval("second").unwrap(), "threw");
 }
 
@@ -772,12 +787,12 @@ fn fetch_works_under_async_await() {
         "globalThis.out = 'pending';
              (async () => {{
                const h = await __ibex2_fetch('{}/x');
-               out = __ibex2_text_decode(__ibex2_response_field(h, 4));
+               out = await readBody(h);
              }})();",
         server.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.run_to_quiescence(std::time::Duration::from_secs(5));
     assert_eq!(rt.eval("out").unwrap(), "awaited body");
 }
 
@@ -811,13 +826,13 @@ fn a_redirect_within_the_granted_origin_is_followed_by_rust() {
     ));
     rt.eval(&format!(
         "globalThis.body = '';
-             __ibex2_fetch('{}/start').then(h => {{
-               body = __ibex2_text_decode(__ibex2_response_field(h, 4));
+             __ibex2_fetch('{}/start').then(async h => {{
+               body = await readBody(h);
              }});",
         redirector.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.run_to_quiescence(std::time::Duration::from_secs(5));
 
     assert_eq!(rt.eval("body").unwrap(), "arrived");
     assert_eq!(redirector.hits().len(), 1);
