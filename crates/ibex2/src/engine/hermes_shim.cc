@@ -956,6 +956,8 @@ int ibex2_hermes_install_stdlib(void *handle) {
     // `btoa`/`atob` are the engine's own (Tier E): Hermes provides both
     // natively and identically, so the Rust ones behind ops 10/11 are not
     // bound — they stay for a Rust consumer of the standard library.
+    set_binding(runtime, global, "__ibex2_random_uuid", 70, rt->queue);
+    set_binding(runtime, global, "__ibex2_get_random_values", 71, rt->queue);
     set_binding(runtime, global, "__ibex2_text_encode", 20, rt->queue);
     set_binding(runtime, global, "__ibex2_text_decode", 21, rt->queue);
     set_binding(runtime, global, "__ibex2_text_encode_into", 22, rt->queue);
