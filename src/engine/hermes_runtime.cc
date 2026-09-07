@@ -15103,8 +15103,7 @@ extern "C" int ex_hermes_eval_lowered_session(
         // invalid lowering payload. Preserve the model's error class: a
         // restricted lexical is SyntaxError, while CanDeclareGlobal* refusal is
         // TypeError.
-        // @ref LLP
-        // 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+        // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
         structuredDeclarationRefusal(runtime, initialFeasibility, false,
                                      kStructuredEvaluatorCapabilities, result);
         return 0;

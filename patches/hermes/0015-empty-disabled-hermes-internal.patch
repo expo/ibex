@@ -1,7 +1,7 @@
 # LLP 0514 Hermes patch 0015 — empty disabled HermesInternal shell
 # Class: B (construction-finalization insertion points).
-# @ref LLP 0514#milestone-1-native-plan-host--ts-seam — the restricted plan
-# runtime pins an empty HermesInternal own-property surface.
+# @ref LLP 0060#5-patch-disposition — local disposition of the inherited
+# empty HermesInternal hardening patch.
 #
 # Hermes needs a small non-enumerable HermesInternal bootstrap surface while
 # its internal JavaScript initializes even when EnableHermesInternal=false.
