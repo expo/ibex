@@ -25,6 +25,7 @@ extern "C" {
     fn ibex2_hermes_free_string(value: *mut c_char);
     fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_pump(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_collect_garbage(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_drain_microtasks(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_wait(handle: *mut c_void, timeout_ms: u64) -> c_int;
     fn ibex2_hermes_install_fetch(handle: *mut c_void, grants: *const c_void) -> c_int;
@@ -149,6 +150,7 @@ impl Hermes {
             &include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc"))[..],
             &include_bytes!(concat!(env!("OUT_DIR"), "/domexception.hbc"))[..],
             &include_bytes!(concat!(env!("OUT_DIR"), "/crypto.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/abort.hbc"))[..],
         ] {
             self.eval_bytes(binding)?;
         }
@@ -185,6 +187,13 @@ impl Hermes {
     pub fn install_stdlib(&mut self) -> bool {
         // SAFETY: `handle` is non-null for the lifetime of self.
         unsafe { ibex2_hermes_install_stdlib(self.handle) == 0 }
+    }
+
+    /// Ask the engine to collect unreachable objects and their native resources.
+    /// Normal execution uses the engine's own collection schedule.
+    pub fn collect_garbage(&mut self) -> bool {
+        // SAFETY: the handle is live and this is the owning JavaScript thread.
+        unsafe { ibex2_hermes_collect_garbage(self.handle) == 0 }
     }
 
     /// Drain the console records this runtime's thread has queued.

@@ -5,7 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-09-03 (LLP 0057.000 plans how `Bindings` grows — one field per family, feature-gated where a family pulls a dependency or a framework, present and refusing when the feature is off — and answers OQ3 in its lane L3 with a `Receiver`; neither is built yet) 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
+**Revised:** 2026-09-06 (§2: author-required streaming and cancellation); 2026-09-03 (LLP 0057.000 plans how `Bindings` grows — one field per family, feature-gated where a family pulls a dependency or a framework, present and refusing when the feature is off — and answers OQ3 in its lane L3 with a `Receiver`; neither is built yet) 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
 **Related:** LLP 0057 (§3.1 — the split, and the reason for a Rust standard library that survived: the non-JS consumer), LLP 0067 (the capability model this states in Rust), LLP 0059.000 (§4 — the families; §3.8 — the env snapshot), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library with no engine in the process)
 
 ## Summary
@@ -53,6 +53,13 @@ workers, or wraps them in whatever future type it already uses. Ibex 2 does
 not pick an async runtime for a consumer, and does not ship timers here,
 because the consumer's clock is its own. The JavaScript path's task queue
 (`task.rs`) is the engine's executor, not a general one.
+
+`Fetch::stream(request, &signal)` returns headers and an owned, demand-driven
+`StreamingResponse`. Read its body into caller-provided byte slices, collect it,
+or drop it to close an unread request. `stdlib::abort::AbortController::abort`
+interrupts the native request through its signal, including blocked header and
+body reads. Buffered `send`/`get` collect this same transport path; origin grants
+are checked on every redirect. Cancellation introduces no Rust timer or runtime.
 
 ## 3. No engine in the process
 

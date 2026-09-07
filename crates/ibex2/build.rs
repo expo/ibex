@@ -135,6 +135,7 @@ fn main() {
         "url",
         "domexception",
         "crypto",
+        "abort",
         "fetch",
         "harden",
     ] {

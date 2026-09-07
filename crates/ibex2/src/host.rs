@@ -233,6 +233,14 @@ pub struct Fetch {
 }
 
 impl Fetch {
+    pub fn stream(
+        &self,
+        request: Request,
+        signal: &crate::stdlib::abort::AbortSignal,
+    ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
+        fetch::fetch_stream(self.transport.as_ref(), &self.grants, request, signal)
+    }
+
     pub fn send(&self, request: Request) -> Result<Response, HostError> {
         fetch::fetch(self.transport.as_ref(), &self.grants, request)
     }
@@ -367,7 +375,11 @@ mod secrets_tests {
     /// A transport that is never reached.
     struct NoTransport;
     impl Transport for NoTransport {
-        fn send(&self, _request: &Request) -> Result<crate::stdlib::fetch::Response, HostError> {
+        fn open(
+            &self,
+            _request: &Request,
+            _: &crate::stdlib::abort::AbortSignal,
+        ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
             Err(HostError::Failed("no transport in this test".into()))
         }
     }
@@ -437,7 +449,11 @@ mod kv_tests {
 
     struct NoTransport;
     impl Transport for NoTransport {
-        fn send(&self, _request: &Request) -> Result<Response, HostError> {
+        fn open(
+            &self,
+            _request: &Request,
+            _: &crate::stdlib::abort::AbortSignal,
+        ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
             Err(HostError::Failed("no transport in this test".into()))
         }
     }

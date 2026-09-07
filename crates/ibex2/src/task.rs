@@ -128,7 +128,9 @@ impl CompletionQueue {
 /// refers to.
 pub struct RuntimeState {
     pub queue: CompletionQueue,
-    responses: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Response>>,
+    responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
+    controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
+    shutdown: std::sync::atomic::AtomicBool,
     /// Header lists JavaScript holds by handle, for the same reason responses
     /// are: a header list is not a primitive and §1.1 forbids serializing.
     headers: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Headers>>,
@@ -162,11 +164,19 @@ pub struct RuntimeState {
     transport: Box<dyn crate::stdlib::fetch::Transport>,
 }
 
+struct StoredResponse {
+    response: Mutex<crate::stdlib::fetch::StreamingResponse>,
+    control: crate::stdlib::abort::AbortController,
+    control_handle: Option<u64>,
+}
+
 impl RuntimeState {
     pub fn new(transport: Box<dyn crate::stdlib::fetch::Transport>) -> Self {
         Self {
             queue: CompletionQueue::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
+            controls: Mutex::new(std::collections::HashMap::new()),
+            shutdown: std::sync::atomic::AtomicBool::new(false),
             headers: Mutex::new(std::collections::HashMap::new()),
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
@@ -183,36 +193,108 @@ impl RuntimeState {
         self.transport.as_ref()
     }
 
-    /// Park a response and return the handle JavaScript will hold.
-    pub fn store_response(&self, response: crate::stdlib::fetch::Response) -> u64 {
+    pub fn create_control(&self) -> u64 {
         let handle = self
             .next_handle
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.responses
-            .lock()
-            .expect("response registry poisoned")
-            .insert(handle, response);
+        let control = crate::stdlib::abort::AbortController::new();
+        let mut controls = self.controls.lock().unwrap();
+        if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            control.abort();
+        }
+        controls.insert(handle, control);
+        handle
+    }
+
+    pub fn control(&self, handle: u64) -> Option<crate::stdlib::abort::AbortController> {
+        self.controls.lock().unwrap().get(&handle).cloned()
+    }
+
+    pub fn release_control(&self, handle: u64) {
+        self.controls.lock().unwrap().remove(&handle);
+    }
+
+    pub fn store_response(
+        &self,
+        response: crate::stdlib::fetch::StreamingResponse,
+        control: crate::stdlib::abort::AbortController,
+        control_handle: Option<u64>,
+    ) -> u64 {
+        let handle = self
+            .next_handle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut responses = self.responses.lock().unwrap();
+        if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            control.abort();
+            return handle;
+        }
+        responses.insert(
+            handle,
+            Arc::new(StoredResponse {
+                response: Mutex::new(response),
+                control,
+                control_handle,
+            }),
+        );
         handle
     }
 
     pub fn with_response<T>(
         &self,
         handle: u64,
-        f: impl FnOnce(&crate::stdlib::fetch::Response) -> T,
+        f: impl FnOnce(&crate::stdlib::fetch::StreamingResponse) -> T,
     ) -> Option<T> {
-        self.responses
-            .lock()
-            .expect("response registry poisoned")
-            .get(&handle)
-            .map(f)
+        let record = self.responses.lock().unwrap().get(&handle).cloned()?;
+        let response = record.response.lock().unwrap();
+        Some(f(&response))
     }
 
-    /// Take the response out, so its body can be moved rather than copied.
-    pub fn take_response(&self, handle: u64) -> Option<crate::stdlib::fetch::Response> {
-        self.responses
+    pub fn read_response(&self, handle: u64) -> Result<HostValue, HostError> {
+        let record = self
+            .responses
             .lock()
-            .expect("response registry poisoned")
-            .remove(&handle)
+            .unwrap()
+            .get(&handle)
+            .cloned()
+            .ok_or_else(|| HostError::Failed("TypeError: unknown response body".into()))?;
+        let mut chunk = vec![0; 16 * 1024];
+        let result = record.response.lock().unwrap().body.read(&mut chunk);
+        match result {
+            Ok(n) if n > 0 => {
+                chunk.truncate(n);
+                Ok(HostValue::Bytes(chunk))
+            }
+            terminal => {
+                self.responses.lock().unwrap().remove(&handle);
+                if let Some(handle) = record.control_handle {
+                    self.release_control(handle);
+                }
+                terminal.map(|_| HostValue::Null)
+            }
+        }
+    }
+
+    pub fn cancel_response(&self, handle: u64) {
+        let record = self.responses.lock().unwrap().remove(&handle);
+        if let Some(record) = record {
+            record.control.abort();
+            if let Some(handle) = record.control_handle {
+                self.release_control(handle);
+            }
+        }
+    }
+
+    pub fn shutdown(&self) {
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::Release);
+        let controls = std::mem::take(&mut *self.controls.lock().unwrap());
+        for control in controls.into_values() {
+            control.abort();
+        }
+        let responses = std::mem::take(&mut *self.responses.lock().unwrap());
+        for response in responses.into_values() {
+            response.control.abort();
+        }
     }
 
     pub fn store_headers(&self, headers: crate::stdlib::fetch::Headers) -> u64 {
@@ -479,7 +561,49 @@ pub extern "C" fn ibex2_queue_create() -> *const RuntimeState {
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_queue_destroy(queue: *const RuntimeState) {
     if !queue.is_null() {
-        drop(Arc::from_raw(queue));
+        let state = Arc::from_raw(queue);
+        state.shutdown();
+        drop(state);
+    }
+}
+
+struct ResponseOwner {
+    state: std::sync::Weak<RuntimeState>,
+    handle: u64,
+}
+
+/// Make a GC owner that does not keep the runtime alive.
+/// # Safety
+/// `queue` must be a live pointer returned by `ibex2_queue_create`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_response_owner_create(
+    queue: *const RuntimeState,
+    handle: f64,
+) -> *mut std::ffi::c_void {
+    let Some(state) = clone_queue(queue) else {
+        return std::ptr::null_mut();
+    };
+    if handle.fract() != 0.0 || !(1.0..=9_007_199_254_740_991.0).contains(&handle) {
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(ResponseOwner {
+        state: Arc::downgrade(&state),
+        handle: handle as u64,
+    }))
+    .cast()
+}
+
+/// Release a collected JS body's outstanding native request.
+/// # Safety
+/// `owner` must be null or an unfreed pointer returned by `ibex2_response_owner_create`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_response_owner_destroy(owner: *mut std::ffi::c_void) {
+    if owner.is_null() {
+        return;
+    }
+    let owner = Box::from_raw(owner.cast::<ResponseOwner>());
+    if let Some(state) = owner.state.upgrade() {
+        state.cancel_response(owner.handle);
     }
 }
 
@@ -546,6 +670,88 @@ impl Pump {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shutdown_interrupts_body_without_waiting_on_its_registry_lock() {
+        use crate::stdlib::{
+            abort::AbortController,
+            fetch::{Body, BodySource, Headers, StreamingResponse},
+        };
+        struct Waiting {
+            wake: Arc<(Mutex<bool>, Condvar)>,
+            entered: std::sync::mpsc::Sender<()>,
+            _registration: crate::stdlib::abort::AbortRegistration,
+        }
+        impl BodySource for Waiting {
+            fn read(&mut self, _: &mut [u8]) -> Result<usize, HostError> {
+                self.entered.send(()).unwrap();
+                let (lock, wake) = &*self.wake;
+                let guard = lock.lock().unwrap();
+                let (guard, timeout) = wake
+                    .wait_timeout_while(guard, std::time::Duration::from_secs(2), |cancelled| {
+                        !*cancelled
+                    })
+                    .unwrap();
+                assert!(
+                    !timeout.timed_out() && *guard,
+                    "shutdown did not interrupt body"
+                );
+                Err(HostError::Failed("socket closed".into()))
+            }
+        }
+        let state = Arc::new(RuntimeState::new(Box::new(
+            crate::transport::dev_tcp::DevTcpTransport::new(),
+        )));
+        let control = AbortController::new();
+        let wake = Arc::new((Mutex::new(false), Condvar::new()));
+        let notify = wake.clone();
+        let registration = control.signal().register(move || {
+            let (lock, wake) = &*notify;
+            *lock.lock().unwrap() = true;
+            wake.notify_all();
+        });
+        let (entered, ready) = std::sync::mpsc::channel();
+        let body = Body::new(
+            Box::new(Waiting {
+                wake,
+                entered,
+                _registration: registration,
+            }),
+            100,
+            control.signal(),
+        );
+        let handle = state.store_response(
+            StreamingResponse {
+                status: 200,
+                status_text: "OK".into(),
+                headers: Headers::new(),
+                body,
+                url: "http://test/".into(),
+                redirected: false,
+            },
+            control,
+            None,
+        );
+        let reader_state = state.clone();
+        let reader = std::thread::spawn(move || reader_state.read_response(handle));
+        ready
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let extra = state.create_control();
+        assert!(
+            state.control(extra).is_some(),
+            "body read held the runtime registry"
+        );
+        state.shutdown();
+        assert!(reader
+            .join()
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .starts_with("AbortError"));
+        assert_eq!(state.live_responses(), 0);
+        assert!(state.control(extra).is_none());
+    }
 
     #[test]
     fn completions_come_back_in_publication_order() {

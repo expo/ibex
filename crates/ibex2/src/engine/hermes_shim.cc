@@ -10,6 +10,7 @@
 
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
+#include <jsi/instrumentation.h>
 
 #include <cstdlib>
 #include <unordered_map>
@@ -25,6 +26,8 @@ extern "C" void ibex2_report_uncaught(const char *message);
 using namespace facebook;
 
 extern "C" const void *ibex2_queue_create();
+extern "C" void *ibex2_response_owner_create(const void *queue, double handle);
+extern "C" void ibex2_response_owner_destroy(void *owner);
 extern "C" size_t ibex2_grants_env_count(const void *grants);
 extern "C" int ibex2_grants_env_at(const void *grants, size_t index,
                                    char **out_name, char **out_value);
@@ -33,6 +36,12 @@ extern "C" void ibex2_queue_destroy(const void *queue);
 extern "C" void ibex2_grants_destroy(const void *grants);
 
 namespace {
+
+struct ResponseOwner final : jsi::NativeState {
+  void *owner;
+  explicit ResponseOwner(void *value) : owner(value) {}
+  ~ResponseOwner() override { ibex2_response_owner_destroy(owner); }
+};
 
 struct PendingPromise {
   std::shared_ptr<jsi::Function> resolve;
@@ -477,6 +486,17 @@ jsi::Function make_async_binding(jsi::Runtime &runtime, const char *name,
 } // namespace
 
 extern "C" {
+
+int ibex2_hermes_collect_garbage(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr) return 1;
+  try {
+    rt->runtime->instrumentation().collectGarbage("host requested collection");
+    return 0;
+  } catch (const std::exception &) {
+    return 1;
+  }
+}
 
 /// Run at most ONE host task, with a microtask checkpoint either side.
 ///
@@ -958,6 +978,27 @@ int ibex2_hermes_install_stdlib(void *handle) {
     // bound — they stay for a Rust consumer of the standard library.
     set_binding(runtime, global, "__ibex2_random_uuid", 70, rt->queue);
     set_binding(runtime, global, "__ibex2_get_random_values", 71, rt->queue);
+    set_binding(runtime, global, "__ibex2_fetch_control", 72, rt->queue);
+    global.setProperty(runtime, "__ibex2_response_own",
+        jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "__ibex2_response_own"), 2,
+            [rt](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+                 size_t count) -> jsi::Value {
+              if (count != 2 || !args[0].isNumber() || !args[1].isObject())
+                throw jsi::JSError(r, "response owner needs a handle and a body");
+              auto body = args[1].getObject(r);
+              body.setNativeState(r, std::make_shared<ResponseOwner>(
+                  ibex2_response_owner_create(rt->queue, args[0].asNumber())));
+              auto weak = std::make_shared<jsi::WeakObject>(r, body);
+              return jsi::Function::createFromHostFunction(r,
+                  jsi::PropNameID::forAscii(r, "responseBody"), 0,
+                  [weak](jsi::Runtime &r, const jsi::Value &,
+                         const jsi::Value *, size_t) -> jsi::Value {
+                    return weak->lock(r);
+                  });
+            }));
+    global.setProperty(runtime, "__ibex2_response_read",
+        make_async_binding(runtime, "__ibex2_response_read", 102, rt, nullptr));
     set_binding(runtime, global, "__ibex2_text_encode", 20, rt->queue);
     set_binding(runtime, global, "__ibex2_text_decode", 21, rt->queue);
     set_binding(runtime, global, "__ibex2_text_encode_into", 22, rt->queue);
