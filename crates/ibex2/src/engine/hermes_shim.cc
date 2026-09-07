@@ -28,6 +28,8 @@ using namespace facebook;
 extern "C" const void *ibex2_queue_create();
 extern "C" void *ibex2_response_owner_create(const void *queue, double handle);
 extern "C" void ibex2_response_owner_destroy(void *owner);
+extern "C" void *ibex2_sqlite_owner_create(const void *queue, double handle, int kind);
+extern "C" void ibex2_sqlite_owner_destroy(void *owner);
 extern "C" size_t ibex2_grants_env_count(const void *grants);
 extern "C" int ibex2_grants_env_at(const void *grants, size_t index,
                                    char **out_name, char **out_value);
@@ -41,6 +43,12 @@ struct ResponseOwner final : jsi::NativeState {
   void *owner;
   explicit ResponseOwner(void *value) : owner(value) {}
   ~ResponseOwner() override { ibex2_response_owner_destroy(owner); }
+};
+
+struct SqliteOwner final : jsi::NativeState {
+  void *owner;
+  explicit SqliteOwner(void *value) : owner(value) {}
+  ~SqliteOwner() override { ibex2_sqlite_owner_destroy(owner); }
 };
 
 struct PendingPromise {
@@ -79,6 +87,7 @@ struct Ibex2Runtime {
     jsi::Value fetch;
     jsi::Value fs;
     jsi::Value process;
+    jsi::Value sqlite;
   };
   std::unordered_map<const void *, SharedBindings> shared;
   // The fetch factory: `bindings/fetch.js`'s completion value, held here and
@@ -86,6 +95,7 @@ struct Ibex2Runtime {
   // binding; what it returns is what a module receives as `fetch`. Undefined
   // until the bindings are installed, in which case the raw binding is used.
   jsi::Value make_fetch;
+  jsi::Value make_sqlite;
 };
 
 // An error that escaped a callback, to the console at error level with its
@@ -756,11 +766,34 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
         {"readFile", 110},  {"writeFile", 111}, {"appendFile", 112},
         {"readdir", 113},   {"mkdir", 114},     {"rm", 115},
         {"stat", 116},      {"rename", 117},    {"copyFile", 118},
-        {"realpath", 119},
+        {"realpath", 119}, {"atomicWriteFile", 120},
     };
     for (const auto &method : kFsMethods) {
       fs.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(method.name)),
                      make_async_binding(rt, method.name, method.op, owner, grants));
+    }
+
+    jsi::Object directories(rt);
+    directories.setProperty(rt, "data", "app:/data");
+    directories.setProperty(rt, "cache", "app:/cache");
+    directories.setProperty(rt, "temporary", "app:/tmp");
+    jsi::Value directories_value(rt, directories);
+    freeze(rt, directories_value);
+    fs.setProperty(rt, "directories", directories_value);
+
+    jsi::Value sqlite_binding = jsi::Value::undefined();
+    if (owner->make_sqlite.isObject()) {
+      jsi::Object raw(rt);
+      static const FsMethod kSqliteMethods[] = {
+          {"open", 150}, {"prepare", 151}, {"execute", 152},
+          {"query", 153}, {"statementExecute", 154}, {"statementQuery", 155},
+          {"transaction", 156}, {"close", 157}, {"statementClose", 158},
+      };
+      for (const auto &method : kSqliteMethods) {
+        raw.setProperty(rt, method.name,
+            make_async_binding(rt, method.name, method.op, owner, grants));
+      }
+      sqlite_binding = owner->make_sqlite.getObject(rt).getFunction(rt).call(rt, raw);
     }
 
     // `process.env` is a SNAPSHOT of exactly the variables this grant set
@@ -797,7 +830,8 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
                  .emplace(grants, Ibex2Runtime::SharedBindings{
                                       std::move(fetch_binding),
                                       std::move(fs_value),
-                                      std::move(process_value)})
+                                      std::move(process_value),
+                                      std::move(sqlite_binding)})
                  .first;
   } else if (grants != nullptr) {
     // The same interned set: one reference is enough to keep it alive.
@@ -818,7 +852,8 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
       rt, jsi::Value(rt, *module), jsi::Value(rt, *exports),
       jsi::Value(rt, make_require(rt, owner, resolved_name)),
       jsi::Value(rt, shared->second.fetch), jsi::Value(rt, shared->second.fs),
-      jsi::Value(rt, shared->second.process), std::move(meta));
+      jsi::Value(rt, shared->second.process), std::move(meta),
+      jsi::Value(rt, shared->second.sqlite));
 
   // `module.exports = ...` replaces the value, so re-read it after running.
   // Whatever it is — object, function, string, number — is what `require`
@@ -936,6 +971,21 @@ int ibex2_hermes_install_fetch_factory(void *handle, const unsigned char *bytes,
   }
 }
 
+int ibex2_hermes_install_sqlite_factory(void *handle, const unsigned char *bytes,
+                                        size_t len) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || bytes == nullptr) return 1;
+  try {
+    auto buffer = std::make_shared<OwnedBytes>(
+        std::vector<unsigned char>(bytes, bytes + len));
+    auto factory = rt->runtime->evaluateJavaScript(buffer, "sqlite.js");
+    if (!factory.isObject() || !factory.getObject(*rt->runtime).isFunction(*rt->runtime))
+      return 1;
+    rt->make_sqlite = std::move(factory);
+    return 0;
+  } catch (const jsi::JSError &) { return 1; }
+}
+
 int ibex2_hermes_install_fetch(void *handle, const void *grants) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr) {
@@ -976,6 +1026,20 @@ int ibex2_hermes_install_stdlib(void *handle) {
     // `btoa`/`atob` are the engine's own (Tier E): Hermes provides both
     // natively and identically, so the Rust ones behind ops 10/11 are not
     // bound — they stay for a Rust consumer of the standard library.
+    set_binding(runtime, global, "__ibex2_sqlite_result", 80, rt->queue);
+    global.setProperty(runtime, "__ibex2_sqlite_own",
+        jsi::Function::createFromHostFunction(runtime,
+            jsi::PropNameID::forAscii(runtime, "__ibex2_sqlite_own"), 3,
+            [rt](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+                 size_t count) -> jsi::Value {
+              if (count != 3 || !args[0].isNumber() || !args[1].isNumber() || !args[2].isObject())
+                throw jsi::JSError(r, "SQLite owner needs a handle, kind, and object");
+              auto object = args[2].getObject(r);
+              object.setNativeState(r, std::make_shared<SqliteOwner>(
+                  ibex2_sqlite_owner_create(rt->queue, args[0].asNumber(),
+                                           static_cast<int>(args[1].asNumber()))));
+              return jsi::Value::undefined();
+            }));
     set_binding(runtime, global, "__ibex2_random_uuid", 70, rt->queue);
     set_binding(runtime, global, "__ibex2_get_random_values", 71, rt->queue);
     set_binding(runtime, global, "__ibex2_fetch_control", 72, rt->queue);

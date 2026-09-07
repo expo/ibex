@@ -34,3 +34,5 @@ pub mod task;
 pub mod transport;
 #[cfg(feature = "loader")]
 pub mod typescript;
+
+mod sqlite_abi;

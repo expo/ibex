@@ -147,6 +147,7 @@ pub enum Op {
     CryptoRandomUuid = 70,
     CryptoGetRandomValues = 71,
     FetchControl = 72,
+    SqliteResult = 80,
 }
 
 impl Op {
@@ -192,6 +193,7 @@ impl Op {
             70 => Op::CryptoRandomUuid,
             71 => Op::CryptoGetRandomValues,
             72 => Op::FetchControl,
+            80 => Op::SqliteResult,
             _ => return None,
         })
     }
@@ -295,6 +297,7 @@ fn dispatch(
 
     match op {
         Op::CryptoRandomUuid => crypto::random_uuid().map(HostValue::Str),
+        Op::SqliteResult => crate::sqlite_abi::result_field(args, state),
         Op::FetchControl => {
             let state = state.ok_or_else(|| HostError::Failed("no runtime state".into()))?;
             match args.first() {
@@ -796,6 +799,16 @@ enum AsyncOp {
     FsRename = 117,
     FsCopyFile = 118,
     FsRealpath = 119,
+    FsAtomicWriteFile = 120,
+    SqliteOpen = 150,
+    SqlitePrepare = 151,
+    SqliteExecute = 152,
+    SqliteQuery = 153,
+    SqliteStatementExecute = 154,
+    SqliteStatementQuery = 155,
+    SqliteTransaction = 156,
+    SqliteClose = 157,
+    SqliteStatementClose = 158,
 }
 
 impl AsyncOp {
@@ -814,6 +827,17 @@ impl AsyncOp {
             117 => Some(AsyncOp::FsRename),
             118 => Some(AsyncOp::FsCopyFile),
             119 => Some(AsyncOp::FsRealpath),
+            120 => Some(AsyncOp::FsAtomicWriteFile),
+            150 => Some(AsyncOp::SqliteOpen),
+            151 => Some(AsyncOp::SqlitePrepare),
+            152 => Some(AsyncOp::SqliteExecute),
+            153 => Some(AsyncOp::SqliteQuery),
+            154 => Some(AsyncOp::SqliteStatementExecute),
+            155 => Some(AsyncOp::SqliteStatementQuery),
+            156 => Some(AsyncOp::SqliteTransaction),
+            157 => Some(AsyncOp::SqliteClose),
+            158 => Some(AsyncOp::SqliteStatementClose),
+
             _ => None,
         }
     }
@@ -833,8 +857,11 @@ fn run_async(
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
 ) -> Result<HostValue, HostError> {
+    if (150..=158).contains(&(op as u32)) {
+        return crate::sqlite_abi::run(op as u32, args, state, grants);
+    }
     if let Some(fs_op) = fs_op_for(op) {
-        return run_fs(fs_op, args, grants);
+        return run_fs(fs_op, args, grants, state.app_directories());
     }
     match op {
         AsyncOp::Fetch => {
@@ -1047,6 +1074,7 @@ fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
         AsyncOp::FsRename => FsOp::Rename,
         AsyncOp::FsCopyFile => FsOp::CopyFile,
         AsyncOp::FsRealpath => FsOp::Realpath,
+        AsyncOp::FsAtomicWriteFile => FsOp::AtomicWriteFile,
         _ => return None,
     })
 }
@@ -1059,8 +1087,9 @@ fn run_fs(
     op: crate::stdlib::fs::FsOp,
     args: &[HostValue],
     grants: &GrantSet,
+    directories: Option<&crate::stdlib::app_fs::AppDirectories>,
 ) -> Result<HostValue, HostError> {
-    use crate::stdlib::fs::{admit, normalize, perform, FsResult};
+    use crate::stdlib::fs::{run, FsResult};
 
     let path_arg = |index: usize| -> Result<&str, HostError> {
         match args.get(index) {
@@ -1069,13 +1098,12 @@ fn run_fs(
         }
     };
 
-    let path = normalize(path_arg(0)?)?;
+    let path = path_arg(0)?;
     let destination = if op.takes_second_path() {
-        Some(normalize(path_arg(1)?)?)
+        Some(path_arg(1)?)
     } else {
         None
     };
-    admit(grants, op, &path, destination.as_deref())?;
 
     // Data is the second argument for single-path writes.
     let data = match args.get(1) {
@@ -1083,23 +1111,25 @@ fn run_fs(
         _ => None,
     };
 
-    Ok(match perform(op, &path, destination.as_deref(), data)? {
-        FsResult::Done => HostValue::Undefined,
-        FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
-        FsResult::Text(text) => HostValue::Str(text),
-        // A directory listing and a stat are small records. They cross as text
-        // the binding splits, rather than as a serialized object: §1.1 forbids
-        // JSON at the boundary, and a newline-joined list is not a document
-        // format that could grow into one.
-        FsResult::Names(names) => HostValue::Str(names.join("\n")),
-        FsResult::Stat(stat) => HostValue::Str(format!(
-            "{}\t{}\t{}\t{}",
-            stat.size,
-            u8::from(stat.is_file),
-            u8::from(stat.is_directory),
-            stat.modified_ms
-        )),
-    })
+    Ok(
+        match run(grants, directories, op, path, destination, data)? {
+            FsResult::Done => HostValue::Undefined,
+            FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
+            FsResult::Text(text) => HostValue::Str(text),
+            // A directory listing and a stat are small records. They cross as text
+            // the binding splits, rather than as a serialized object: §1.1 forbids
+            // JSON at the boundary, and a newline-joined list is not a document
+            // format that could grow into one.
+            FsResult::Names(names) => HostValue::Str(names.join("\n")),
+            FsResult::Stat(stat) => HostValue::Str(format!(
+                "{}\t{}\t{}\t{}",
+                stat.size,
+                u8::from(stat.is_file),
+                u8::from(stat.is_directory),
+                stat.modified_ms
+            )),
+        },
+    )
 }
 
 /// Take at most ONE admitted host task for the engine to run.

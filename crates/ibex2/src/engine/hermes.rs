@@ -35,6 +35,11 @@ extern "C" {
         bytes: *const u8,
         len: usize,
     ) -> c_int;
+    fn ibex2_hermes_install_sqlite_factory(
+        handle: *mut c_void,
+        bytes: *const u8,
+        len: usize,
+    ) -> c_int;
     fn ibex2_hermes_state(handle: *mut c_void) -> *const crate::task::RuntimeState;
     fn ibex2_hermes_eval_bytes(
         handle: *mut c_void,
@@ -96,6 +101,25 @@ pub struct Hermes {
 pub struct JsError(pub String);
 
 impl Hermes {
+    /// Configure stable app mounts before evaluating application modules.
+    pub fn set_app_directories(
+        &self,
+        directories: crate::stdlib::app_fs::AppDirectories,
+    ) -> Result<(), crate::boundary::HostError> {
+        let state = unsafe { crate::task::borrow_state(ibex2_hermes_state(self.handle)) }
+            .expect("live runtime state");
+        state.set_app_directories(directories)
+    }
+    /// Install a separately linked SQLite provider; no database opens at startup.
+    pub fn set_sqlite_provider(
+        &self,
+        provider: std::sync::Arc<dyn crate::stdlib::sqlite::Provider>,
+    ) -> Result<(), crate::boundary::HostError> {
+        let state = unsafe { crate::task::borrow_state(ibex2_hermes_state(self.handle)) }
+            .expect("live runtime state");
+        state.set_sqlite_provider(provider)
+    }
+
     pub fn new(dynamic_code: DynamicCode) -> Option<Self> {
         let enable = match dynamic_code {
             DynamicCode::Open => 1,
@@ -164,6 +188,16 @@ impl Hermes {
         if status != 0 {
             return Err(JsError(
                 "the fetch binding did not evaluate to its factory".into(),
+            ));
+        }
+        let sqlite = include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc"));
+        // SAFETY: the runtime and bytecode remain alive throughout the call.
+        let status = unsafe {
+            ibex2_hermes_install_sqlite_factory(self.handle, sqlite.as_ptr(), sqlite.len())
+        };
+        if status != 0 {
+            return Err(JsError(
+                "the SQLite binding did not evaluate to its factory".into(),
             ));
         }
         Ok(())

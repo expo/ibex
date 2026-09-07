@@ -811,6 +811,7 @@ pub const MODULE_PARAMETERS: &[&str] = &[
     "fs",
     "process",
     "__ibex2_meta",
+    "sqlite",
 ];
 
 /// Wrap module source in a function of its injected bindings.
@@ -1117,13 +1118,13 @@ mod tests {
         let wrapped = wrap("exports.x = 1; // trailing comment");
         assert!(wrapped.ends_with("\n})"), "{wrapped}");
         assert!(wrapped.starts_with(
-            "(function (module, exports, require, fetch, fs, process, __ibex2_meta) {"
+            "(function (module, exports, require, fetch, fs, process, __ibex2_meta, sqlite) {"
         ));
     }
 
     #[test]
     fn capability_names_are_parameters_and_not_globals() {
-        for capability in ["fetch", "fs"] {
+        for capability in ["fetch", "fs", "sqlite"] {
             assert!(MODULE_PARAMETERS.contains(&capability));
             assert!(
                 !ALLOWED_GLOBALS.contains(&capability),
