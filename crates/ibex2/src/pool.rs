@@ -123,7 +123,6 @@ fn spawn_worker(pool: &'static Pool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicUsize;
 
     #[test]
     fn blocked_host_jobs_cannot_starve_body_reads() {
@@ -164,30 +163,33 @@ mod tests {
 
     #[test]
     fn jobs_run_and_a_burst_does_not_serialize() {
-        let done = Arc::new(AtomicUsize::new(0));
-        let (tx, rx) = mpsc::channel();
-        // Twelve jobs that each block for a moment: with workers spawned on
-        // demand they overlap; serialized behind two they would take six
-        // times as long.
-        let start = std::time::Instant::now();
+        // Isolate this burst from tests that deliberately saturate the host pool.
+        static BURST_POOL: OnceLock<Pool> = OnceLock::new();
+        let wake = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (entered, waiting) = mpsc::channel();
+        let (finished, finish) = mpsc::channel();
         for _ in 0..12 {
-            let done = Arc::clone(&done);
-            let tx = tx.clone();
-            run(move || {
-                std::thread::sleep(Duration::from_millis(50));
-                done.fetch_add(1, Ordering::SeqCst);
-                let _ = tx.send(());
+            let wake = wake.clone();
+            let entered = entered.clone();
+            let finished = finished.clone();
+            run_on(pool(&BURST_POOL, MAX), move || {
+                let _ = entered.send(());
+                let (lock, changed) = &*wake;
+                let guard = lock.lock().unwrap();
+                let _guard = changed.wait_while(guard, |released| !*released).unwrap();
+                let _ = finished.send(());
             });
         }
-        for _ in 0..12 {
-            rx.recv_timeout(Duration::from_secs(5))
-                .expect("a job finished");
-        }
-        assert_eq!(done.load(Ordering::SeqCst), 12);
-        assert!(
-            start.elapsed() < Duration::from_millis(250),
-            "{:?}",
-            start.elapsed()
-        );
+        drop(entered);
+        drop(finished);
+        // All twelve must enter before any can finish: direct evidence that
+        // the pool grows for blocked work, independent of scheduling speed.
+        let all_entered = (0..12).all(|_| waiting.recv_timeout(Duration::from_secs(5)).is_ok());
+        let (lock, changed) = &*wake;
+        *lock.lock().unwrap() = true;
+        changed.notify_all();
+        let all_finished = (0..12).all(|_| finish.recv_timeout(Duration::from_secs(5)).is_ok());
+        assert!(all_entered, "burst serialized behind blocked jobs");
+        assert!(all_finished, "released jobs did not finish");
     }
 }
