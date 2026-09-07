@@ -1,11 +1,7 @@
 // SQLite authority is carried by module parameters and opaque database objects.
 // @ref LLP 0067#3-the-check — handles stay inside bindings; handoff carries authority
-(function (global) {
+(function (field, retain) {
   "use strict";
-  var field = global.__ibex2_sqlite_result;
-  var retain = global.__ibex2_sqlite_own;
-  delete global.__ibex2_sqlite_result;
-  delete global.__ibex2_sqlite_own;
   var databases = new WeakMap(), statements = new WeakMap();
   function own(map, value, name) {
     var state = map.get(value);
@@ -164,4 +160,4 @@
       });
     }) });
   };
-})(globalThis);
+});

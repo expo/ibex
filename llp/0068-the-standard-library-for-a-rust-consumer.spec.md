@@ -95,6 +95,44 @@ transport is compiled whether or not there is an engine; it had been gated
 on the engine by accident of `build.rs`, which would have left a Rust
 consumer with the development TCP transport and no TLS.
 
+### Caller-owned JavaScript runtimes
+
+Implemented 2026-09-07 (Charlie: make the bindings available in Rust and
+TypeScript; Codex). `ibex2::bindings::Context` supplies a separate Rust state
+and host-admitted grant set. Its directories and optional SQLite provider are
+configured exactly as the Rust host's. `include/ibex2_jsi.h` and
+`src/engine/ibex2_jsi.cc` are the installable JSI adapter; the embedder compiles
+them against its own JSI headers, with no `hermes` feature required. The
+existing Ibex2 Hermes runtime uses this same adapter.
+
+The caller bakes `src/bindings/sqlite.js` with its engine's compiler. Its
+completion value is a factory passed to `Adapter::storage`, which returns
+frozen `{fs, sqlite}` capabilities and modifies no globals. The host decides
+how to pass that object to app code. The adapter is constructed during trusted
+initialization. After installing its own prelude, the caller evaluates the
+precompiled `bindings::HARDEN_SOURCE` before app code: SQLite checks that its
+intrinsics and their global bindings are locked before opening any database.
+Captured validators prevent app code from substituting that check. The Rust
+API needs no JS hardening. `src/bindings/storage.d.ts` declares that
+TypeScript API; `bindings::TYPESCRIPT` makes the same declarations available
+to a Rust-based bake. `fs.readdir` returns an array, `fs.stat` a record, and
+`fs.readFile` an `ArrayBuffer`. Writes require bytes, never silently treating
+an unsupported value as an empty file. SQLite integers return as `bigint`.
+
+The adapter delivers at most one completion when asked; it runs no timers or
+microtask checkpoints. `Context::set_wake` schedules the caller's executor
+from a publishing worker, outside queue locks; `wait` is the blocking
+alternative. Only the owner thread touches JSI. The caller detaches the
+adapter before destroying either its runtime or Rust context. Detach clears
+JS roots; retained capability functions fail closed. Context shutdown releases
+Rust resources, including outstanding database operations. The borrowed-runtime
+fixture tests installation, explicit checkpoints, persistence, grants and
+detach without the Ibex2 loader.
+
+This is the reusable storage door. Exact2's data-source continuation integration
+is separate work: installing the bindings alone does not teach its executor
+how to resume an answer awaiting storage.
+
 ## 4. Exact 2
 
 The runner creates one `Host` at boot with the platform's transport and

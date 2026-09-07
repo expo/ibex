@@ -14,6 +14,9 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_shim.cc");
+    println!("cargo:rerun-if-changed=tests/embedding.cc");
+    println!("cargo:rerun-if-changed=src/engine/ibex2_jsi.cc");
+    println!("cargo:rerun-if-changed=include/ibex2_jsi.h");
     println!("cargo:rerun-if-env-changed=IBEX2_VANILLA_HERMES_DIR");
 
     // The Apple platform transport (LLP 0057 §3). Objective-C++ with ARC, so
@@ -85,6 +88,8 @@ fn main() {
     cc::Build::new()
         .cpp(true)
         .file("src/engine/hermes_shim.cc")
+        .file("src/engine/ibex2_jsi.cc")
+        .file("tests/embedding.cc")
         .include(&headers)
         .flag("-std=c++17")
         .flag("-stdlib=libc++")

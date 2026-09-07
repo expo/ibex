@@ -52,18 +52,34 @@ pub enum HostTask {
 /// same process take each other's completions, and their task ids collide
 /// because each numbers its own tasks from 1. That is not a theoretical
 /// concern — it showed up the moment two runtimes existed at once.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct CompletionQueue {
     ready: Mutex<VecDeque<HostTask>>,
     /// Lets an embedder block until there is something to pump instead of
     /// spinning. A runtime that polls in a loop burns a core to do nothing,
     /// which is the default failure mode of this design.
     signal: Condvar,
+    wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for CompletionQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompletionQueue")
+            .field("ready", &self.ready)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CompletionQueue {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Schedule the caller's executor when a task arrives. The callback runs
+    /// on the publishing thread, without queue locks; it must not enter JSI.
+    /// A callback already in flight may finish after replacement.
+    pub fn set_wake(&self, wake: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.wake.lock().expect("completion wake poisoned") = wake;
     }
 
     /// Publish a settlement. Callable from any thread.
@@ -78,6 +94,10 @@ impl CompletionQueue {
             .expect("completion queue poisoned")
             .push_back(task);
         self.signal.notify_all();
+        let wake = self.wake.lock().expect("completion wake poisoned").clone();
+        if let Some(wake) = wake {
+            wake();
+        }
     }
 
     /// Take the next admitted task, if any. Called on the JavaScript thread.
