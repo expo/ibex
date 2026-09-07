@@ -14,7 +14,7 @@ use std::ffi::{c_char, c_int, c_uchar};
 
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::grant::GrantSet;
-use crate::stdlib::{base64, console, text, url};
+use crate::stdlib::{base64, console, crypto, text, url};
 
 pub const TAG_UNDEFINED: i32 = 0;
 pub const TAG_NULL: i32 = 1;
@@ -144,6 +144,8 @@ pub enum Op {
     TimerSetRepeating = 61,
     TimerClear = 62,
     PerformanceNow = 63,
+    CryptoRandomUuid = 70,
+    CryptoGetRandomValues = 71,
 }
 
 impl Op {
@@ -186,6 +188,8 @@ impl Op {
             61 => Op::TimerSetRepeating,
             62 => Op::TimerClear,
             63 => Op::PerformanceNow,
+            70 => Op::CryptoRandomUuid,
+            71 => Op::CryptoGetRandomValues,
             _ => return None,
         })
     }
@@ -288,6 +292,7 @@ fn dispatch(
     }
 
     match op {
+        Op::CryptoRandomUuid => crypto::random_uuid().map(HostValue::Str),
         Op::Btoa => base64::btoa(first_str("btoa")?).map(HostValue::Str),
         Op::Atob => base64::atob(first_str("atob")?).map(HostValue::Str),
         Op::TextEncode => Ok(HostValue::Bytes(text::encode(first_str("encode")?))),
@@ -374,7 +379,7 @@ fn dispatch(
         Op::UrlSearchParamsEntries => Ok(HostValue::Str(
             url::SearchParams::parse(first_str("URLSearchParams")?).entries_json(),
         )),
-        Op::TextEncodeInto => {
+        Op::TextEncodeInto | Op::CryptoGetRandomValues => {
             unreachable!("handled in ibex2_host_call, which owns the mutable span")
         }
         _ => unreachable!("console ops returned above"),
@@ -390,7 +395,9 @@ fn dispatch(
 ///
 /// # Safety
 /// `argv` must point to `argc` initialized `AbiValue`s whose spans are valid
-/// for this call, and `out` must be a valid writable pointer.
+/// for this call, and `out` must be a valid writable pointer. Write-through
+/// operations require exclusive, writable destination spans, disjoint from
+/// the argument descriptors and `out`.
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_host_call(
     state: *const crate::task::RuntimeState,
@@ -409,6 +416,18 @@ pub unsafe extern "C" fn ibex2_host_call(
     } else {
         std::slice::from_raw_parts(argv, argc)
     };
+
+    // Validate before borrowing mutably: unlike ordinary arguments this span
+    // is written through. No shared slice into the buffer may coexist with it.
+    // The binding passes an ArrayBuffer and intrinsic view offset/length,
+    // never user-overridable TypedArray properties.
+    if op == Op::CryptoGetRandomValues as u32 {
+        let result = fill_random_view(raw);
+        return match result {
+            Ok(()) => 0,
+            Err(err) => fail(out, &err.to_string()),
+        };
+    }
 
     let mut args = Vec::with_capacity(raw.len());
     for value in raw {
@@ -447,6 +466,46 @@ pub unsafe extern "C" fn ibex2_host_call(
         }
         Err(err) => fail(out, &err.to_string()),
     }
+}
+
+// SAFETY: same span validity and exclusive-write requirements as host_call.
+unsafe fn fill_random_view(raw: &[AbiValue]) -> Result<(), HostError> {
+    let invalid =
+        || HostError::InvalidArgument("getRandomValues expects a buffer, offset and length".into());
+    let buffer = raw
+        .first()
+        .filter(|v| v.tag == TAG_BYTES)
+        .ok_or_else(invalid)?;
+    let index = |i: usize| -> Result<usize, HostError> {
+        let v = raw
+            .get(i)
+            .filter(|v| v.tag == TAG_NUMBER)
+            .ok_or_else(invalid)?;
+        if !v.number.is_finite()
+            || v.number < 0.0
+            || v.number.fract() != 0.0
+            || v.number > 9_007_199_254_740_991.0
+            || v.number >= usize::MAX as f64
+        {
+            return Err(invalid());
+        }
+        Ok(v.number as usize)
+    };
+    let offset = index(1)?;
+    let length = index(2)?;
+    if offset > buffer.len || length > buffer.len - offset {
+        return Err(invalid());
+    }
+    // Enforce the quota before creating a writable borrow or touching entropy.
+    crypto::check_length(length)?;
+    if length == 0 {
+        return Ok(());
+    }
+    if buffer.data.is_null() {
+        return Err(invalid());
+    }
+    let destination = std::slice::from_raw_parts_mut((buffer.data as *mut u8).add(offset), length);
+    crypto::get_random_values(destination)
 }
 
 fn fail(out: *mut AbiValue, message: &str) -> c_int {

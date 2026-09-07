@@ -27,6 +27,20 @@
       "upstream": "url/resources/urltestdata.json",
       "local": "third_party/wpt/urltestdata.json",
       "sha256": "b8767904d25029a46e0d297e1320ded3a733322f489caa5a482c886fb11e9238"
+    },
+    {
+      "upstream": "WebCryptoAPI/getRandomValues.any.js",
+      "local": "third_party/wpt/WebCryptoAPI/getRandomValues.any.js",
+      "sha256": "e74df8320534db600e4a22c7238f80f9d7d6eb5bb86e0cced15559eeb9d67526",
+      "commit": "b89af32bc8f42d678f444eb0703bca015ddcf240",
+      "fetchedOn": "2026-09-06"
+    },
+    {
+      "upstream": "WebCryptoAPI/randomUUID.https.any.js",
+      "local": "third_party/wpt/WebCryptoAPI/randomUUID.https.any.js",
+      "sha256": "e23fb613b2b1494f8a8dc7156c874df9ee2129e8e2f2ed327f0e4cdfafad5842",
+      "commit": "b89af32bc8f42d678f444eb0703bca015ddcf240",
+      "fetchedOn": "2026-09-06"
     }
   ]
 }

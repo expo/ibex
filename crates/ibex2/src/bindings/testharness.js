@@ -80,6 +80,25 @@
     }
     fail("did not throw", description);
   };
+  global.assert_throws_dom = function (name, fn, description) {
+    try { fn(); } catch (e) {
+      if (e instanceof DOMException && e.name === name) return;
+      fail("expected DOMException " + name + " but got " + e, description);
+    }
+    fail("did not throw", description);
+  };
+  // The overload used by the adopted WebCrypto tests. Preserve upstream's
+  // constructor, name, code, quota and requested checks.
+  global.assert_throws_quotaexceedederror = function (fn, requested, quota, description) {
+    let caught;
+    try { fn(); } catch (e) { caught = e; }
+    if (!caught) fail("did not throw", description);
+    global.assert_equals(caught.constructor, QuotaExceededError, description);
+    global.assert_equals(caught.name, "QuotaExceededError", description);
+    global.assert_equals(caught.code, 22, description);
+    global.assert_equals(caught.requested, requested, description);
+    global.assert_equals(caught.quota, quota, description);
+  };
   global.assert_unreached = function (description) {
     fail("reached unreachable code", description);
   };

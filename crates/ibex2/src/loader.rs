@@ -953,6 +953,10 @@ pub const ALLOWED_GLOBALS: &[&str] = &[
     "performance",
     "queueMicrotask",
     "Headers",
+    "DOMException",
+    "QuotaExceededError",
+    "Crypto",
+    "crypto",
     "URL",
     "URLSearchParams",
 ];

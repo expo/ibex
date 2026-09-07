@@ -1,11 +1,12 @@
 //! The Ibex 2 standard library: Rust implementations with JavaScript bindings.
 //!
-//! Only the **pure** shape lives here so far — computed entirely in Rust, no
-//! platform call, no capability (LLP 0059.000 Summary). The delegating and
-//! ambient shapes wait on the job-queue adapter (LLP 0058 OQ1).
+//! Algorithms and host operations shared by Rust callers and the bindings.
+//! Platform transport and entropy stay below the Rust semantics; capabilities
+//! are admitted at the boundary (LLP 0059.000).
 
 pub mod base64;
 pub mod console;
+pub mod crypto;
 pub mod fetch;
 pub mod fs;
 pub mod headers_ops;

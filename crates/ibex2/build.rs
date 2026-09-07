@@ -128,7 +128,16 @@ fn main() {
         hermesc.display()
     );
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
-    for name in ["esm", "headers", "timers", "url", "fetch", "harden"] {
+    for name in [
+        "esm",
+        "headers",
+        "timers",
+        "url",
+        "domexception",
+        "crypto",
+        "fetch",
+        "harden",
+    ] {
         let source = format!("src/bindings/{name}.js");
         println!("cargo:rerun-if-changed={source}");
         let artifact = out_dir.join(format!("{name}.hbc"));

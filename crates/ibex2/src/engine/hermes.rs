@@ -147,6 +147,8 @@ impl Hermes {
             &include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc"))[..],
             &include_bytes!(concat!(env!("OUT_DIR"), "/timers.hbc"))[..],
             &include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/domexception.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/crypto.hbc"))[..],
         ] {
             self.eval_bytes(binding)?;
         }
