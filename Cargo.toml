@@ -7,7 +7,7 @@ authors = ["Ibex Runtime Team"]
 license = "MIT"
 
 [workspace]
-members = ["crates/capsec-semantics", "crates/compiled-stub", "crates/ibex2", "crates/sfe-catalog", "crates/sfe-format", "crates/windows-dll-staging"]
+members = ["crates/capsec-semantics", "crates/compiled-stub", "crates/ibex2", "crates/ibex2-sqlite", "crates/sfe-catalog", "crates/sfe-format", "crates/windows-dll-staging"]
 exclude = ["tools/oxc-latest-canary"]
 resolver = "2"
 
@@ -61,7 +61,7 @@ serde_json = "1.0"
 getrandom = "0.2"
 
 # SQLite support for exact:sqlite builtin module
-rusqlite = { version = "0.31", features = ["bundled", "column_decltype", "hooks"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "column_decltype", "hooks"] }
 
 # Module resolution (Node/ESM)
 # `authenticated_module_resolve_options` disables ambient NODE_PATH lookup via

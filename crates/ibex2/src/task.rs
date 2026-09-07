@@ -128,6 +128,8 @@ impl CompletionQueue {
 /// refers to.
 pub struct RuntimeState {
     pub queue: CompletionQueue,
+    pub(crate) sqlite: crate::sqlite_abi::Registry,
+    app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     shutdown: std::sync::atomic::AtomicBool,
@@ -174,6 +176,8 @@ impl RuntimeState {
     pub fn new(transport: Box<dyn crate::stdlib::fetch::Transport>) -> Self {
         Self {
             queue: CompletionQueue::new(),
+            sqlite: crate::sqlite_abi::Registry::default(),
+            app_directories: std::sync::OnceLock::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             shutdown: std::sync::atomic::AtomicBool::new(false),
@@ -187,6 +191,24 @@ impl RuntimeState {
             next_handle: std::sync::atomic::AtomicU64::new(1),
             transport,
         }
+    }
+
+    pub fn set_app_directories(
+        &self,
+        directories: crate::stdlib::app_fs::AppDirectories,
+    ) -> Result<(), HostError> {
+        self.app_directories.set(directories).map_err(|_| {
+            HostError::InvalidArgument("App directories are already configured".into())
+        })
+    }
+    pub fn app_directories(&self) -> Option<&crate::stdlib::app_fs::AppDirectories> {
+        self.app_directories.get()
+    }
+    pub fn set_sqlite_provider(
+        &self,
+        provider: Arc<dyn crate::stdlib::sqlite::Provider>,
+    ) -> Result<(), HostError> {
+        self.sqlite.set_provider(provider)
     }
 
     pub fn transport(&self) -> &dyn crate::stdlib::fetch::Transport {
@@ -285,6 +307,7 @@ impl RuntimeState {
     }
 
     pub fn shutdown(&self) {
+        self.sqlite.shutdown();
         self.shutdown
             .store(true, std::sync::atomic::Ordering::Release);
         let controls = std::mem::take(&mut *self.controls.lock().unwrap());

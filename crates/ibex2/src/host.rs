@@ -33,6 +33,8 @@ pub struct Host {
     transport: Arc<dyn Transport>,
     secrets: Arc<dyn SecretStore>,
     kv: Arc<dyn KvStore>,
+    app_directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
+    sqlite_provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
 }
 
 impl Host {
@@ -48,6 +50,8 @@ impl Host {
             transport: Arc::from(transport),
             secrets: Arc::from(secrets::default_store()),
             kv: Arc::from(kv::default_store()),
+            app_directories: None,
+            sqlite_provider: None,
         }
     }
 
@@ -65,6 +69,21 @@ impl Host {
         self
     }
 
+    pub fn with_app_directories(
+        mut self,
+        directories: crate::stdlib::app_fs::AppDirectories,
+    ) -> Self {
+        self.app_directories = Some(Arc::new(directories));
+        self
+    }
+    pub fn with_sqlite_provider(
+        mut self,
+        provider: Arc<dyn crate::stdlib::sqlite::Provider>,
+    ) -> Self {
+        self.sqlite_provider = Some(provider);
+        self
+    }
+
     /// Endow a consumer with `grants`: the bindings a module receives as
     /// parameters, each carrying this grant set for its whole life.
     pub fn endow(&self, grants: GrantSet) -> Bindings {
@@ -76,6 +95,12 @@ impl Host {
             },
             fs: Fs {
                 grants: Arc::clone(&grants),
+                directories: self.app_directories.clone(),
+            },
+            sqlite: Sqlite {
+                grants: Arc::clone(&grants),
+                directories: self.app_directories.clone(),
+                provider: self.sqlite_provider.clone(),
             },
             secrets: Secrets {
                 store: Arc::clone(&self.secrets),
@@ -101,6 +126,7 @@ impl Default for Host {
 pub struct Bindings {
     pub fetch: Fetch,
     pub fs: Fs,
+    pub sqlite: Sqlite,
     pub secrets: Secrets,
     pub kv: Kv,
     pub env: Env,
@@ -257,6 +283,7 @@ impl Fetch {
 #[derive(Clone)]
 pub struct Fs {
     grants: Arc<GrantSet>,
+    directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
 }
 
 impl Fs {
@@ -267,13 +294,14 @@ impl Fs {
         destination: Option<&str>,
         data: Option<&[u8]>,
     ) -> Result<FsResult, HostError> {
-        let path = fs::normalize(path)?;
-        let destination = match destination {
-            Some(destination) => Some(fs::normalize(destination)?),
-            None => None,
-        };
-        fs::admit(&self.grants, op, &path, destination.as_deref())?;
-        fs::perform(op, &path, destination.as_deref(), data)
+        fs::run(
+            &self.grants,
+            self.directories.as_deref(),
+            op,
+            path,
+            destination,
+            data,
+        )
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, HostError> {
@@ -286,6 +314,11 @@ impl Fs {
 
     pub fn write_file(&self, path: &str, data: &[u8]) -> Result<(), HostError> {
         self.run(FsOp::WriteFile, path, None, Some(data))
+            .map(|_| ())
+    }
+
+    pub fn atomic_write_file(&self, path: &str, data: &[u8]) -> Result<(), HostError> {
+        self.run(FsOp::AtomicWriteFile, path, None, Some(data))
             .map(|_| ())
     }
 
@@ -363,6 +396,27 @@ impl Env {
                     .map(|value| (name.to_string(), value))
             })
             .collect()
+    }
+}
+
+/// A database opener carrying its provider, directory mounts, and path grants.
+#[derive(Clone)]
+pub struct Sqlite {
+    grants: Arc<GrantSet>,
+    directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
+    provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+}
+impl Sqlite {
+    pub fn open(&self, path: &str) -> Result<crate::stdlib::sqlite::Database, HostError> {
+        let path =
+            crate::stdlib::app_fs::resolve_sqlite(&self.grants, self.directories.as_deref(), path)?;
+        let provider = self
+            .provider
+            .as_ref()
+            .ok_or_else(|| HostError::Failed("SQLite provider is not installed".into()))?;
+        Ok(crate::stdlib::sqlite::Database::new(
+            provider.open(crate::stdlib::sqlite::Location { path })?,
+        ))
     }
 }
 

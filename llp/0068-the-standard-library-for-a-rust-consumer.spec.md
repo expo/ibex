@@ -5,7 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-09-06 (§2: author-required streaming and cancellation); 2026-09-03 (LLP 0057.000 plans how `Bindings` grows — one field per family, feature-gated where a family pulls a dependency or a framework, present and refusing when the feature is off — and answers OQ3 in its lane L3 with a `Receiver`; neither is built yet) 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
+**Revised:** 2026-09-07 (app-scoped filesystem and separate SQLite provider); 2026-09-06 (§2: author-required streaming and cancellation); 2026-09-03 (LLP 0057.000 plans how `Bindings` grows — one field per family, feature-gated where a family pulls a dependency or a framework, present and refusing when the feature is off — and answers OQ3 in its lane L3 with a `Receiver`; neither is built yet) 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
 **Related:** LLP 0057 (§3.1 — the split, and the reason for a Rust standard library that survived: the non-JS consumer), LLP 0067 (the capability model this states in Rust), LLP 0059.000 (§4 — the families; §3.8 — the env snapshot), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library with no engine in the process)
 
 ## Summary
@@ -31,19 +31,40 @@ let home     = app.env.get("HOME");                               // None if not
 
 `Host` is the runtime without an engine: the platform transport, the secret
 store, the kv store, and nothing else. `endow` is instantiation:
-`Bindings { fetch, fs, env, secrets, kv }` (the last two are LLP 0069 and
-LLP 0070) is the module parameter list as a struct, each binding holding an
+`Bindings { fetch, fs, env, secrets, kv, sqlite }` (secrets and kv are LLP 0069 and LLP 0070; SQLite is LLP 0059.000 §3.15) is the module parameter list as a struct, each binding holding an
 `Arc` of the grant set for its whole life. A binding handed from one consumer to another carries the
 first's authority, as LLP 0067 §3 says a JavaScript binding does. A consumer
 granted nothing holds bindings that refuse — not absent bindings — so the
 failure is a denial rather than a panic.
 
-`Fs` offers the ten operations the JavaScript `fs` has, with the same rules:
+`Fs` offers the eleven operations the JavaScript `fs` has, with the same rules:
 absolute paths, normalized lexically and checked as spelt and as the
 filesystem will really resolve them; read on the source and write on the
-destination for `rename` and `copy_file`. `Env` is the snapshot LLP 0059.000
+destination for `rename` and `copy_file`, plus source write for `rename`. `Env` is the snapshot LLP 0059.000
 §3.8 specifies. The pure tier — `stdlib::url`, `base64`, `text`, `headers` —
 is plain Rust and needs no host at all.
+
+App storage is configured by the embedder, not inferred from its environment:
+
+```rust
+let directories = AppDirectories::new(data_dir, cache_dir, temp_dir)?;
+let host = Host::new()
+    .with_app_directories(directories)
+    .with_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider));
+let app = host.endow(GrantSet::parse(
+    "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/app.db\n")?);
+app.fs.atomic_write_file("app:/data/settings.json", br#"{"theme":"dark"}"#)?;
+let database = app.sqlite.open("app:/data/app.db")?;
+database.execute("CREATE TABLE IF NOT EXISTS notes (body TEXT)", &[])?;
+database.close()?;
+```
+
+Directories must already exist. The SQLite provider is a separate linked
+artifact, not a core feature switch. A host that needs only files installs no
+provider. JS embedders set the same directories/provider on `Hermes` before
+running modules. The SQLite library uses native VFS/journaling and requires
+host-owned stable database parents while open; app file operations use pinned
+directory handles (LLP 0059.000 §3.11, §3.15).
 
 ## 2. Synchronous, and why
 

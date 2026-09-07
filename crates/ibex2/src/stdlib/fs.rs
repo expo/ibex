@@ -11,10 +11,9 @@
 //! package that cannot read `~/.ssh` — and it is why `PathPrefix` compares
 //! whole components rather than string prefixes.
 //!
-//! Paths are absolute and resolved before they reach the grant check, so a
-//! traversal is refused rather than interpreted. The virtual filesystem
-//! namespace of LLP 0023 is where these should eventually resolve; until it
-//! exists, this operates on real absolute paths and says so.
+//! `app:/data`, `app:/cache`, and `app:/tmp` resolve through explicit host
+//! directory handles. Native absolute paths retain their separate grants.
+//! `run` is the shared executor for Rust and JavaScript callers.
 //!
 //! @ref LLP 0059.000#311-fs--delegating-capability-bearing-author-required — the surface
 //! @ref LLP 0067#3-the-check — per-prefix is a parameterized grant
@@ -30,6 +29,7 @@ pub enum FsOp {
     ReadFile,
     WriteFile,
     AppendFile,
+    AtomicWriteFile,
     ReadDir,
     Mkdir,
     Remove,
@@ -43,12 +43,16 @@ impl FsOp {
     /// Which capability the operation needs, and on which path.
     ///
     /// `rename` and `copyFile` touch two paths and need write on the
-    /// destination as well as read on the source — the case a single-path
-    /// check silently gets wrong, letting a read-only grant move a file.
+    /// destination as well as read on the source. Rename additionally needs
+    /// write on the source because it removes that directory entry.
     pub fn required(self) -> (bool, bool) {
         match self {
             FsOp::ReadFile | FsOp::ReadDir | FsOp::Stat | FsOp::Realpath => (true, false),
-            FsOp::WriteFile | FsOp::AppendFile | FsOp::Mkdir | FsOp::Remove => (false, true),
+            FsOp::WriteFile
+            | FsOp::AppendFile
+            | FsOp::AtomicWriteFile
+            | FsOp::Mkdir
+            | FsOp::Remove => (false, true),
             // read the source, write the destination
             FsOp::Rename | FsOp::CopyFile => (true, true),
         }
@@ -152,8 +156,16 @@ fn admit_as(
     let as_string = |p: &Path| p.to_string_lossy().into_owned();
 
     match (needs_read, needs_write, destination) {
-        // Two paths: read the source, write the destination.
+        // Rename also removes the source, requiring source write authority.
         (true, true, Some(destination)) => {
+            if op == FsOp::Rename {
+                crate::boundary::admit(
+                    grants,
+                    &Operation::FsWrite {
+                        path: as_string(path),
+                    },
+                )?;
+            }
             crate::boundary::admit(
                 grants,
                 &Operation::FsRead {
@@ -205,6 +217,7 @@ pub fn perform(
 ) -> Result<FsResult, HostError> {
     let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
     match op {
+        FsOp::AtomicWriteFile => super::app_fs::atomic_native(path, data.unwrap_or(&[])),
         FsOp::ReadFile => std::fs::read(path).map(FsResult::Bytes).map_err(failed),
         FsOp::WriteFile => std::fs::write(path, data.unwrap_or(&[]))
             .map(|_| FsResult::Done)
@@ -291,6 +304,26 @@ pub enum FsResult {
     Stat(Stat),
 }
 
+/// Execute a filesystem operation with authority checked in its original namespace.
+pub fn run(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    if path.starts_with("app:") || destination.is_some_and(|p| p.starts_with("app:")) {
+        let directories = directories
+            .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
+        return directories.run(grants, op, path, destination, data);
+    }
+    let path = normalize(path)?;
+    let destination = destination.map(normalize).transpose()?;
+    admit(grants, op, &path, destination.as_deref())?;
+    perform(op, &path, destination.as_deref(), data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,7 +374,8 @@ mod tests {
         let grants = granted("/src", "/dst");
         let source = normalize("/src/a").unwrap();
         let destination = normalize("/dst/a").unwrap();
-        assert!(admit(&grants, FsOp::Rename, &source, Some(&destination)).is_ok());
+        assert!(admit(&grants, FsOp::Rename, &source, Some(&destination)).is_err());
+        assert!(admit(&grants, FsOp::CopyFile, &source, Some(&destination)).is_ok());
 
         // Writing somewhere ungranted.
         let elsewhere = normalize("/other/a").unwrap();

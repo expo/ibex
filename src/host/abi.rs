@@ -5167,8 +5167,8 @@ fn sqlite_authorizer(ctx: AuthContext<'_>) -> Authorization {
     }
 }
 
-fn install_sqlite_authorizer(db: &Connection) {
-    db.authorizer(Some(sqlite_authorizer));
+fn install_sqlite_authorizer(db: &Connection) -> rusqlite::Result<()> {
+    db.authorizer(Some(sqlite_authorizer))
 }
 
 fn sqlite_isolated_io_authorizer(ctx: AuthContext<'_>) -> Authorization {
@@ -5207,7 +5207,7 @@ fn configure_sqlite_isolated_io(db: &Connection) -> rusqlite::Result<()> {
     if temp_store != 2 {
         return Err(rusqlite::Error::InvalidQuery);
     }
-    db.authorizer(Some(sqlite_isolated_io_authorizer));
+    db.authorizer(Some(sqlite_isolated_io_authorizer))?;
     Ok(())
 }
 
@@ -10040,7 +10040,9 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
         Ok(db) => db,
         Err(_) => return 0,
     };
-    install_sqlite_authorizer(&db);
+    if install_sqlite_authorizer(&db).is_err() {
+        return 0;
+    }
 
     register_sqlite_connection(db)
 }

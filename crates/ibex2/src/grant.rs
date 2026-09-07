@@ -63,10 +63,14 @@ impl PathPrefix {
     /// because admitting either would mean deciding traversal semantics here,
     /// where the answer cannot be checked against the real filesystem.
     pub fn new(path: &str) -> Option<Self> {
-        if !path.starts_with('/') {
+        let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
+            ("app:", path)
+        } else if path.starts_with('/') {
+            ("", path)
+        } else {
             return None;
-        }
-        let mut components = Vec::new();
+        };
+        let mut components = vec![namespace.to_string()];
         for component in path.split('/') {
             match component {
                 "" => continue,
@@ -184,7 +188,10 @@ impl GrantSet {
     /// (`stdlib::fs::realize`). Other families are unchanged.
     pub fn realized_fs(&self) -> GrantSet {
         let realize = |prefix: &PathPrefix| {
-            let spelt = format!("/{}", prefix.0.join("/"));
+            if prefix.0.first().is_some_and(|p| p == "app:") {
+                return prefix.clone();
+            }
+            let spelt = format!("/{}", prefix.0[1..].join("/"));
             let real = crate::stdlib::fs::realize(std::path::Path::new(&spelt));
             PathPrefix::new(&real.to_string_lossy()).unwrap_or_else(|| prefix.clone())
         };
@@ -195,6 +202,7 @@ impl GrantSet {
                 .map(|grant| match grant {
                     Grant::FsRead(prefix) => Grant::FsRead(realize(prefix)),
                     Grant::FsWrite(prefix) => Grant::FsWrite(realize(prefix)),
+                    Grant::SqliteOpen(prefix) => Grant::SqliteOpen(realize(prefix)),
                     other => other.clone(),
                 })
                 .collect(),

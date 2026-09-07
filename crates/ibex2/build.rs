@@ -137,6 +137,7 @@ fn main() {
         "crypto",
         "abort",
         "fetch",
+        "sqlite",
         "harden",
     ] {
         let source = format!("src/bindings/{name}.js");

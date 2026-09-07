@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -27,7 +27,7 @@ Cited from code as R1–R5.
   lowering helpers, and nothing that reaches.
 - **R2 — Capabilities arrive as parameters of the module's own scope.** Every
   module is evaluated as
-  `function (module, exports, require, fetch, fs, process, __ibex2_meta)`, and
+  `function (module, exports, require, fetch, fs, process, __ibex2_meta, sqlite)`, and
   the `fetch`, `fs`, and `process` it receives were built for it with its
   grant captured. A module cannot borrow another's binding by name.
 - **R3 — Modules ship as bytecode.** Compiled ahead of time against the engine
@@ -55,7 +55,7 @@ because of how it is spelt, and never to a package because of what its own
 naming something that does not exist is refused before any module runs. No
 manifest means no authority.
 
-Five families exist, each a parameterized question:
+Six families exist, each a parameterized question:
 
 | family | grant | the question |
 |---|---|---|
@@ -64,12 +64,12 @@ Five families exist, each a parameterized question:
 | `env.read` | variable name | is this variable in the snapshot? |
 | `secret.keep` | name | may this secret be read, replaced, and forgotten? (LLP 0069) |
 | `storage.kv` | scope | may this scope be read, written, listed, and deleted from? (LLP 0070) |
+| `sqlite.open` | database path | may this database be opened? (LLP 0059.000 §3.15) |
 
 `process.env` is the model in one object: a snapshot of exactly the granted
 variables, so an ungranted one is undefined because it is absent, not because
-a check refused it. LLP 0059.000 §4 specifies two more (`net.websocket`,
-`sqlite.open`); each arrives with a measured call site (LLP 0059 §7), not
-before — and `storage.local`, when its JavaScript call site arrives, binds
+a check refused it. LLP 0059.000 §4 still specifies `net.websocket` for a
+later call site (LLP 0059 §7) — and `storage.local`, when its JavaScript call site arrives, binds
 over a `storage.kv` scope rather than becoming a family of its own
 (LLP 0070 §4).
 
@@ -79,7 +79,8 @@ One chokepoint, in Rust, at the host-call boundary (LLP 0059.000 §1). It reads
 the grant the invoked binding carries and answers the family's question. It
 never inspects a stack, a frame, a domain, or a job queue; there is no
 attribution and no registry to keep. An operation touching two paths
-(`rename`, `copyFile`) needs read on the source and write on the destination.
+(`rename`, `copyFile`) needs read on the source and write on the destination;
+`rename` additionally requires write on the source.
 Paths are checked twice: as spelt, normalized lexically so `/data/../etc/passwd`
 does not pass a `/data` grant, and as the filesystem will really resolve them,
 so a symlink inside a granted prefix — one a module with write on that prefix
@@ -91,6 +92,13 @@ never leaves the calling thread.
 A binding handed from module A to module B and invoked by B attributes to
 **A** — it is A's authority. That is a different fact from what a stack walk
 reports, and a truer one.
+
+App prefixes (`app:/data`, `app:/cache`, `app:/tmp`) form a separate namespace
+from native absolute prefixes. The host supplies the three roots; descriptor-
+relative Unix operations reject symlink traversal and keep their root identity.
+SQLite admits its database path once, then database and statement objects carry
+that authority. Its authorizer prevents SQL from opening additional files.
+The module's `sqlite` parameter is frozen and no raw database handle is exposed.
 
 ## 4. Integrity
 
