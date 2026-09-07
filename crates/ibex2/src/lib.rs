@@ -16,6 +16,7 @@
 //! @ref LLP 0057#2-the-inversion — the three-category split this crate implements
 //! @ref LLP 0067#1-five-properties — authority is carried, not inferred
 
+pub mod bindings;
 pub mod boundary;
 pub mod boundary_abi;
 pub mod bytecode;

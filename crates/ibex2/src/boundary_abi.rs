@@ -613,6 +613,19 @@ pub unsafe extern "C" fn ibex2_grants_create(spec: *const c_char) -> *const Gran
     }
 }
 
+/// Retain a binding's grant independently of its installer's lifetime.
+///
+/// # Safety
+/// `grants` must be null or a live Arc-backed grant returned by this ABI
+/// (or `bindings::Context::grants_ptr`). Release with `ibex2_grants_destroy`.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_grants_retain(grants: *const GrantSet) -> *const GrantSet {
+    if !grants.is_null() {
+        std::sync::Arc::increment_strong_count(grants);
+    }
+    grants
+}
+
 /// # Safety
 /// `grants` must come from `ibex2_grants_create`.
 #[no_mangle]
@@ -1111,16 +1124,26 @@ fn run_fs(
         _ => None,
     };
 
+    if matches!(
+        op,
+        crate::stdlib::fs::FsOp::WriteFile
+            | crate::stdlib::fs::FsOp::AppendFile
+            | crate::stdlib::fs::FsOp::AtomicWriteFile
+    ) && data.is_none()
+    {
+        return Err(HostError::InvalidArgument(
+            "fs writes require an ArrayBuffer or typed array".into(),
+        ));
+    }
+
     Ok(
         match run(grants, directories, op, path, destination, data)? {
             FsResult::Done => HostValue::Undefined,
             FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
             FsResult::Text(text) => HostValue::Str(text),
-            // A directory listing and a stat are small records. They cross as text
-            // the binding splits, rather than as a serialized object: §1.1 forbids
-            // JSON at the boundary, and a newline-joined list is not a document
-            // format that could grow into one.
-            FsResult::Names(names) => HostValue::Str(names.join("\n")),
+            // NUL cannot occur in a filename; newlines can. The JSI adapter
+            // turns this flat record into an array without a document codec.
+            FsResult::Names(names) => HostValue::Str(names.join("\0")),
             FsResult::Stat(stat) => HostValue::Str(format!(
                 "{}\t{}\t{}\t{}",
                 stat.size,

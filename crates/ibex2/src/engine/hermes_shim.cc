@@ -10,6 +10,7 @@
 
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
+#include "../../include/ibex2_jsi.h"
 #include <jsi/instrumentation.h>
 
 #include <cstdlib>
@@ -24,12 +25,12 @@
 extern "C" void ibex2_report_uncaught(const char *message);
 
 using namespace facebook;
+using namespace ibex2::jsi_adapter;
+extern "C" void ibex2_host_release(Ibex2AbiValue *);
 
 extern "C" const void *ibex2_queue_create();
 extern "C" void *ibex2_response_owner_create(const void *queue, double handle);
 extern "C" void ibex2_response_owner_destroy(void *owner);
-extern "C" void *ibex2_sqlite_owner_create(const void *queue, double handle, int kind);
-extern "C" void ibex2_sqlite_owner_destroy(void *owner);
 extern "C" size_t ibex2_grants_env_count(const void *grants);
 extern "C" int ibex2_grants_env_at(const void *grants, size_t index,
                                    char **out_name, char **out_value);
@@ -45,24 +46,9 @@ struct ResponseOwner final : jsi::NativeState {
   ~ResponseOwner() override { ibex2_response_owner_destroy(owner); }
 };
 
-struct SqliteOwner final : jsi::NativeState {
-  void *owner;
-  explicit SqliteOwner(void *value) : owner(value) {}
-  ~SqliteOwner() override { ibex2_sqlite_owner_destroy(owner); }
-};
-
-struct PendingPromise {
-  std::shared_ptr<jsi::Function> resolve;
-  std::shared_ptr<jsi::Function> reject;
-};
-
 struct Ibex2Runtime {
   std::unique_ptr<jsi::Runtime> runtime;
-  // Promises awaiting an off-thread completion. Keyed by task id, and touched
-  // ONLY on the JavaScript thread — jsi values are not thread-safe and nothing
-  // here may be reached from a worker.
-  std::unordered_map<uint64_t, PendingPromise> pending;
-  uint64_t next_task_id = 1;
+  std::unique_ptr<Adapter> bindings;
   // This runtime's own completion queue. Per-runtime so two runtimes in one
   // process cannot take each other's completions (task::Pump C5).
   const void *queue = nullptr;
@@ -154,6 +140,7 @@ void *ibex2_hermes_create(int enable_eval) {
   auto *handle = new Ibex2Runtime();
   handle->runtime = std::move(runtime);
   handle->queue = ibex2_queue_create();
+  handle->bindings = std::make_unique<Adapter>(*handle->runtime, handle->queue);
   return handle;
 }
 
@@ -165,6 +152,7 @@ void ibex2_hermes_destroy(void *handle) {
     for (const void *grants : rt->module_grants) {
       ibex2_grants_destroy(grants);
     }
+    rt->bindings->detach();
     ibex2_queue_destroy(rt->queue);
   }
   delete rt;
@@ -234,174 +222,6 @@ void ibex2_hermes_free_string(char *value) { std::free(value); }
 
 // Mirrors ibex2::boundary_abi::AbiValue. Kept in lockstep by the round-trip
 // tests: any drift shows up as a wrong tag rather than silent corruption.
-struct Ibex2AbiValue {
-  int32_t tag;
-  double number;
-  const unsigned char *data;
-  size_t len;
-};
-
-enum : int32_t {
-  IBEX2_TAG_UNDEFINED = 0,
-  IBEX2_TAG_NULL = 1,
-  IBEX2_TAG_BOOL = 2,
-  IBEX2_TAG_NUMBER = 3,
-  IBEX2_TAG_STRING = 4,
-  IBEX2_TAG_BYTES = 5,
-};
-
-extern "C" int ibex2_host_call(const void *state, uint32_t op,
-                               const Ibex2AbiValue *argv, size_t argc,
-                               Ibex2AbiValue *out);
-extern "C" void ibex2_host_release(Ibex2AbiValue *value);
-
-namespace {
-
-// Convert a JS argument. Strings are decoded into `owned`, which the caller
-// keeps alive for the duration of the host call so the span stays valid.
-Ibex2AbiValue to_abi(jsi::Runtime &rt, const jsi::Value &value,
-                     std::vector<std::string> &owned) {
-  Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-  if (value.isUndefined()) {
-    return out;
-  }
-  if (value.isNull()) {
-    out.tag = IBEX2_TAG_NULL;
-    return out;
-  }
-  if (value.isBool()) {
-    out.tag = IBEX2_TAG_BOOL;
-    out.number = value.getBool() ? 1.0 : 0.0;
-    return out;
-  }
-  if (value.isNumber()) {
-    out.tag = IBEX2_TAG_NUMBER;
-    out.number = value.getNumber();
-    return out;
-  }
-  if (value.isObject() && value.getObject(rt).isArrayBuffer(rt)) {
-    auto buffer = value.getObject(rt).getArrayBuffer(rt);
-    out.tag = IBEX2_TAG_BYTES;
-    out.data = buffer.data(rt);
-    out.len = buffer.size(rt);
-    return out;
-  }
-  // A TYPED ARRAY, which is what application code actually passes: a Uint8Array
-  // is not an ArrayBuffer, and handling only the latter made
-  // `fs.writeFile(path, new TextEncoder().encode(text))` stringify its payload
-  // and write an empty file. The view's offset matters — a subarray shares its
-  // buffer with the whole, so reading from the buffer's start would send the
-  // wrong bytes.
-  if (value.isObject() && value.getObject(rt).isTypedArray(rt)) {
-    auto view = value.getObject(rt).getTypedArray(rt);
-    auto buffer = view.buffer(rt);
-    out.tag = IBEX2_TAG_BYTES;
-    out.data = buffer.data(rt) + view.byteOffset(rt);
-    out.len = view.byteLength(rt);
-    return out;
-  }
-  // Everything else stringifies, which is what console does with its arguments.
-  owned.push_back(value.toString(rt).utf8(rt));
-  const std::string &text = owned.back();
-  out.tag = IBEX2_TAG_STRING;
-  out.data = reinterpret_cast<const unsigned char *>(text.data());
-  out.len = text.size();
-  return out;
-}
-
-// A byte result IS the JavaScript ArrayBuffer's storage — no copy, no second
-// allocation. Rust allocated it, ownership transfers here, and the engine frees
-// it back through the boundary when the ArrayBuffer is collected. That is the
-// outbound half of LLP 0059.000 §1.2.
-//
-// The destructor is the whole mechanism: Hermes holds this shared_ptr for as
-// long as the ArrayBuffer is reachable, so the Rust allocation outlives every
-// JavaScript reference to it and is released exactly once.
-class RustBytes : public jsi::MutableBuffer {
-public:
-  explicit RustBytes(Ibex2AbiValue value) : value_(value) {}
-  ~RustBytes() override { ibex2_host_release(&value_); }
-
-  RustBytes(const RustBytes &) = delete;
-  RustBytes &operator=(const RustBytes &) = delete;
-
-  size_t size() const override { return value_.len; }
-  uint8_t *data() override {
-    return const_cast<uint8_t *>(value_.data);
-  }
-
-private:
-  Ibex2AbiValue value_;
-};
-
-// Convert a result. For bytes this TAKES OWNERSHIP and clears `value`, so the
-// caller's release becomes a no-op — the RustBytes destructor releases instead,
-// when the engine is done with the buffer. Strings still copy: Hermes owns its
-// own string representation and there is no way to hand it one (§1.2).
-jsi::Value from_abi(jsi::Runtime &rt, Ibex2AbiValue &value) {
-  switch (value.tag) {
-  case IBEX2_TAG_NULL:
-    return jsi::Value::null();
-  case IBEX2_TAG_BOOL:
-    return jsi::Value(value.number != 0.0);
-  case IBEX2_TAG_NUMBER:
-    return jsi::Value(value.number);
-  case IBEX2_TAG_STRING: {
-    std::string text(reinterpret_cast<const char *>(value.data), value.len);
-    return jsi::String::createFromUtf8(rt, text);
-  }
-  case IBEX2_TAG_BYTES: {
-    Ibex2AbiValue owned = value;
-    value = Ibex2AbiValue{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-    return jsi::Value(rt,
-                      jsi::ArrayBuffer(rt, std::make_shared<RustBytes>(owned)));
-  }
-  default:
-    return jsi::Value::undefined();
-  }
-}
-
-// One host function per op, so JavaScript sees ordinary callables while every
-// one of them funnels through the single ibex2_host_call surface.
-jsi::Function make_host_binding(jsi::Runtime &runtime, const char *name,
-                                uint32_t op, const void *state) {
-  auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
-  return jsi::Function::createFromHostFunction(
-      runtime, prop, 1,
-      [op, state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
-                  size_t count) -> jsi::Value {
-        std::vector<std::string> owned;
-        owned.reserve(count);
-        std::vector<Ibex2AbiValue> abi;
-        abi.reserve(count);
-        for (size_t i = 0; i < count; ++i) {
-          abi.push_back(to_abi(rt, args[i], owned));
-        }
-        Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-        int status = ibex2_host_call(state, op,
-                                     abi.empty() ? nullptr : abi.data(),
-                                     abi.size(), &out);
-        jsi::Value result = from_abi(rt, out);
-        ibex2_host_release(&out);
-        if (status != 0) {
-          // The Rust error taxonomy becomes a JS throw here, so failures are
-          // identical on every platform (LLP 0057 §3).
-          throw jsi::JSError(rt, result.isString()
-                                     ? result.getString(rt).utf8(rt)
-                                     : std::string("host call failed"));
-        }
-        return result;
-      });
-}
-
-void set_binding(jsi::Runtime &rt, jsi::Object &target, const char *name,
-                 uint32_t op, const void *state) {
-  target.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
-                     make_host_binding(rt, name, op, state));
-}
-
-} // namespace
-
 extern "C" int ibex2_async_begin(const void *queue, const void *grants,
                                  uint32_t op, const Ibex2AbiValue *argv,
                                  size_t argc, uint64_t task_id);
@@ -437,60 +257,10 @@ extern "C" int ibex2_response_field(const void *queue, double handle,
 
 namespace {
 
-// Build a promise and stash its resolve/reject under `id`.
-//
-// The executor runs synchronously inside the Promise constructor, so the
-// functions are captured before this returns and a completion can never arrive
-// to find the table empty.
-jsi::Value make_pending_promise(jsi::Runtime &rt, Ibex2Runtime *owner,
-                                uint64_t id) {
-  auto ctor = rt.global().getPropertyAsFunction(rt, "Promise");
-  auto executor = jsi::Function::createFromHostFunction(
-      rt, jsi::PropNameID::forAscii(rt, "executor"), 2,
-      [owner, id](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
-                  size_t count) -> jsi::Value {
-        if (count < 2) {
-          throw jsi::JSError(rt, "promise executor needs resolve and reject");
-        }
-        owner->pending[id] = PendingPromise{
-            std::make_shared<jsi::Function>(
-                args[0].getObject(rt).getFunction(rt)),
-            std::make_shared<jsi::Function>(
-                args[1].getObject(rt).getFunction(rt))};
-        return jsi::Value::undefined();
-      });
-  return ctor.callAsConstructor(rt, executor);
-}
-
-jsi::Function make_async_binding(jsi::Runtime &runtime, const char *name,
+jsi::Function make_async_binding(jsi::Runtime &, const char *name,
                                  uint32_t op, Ibex2Runtime *owner,
                                  const void *grants) {
-  auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
-  return jsi::Function::createFromHostFunction(
-      runtime, prop, 1,
-      [op, owner, grants](jsi::Runtime &rt, const jsi::Value &,
-                          const jsi::Value *args, size_t count) -> jsi::Value {
-        std::vector<std::string> owned;
-        owned.reserve(count);
-        std::vector<Ibex2AbiValue> abi;
-        abi.reserve(count);
-        for (size_t i = 0; i < count; ++i) {
-          abi.push_back(to_abi(rt, args[i], owned));
-        }
-
-        uint64_t id = owner->next_task_id++;
-        jsi::Value promise = make_pending_promise(rt, owner, id);
-
-        // The work starts only after the promise exists, so there is no window
-        // in which a completion could arrive for an unknown task.
-        if (ibex2_async_begin(owner->queue, grants, op,
-                              abi.empty() ? nullptr : abi.data(), abi.size(),
-                              id) != 0) {
-          owner->pending.erase(id);
-          throw jsi::JSError(rt, "could not start the async operation");
-        }
-        return promise;
-      });
+  return owner->bindings->async_binding(name, op, grants);
 }
 
 } // namespace
@@ -565,27 +335,10 @@ int ibex2_hermes_pump(void *handle) {
       }
     }
   } else {
-    auto found = rt->pending.find(static_cast<uint64_t>(task_id));
-    if (found == rt->pending.end()) {
-      // Nothing is waiting for it; release the payload rather than leak it.
-      ibex2_host_release(&value);
-    } else {
-      PendingPromise promise = found->second;
-      rt->pending.erase(found);
-      jsi::Value payload = from_abi(runtime, value);
-      ibex2_host_release(&value);
-      try {
-        if (is_error != 0) {
-          auto error_ctor = runtime.global().getPropertyAsFunction(runtime, "Error");
-          jsi::Value err = error_ctor.callAsConstructor(runtime, payload);
-          promise.reject->call(runtime, err);
-        } else {
-          promise.resolve->call(runtime, payload);
-        }
-      } catch (const jsi::JSError &err) {
-        // A throwing settlement must not abort the cycle; it is reported.
-        report_uncaught(err);
-      }
+    try {
+      rt->bindings->settle(task_id, value, is_error != 0);
+    } catch (const jsi::JSError &err) {
+      report_uncaught(err);
     }
   }
 
@@ -753,48 +506,10 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
           rt, std::move(fetch_binding));
     }
 
-    // The fs object, every method carrying the SAME grants as fetch — one
-    // grant set, one authority. Built here rather than in JavaScript because
-    // each method is a distinct host op and the grants are captured in the
-    // closure, not passed by the caller.
-    jsi::Object fs(rt);
-    struct FsMethod {
-      const char *name;
-      uint32_t op;
-    };
-    static const FsMethod kFsMethods[] = {
-        {"readFile", 110},  {"writeFile", 111}, {"appendFile", 112},
-        {"readdir", 113},   {"mkdir", 114},     {"rm", 115},
-        {"stat", 116},      {"rename", 117},    {"copyFile", 118},
-        {"realpath", 119}, {"atomicWriteFile", 120},
-    };
-    for (const auto &method : kFsMethods) {
-      fs.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(method.name)),
-                     make_async_binding(rt, method.name, method.op, owner, grants));
-    }
-
-    jsi::Object directories(rt);
-    directories.setProperty(rt, "data", "app:/data");
-    directories.setProperty(rt, "cache", "app:/cache");
-    directories.setProperty(rt, "temporary", "app:/tmp");
-    jsi::Value directories_value(rt, directories);
-    freeze(rt, directories_value);
-    fs.setProperty(rt, "directories", directories_value);
-
-    jsi::Value sqlite_binding = jsi::Value::undefined();
-    if (owner->make_sqlite.isObject()) {
-      jsi::Object raw(rt);
-      static const FsMethod kSqliteMethods[] = {
-          {"open", 150}, {"prepare", 151}, {"execute", 152},
-          {"query", 153}, {"statementExecute", 154}, {"statementQuery", 155},
-          {"transaction", 156}, {"close", 157}, {"statementClose", 158},
-      };
-      for (const auto &method : kSqliteMethods) {
-        raw.setProperty(rt, method.name,
-            make_async_binding(rt, method.name, method.op, owner, grants));
-      }
-      sqlite_binding = owner->make_sqlite.getObject(rt).getFunction(rt).call(rt, raw);
-    }
+    auto storage = owner->bindings->storage(
+        grants, owner->make_sqlite.getObject(rt).getFunction(rt));
+    auto fs = storage.getPropertyAsObject(rt, "fs");
+    auto sqlite_binding = storage.getProperty(rt, "sqlite");
 
     // `process.env` is a SNAPSHOT of exactly the variables this grant set
     // names (LLP 0059.000 §3.8), not a live proxy and not the real
@@ -1026,20 +741,6 @@ int ibex2_hermes_install_stdlib(void *handle) {
     // `btoa`/`atob` are the engine's own (Tier E): Hermes provides both
     // natively and identically, so the Rust ones behind ops 10/11 are not
     // bound — they stay for a Rust consumer of the standard library.
-    set_binding(runtime, global, "__ibex2_sqlite_result", 80, rt->queue);
-    global.setProperty(runtime, "__ibex2_sqlite_own",
-        jsi::Function::createFromHostFunction(runtime,
-            jsi::PropNameID::forAscii(runtime, "__ibex2_sqlite_own"), 3,
-            [rt](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
-                 size_t count) -> jsi::Value {
-              if (count != 3 || !args[0].isNumber() || !args[1].isNumber() || !args[2].isObject())
-                throw jsi::JSError(r, "SQLite owner needs a handle, kind, and object");
-              auto object = args[2].getObject(r);
-              object.setNativeState(r, std::make_shared<SqliteOwner>(
-                  ibex2_sqlite_owner_create(rt->queue, args[0].asNumber(),
-                                           static_cast<int>(args[1].asNumber()))));
-              return jsi::Value::undefined();
-            }));
     set_binding(runtime, global, "__ibex2_random_uuid", 70, rt->queue);
     set_binding(runtime, global, "__ibex2_get_random_values", 71, rt->queue);
     set_binding(runtime, global, "__ibex2_fetch_control", 72, rt->queue);
