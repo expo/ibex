@@ -956,6 +956,8 @@ pub const ALLOWED_GLOBALS: &[&str] = &[
     "DOMException",
     "QuotaExceededError",
     "Crypto",
+    "AbortController",
+    "AbortSignal",
     "crypto",
     "URL",
     "URLSearchParams",

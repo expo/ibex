@@ -9,7 +9,12 @@
 use std::ffi::{c_char, c_int, c_uchar, CStr, CString};
 
 use crate::boundary::HostError;
-use crate::stdlib::fetch::{Headers, Request, Response, Transport};
+use crate::stdlib::abort::{AbortRegistration, AbortSignal};
+use crate::stdlib::fetch::{Body, BodySource, Headers, Request, StreamingResponse, Transport};
+use std::sync::{
+    atomic::{AtomicIsize, Ordering},
+    Arc,
+};
 
 extern "C" {
     fn ibex2_darwin_session_create() -> *mut std::ffi::c_void;
@@ -23,59 +28,66 @@ extern "C" {
         out_cookies: *mut c_int,
         out_cache: *mut c_int,
     );
-    fn ibex2_darwin_http_send(
+    fn ibex2_darwin_http_start(
         session: *mut std::ffi::c_void,
         method: *const c_char,
         url: *const c_char,
         header_block: *const c_char,
         body: *const c_uchar,
         body_len: usize,
-        // The response ceiling, already resolved by Rust: the platform
-        // enforces it, it does not choose it.
         max_body: usize,
+        out_error: *mut *mut c_char,
+    ) -> *mut std::ffi::c_void;
+    fn ibex2_darwin_http_headers(
+        handle: *mut std::ffi::c_void,
         out_status: *mut c_int,
         out_headers: *mut *mut c_char,
-        out_body: *mut *mut c_uchar,
-        out_body_len: *mut usize,
         out_error: *mut *mut c_char,
-        // 1 if the request rode an already-open connection, 0 if it opened
-        // one, -1 if the platform did not report. Lets the pool be asserted
-        // directly rather than inferred from latency.
+    ) -> c_int;
+    fn ibex2_darwin_http_read(
+        handle: *mut std::ffi::c_void,
+        output: *mut c_uchar,
+        capacity: usize,
+        out_length: *mut usize,
+        out_error: *mut *mut c_char,
         out_reused: *mut c_int,
     ) -> c_int;
+    fn ibex2_darwin_http_cancel(handle: *mut std::ffi::c_void);
+    fn ibex2_darwin_http_release(handle: *mut std::ffi::c_void);
     fn ibex2_darwin_free(value: *mut std::ffi::c_void);
 }
 
 /// The platform transport on Apple platforms.
 ///
-/// Owns **one** `NSURLSession` for as long as the runtime does. A session owns
-/// the connection pool, so a session per request discards every pooled
-/// connection and pays a fresh TLS handshake each time — measured at ~80ms per
-/// call against ~2ms once connections are reused. `RuntimeState` already holds
-/// exactly one transport for exactly one runtime, so this is the lifetime the
-/// session wanted all along.
+/// Owns a lazy pool of at most four `NSURLSession`s. Each session has a serial
+/// delegate queue and is leased to one response until native completion.
+/// This bounds concurrent callbacks while keeping their order,
+/// connection reuse, and isolation between hosts. A fifth open waits cancellably
+/// for a lease; consumers must consume or drop large unfinished responses to
+/// return their leases. Small responses prefetch into the bounded queue and
+/// return their session when complete, even before the body is consumed.
 ///
-/// The session stays *ephemeral*: no cookie jar, no disk cache. Sharing it
-/// across a runtime's own requests is connection reuse; sharing it across
-/// runtimes would be shared state, which is why it lives here and not in a
-/// process-wide static.
+/// Each body hands off through a 64 KiB queue. A full queue blocks only that
+/// lease's delegate, never callbacks for another leased session. Foundation may
+/// also own one callback's `NSData` and internal network buffers; their size is
+/// platform-controlled. There is no body-sized allocation in Ibex.
 ///
-/// **Created on first use, not at construction.** The first `NSURLSession` in
-/// a process costs ~19ms, because it is what drags CFNetwork and the rest of
-/// the system network stack in. `RuntimeState::new` runs on the runtime
-/// construction path, so building it eagerly would put that on the boot floor
-/// of every program — including the ones that never fetch — against a ~4ms
-/// budget (LLP 0063). Deferred, it lands on the first request, where a
-/// ~100ms round trip is already being paid.
+/// CFNetwork can defer its response callback until an initial body byte arrives,
+/// including with an explicit MIME type. `open` returns at that callback, before
+/// body completion. Cancellation also interrupts this pre-header interval.
+///
+/// Sessions remain ephemeral, with no cookie jar or cache. Creating the pool is
+/// lazy and creating each platform session happens on its first lease, keeping
+/// CFNetwork initialization off the boot path of programs which never fetch.
 #[derive(Debug, Default)]
 pub struct DarwinTransport {
-    /// The session pointer, as a `usize` so the struct stays plainly `Send`
-    /// and `Sync` without an `unsafe impl` asserting it. `NSURLSession` is
-    /// itself thread-safe, and this is written once and only read after.
+    /// The pool pointer, as a `usize` so the struct stays plainly `Send`
+    /// and `Sync` without an `unsafe impl` asserting it. The native pool is
+    /// guarded by NSCondition; this pointer is written once and only read after.
     session: std::sync::OnceLock<usize>,
     /// Whether the most recent request reused a connection: 1 yes, 0 no, -1
     /// not reported. Test-facing; nothing in the runtime reads it.
-    last_reused: std::sync::atomic::AtomicIsize,
+    last_reused: Arc<AtomicIsize>,
 }
 
 impl DarwinTransport {
@@ -93,17 +105,13 @@ impl DarwinTransport {
         }
     }
 
-    /// The runtime's session, built on the first call.
-    ///
-    /// Two racing first requests may both construct one; `OnceLock` keeps the
-    /// winner and the loser's is released here rather than leaked. That costs
-    /// one redundant session in a rare race, which is the cheap side of the
-    /// trade against holding a lock across a ~19ms initialization.
+    /// Lazily initialize the native pool. Racing first calls may create two
+    /// cheap empty pools; OnceLock keeps one and releases the unused one.
     fn session(&self) -> *mut std::ffi::c_void {
         if let Some(existing) = self.session.get() {
             return *existing as *mut std::ffi::c_void;
         }
-        // SAFETY: returns a retained session or null. Null is handled by the
+        // SAFETY: returns a retained pool or null. Null is handled by the
         // caller, which fails the request rather than dereferencing it.
         let created = unsafe { ibex2_darwin_session_create() };
         match self.session.set(created as usize) {
@@ -136,87 +144,141 @@ unsafe fn take_string(raw: *mut c_char) -> Option<String> {
     Some(text)
 }
 
+// Native state is guarded by NSCondition. An Arc keeps it retained while an
+// already claimed cancellation callback races the body's destruction.
+struct Exchange(usize);
+impl Exchange {
+    fn pointer(&self) -> *mut std::ffi::c_void {
+        self.0 as *mut std::ffi::c_void
+    }
+    fn cancel(&self) {
+        // SAFETY: this Arc owns a retained, thread-safe native exchange.
+        unsafe { ibex2_darwin_http_cancel(self.pointer()) };
+    }
+}
+impl Drop for Exchange {
+    fn drop(&mut self) {
+        // SAFETY: released once, after the final Rust user including callbacks.
+        unsafe { ibex2_darwin_http_release(self.pointer()) };
+    }
+}
+struct DarwinBody {
+    exchange: Arc<Exchange>,
+    _registration: AbortRegistration,
+    last_reused: Arc<AtomicIsize>,
+}
+impl Drop for DarwinBody {
+    fn drop(&mut self) {
+        self.exchange.cancel();
+    }
+}
+impl BodySource for DarwinBody {
+    fn read(&mut self, output: &mut [u8]) -> Result<usize, HostError> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        let (mut count, mut error, mut reused) = (0, std::ptr::null_mut(), -1);
+        // SAFETY: exchange and output span are live for the entire blocking call.
+        let failed = unsafe {
+            ibex2_darwin_http_read(
+                self.exchange.pointer(),
+                output.as_mut_ptr(),
+                output.len(),
+                &mut count,
+                &mut error,
+                &mut reused,
+            )
+        };
+        self.last_reused.store(reused as isize, Ordering::Relaxed);
+        let error = unsafe { take_string(error) };
+        if failed != 0 {
+            Err(HostError::Failed(
+                error.unwrap_or_else(|| "TypeError: Failed to fetch".into()),
+            ))
+        } else {
+            Ok(count)
+        }
+    }
+}
 impl Transport for DarwinTransport {
-    fn send(&self, request: &Request) -> Result<Response, HostError> {
+    fn open(
+        &self,
+        request: &Request,
+        signal: &AbortSignal,
+    ) -> Result<StreamingResponse, HostError> {
+        signal.check()?;
         let method = CString::new(request.method.as_str())
             .map_err(|_| HostError::Failed("TypeError: invalid method".into()))?;
         let url = CString::new(request.url.as_str())
             .map_err(|_| HostError::Failed("TypeError: invalid URL".into()))?;
-
-        let header_block = request
+        let headers = request
             .headers
             .entries()
             .iter()
             .map(|(name, value)| format!("{name}: {value}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let header_block = CString::new(header_block)
+        let headers = CString::new(headers)
             .map_err(|_| HostError::Failed("TypeError: invalid header value".into()))?;
-
-        let (body_ptr, body_len) = match &request.body {
-            Some(body) if !body.is_empty() => (body.as_ptr(), body.len()),
-            _ => (std::ptr::null(), 0),
-        };
-
-        let mut status: c_int = 0;
-        let mut headers_raw: *mut c_char = std::ptr::null_mut();
-        let mut body_raw: *mut c_uchar = std::ptr::null_mut();
-        let mut body_out_len: usize = 0;
-        let mut error_raw: *mut c_char = std::ptr::null_mut();
-        let mut reused: c_int = -1;
-
-        // SAFETY: every pointer is valid for the call; all four out-params are
-        // released below regardless of outcome.
-        let ok = unsafe {
-            ibex2_darwin_http_send(
+        let body = request.body.as_deref().unwrap_or_default();
+        let mut error = std::ptr::null_mut();
+        // SAFETY: native start copies every input and returns a retained exchange.
+        let handle = unsafe {
+            ibex2_darwin_http_start(
                 self.session(),
                 method.as_ptr(),
                 url.as_ptr(),
-                header_block.as_ptr(),
-                body_ptr,
-                body_len,
+                headers.as_ptr(),
+                body.as_ptr(),
+                body.len(),
                 request.body_limit(),
-                &mut status,
-                &mut headers_raw,
-                &mut body_raw,
-                &mut body_out_len,
-                &mut error_raw,
-                &mut reused,
+                &mut error,
             )
         };
-        self.last_reused
-            .store(reused as isize, std::sync::atomic::Ordering::Relaxed);
-
-        let header_text = unsafe { take_string(headers_raw) };
-        let error_text = unsafe { take_string(error_raw) };
-        let body = if body_raw.is_null() || body_out_len == 0 {
-            Vec::new()
-        } else {
-            // SAFETY: the platform side malloc'd exactly body_out_len bytes.
-            let slice = unsafe { std::slice::from_raw_parts(body_raw, body_out_len) };
-            let owned = slice.to_vec();
-            unsafe { ibex2_darwin_free(body_raw as *mut std::ffi::c_void) };
-            owned
-        };
-
-        if ok != 0 {
+        let error = unsafe { take_string(error) };
+        if handle.is_null() {
             return Err(HostError::Failed(
-                error_text.unwrap_or_else(|| "TypeError: Failed to fetch".to_string()),
+                error.unwrap_or_else(|| "TypeError: Failed to fetch".into()),
             ));
         }
-
+        let exchange = Arc::new(Exchange(handle as usize));
+        let cancel = exchange.clone();
+        let registration = signal.register(move || cancel.cancel());
+        let source = DarwinBody {
+            exchange,
+            _registration: registration,
+            last_reused: self.last_reused.clone(),
+        };
+        let (mut status, mut headers, mut error) = (0, std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: source owns the exchange until success transfers it to Body,
+        // or any error drops it and cancels the outstanding task.
+        let failed = unsafe {
+            ibex2_darwin_http_headers(
+                source.exchange.pointer(),
+                &mut status,
+                &mut headers,
+                &mut error,
+            )
+        };
+        let headers_text = unsafe { take_string(headers) }.unwrap_or_default();
+        let error = unsafe { take_string(error) };
+        signal.check()?;
+        if failed != 0 {
+            return Err(HostError::Failed(
+                error.unwrap_or_else(|| "TypeError: Failed to fetch".into()),
+            ));
+        }
         let mut headers = Headers::new();
-        for line in header_text.unwrap_or_default().lines() {
+        for line in headers_text.lines() {
             if let Some((name, value)) = line.split_once(": ") {
                 headers.set_response(name, value);
             }
         }
-
-        Ok(Response {
+        Ok(StreamingResponse {
             status: status as u16,
             status_text: String::new(),
             headers,
-            body,
+            body: Body::new(Box::new(source), request.body_limit(), signal.clone()),
             url: request.url.clone(),
             redirected: false,
         })
@@ -329,3 +391,7 @@ mod session_cost {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "darwin_stream_tests.rs"]
+mod stream_tests;

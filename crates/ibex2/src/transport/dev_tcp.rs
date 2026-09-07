@@ -15,19 +15,19 @@
 //!
 //! @ref LLP 0057#3-the-boundary — the platform owns transport; this stands in for it
 
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use crate::boundary::HostError;
+use crate::stdlib::abort::{AbortRegistration, AbortSignal};
+use crate::stdlib::fetch::{
+    over_limit, Body, BodySource, Headers, Request, StreamingResponse, Transport,
+};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{Shutdown, TcpStream};
 use std::time::Duration;
 
-use crate::boundary::HostError;
-use crate::stdlib::fetch::{over_limit, Headers, Request, Response, Transport};
-
-/// Plaintext HTTP/1.1, one connection per request.
 #[derive(Debug, Default)]
 pub struct DevTcpTransport {
     pub timeout: Option<Duration>,
 }
-
 impl DevTcpTransport {
     pub fn new() -> Self {
         Self {
@@ -35,48 +35,129 @@ impl DevTcpTransport {
         }
     }
 }
-
-/// Head and body arrive down one socket here, so the read loop cannot bound
-/// the body alone; it bounds the head separately and lets the body's own
-/// ceiling (`Request::body_limit`) apply to what follows the blank line.
 const MAX_HEAD: usize = 64 * 1024;
-
-impl Transport for DevTcpTransport {
-    fn send(&self, request: &Request) -> Result<Response, HostError> {
-        let url = url::Url::parse(&request.url)
-            .map_err(|e| HostError::Failed(format!("TypeError: invalid URL: {e}")))?;
-
-        if url.scheme() != "http" {
-            return Err(HostError::Failed(format!(
-                "TypeError: the development transport speaks plaintext http only, not {} — \
-                 TLS belongs to the platform transport",
-                url.scheme()
-            )));
+fn failed(error: impl std::fmt::Display) -> HostError {
+    HostError::Failed(format!("TypeError: Failed to fetch — {error}"))
+}
+fn line(reader: &mut BufReader<TcpStream>, budget: &mut usize) -> Result<Vec<u8>, HostError> {
+    let mut line = Vec::new();
+    reader
+        .take(budget.saturating_add(1) as u64)
+        .read_until(b'\n', &mut line)
+        .map_err(failed)?;
+    if line.len() > *budget {
+        return Err(failed("response head exceeded the limit"));
+    }
+    *budget -= line.len();
+    if !line.ends_with(b"\r\n") {
+        return Err(failed("truncated HTTP framing"));
+    }
+    line.truncate(line.len() - 2);
+    Ok(line)
+}
+enum Framing {
+    Length(u64),
+    Chunked { remaining: u64, separator: bool },
+    Eof,
+    Done,
+}
+struct Source {
+    reader: BufReader<TcpStream>,
+    framing: Framing,
+    _registration: AbortRegistration,
+}
+impl Drop for Source {
+    fn drop(&mut self) {
+        let _ = self.reader.get_ref().shutdown(Shutdown::Both);
+    }
+}
+impl BodySource for Source {
+    fn read(&mut self, out: &mut [u8]) -> Result<usize, HostError> {
+        if out.is_empty() {
+            return Ok(0);
         }
-
-        let host = url
-            .host_str()
-            .ok_or_else(|| HostError::Failed("TypeError: URL has no host".into()))?;
+        let maximum = match &mut self.framing {
+            Framing::Done | Framing::Length(0) => return Ok(0),
+            Framing::Length(n) => (*n).min(out.len() as u64) as usize,
+            Framing::Eof => out.len(),
+            Framing::Chunked {
+                remaining,
+                separator,
+            } => {
+                if *remaining == 0 {
+                    let mut budget = MAX_HEAD;
+                    if *separator && !line(&mut self.reader, &mut budget)?.is_empty() {
+                        return Err(failed("malformed chunk separator"));
+                    }
+                    let size = line(&mut self.reader, &mut budget)?;
+                    let size = std::str::from_utf8(&size)
+                        .map_err(failed)?
+                        .split(';')
+                        .next()
+                        .unwrap();
+                    if size.is_empty() || !size.bytes().all(|b| b.is_ascii_hexdigit()) {
+                        return Err(failed("malformed chunk size"));
+                    }
+                    *remaining = u64::from_str_radix(size, 16).map_err(failed)?;
+                    *separator = true;
+                    if *remaining == 0 {
+                        while !line(&mut self.reader, &mut budget)?.is_empty() {}
+                        self.framing = Framing::Done;
+                        return Ok(0);
+                    }
+                }
+                (*remaining).min(out.len() as u64) as usize
+            }
+        };
+        let n = self.reader.read(&mut out[..maximum]).map_err(failed)?;
+        match &mut self.framing {
+            Framing::Length(left)
+            | Framing::Chunked {
+                remaining: left, ..
+            } => {
+                if n == 0 {
+                    return Err(failed("truncated response body"));
+                }
+                *left -= n as u64;
+            }
+            _ => {}
+        }
+        Ok(n)
+    }
+}
+impl Transport for DevTcpTransport {
+    fn open(
+        &self,
+        request: &Request,
+        signal: &AbortSignal,
+    ) -> Result<StreamingResponse, HostError> {
+        signal.check()?;
+        let url = url::Url::parse(&request.url).map_err(failed)?;
+        if url.scheme() != "http" {
+            return Err(failed(
+                "the development transport speaks plaintext http only",
+            ));
+        }
+        let host = url.host_str().ok_or_else(|| failed("URL has no host"))?;
         let port = url.port_or_known_default().unwrap_or(80);
-
-        let mut stream = TcpStream::connect((host, port))
-            .map_err(|e| HostError::Failed(format!("TypeError: Failed to fetch — {e}")))?;
+        let mut stream = TcpStream::connect((host, port)).map_err(failed)?;
         stream
             .set_read_timeout(self.timeout)
             .and_then(|_| stream.set_write_timeout(self.timeout))
-            .map_err(|e| HostError::Failed(format!("TypeError: Failed to fetch — {e}")))?;
-
-        let mut path = url.path().to_string();
-        if let Some(query) = url.query() {
-            path.push('?');
-            path.push_str(query);
-        }
-
-        // The transport supplies Host, Connection, and Content-Length — which
-        // is exactly why fetch::Headers refuses to let a caller set them.
+            .map_err(failed)?;
+        let socket = stream.try_clone().map_err(failed)?;
+        let registration = signal.register(move || {
+            let _ = socket.shutdown(Shutdown::Both);
+        });
+        signal.check()?;
+        let path = match url.query() {
+            Some(q) => format!("{}?{q}", url.path()),
+            None => url.path().to_owned(),
+        };
+        let authority = &url[url::Position::BeforeHost..url::Position::AfterPort];
         let mut head = format!(
             "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
-            request.method, path, host
+            request.method, path, authority
         );
         for (name, value) in request.headers.entries() {
             head.push_str(&format!("{name}: {value}\r\n"));
@@ -85,167 +166,108 @@ impl Transport for DevTcpTransport {
             head.push_str(&format!("Content-Length: {}\r\n", body.len()));
         }
         head.push_str("\r\n");
-
         stream
             .write_all(head.as_bytes())
             .and_then(|_| match &request.body {
                 Some(body) => stream.write_all(body),
                 None => Ok(()),
             })
-            .and_then(|_| stream.flush())
-            .map_err(|e| HostError::Failed(format!("TypeError: Failed to fetch — {e}")))?;
-
-        // Stop reading at the ceiling rather than discovering afterwards that
-        // it was passed: `raw` holds head and body together, so the bound is
-        // the caller's body limit plus what a head may cost, and returning
-        // here drops the stream and closes the connection on the peer.
-        let limit = request.body_limit();
-        let ceiling = limit.saturating_add(MAX_HEAD);
-        let mut raw = Vec::new();
-        let mut buffer = [0u8; 16 * 1024];
-        let mut head_seen = false;
-        loop {
-            match stream.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
-                    raw.extend_from_slice(&buffer[..n]);
-                    if !head_seen {
-                        match raw.windows(4).position(|w| w == b"\r\n\r\n") {
-                            // The head is complete: a declared length over the
-                            // ceiling is refused now, before the body it
-                            // announces is read.
-                            Some(split) => {
-                                head_seen = true;
-                                let head = String::from_utf8_lossy(&raw[..split]);
-                                if declared_length(&head).is_some_and(|d| d > limit as u64) {
-                                    return Err(over_limit(limit));
-                                }
-                            }
-                            // A head that never ends is a response that never
-                            // starts, and searching a growing buffer for the
-                            // terminator is quadratic if it is allowed to grow.
-                            None if raw.len() > MAX_HEAD => {
-                                return Err(HostError::Failed(
-                                    "TypeError: Failed to fetch — response head exceeded the limit"
-                                        .into(),
-                                ))
-                            }
-                            None => {}
-                        }
-                    }
-                    if raw.len() > ceiling {
-                        return Err(over_limit(limit));
-                    }
-                }
-                Err(e) => {
-                    return Err(HostError::Failed(format!(
-                        "TypeError: Failed to fetch — {e}"
-                    )))
-                }
+            .map_err(failed)?;
+        let mut reader = BufReader::with_capacity(16 * 1024, stream);
+        let mut budget = MAX_HEAD;
+        let (status, status_text, headers, length, chunked) = loop {
+            let status_line = line(&mut reader, &mut budget)?;
+            let status_line = std::str::from_utf8(&status_line).map_err(failed)?;
+            let mut parts = status_line.splitn(3, ' ');
+            if !matches!(parts.next(), Some("HTTP/1.0" | "HTTP/1.1")) {
+                return Err(failed("bad HTTP version"));
             }
-        }
-
-        let response = parse_response(&raw, &request.url)?;
-        // The head was not free: a 63 KB head under a 64 KB limit would
-        // otherwise let a 64 KB body through the ceiling above.
-        if response.body.len() > limit {
+            let status: u16 = parts
+                .next()
+                .and_then(|s| s.parse().ok())
+                .filter(|n| (100..600).contains(n))
+                .ok_or_else(|| failed("bad status"))?;
+            let status_text = parts.next().unwrap_or("").to_owned();
+            let mut headers = Headers::new();
+            let mut length = None;
+            let mut chunked = false;
+            loop {
+                let bytes = line(&mut reader, &mut budget)?;
+                if bytes.is_empty() {
+                    break;
+                }
+                let text = std::str::from_utf8(&bytes).map_err(failed)?;
+                let (name, value) = text
+                    .split_once(':')
+                    .ok_or_else(|| failed("malformed header"))?;
+                if name.eq_ignore_ascii_case("content-length") {
+                    let n: u64 = value.trim().parse().map_err(failed)?;
+                    if length.is_some_and(|old| old != n) {
+                        return Err(failed("conflicting Content-Length"));
+                    }
+                    length = Some(n);
+                }
+                if name.eq_ignore_ascii_case("transfer-encoding") {
+                    if chunked || !value.trim().eq_ignore_ascii_case("chunked") {
+                        return Err(failed("unsupported transfer encoding"));
+                    }
+                    chunked = true;
+                }
+                headers.set_response(name, value);
+            }
+            if status == 101 {
+                return Err(failed("protocol upgrades are unsupported"));
+            }
+            if status >= 200 {
+                break (status, status_text, headers, length, chunked);
+            }
+        };
+        signal.check()?;
+        let no_body = request.method == "HEAD" || matches!(status, 204 | 304);
+        let limit = request.body_limit();
+        if !no_body && !chunked && length.is_some_and(|n| n > limit as u64) {
             return Err(over_limit(limit));
         }
-        Ok(response)
-    }
-}
-
-/// What the head says the body will be, if it says. The peer's claim, worth
-/// acting on only to refuse early — what arrives is checked either way.
-fn declared_length(head: &str) -> Option<u64> {
-    head.split("\r\n")
-        .skip(1)
-        .filter_map(|line| line.split_once(':'))
-        .find(|(name, _)| name.trim().eq_ignore_ascii_case("content-length"))
-        .and_then(|(_, value)| value.trim().parse().ok())
-}
-
-pub(crate) fn parse_response(raw: &[u8], url: &str) -> Result<Response, HostError> {
-    let split = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or_else(|| {
-            HostError::Failed("TypeError: Failed to fetch — malformed response".into())
-        })?;
-    let head = String::from_utf8_lossy(&raw[..split]);
-    let body = raw[split + 4..].to_vec();
-
-    let mut lines = head.split("\r\n");
-    let status_line = lines
-        .next()
-        .ok_or_else(|| HostError::Failed("TypeError: Failed to fetch — empty response".into()))?;
-
-    let mut parts = status_line.splitn(3, ' ');
-    let _version = parts.next();
-    let status: u16 = parts
-        .next()
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| HostError::Failed("TypeError: Failed to fetch — bad status".into()))?;
-    let status_text = parts.next().unwrap_or("").to_string();
-
-    let mut headers = Headers::new();
-    for line in lines {
-        if line.is_empty() {
-            continue;
+        if chunked && length.is_some() {
+            return Err(failed("ambiguous HTTP framing"));
         }
-        if let Some((name, value)) = line.split_once(':') {
-            // set_response, not set: a response legitimately carries
-            // content-length and connection, which a request may not.
-            headers.set_response(name, value);
-        }
+        let framing = if no_body {
+            Framing::Done
+        } else if chunked {
+            Framing::Chunked {
+                remaining: 0,
+                separator: false,
+            }
+        } else {
+            length.map(Framing::Length).unwrap_or(Framing::Eof)
+        };
+        Ok(StreamingResponse {
+            status,
+            status_text,
+            headers,
+            body: Body::new(
+                Box::new(Source {
+                    reader,
+                    framing,
+                    _registration: registration,
+                }),
+                limit,
+                signal.clone(),
+            ),
+            url: request.url.clone(),
+            redirected: false,
+        })
     }
-
-    Ok(Response {
-        status,
-        status_text,
-        headers,
-        body,
-        url: url.to_string(),
-        redirected: false,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_a_normal_response() {
-        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello";
-        let got = parse_response(raw, "http://x/").unwrap();
-        assert_eq!(got.status, 200);
-        assert_eq!(got.status_text, "OK");
-        assert_eq!(got.headers.get("content-type"), Some("text/plain"));
-        assert_eq!(got.text(), "hello");
-        assert!(got.ok());
-    }
-
-    #[test]
-    fn parses_a_response_with_no_body() {
-        let raw = b"HTTP/1.1 204 No Content\r\n\r\n";
-        let got = parse_response(raw, "http://x/").unwrap();
-        assert_eq!(got.status, 204);
-        assert!(got.body.is_empty());
-    }
-
-    #[test]
-    fn a_malformed_response_is_an_error_not_a_panic() {
-        assert!(parse_response(b"garbage", "http://x/").is_err());
-        assert!(parse_response(b"", "http://x/").is_err());
-    }
-
     #[test]
     fn https_is_refused_rather_than_downgraded() {
-        let transport = DevTcpTransport::new();
-        let err = transport
+        let error = DevTcpTransport::new()
             .send(&Request::get("https://example.com/"))
             .unwrap_err();
-        let text = format!("{err}");
-        assert!(text.contains("plaintext http only"), "unexpected: {text}");
+        assert!(error.to_string().contains("plaintext http only"));
     }
 }

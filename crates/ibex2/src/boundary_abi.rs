@@ -146,6 +146,7 @@ pub enum Op {
     PerformanceNow = 63,
     CryptoRandomUuid = 70,
     CryptoGetRandomValues = 71,
+    FetchControl = 72,
 }
 
 impl Op {
@@ -190,6 +191,7 @@ impl Op {
             63 => Op::PerformanceNow,
             70 => Op::CryptoRandomUuid,
             71 => Op::CryptoGetRandomValues,
+            72 => Op::FetchControl,
             _ => return None,
         })
     }
@@ -293,6 +295,33 @@ fn dispatch(
 
     match op {
         Op::CryptoRandomUuid => crypto::random_uuid().map(HostValue::Str),
+        Op::FetchControl => {
+            let state = state.ok_or_else(|| HostError::Failed("no runtime state".into()))?;
+            match args.first() {
+                Some(HostArg::Number(0.0)) => Ok(HostValue::Number(state.create_control() as f64)),
+                Some(HostArg::Number(action)) if *action == 1.0 || *action == 2.0 => {
+                    let handle = match args.get(1) {
+                        Some(HostArg::Number(n)) => valid_handle(*n)?,
+                        _ => {
+                            return Err(HostError::InvalidArgument(
+                                "fetch control handle expected".into(),
+                            ))
+                        }
+                    };
+                    if *action == 1.0 {
+                        if let Some(control) = state.control(handle) {
+                            control.abort();
+                        }
+                    } else {
+                        state.release_control(handle);
+                    }
+                    Ok(HostValue::Undefined)
+                }
+                _ => Err(HostError::InvalidArgument(
+                    "unknown fetch control operation".into(),
+                )),
+            }
+        }
         Op::Btoa => base64::btoa(first_str("btoa")?).map(HostValue::Str),
         Op::Atob => base64::atob(first_str("atob")?).map(HostValue::Str),
         Op::TextEncode => Ok(HostValue::Bytes(text::encode(first_str("encode")?))),
@@ -621,17 +650,13 @@ pub unsafe extern "C" fn ibex2_response_field(
     let Some(state) = crate::task::clone_queue(state) else {
         return fail(out, "no runtime state");
     };
-    let handle = handle as u64;
-
-    // Field 4 consumes the response, moving the body out rather than copying.
-    if field == 4 {
-        return match state.take_response(handle) {
-            Some(response) => {
-                *out = leak_value(HostValue::Bytes(response.body));
-                0
-            }
-            None => fail(out, "TypeError: body already consumed or unknown response"),
-        };
+    let handle = match valid_handle(handle) {
+        Ok(handle) => handle,
+        Err(err) => return fail(out, &err.to_string()),
+    };
+    if field == 8 {
+        state.cancel_response(handle);
+        return 0;
     }
 
     let result = state.with_response(handle, |response| match field {
@@ -735,11 +760,16 @@ pub unsafe extern "C" fn ibex2_async_begin(
     // Counted before the thread starts, so the loop cannot see an idle moment
     // between "started" and "running".
     state.task_started();
-    crate::pool::run(move || {
+    let work = move || {
         let result = run_async(op, &owned, &state, &grants);
         state.queue.complete(task_id, result);
         state.task_finished();
-    });
+    };
+    if op == AsyncOp::ReadBody {
+        crate::pool::run_body(work);
+    } else {
+        crate::pool::run(work);
+    }
     0
 }
 
@@ -752,6 +782,7 @@ enum AsyncOp {
     Echo = 100,
     /// `fetch`. Resolves with a response handle, never with a serialized body.
     Fetch = 101,
+    ReadBody = 102,
     /// `fs`, one op per method. Delegating and capability-bearing, so it leaves
     /// the JavaScript thread like fetch does — LLP 0059.000 §3.11 has no
     /// synchronous variants on purpose.
@@ -772,6 +803,7 @@ impl AsyncOp {
         match value {
             100 => Some(AsyncOp::Echo),
             101 => Some(AsyncOp::Fetch),
+            102 => Some(AsyncOp::ReadBody),
             110 => Some(AsyncOp::FsReadFile),
             111 => Some(AsyncOp::FsWriteFile),
             112 => Some(AsyncOp::FsAppendFile),
@@ -784,6 +816,14 @@ impl AsyncOp {
             119 => Some(AsyncOp::FsRealpath),
             _ => None,
         }
+    }
+}
+
+fn valid_handle(n: f64) -> Result<u64, HostError> {
+    if n.fract() == 0.0 && (1.0..=9_007_199_254_740_991.0).contains(&n) {
+        Ok(n as u64)
+    } else {
+        Err(HostError::InvalidArgument("invalid handle".into()))
     }
 }
 
@@ -847,10 +887,38 @@ fn run_async(
                     ));
                 }
             }
-            let response = crate::stdlib::fetch::fetch(state.transport(), grants, request)?;
-            // The handle, not the response. §1.1.
-            Ok(HostValue::Number(state.store_response(response) as f64))
+            let control = match args.get(5) {
+                None | Some(HostValue::Undefined) => crate::stdlib::abort::AbortController::new(),
+                Some(HostValue::Number(n)) => state
+                    .control(valid_handle(*n)?)
+                    .ok_or_else(|| HostError::InvalidArgument("unknown fetch control".into()))?,
+                _ => {
+                    return Err(HostError::InvalidArgument(
+                        "fetch control handle expected".into(),
+                    ))
+                }
+            };
+            let response = crate::stdlib::fetch::fetch_stream(
+                state.transport(),
+                grants,
+                request,
+                &control.signal(),
+            )?;
+            Ok(HostValue::Number(state.store_response(
+                response,
+                control,
+                match args.get(5) {
+                    Some(HostValue::Number(n)) => Some(*n as u64),
+                    _ => None,
+                },
+            ) as f64))
         }
+        AsyncOp::ReadBody => match args.first() {
+            Some(HostValue::Number(n)) => state.read_response(valid_handle(*n)?),
+            _ => Err(HostError::InvalidArgument(
+                "response handle expected".into(),
+            )),
+        },
         AsyncOp::Echo => {
             let text = match args.first() {
                 Some(HostValue::Str(text)) => text.clone(),
@@ -1238,12 +1306,16 @@ pub unsafe extern "C" fn ibex2_string_free(value: *mut std::ffi::c_char) {
 #[cfg(test)]
 mod fetch_header_tests {
     use super::*;
-    use crate::stdlib::fetch::{Headers, Request, Response, Transport};
+    use crate::stdlib::fetch::{Headers, Request, Transport};
     use crate::task::RuntimeState;
 
     struct NoRequests;
     impl Transport for NoRequests {
-        fn send(&self, _: &Request) -> Result<Response, HostError> {
+        fn open(
+            &self,
+            _: &Request,
+            _: &crate::stdlib::abort::AbortSignal,
+        ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
             panic!("invalid headers reached the transport");
         }
     }

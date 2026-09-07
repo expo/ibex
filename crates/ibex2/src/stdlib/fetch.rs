@@ -15,6 +15,8 @@
 //! @ref LLP 0059.000#35-fetch--delegating-capability-bearing — the surface this implements
 //! @ref LLP 0057#3-the-boundary — Rust owns semantics, the platform owns transport
 
+use super::abort::AbortSignal;
+pub use super::fetch_body::{Body, BodySource, StreamingResponse};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation, Origin};
 
@@ -23,11 +25,8 @@ pub const MAX_REDIRECTS: u32 = 20;
 
 /// The response ceiling a transport applies when the caller names none.
 ///
-/// v1 buffers bodies whole (LLP 0059.000 §5), so a ceiling is not a tuning
-/// knob: without one, a peer that answers a request and never stops sending
-/// exhausts the process, and the runtime handed that out for free. Sixty-four
-/// megabytes is the number every transport already used privately; it lives
-/// here now so the three of them cannot drift apart.
+/// Applies to both buffered helpers and cumulative stream consumption.
+/// Backpressure bounds unread data independently of this total byte ceiling.
 pub const DEFAULT_MAX_BODY: usize = 64 * 1024 * 1024;
 
 /// The one spelling of "the response was too big", so a caller sees the same
@@ -246,8 +245,6 @@ pub struct Request {
     /// **Enforced while the bytes arrive, never after.** A check on a body
     /// already in memory has paid for the attack it was meant to refuse, so a
     /// transport that cannot stop mid-response cannot honor this field.
-    /// Nothing here contradicts §5's "bodies buffer whole": the body is still
-    /// delivered whole, the buffer just has a lid the caller chose.
     pub max_body: Option<usize>,
 }
 
@@ -301,7 +298,11 @@ pub trait Transport: Send + Sync {
     /// declared length already over it is refused before the body is read at
     /// all. Only the transport holds the socket, so this is the one rung where
     /// the ceiling can be enforced rather than observed after the fact.
-    fn send(&self, request: &Request) -> Result<Response, HostError>;
+    fn open(&self, request: &Request, signal: &AbortSignal)
+        -> Result<StreamingResponse, HostError>;
+    fn send(&self, request: &Request) -> Result<Response, HostError> {
+        self.open(request, &AbortSignal::default())?.collect()
+    }
 }
 
 /// Extract the origin a URL belongs to, for the capability check.
@@ -332,11 +333,21 @@ pub fn fetch(
     grants: &GrantSet,
     request: Request,
 ) -> Result<Response, HostError> {
+    fetch_stream(transport, grants, request, &AbortSignal::default())?.collect()
+}
+
+pub fn fetch_stream(
+    transport: &dyn Transport,
+    grants: &GrantSet,
+    request: Request,
+    signal: &AbortSignal,
+) -> Result<StreamingResponse, HostError> {
     let mut current = request;
     let mut redirects = 0;
     let mut redirected = false;
 
     loop {
+        signal.check()?;
         let origin = origin_of(&current.url)?;
         // Through boundary::admit, not an inline permits() check: the
         // capability name and the shape of a denial belong in one place, or
@@ -348,7 +359,9 @@ pub fn fetch(
         // request — not in Headers::set, where the guard is "none".
         let mut guarded = current.clone();
         guarded.headers = current.headers.for_request();
-        let mut response = transport.send(&guarded)?;
+        let result = transport.open(&guarded, signal);
+        signal.check()?;
+        let mut response = result?;
         response.redirected = redirected;
 
         let is_redirect = matches!(response.status, 301 | 302 | 303 | 307 | 308);
@@ -427,7 +440,11 @@ mod tests {
     }
 
     impl Transport for StubTransport {
-        fn send(&self, request: &Request) -> Result<Response, HostError> {
+        fn open(
+            &self,
+            request: &Request,
+            signal: &AbortSignal,
+        ) -> Result<StreamingResponse, HostError> {
             self.seen
                 .lock()
                 .unwrap()
@@ -436,7 +453,9 @@ mod tests {
             if responses.is_empty() {
                 return Err(HostError::Failed("stub ran out of responses".into()));
             }
-            Ok(responses.remove(0))
+            Ok(responses
+                .remove(0)
+                .into_stream(request.body_limit(), signal.clone()))
         }
     }
 
@@ -457,6 +476,41 @@ mod tests {
 
     fn granted(host: &str) -> GrantSet {
         GrantSet::none().with(Grant::Fetch(Origin::new("https", host, 443)))
+    }
+
+    #[test]
+    fn preaborted_fetch_never_reaches_transport() {
+        let transport = StubTransport::new(vec![]);
+        let controller = crate::stdlib::abort::AbortController::new();
+        controller.abort();
+        assert!(fetch_stream(
+            &transport,
+            &granted("example.com"),
+            Request::get("https://example.com/"),
+            &controller.signal()
+        )
+        .unwrap_err()
+        .to_string()
+        .starts_with("AbortError"));
+        assert!(transport.seen().is_empty());
+    }
+
+    #[test]
+    fn streamed_redirect_keeps_admission_and_does_not_collect_redirect_body() {
+        let mut redirect = response(302, Some("https://other.example/"));
+        redirect.body = vec![1; 100];
+        let transport = StubTransport::new(vec![redirect, response(200, None)]);
+        let mut request = Request::get("https://example.com/");
+        request.max_body = Some(4);
+        let error = fetch_stream(
+            &transport,
+            &granted("example.com"),
+            request,
+            &AbortSignal::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(error, HostError::Denied { .. }));
+        assert_eq!(transport.seen().len(), 1);
     }
 
     #[test]

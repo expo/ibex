@@ -16,7 +16,7 @@ pub use dev_tcp::DevTcpTransport;
 pub mod darwin;
 #[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(any(not(target_vendor = "apple"), test))]
 pub mod rustls_http;
 #[cfg(not(target_vendor = "apple"))]
 pub use rustls_http::RustlsHttpTransport;
@@ -39,3 +39,6 @@ pub fn default_transport() -> Box<dyn crate::stdlib::fetch::Transport> {
         Box::new(RustlsHttpTransport::new())
     }
 }
+
+#[cfg(test)]
+mod stream_tests;

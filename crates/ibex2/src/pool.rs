@@ -21,6 +21,8 @@ struct Pool {
     idle: AtomicUsize,
     /// Workers alive.
     total: AtomicUsize,
+    pending: AtomicUsize,
+    max: usize,
 }
 
 /// Workers kept alive through a quiet spell, so the common case never spawns.
@@ -31,34 +33,60 @@ const MAX: usize = 64;
 const IDLE: Duration = Duration::from_secs(10);
 
 static POOL: OnceLock<Pool> = OnceLock::new();
+static BODY_POOL: OnceLock<Pool> = OnceLock::new();
 
-fn pool() -> &'static Pool {
-    POOL.get_or_init(|| {
+fn pool(cell: &'static OnceLock<Pool>, max: usize) -> &'static Pool {
+    cell.get_or_init(|| {
         let (sender, receiver) = mpsc::channel();
         Pool {
             sender: Mutex::new(sender),
             receiver: Arc::new(Mutex::new(receiver)),
             idle: AtomicUsize::new(0),
             total: AtomicUsize::new(0),
+            pending: AtomicUsize::new(0),
+            max,
         }
     })
 }
 
 /// Run `job` on a worker, spawning one if none is free and the cap allows.
 pub fn run(job: impl FnOnce() + Send + 'static) {
-    let pool = pool();
+    run_on(pool(&POOL, MAX), job);
+}
+
+/// Reserve four workers for body reads: queued opens waiting for native session
+/// leases must never occupy every worker that can drain and release those leases.
+/// This is the JS host executor only; Rust consumers still choose their executor.
+pub fn run_body(job: impl FnOnce() + Send + 'static) {
+    run_on(pool(&BODY_POOL, 4), job);
+}
+
+fn run_on(pool: &'static Pool, job: impl FnOnce() + Send + 'static) {
+    pool.pending.fetch_add(1, Ordering::AcqRel);
     pool.sender
         .lock()
         .expect("pool poisoned")
         .send(Box::new(job))
         .expect("the pool's receiver lives for the process");
-    if pool.idle.load(Ordering::Acquire) == 0 && pool.total.load(Ordering::Acquire) < MAX {
+    ensure_worker(pool);
+}
+
+fn ensure_worker(pool: &'static Pool) {
+    if pool.pending.load(Ordering::Acquire) > pool.idle.load(Ordering::Acquire) {
         spawn_worker(pool);
     }
 }
 
 fn spawn_worker(pool: &'static Pool) {
-    pool.total.fetch_add(1, Ordering::AcqRel);
+    if pool
+        .total
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |total| {
+            (total < pool.max).then_some(total + 1)
+        })
+        .is_err()
+    {
+        return;
+    }
     let receiver = Arc::clone(&pool.receiver);
     std::thread::Builder::new()
         .name("ibex2-host-task".into())
@@ -69,7 +97,13 @@ fn spawn_worker(pool: &'static Pool) {
             let next = receiver.lock().expect("pool poisoned").recv_timeout(IDLE);
             pool.idle.fetch_sub(1, Ordering::AcqRel);
             match next {
-                Ok(job) => job(),
+                Ok(job) => {
+                    pool.pending.fetch_sub(1, Ordering::AcqRel);
+                    // A burst may have arrived while this worker still counted
+                    // as idle. Recheck before this job can block.
+                    ensure_worker(pool);
+                    job();
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     // Quiet: keep a few, let the rest go.
                     if pool.total.load(Ordering::Acquire) > KEEP {
@@ -90,6 +124,43 @@ fn spawn_worker(pool: &'static Pool) {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn blocked_host_jobs_cannot_starve_body_reads() {
+        let wake = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (entered, waiting) = mpsc::channel();
+        let (finished, finish) = mpsc::channel();
+        let mut all_entered = true;
+        for _ in 0..MAX {
+            let wake = wake.clone();
+            let entered = entered.clone();
+            let finished = finished.clone();
+            run(move || {
+                entered.send(()).unwrap();
+                let (lock, changed) = &*wake;
+                let guard = lock.lock().unwrap();
+                let _guard = changed.wait_while(guard, |released| !*released).unwrap();
+                finished.send(()).unwrap();
+            });
+            if waiting.recv_timeout(Duration::from_secs(5)).is_err() {
+                all_entered = false;
+                break;
+            }
+        }
+        let (read, observed) = mpsc::channel();
+        run_body(move || {
+            read.send(()).unwrap();
+        });
+        let progressed = observed.recv_timeout(Duration::from_secs(2)).is_ok();
+        // Always release the workers, even when the assertion will fail.
+        let (lock, changed) = &*wake;
+        *lock.lock().unwrap() = true;
+        changed.notify_all();
+        drop(finished);
+        for _ in finish {}
+        assert!(all_entered, "could not occupy host workers");
+        assert!(progressed, "body read starved behind blocked fetch opens");
+    }
 
     #[test]
     fn jobs_run_and_a_burst_does_not_serialize() {

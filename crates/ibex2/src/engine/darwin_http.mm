@@ -41,225 +41,204 @@ char *dup_utf8(NSString *value) {
 
 } // namespace
 
-/// One in-flight request: what came back, and the ceiling it may not pass.
-///
-/// Every field is written on the session's delegate queue — which is serial,
-/// so the callbacks below need no lock among themselves — and read by the
-/// calling thread only after `done` is signalled, which is the happens-before
-/// edge that makes the handoff safe.
+// Four serial delegate queues provide bounded native concurrency. Each session
+// is leased until native completion; its connection pool survives.
+@interface Ibex2SessionPool : NSObject
+@property(nonatomic, strong) NSCondition *condition;
+@property(nonatomic, strong) NSMutableArray<NSURLSession *> *idle;
+@property(nonatomic, assign) NSUInteger count;
+@end
+@implementation Ibex2SessionPool
+- (instancetype)init {
+  if ((self = [super init])) { _condition = [[NSCondition alloc] init]; _idle = [NSMutableArray array]; }
+  return self;
+}
+- (void)returnSession:(NSURLSession *)session {
+  [self.condition lock];
+  [self.idle addObject:session];
+  [self.condition broadcast];
+  [self.condition unlock];
+}
+- (void)dealloc { for (NSURLSession *session in _idle) [session finishTasksAndInvalidate]; }
+@end
+
+// A task owns its exchange until completion; Rust independently retains the
+// exchange until its body and cancellation registration are both gone. Every
+// state access uses condition, including callbacks on the shared delegate queue.
 @interface Ibex2Exchange : NSObject
-@property(nonatomic, assign) NSUInteger limit;
-@property(nonatomic, strong) NSMutableData *body;
+@property(nonatomic, strong) NSCondition *condition;
+@property(nonatomic, strong) NSMutableData *bytes;
 @property(nonatomic, strong) NSHTTPURLResponse *response;
 @property(nonatomic, strong) NSString *failure;
+@property(nonatomic, strong) NSURLSessionDataTask *task;
+@property(nonatomic, assign) NSUInteger limit;
+@property(nonatomic, assign) NSUInteger received;
 @property(nonatomic, assign) BOOL finished;
-@property(nonatomic, strong) dispatch_semaphore_t done;
+@property(nonatomic, strong) Ibex2SessionPool *pool;
+@property(nonatomic, strong) NSURLSession *session;
+@property(nonatomic, strong) NSURLRequest *request;
+@property(nonatomic, assign) BOOL nativeComplete;
+@property(nonatomic, assign) int reused;
 @end
 
 @implementation Ibex2Exchange
 - (instancetype)initWithLimit:(NSUInteger)limit {
   if ((self = [super init])) {
+    _condition = [[NSCondition alloc] init];
+    _bytes = [NSMutableData data];
     _limit = limit;
-    _body = [NSMutableData data];
-    _done = dispatch_semaphore_create(0);
+    _reused = -1;
   }
   return self;
 }
-
-/// First finish wins, and nothing after it may touch the exchange. A refusal
-/// and the cancellation error it causes both arrive here; the refusal is the
-/// one the caller should see.
+// Caller holds condition. Recycle only after all old callbacks have finished.
+// The exchange owns any buffered bytes independently of the pooled session.
+- (void)recycle {
+  if (self.nativeComplete && self.session != nil) {
+    [self.pool returnSession:self.session];
+    self.session = nil;
+  }
+}
+// Caller holds condition. Error takes precedence over already buffered bytes.
 - (void)finishWith:(NSString *)failure {
-  if (self.finished) {
-    return;
-  }
-  if (failure != nil) {
+  if (!self.finished) {
     self.failure = failure;
+    self.finished = YES;
+    [self.condition broadcast];
   }
-  self.finished = YES;
-  dispatch_semaphore_signal(self.done);
 }
 @end
 
-/// Refuses redirects so Rust keeps redirect policy and the per-hop capability
-/// check, and holds each in-flight request to the byte ceiling it was given.
-///
-/// **The ceiling is why the body arrives through delegate callbacks instead of
-/// a completion handler.** `dataTaskWithRequest:completionHandler:` hands over
-/// one `NSData` that is already fully buffered: by the time it can be measured
-/// the memory has been spent, which is the whole of what the ceiling exists to
-/// prevent. `didReceiveData:` is the rung where a response can still be
-/// refused, so that is the rung the limit is enforced at.
 @interface Ibex2NoRedirect : NSObject <NSURLSessionDataDelegate>
-/// taskIdentifier -> whether that task rode an already-open connection.
-@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSNumber *> *reused;
-/// taskIdentifier -> the in-flight exchange, entered before `resume`.
-@property(nonatomic, strong)
-    NSMutableDictionary<NSNumber *, Ibex2Exchange *> *exchanges;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, Ibex2Exchange *> *exchanges;
 @property(nonatomic, strong) NSLock *lock;
 @end
 
 @implementation Ibex2NoRedirect
 - (instancetype)init {
   if ((self = [super init])) {
-    _reused = [NSMutableDictionary dictionary];
     _exchanges = [NSMutableDictionary dictionary];
     _lock = [[NSLock alloc] init];
   }
   return self;
 }
-
-/// Registered from the calling thread before the task is resumed, so no
-/// callback can arrive for a task the delegate does not yet know about.
 - (void)track:(Ibex2Exchange *)exchange for:(NSUInteger)identifier {
   [self.lock lock];
   self.exchanges[@(identifier)] = exchange;
   [self.lock unlock];
 }
-
 - (Ibex2Exchange *)exchangeFor:(NSUInteger)identifier {
   [self.lock lock];
   Ibex2Exchange *exchange = self.exchanges[@(identifier)];
   [self.lock unlock];
   return exchange;
 }
-
-- (void)forget:(NSUInteger)identifier {
-  [self.lock lock];
-  [self.exchanges removeObjectForKey:@(identifier)];
-  [self.lock unlock];
-}
-
-/// A declared length already over the ceiling is refused before the body is
-/// read at all — `NSURLSessionResponseCancel` means the bytes never come.
 - (void)URLSession:(NSURLSession *)session
               dataTask:(NSURLSessionDataTask *)dataTask
     didReceiveResponse:(NSURLResponse *)response
-     completionHandler:
-         (void (^)(NSURLSessionResponseDisposition))completionHandler {
+     completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
   Ibex2Exchange *exchange = [self exchangeFor:dataTask.taskIdentifier];
-  if (exchange == nil) {
-    completionHandler(NSURLSessionResponseAllow);
-    return;
-  }
-  if (![response isKindOfClass:[NSHTTPURLResponse class]]) {
-    [exchange finishWith:@"TypeError: Failed to fetch — no response"];
-    completionHandler(NSURLSessionResponseCancel);
-    return;
-  }
-  exchange.response = (NSHTTPURLResponse *)response;
-  if (response.expectedContentLength != NSURLResponseUnknownLength &&
-      response.expectedContentLength > (long long)exchange.limit) {
-    [exchange
-        finishWith:[NSString stringWithFormat:
-                                 @"TypeError: Failed to fetch — response "
-                                 @"exceeded the %lu-byte limit",
-                                 (unsigned long)exchange.limit]];
-    completionHandler(NSURLSessionResponseCancel);
-    return;
-  }
-  completionHandler(NSURLSessionResponseAllow);
-}
-
-/// And again on what actually arrives: Content-Length is the peer's claim, and
-/// a chunked response makes no claim at all. Cancelling here stops the
-/// transfer rather than merely declining to keep the rest of it.
-- (void)URLSession:(NSURLSession *)session
-          dataTask:(NSURLSessionDataTask *)dataTask
-    didReceiveData:(NSData *)data {
-  Ibex2Exchange *exchange = [self exchangeFor:dataTask.taskIdentifier];
+  [exchange.condition lock];
   if (exchange == nil || exchange.finished) {
+    [exchange.condition unlock];
+    completionHandler(NSURLSessionResponseCancel);
     return;
   }
-  if (exchange.body.length + data.length > exchange.limit) {
-    [exchange
-        finishWith:[NSString stringWithFormat:
-                                 @"TypeError: Failed to fetch — response "
-                                 @"exceeded the %lu-byte limit",
-                                 (unsigned long)exchange.limit]];
-    [dataTask cancel];
-    return;
+  BOOL isHTTP = [response isKindOfClass:[NSHTTPURLResponse class]];
+  NSInteger status = isHTTP ? ((NSHTTPURLResponse *)response).statusCode : 0;
+  // HEAD and null-body statuses describe a representation's length, not bytes
+  // to receive. Enforce declared length only when the response has a body.
+  BOOL hasBody = ![exchange.request.HTTPMethod isEqualToString:@"HEAD"] &&
+      status >= 200 && status != 204 && status != 205 && status != 304;
+  if (!isHTTP) {
+    [exchange finishWith:@"TypeError: Failed to fetch — no response"];
+  } else if (hasBody && response.expectedContentLength >= 0 &&
+             (unsigned long long)response.expectedContentLength > exchange.limit) {
+    [exchange finishWith:[NSString stringWithFormat:
+        @"TypeError: Failed to fetch — response exceeded the %lu-byte limit",
+        (unsigned long)exchange.limit]];
+  } else {
+    exchange.response = (NSHTTPURLResponse *)response;
+    [exchange.condition broadcast];
   }
-  [exchange.body appendData:data];
+  BOOL failed = exchange.finished;
+  [exchange.condition unlock];
+  // Prefetch through the bounded handoff: small completed bodies return their
+  // lease without forcing a consumer to read them first.
+  completionHandler(failed ? NSURLSessionResponseCancel : NSURLSessionResponseAllow);
 }
-
 - (void)URLSession:(NSURLSession *)session
-                    task:(NSURLSessionTask *)task
+          dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+  Ibex2Exchange *exchange = [self exchangeFor:dataTask.taskIdentifier];
+  [exchange.condition lock];
+  if (exchange == nil || exchange.finished) {
+    [exchange.condition unlock];
+    return;
+  }
+  const NSUInteger capacity = 64 * 1024;
+  if (data.length > exchange.limit - exchange.received) {
+    [exchange finishWith:[NSString stringWithFormat:
+        @"TypeError: Failed to fetch — response exceeded the %lu-byte limit",
+        (unsigned long)exchange.limit]];
+    [dataTask cancel];
+  } else {
+    exchange.received += data.length;
+    NSUInteger offset = 0;
+    while (offset < data.length && !exchange.finished) {
+      while (exchange.bytes.length == capacity && !exchange.finished)
+        [exchange.condition wait];
+      if (exchange.finished) break;
+      NSUInteger amount = MIN(data.length - offset, capacity - exchange.bytes.length);
+      [exchange.bytes appendBytes:(const unsigned char *)data.bytes + offset length:amount];
+      offset += amount;
+      [exchange.condition broadcast];
+    }
+  }
+  [exchange.condition unlock];
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
     didCompleteWithError:(NSError *)error {
   Ibex2Exchange *exchange = [self exchangeFor:task.taskIdentifier];
-  if (exchange == nil) {
-    return;
-  }
-  if (error != nil && !exchange.finished) {
-    [exchange finishWith:[NSString stringWithFormat:
-                                       @"TypeError: Failed to fetch — %@",
-                                       error.localizedDescription]];
-    return;
-  }
-  if (exchange.response == nil && !exchange.finished) {
-    [exchange finishWith:@"TypeError: Failed to fetch — no response"];
-    return;
-  }
-  [exchange finishWith:nil];
+  [exchange.condition lock];
+  NSString *failure = error == nil ? nil : [NSString stringWithFormat:
+      @"TypeError: Failed to fetch — %@", error.localizedDescription];
+  if (failure == nil && exchange.response == nil)
+    failure = @"TypeError: Failed to fetch — no response";
+  exchange.task = nil;
+  [self.lock lock];
+  [self.exchanges removeObjectForKey:@(task.taskIdentifier)];
+  [self.lock unlock];
+  exchange.nativeComplete = YES;
+  [exchange recycle];
+  // Publish EOF after the lease is returned, so sequential requests can reuse
+  // the completed connection without racing the final delegate bookkeeping.
+  [exchange finishWith:failure];
+  [exchange.condition unlock];
 }
-
-/// Records whether the connection was reused, so "the pool works" can be
-/// asserted directly instead of inferred from a latency threshold. Timing
-/// cannot tell a pooled request from a fast handshake, and picking a
-/// millisecond number to separate them makes the test fail when the network
-/// is slow rather than when the pool is broken.
-- (void)URLSession:(NSURLSession *)session
-                          task:(NSURLSessionTask *)task
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
     didFinishCollectingMetrics:(NSURLSessionTaskMetrics *)metrics {
+  Ibex2Exchange *exchange = [self exchangeFor:task.taskIdentifier];
   NSURLSessionTaskTransactionMetrics *last = metrics.transactionMetrics.lastObject;
-  if (last == nil) {
-    return;
-  }
-  [self.lock lock];
-  self.reused[@(task.taskIdentifier)] = @(last.reusedConnection);
-  [self.lock unlock];
+  [exchange.condition lock];
+  if (last != nil) exchange.reused = last.reusedConnection ? 1 : 0;
+  [exchange.condition unlock];
 }
-
-/// Take the recorded flag, or -1 if metrics never arrived.
-- (int)takeReusedFor:(NSUInteger)identifier {
-  [self.lock lock];
-  NSNumber *value = self.reused[@(identifier)];
-  [self.reused removeObjectForKey:@(identifier)];
-  [self.lock unlock];
-  if (value == nil) {
-    return -1;
-  }
-  return [value boolValue] ? 1 : 0;
-}
-- (void)URLSession:(NSURLSession *)session
-                          task:(NSURLSessionTask *)task
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
     willPerformHTTPRedirection:(NSHTTPURLResponse *)response
                     newRequest:(NSURLRequest *)request
              completionHandler:(void (^)(NSURLRequest *))completionHandler {
-  // nil means "do not follow"; the 3xx is delivered to us instead.
   completionHandler(nil);
 }
 @end
 
 extern "C" {
 
-/// Create the session a runtime performs all of its requests through.
-///
-/// **One session per runtime, not one per request.** Ephemeral is deliberate
-/// and stays: no shared cookie jar and no disk cache, because v1 has no
-/// credentials or cache modes (LLP 0059.000 §3.5) and inheriting process-wide
-/// cookie state would be ambient authority arriving through the back door.
-/// Per-*request* was the accident. A session owns the connection pool, so
-/// building a new one each time threw away every pooled connection and paid a
-/// full TLS handshake on every call — ~80ms each, measured.
-///
-/// Scoping it to the runtime rather than the process keeps the isolation the
-/// ephemeral configuration is there for: two runtimes still share no cookie,
-/// cache, or connection state.
-///
-/// @ref LLP 0057#3-the-boundary — pooling is the platform's job, and this is
-/// what lets it do it
-void *ibex2_darwin_session_create(void) {
+/// Each runtime keeps up to four native sessions. A session is reused after
+/// the previous native task finishes, preserving its platform connection pool.
+/// Serial delegate queues preserve per-task callback order while the four
+/// leases bound native callback concurrency and application handoff buffers.
+/// @ref LLP 0057#3-the-boundary — pooling is the platform's job
+static NSURLSession *new_session(void) {
   @autoreleasepool {
     NSURLSessionConfiguration *config =
         [NSURLSessionConfiguration ephemeralSessionConfiguration];
@@ -289,13 +268,17 @@ void *ibex2_darwin_session_create(void) {
     config.URLCache = nil;
     config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
 
-    // Stateless, so one instance serves every task on this session.
+    // One serial delegate per session; leases never overlap on a session.
     Ibex2NoRedirect *delegate = [[Ibex2NoRedirect alloc] init];
     NSURLSession *session = [NSURLSession sessionWithConfiguration:config
                                                          delegate:delegate
                                                     delegateQueue:nil];
-    return (__bridge_retained void *)session;
+    return session;
   }
+}
+
+void *ibex2_darwin_session_create(void) {
+  @autoreleasepool { return (__bridge_retained void *)[[Ibex2SessionPool alloc] init]; }
 }
 
 /// Report whether a session kept a cookie jar or a response cache.
@@ -312,8 +295,9 @@ void ibex2_darwin_session_has_state(void *handle, int *out_cookies,
     return;
   }
   @autoreleasepool {
-    NSURLSession *session = (__bridge NSURLSession *)handle;
+    NSURLSession *session = new_session();
     NSURLSessionConfiguration *config = session.configuration;
+    [session finishTasksAndInvalidate];
     *out_cookies = (config.HTTPCookieStorage != nil ||
                     config.HTTPShouldSetCookies ||
                     config.HTTPCookieAcceptPolicy !=
@@ -324,132 +308,149 @@ void ibex2_darwin_session_has_state(void *handle, int *out_cookies,
   }
 }
 
-/// Release a session. `finishTasksAndInvalidate` rather than
-/// `invalidateAndCancel`: a runtime is torn down after its tasks are drained,
-/// and cancelling in-flight work here would race the drive loop's own teardown.
+/// Drop the transport's pool ownership. Outstanding exchanges retain the pool
+/// independently, so dropping the transport cannot invalidate a live body.
 void ibex2_darwin_session_destroy(void *handle) {
   if (handle == nullptr) {
     return;
   }
   @autoreleasepool {
-    NSURLSession *session = (__bridge_transfer NSURLSession *)handle;
-    [session finishTasksAndInvalidate];
+    Ibex2SessionPool *pool = (__bridge_transfer Ibex2SessionPool *)handle;
+    (void)pool;
   }
 }
 
-/// Perform one request on `session`. Blocking, because it is called on a worker
-/// thread that exists precisely so the JavaScript thread does not have to wait.
-///
-/// Headers cross as a newline-delimited `name: value` block. That is a
-/// serialization, and it is fine here: LLP 0059.000 §1.1 governs the
-/// JavaScript boundary, not Rust's call into the platform, and a header set is
-/// small metadata rather than a payload. Bodies cross as raw bytes.
-int ibex2_darwin_http_send(void *session_handle, const char *method,
-                           const char *url,
-                           const char *header_block, const unsigned char *body,
-                           size_t body_len, size_t max_body, int *out_status,
-                           char **out_headers, unsigned char **out_body,
-                           size_t *out_body_len, char **out_error,
-                           int *out_reused) {
+// Start without waiting, so Rust can register cancellation before waiting for
+// headers. Inputs are copied by Foundation before this function returns.
+void *ibex2_darwin_http_start(void *session_handle, const char *method,
+    const char *url, const char *header_block, const unsigned char *body,
+    size_t body_len, size_t max_body, char **out_error) {
   @autoreleasepool {
-    *out_status = 0;
-    *out_headers = nullptr;
-    *out_body = nullptr;
-    *out_body_len = 0;
     *out_error = nullptr;
-
-    NSString *urlString = [NSString stringWithUTF8String:url];
-    NSURL *nsurl = [NSURL URLWithString:urlString];
-    if (nsurl == nil) {
-      *out_error = dup_utf8(@"TypeError: Failed to fetch — invalid URL");
-      return 1;
+    NSURL *nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
+    Ibex2SessionPool *pool = (__bridge Ibex2SessionPool *)session_handle;
+    if (nsurl == nil || pool == nil) {
+      *out_error = dup_utf8(@"TypeError: Failed to fetch — invalid URL or session");
+      return nullptr;
     }
-
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:nsurl];
     request.HTTPMethod = [NSString stringWithUTF8String:method];
-
     if (header_block != nullptr) {
       NSString *block = [NSString stringWithUTF8String:header_block];
       for (NSString *line in [block componentsSeparatedByString:@"\n"]) {
         NSRange colon = [line rangeOfString:@": "];
-        if (colon.location == NSNotFound) {
-          continue;
-        }
-        NSString *name = [line substringToIndex:colon.location];
-        NSString *value = [line substringFromIndex:colon.location + colon.length];
-        [request setValue:value forHTTPHeaderField:name];
+        if (colon.location == NSNotFound) continue;
+        [request setValue:[line substringFromIndex:colon.location + colon.length]
+            forHTTPHeaderField:[line substringToIndex:colon.location]];
       }
     }
-    if (body != nullptr && body_len > 0) {
-      request.HTTPBody = [NSData dataWithBytes:body length:body_len];
-    }
-
-    if (out_reused != nullptr) {
-      *out_reused = -1;
-    }
-    // The runtime's session, created once. See ibex2_darwin_session_create.
-    NSURLSession *session = (__bridge NSURLSession *)session_handle;
-    if (session == nil) {
-      *out_error = dup_utf8(@"TypeError: Failed to fetch — no session");
-      return 1;
-    }
-
-    if (![session.delegate isKindOfClass:[Ibex2NoRedirect class]]) {
-      *out_error = dup_utf8(@"TypeError: Failed to fetch — no session delegate");
-      return 1;
-    }
-    Ibex2NoRedirect *delegate = (Ibex2NoRedirect *)session.delegate;
-
-    // The exchange is registered before `resume`, never after: a cached or
-    // failed-fast response can call back before this thread reaches the wait.
+    if (body_len > 0) request.HTTPBody = [NSData dataWithBytes:body length:body_len];
     Ibex2Exchange *exchange = [[Ibex2Exchange alloc] initWithLimit:max_body];
-    NSURLSessionDataTask *task = [session dataTaskWithRequest:request];
-    NSUInteger identifier = task.taskIdentifier;
-    [delegate track:exchange for:identifier];
-    [task resume];
-    dispatch_semaphore_wait(exchange.done, DISPATCH_TIME_FOREVER);
-    if (out_reused != nullptr) {
-      *out_reused = [delegate takeReusedFor:identifier];
+    exchange.pool = pool;
+    exchange.request = request;
+    // Rust installs cancellation before resume, including an already aborted signal.
+    return (__bridge_retained void *)exchange;
+  }
+}
+int ibex2_darwin_http_headers(void *handle, int *out_status,
+    char **out_headers, char **out_error) {
+  @autoreleasepool {
+    Ibex2Exchange *exchange = (__bridge Ibex2Exchange *)handle;
+    *out_headers = nullptr;
+    *out_error = nullptr;
+    NSURLSession *session = nil;
+    while (session == nil) {
+      [exchange.condition lock];
+      BOOL aborted = exchange.finished;
+      [exchange.condition unlock];
+      if (aborted) break;
+      Ibex2SessionPool *pool = exchange.pool;
+      [pool.condition lock];
+      if (pool.idle.count != 0) {
+        session = pool.idle.lastObject;
+        [pool.idle removeLastObject];
+      } else if (pool.count < 4) {
+        pool.count++;
+        [pool.condition unlock];
+        session = new_session();
+        continue;
+      } else {
+        // Timed wait also closes the check/wait race with cancellation.
+        [pool.condition waitUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+      }
+      [pool.condition unlock];
     }
-    [delegate forget:identifier];
-    // No finishTasksAndInvalidate here: the session outlives the request and
-    // is released by ibex2_darwin_session_destroy when the runtime goes away.
+    [exchange.condition lock];
+    if (!exchange.finished) {
+      exchange.session = session;
+      exchange.task = [session dataTaskWithRequest:exchange.request];
+      [(Ibex2NoRedirect *)session.delegate track:exchange for:exchange.task.taskIdentifier];
+      [exchange.task resume];
+    } else {
+      if (session != nil) [exchange.pool returnSession:session];
+      exchange.nativeComplete = YES;
+    }
 
+    while (exchange.response == nil && !exchange.finished) [exchange.condition wait];
     if (exchange.failure != nil) {
       *out_error = dup_utf8(exchange.failure);
+      [exchange.condition unlock];
       return 1;
     }
-    NSHTTPURLResponse *resultResponse = exchange.response;
-    if (resultResponse == nil) {
-      *out_error = dup_utf8(@"TypeError: Failed to fetch — no response");
-      return 1;
-    }
-
-    *out_status = static_cast<int>(resultResponse.statusCode);
-
+    *out_status = (int)exchange.response.statusCode;
     NSMutableString *headers = [NSMutableString string];
-    [resultResponse.allHeaderFields
-        enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *) {
-          [headers appendFormat:@"%@: %@\n", key, value];
-        }];
+    [exchange.response.allHeaderFields enumerateKeysAndObjectsUsingBlock:
+        ^(id key, id value, BOOL *) { [headers appendFormat:@"%@: %@\n", key, value]; }];
     *out_headers = dup_utf8(headers);
-
-    NSData *resultData = exchange.body;
-    if (resultData != nil && resultData.length > 0) {
-      unsigned char *bytes =
-          static_cast<unsigned char *>(std::malloc(resultData.length));
-      if (bytes == nullptr) {
-        *out_error = dup_utf8(@"TypeError: Failed to fetch — out of memory");
-        return 1;
-      }
-      std::memcpy(bytes, resultData.bytes, resultData.length);
-      *out_body = bytes;
-      *out_body_len = resultData.length;
-    }
+    [exchange.condition unlock];
     return 0;
   }
 }
-
+int ibex2_darwin_http_read(void *handle, unsigned char *output, size_t capacity,
+    size_t *out_length, char **out_error, int *out_reused) {
+  @autoreleasepool {
+    Ibex2Exchange *exchange = (__bridge Ibex2Exchange *)handle;
+    *out_length = 0;
+    *out_error = nullptr;
+    [exchange.condition lock];
+    while (exchange.bytes.length == 0 && !exchange.finished) [exchange.condition wait];
+    *out_reused = exchange.reused;
+    if (exchange.failure != nil) {
+      *out_error = dup_utf8(exchange.failure);
+      [exchange.condition unlock];
+      return 1;
+    }
+    size_t count = MIN(capacity, exchange.bytes.length);
+    if (count != 0) {
+      std::memcpy(output, exchange.bytes.bytes, count);
+      [exchange.bytes replaceBytesInRange:NSMakeRange(0, count) withBytes:nullptr length:0];
+    }
+    *out_length = count;
+    [exchange.condition broadcast];
+    [exchange.condition unlock];
+    return 0;
+  }
+}
+void ibex2_darwin_http_cancel(void *handle) {
+  @autoreleasepool {
+    Ibex2Exchange *exchange = (__bridge Ibex2Exchange *)handle;
+    [exchange.condition lock];
+    if (!exchange.finished) {
+      [exchange finishWith:@"AbortError: The operation was aborted"];
+      [exchange.bytes setLength:0];
+      [exchange.task cancel];
+    }
+    [exchange.condition unlock];
+    [exchange.pool.condition lock];
+    [exchange.pool.condition broadcast];
+    [exchange.pool.condition unlock];
+  }
+}
+void ibex2_darwin_http_release(void *handle) {
+  @autoreleasepool {
+    Ibex2Exchange *exchange = (__bridge_transfer Ibex2Exchange *)handle;
+    (void)exchange;
+  }
+}
 void ibex2_darwin_free(void *value) { std::free(value); }
-
 } // extern "C"
