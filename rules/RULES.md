@@ -33,8 +33,8 @@ A limit gets exceptions. A trade doesn't: it forces someone to name what matters
 
 ## Time budgets
 
-Tracked every commit. A regression is a P0 with a name on it. The loop rows are targets
-pending their first measurement on this repository; tighten them once measured.
+Tracked every commit. Regressions are P0s with an owner. Loop targets await
+measurement; tighten them afterward.
 
 | | |
 |---|---|
