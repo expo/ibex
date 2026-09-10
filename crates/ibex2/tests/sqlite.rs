@@ -310,7 +310,7 @@ fn pending_query_retains_its_owner_until_the_promise_settles() {
     runtime.run_entry("./index.js").unwrap();
     runtime.run_to_quiescence(Duration::from_secs(5));
     runtime.eval("database.query('SELECT 123').then(result => console.log(String(result.rows[0][0]))).catch(e => console.error(e.message)); globalThis.database = undefined;").unwrap();
-    runtime.pump();
+    runtime.pump().unwrap();
     entered_query
         .recv_timeout(Duration::from_secs(5))
         .expect("query started");

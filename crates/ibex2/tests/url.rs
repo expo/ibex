@@ -14,7 +14,7 @@ fn runtime() -> Hermes {
 
 fn eval(rt: &mut Hermes, program: &str) -> String {
     rt.eval(program)
-        .unwrap_or_else(|e| panic!("{program}: {}", e.0))
+        .unwrap_or_else(|e| panic!("{program}: {e}"))
 }
 
 #[test]

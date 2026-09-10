@@ -216,7 +216,7 @@ fn reader_release_preserves_an_inflight_chunk_for_the_next_reader() {
     "#,
     )
     .unwrap();
-    rt.drain_microtasks();
+    rt.drain_microtasks().unwrap();
     let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
     assert_eq!(out, ["true 104,105", "true 2 1", "true"]);
 }

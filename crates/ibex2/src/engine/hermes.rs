@@ -4,6 +4,7 @@
 //! It uses stock JSI and nothing else — see `hermes_shim.cc`.
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::time::Instant;
 
 // RuntimeState crosses as an opaque pointer that only Rust ever dereferences;
 // the C++ side treats it as `const void *`. clippy's improper_ctypes fires on
@@ -24,9 +25,11 @@ extern "C" {
     ) -> c_int;
     fn ibex2_hermes_free_string(value: *mut c_char);
     fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
-    fn ibex2_hermes_pump(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_pump(handle: *mut c_void, out_ran: *mut c_int) -> c_int;
     fn ibex2_hermes_collect_garbage(handle: *mut c_void) -> c_int;
-    fn ibex2_hermes_drain_microtasks(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_drain_microtasks(handle: *mut c_void, out: *mut *mut c_char) -> c_int;
+    fn ibex2_hermes_set_deadline(handle: *mut c_void, remaining_nanos: u64) -> c_int;
+    fn ibex2_hermes_clear_deadline(handle: *mut c_void) -> c_int;
     fn ibex2_hermes_wait(handle: *mut c_void, timeout_ms: u64) -> c_int;
     fn ibex2_hermes_install_fetch(handle: *mut c_void, grants: *const c_void) -> c_int;
     fn ibex2_hermes_install_async_echo(handle: *mut c_void) -> c_int;
@@ -96,9 +99,47 @@ pub struct Hermes {
     handle: *mut c_void,
 }
 
-/// What JavaScript threw, as text.
+/// Why an entrance returned no value.
+///
+/// The entrances are `eval`, `eval_bytes`, `drain_microtasks`, `pump`, and
+/// `run_entry`: every way JavaScript runs on a runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JsError(pub String);
+pub enum JsError {
+    /// JavaScript threw, and this is what it threw, as text.
+    Thrown(String),
+    /// The deadline armed by [`Hermes::set_deadline`] passed: at the door, so
+    /// nothing ran, or while JavaScript was running, so the engine stopped
+    /// it. Reported by kind and never by the text of what was thrown — text
+    /// is JavaScript's to forge. Nothing JavaScript did on the way to the
+    /// deadline is reported, and its state is whatever the stop left.
+    Deadline,
+}
+
+impl std::fmt::Display for JsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JsError::Thrown(text) => f.write_str(text),
+            JsError::Deadline => f.write_str("the deadline passed"),
+        }
+    }
+}
+
+impl std::error::Error for JsError {}
+
+/// What one entrance reported, with the string the shim handed back. The
+/// statuses are the shim's IBEX2_STATUS_* constants; anything else is a
+/// programming error on this side of the boundary, not a JavaScript outcome.
+fn checked(status: c_int, out: *mut c_char, entrance: &str) -> Result<String, JsError> {
+    let text = take_c_string(out);
+    match status {
+        0 => Ok(text.unwrap_or_default()),
+        1 => Err(JsError::Thrown(
+            text.unwrap_or_else(|| "unknown error".into()),
+        )),
+        2 => Err(JsError::Deadline),
+        other => panic!("{entrance} returned {other}"),
+    }
+}
 
 impl Hermes {
     /// Configure stable app mounts before evaluating application modules.
@@ -143,12 +184,45 @@ impl Hermes {
         // SAFETY: `handle` is non-null for the lifetime of self; `out` receives
         // a malloc'd string we take ownership of and free below.
         let status = unsafe { ibex2_hermes_eval(self.handle, source.as_ptr(), &mut out) };
-        let text = take_c_string(out);
-        match status {
-            0 => Ok(text.unwrap_or_default()),
-            1 => Err(JsError(text.unwrap_or_else(|| "unknown error".into()))),
-            other => panic!("ibex2_hermes_eval returned {other}"),
-        }
+        checked(status, out, "ibex2_hermes_eval")
+    }
+
+    /// Arm this runtime's one deadline, replacing any already armed.
+    ///
+    /// From now until [`clear_deadline`](Self::clear_deadline), every
+    /// entrance — `eval`, `eval_bytes`, `drain_microtasks`, `pump`,
+    /// `run_entry` — is refused with [`JsError::Deadline`] once the deadline
+    /// has passed, and stopped with it if it passes while JavaScript runs.
+    /// What each entrance is given is the time left of this same deadline,
+    /// never a fresh budget per call or per drain iteration.
+    ///
+    /// The stop is the engine's own: the pinned Hermes's time-limit monitor
+    /// raises an uncatchable error at the next async-break check, which
+    /// evaluated source carries at every loop back-edge and every return.
+    /// Bytecode carries only the checks it was compiled with, so a
+    /// check-free program runs to its end and is reported at exit.
+    ///
+    /// The deadline is a point on the monotonic clock. It crosses to the
+    /// engine as the time left at this call, which the engine adds to its
+    /// own monotonic clock — the same clock the `Instant` reads on this
+    /// platform is not guaranteed, so the deadline cannot be handed over as
+    /// an absolute value; the microseconds this costs are in the caller's
+    /// favour.
+    pub fn set_deadline(&mut self, deadline: Instant) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let nanos = u64::try_from(remaining.as_nanos()).unwrap_or(u64::MAX);
+        // SAFETY: `handle` is non-null for the lifetime of self.
+        let status = unsafe { ibex2_hermes_set_deadline(self.handle, nanos) };
+        assert_eq!(status, 0, "ibex2_hermes_set_deadline returned {status}");
+    }
+
+    /// Disarm the deadline. A runtime whose deadline fired is usable again
+    /// after this; its JavaScript state is whatever the stop left, which is
+    /// the consumer's to judge (Snapback 2 discards the runtime).
+    pub fn clear_deadline(&mut self) {
+        // SAFETY: `handle` is non-null for the lifetime of self.
+        let status = unsafe { ibex2_hermes_clear_deadline(self.handle) };
+        assert_eq!(status, 0, "ibex2_hermes_clear_deadline returned {status}");
     }
 
     /// Evaluate the JavaScript binding preludes that SHIP.
@@ -186,7 +260,7 @@ impl Hermes {
         let status =
             unsafe { ibex2_hermes_install_fetch_factory(self.handle, fetch.as_ptr(), fetch.len()) };
         if status != 0 {
-            return Err(JsError(
+            return Err(JsError::Thrown(
                 "the fetch binding did not evaluate to its factory".into(),
             ));
         }
@@ -196,7 +270,7 @@ impl Hermes {
             ibex2_hermes_install_sqlite_factory(self.handle, sqlite.as_ptr(), sqlite.len())
         };
         if status != 0 {
-            return Err(JsError(
+            return Err(JsError::Thrown(
                 "the SQLite binding did not evaluate to its factory".into(),
             ));
         }
@@ -238,11 +312,19 @@ impl Hermes {
     /// Run at most one host task, with a microtask checkpoint either side.
     ///
     /// One task per cycle, per LLP 0058.000.000 §8 — so this returns 0 or 1 and
-    /// a caller wanting to reach quiescence loops.
-    pub fn pump(&mut self) -> i32 {
+    /// a caller wanting to reach quiescence loops. A callback or job that
+    /// throws is a console error, never a return: one bad task does not stop
+    /// the tasks behind it. The deadline does, and is the only `Err`.
+    pub fn pump(&mut self) -> Result<i32, JsError> {
+        let mut ran: c_int = 0;
         // SAFETY: `handle` is non-null for the lifetime of self, and this is
         // the JavaScript thread.
-        unsafe { ibex2_hermes_pump(self.handle) }
+        let status = unsafe { ibex2_hermes_pump(self.handle, &mut ran) };
+        match status {
+            0 => Ok(ran),
+            2 => Err(JsError::Deadline),
+            other => panic!("ibex2_hermes_pump returned {other}"),
+        }
     }
 
     /// Pump until `expected` host tasks have run, or the deadline passes.
@@ -256,7 +338,11 @@ impl Hermes {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let mut delivered = 0;
         loop {
-            delivered += self.pump().max(0);
+            match self.pump() {
+                Ok(ran) => delivered += ran.max(0),
+                // The runtime's own deadline: what was delivered is the answer.
+                Err(_) => return delivered,
+            }
             if delivered >= expected || std::time::Instant::now() >= deadline {
                 return delivered;
             }
@@ -274,12 +360,7 @@ impl Hermes {
         // SAFETY: the slice outlives the call; `out` receives an owned string.
         let status =
             unsafe { ibex2_hermes_eval_bytes(self.handle, bytes.as_ptr(), bytes.len(), &mut out) };
-        let text = take_c_string(out).unwrap_or_default();
-        if status == 0 {
-            Ok(text)
-        } else {
-            Err(JsError(text))
-        }
+        checked(status, out, "ibex2_hermes_eval_bytes")
     }
 
     /// Point the loader at a project root and its grant manifest.
@@ -365,10 +446,13 @@ impl Hermes {
         // SAFETY: `handle` is non-null; `error` receives a Rust-owned string.
         let status = unsafe { ibex2_hermes_run_entry(self.handle, specifier.as_ptr(), &mut error) };
         let message = take_c_string(error);
-        if status == 0 {
-            Ok(())
-        } else {
-            Err(JsError(message.unwrap_or_else(|| "module failed".into())))
+        match status {
+            0 => Ok(()),
+            1 => Err(JsError::Thrown(
+                message.unwrap_or_else(|| "module failed".into()),
+            )),
+            2 => Err(JsError::Deadline),
+            other => panic!("ibex2_hermes_run_entry returned {other}"),
         }
     }
 
@@ -379,7 +463,10 @@ impl Hermes {
     pub fn run_to_quiescence(&mut self, budget: std::time::Duration) {
         let deadline = std::time::Instant::now() + budget;
         loop {
-            self.pump();
+            // The runtime's own deadline, if one is armed, ends the loop too.
+            if self.pump().is_err() {
+                return;
+            }
             if std::time::Instant::now() >= deadline {
                 return;
             }
@@ -437,9 +524,15 @@ impl Hermes {
     }
 
     /// Drain microtasks without delivering completions.
-    pub fn drain_microtasks(&mut self) {
-        // SAFETY: as above.
-        unsafe { ibex2_hermes_drain_microtasks(self.handle) };
+    ///
+    /// A job that throws out of the queue is `Thrown` — only an engine-raised
+    /// error can, since Promise reactions and `queueMicrotask` catch their own
+    /// — and the deadline is `Deadline`.
+    pub fn drain_microtasks(&mut self) -> Result<(), JsError> {
+        let mut out: *mut c_char = std::ptr::null_mut();
+        // SAFETY: as above; `out` receives an owned string.
+        let status = unsafe { ibex2_hermes_drain_microtasks(self.handle, &mut out) };
+        checked(status, out, "ibex2_hermes_drain_microtasks").map(|_| ())
     }
 
     /// Install a zero-argument host function returning a fixed string.
@@ -476,3 +569,7 @@ impl Drop for Hermes {
 #[cfg(test)]
 #[path = "hermes_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "hermes_deadline_tests.rs"]
+mod deadline_tests;

@@ -53,6 +53,14 @@ authority-global lookups is unsupported rather than silently root-bound.
 tier the runtime targets. This is a real threshold and it is lower than total
 conformance, but it is not near zero.
 
+**5. A way to stop it** *(added 2026-09-10)*. A consumer that runs code it
+does not trust with time — Snapback 2's effects — needs every entrance into
+JavaScript to be interruptible from outside, and the interruption to be
+something JavaScript cannot catch. Hermes has it in stock: a time-limit
+monitor and async-break checks in evaluated source, raising an uncatchable
+error. The adapter's contract for it is LLP 0058.000.000 §8. An engine
+without an equivalent can host a boot path but not an effect.
+
 ## 2. Why Hermes is the default
 
 Hermes is the default because of item 1, not by inheritance. Its bytecode
