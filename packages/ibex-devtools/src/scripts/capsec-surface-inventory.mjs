@@ -13578,9 +13578,11 @@ function oneSourceMatch(text, pattern, label) {
 }
 
 function requireOneSourceLine(text, line, label) {
+  // Ignore shell/PowerShell indentation only; authority digests use original bytes.
+  const expected = line.replace(/^[ \t]+/u, "");
   const matches = text
     .split(/\r?\n/u)
-    .filter((candidate) => candidate === line);
+    .filter((candidate) => candidate.replace(/^[ \t]+/u, "") === expected);
   if (matches.length !== 1) {
     throw new Error(`${label}: expected exactly one source authority line`);
   }

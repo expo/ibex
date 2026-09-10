@@ -174,6 +174,14 @@ registry in its current shape. And, separately but in the same window, most of
 
 ## 5.2 What Ibex 2 is for
 
+**2026-09-09, author-required and implemented by Codex:** Fleet adds a named
+Rust consumer for native subprocesses and PTYs (LLP 0068 §2.1). Its ad hoc
+Node / `node-pty` bridge is the replacement target. Explicit host enablement
+and executable grants gate the engine-free implementation and its optional
+installable JS/TypeScript adapter; Fleet owns
+dependency adoption. This overrides the earlier subprocess omission, while
+general Node compatibility remains excluded.
+
 *(Numbered 5.2, not 5.1: LLP 0058.000.001 §1 cites "LLP 0057 §5.1" as the
 superseded incremental-in-place strategy, and a section carrying two meanings
 is worse than a gap in the numbering.)*

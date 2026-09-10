@@ -27,6 +27,13 @@ along with `WebSocket`, `Buffer`, and `crypto.subtle`, because he intends to
 build on them. Node's server surface — `http`, `net`, `tls`, `child_process`,
 `zlib` — is deleted and does not return. §6 records which is which.
 
+**2026-09-09, author-required and implemented by Codex:** Fleet's native
+subprocess/PTY need overrides the omission with a Rust API and thin,
+installable JS/TypeScript adapter. LLP 0068
+§2.1 and LLP 0059.000 §3.16 define the host-enabled, executable-granted API;
+Fleet's ad hoc Node / `node-pty` bridge is its replacement target. General
+Node compatibility remains excluded.
+
 ## 1. Method, and what it does not cover
 
 Scanned: the 560 first-party modules and 9 vendored modules in the real macOS

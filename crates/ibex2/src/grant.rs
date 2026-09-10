@@ -15,7 +15,7 @@
 //! built.
 //!
 //! @ref LLP 0067#3-the-check — the parameterized questions the boundary asks
-//! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
+//! @ref LLP 0059.000#4-capability-summary — capability families and their granularity
 
 use std::collections::BTreeSet;
 
@@ -120,6 +120,10 @@ pub enum Operation {
     /// Capability `storage.kv` (LLP 0070 §1): keys are free within the
     /// scope, and the scope is the grant.
     StorageKv { scope: String },
+    /// Execute exactly this native executable with piped I/O.
+    ProcessSpawn { executable: String },
+    /// Execute exactly this native executable in a PTY.
+    ProcessPty { executable: String },
 }
 
 /// One grant. The parameter is the scope, and there is always a scope.
@@ -133,6 +137,8 @@ pub enum Grant {
     SqliteOpen(PathPrefix),
     SecretKeep(String),
     StorageKv(String),
+    ProcessSpawn(String),
+    ProcessPty(String),
 }
 
 impl Grant {
@@ -146,6 +152,10 @@ impl Grant {
             (Grant::SqliteOpen(prefix), Operation::SqliteOpen { path }) => prefix.covers(path),
             (Grant::SecretKeep(granted), Operation::SecretKeep { name }) => granted == name,
             (Grant::StorageKv(granted), Operation::StorageKv { scope }) => granted == scope,
+            (Grant::ProcessSpawn(granted), Operation::ProcessSpawn { executable })
+            | (Grant::ProcessPty(granted), Operation::ProcessPty { executable }) => {
+                crate::stdlib::process::valid_executable(granted) && granted == executable
+            }
             // Cross-kind pairs are not merely false, they are the whole point:
             // an `fs.read` grant admits no network operation, and the match
             // above is exhaustive over kinds so a new capability cannot be
@@ -310,6 +320,19 @@ impl GrantSet {
                     }
                 }
                 "env.read" => Grant::EnvRead(target.to_string()),
+                "process.spawn" | "process.pty" => {
+                    if !crate::stdlib::process::valid_executable(target) {
+                        return Err(format!(
+                            "line {}: executable must be an absolute native path without dot components or NUL",
+                            index + 1
+                        ));
+                    }
+                    if capability == "process.spawn" {
+                        Grant::ProcessSpawn(target.to_string())
+                    } else {
+                        Grant::ProcessPty(target.to_string())
+                    }
+                }
                 "secret.keep" => {
                     if !crate::secrets::is_valid_name(target) {
                         return Err(format!(

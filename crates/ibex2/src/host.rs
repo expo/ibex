@@ -3,8 +3,8 @@
 //! `rules/NOT-DOING.md` sets the bar: a no-JS consumer — Exact 2's plan
 //! runner is one — gets the same standard library with no engine in the
 //! process at all. This is that surface. It is not a second implementation:
-//! every function here is the one the JavaScript bindings call, behind the
-//! same `boundary::admit`, and the grants are the same `GrantSet` a manifest
+//! existing JavaScript bindings call these same implementations, behind
+//! `boundary::admit`, and the grants are the same `GrantSet` a manifest
 //! section parses to. What is stated in Rust is LLP 0067's model: a consumer
 //! is *endowed* with bindings that carry their grant — the module parameter
 //! list, as a struct — and a request is checked against the grant the binding
@@ -12,6 +12,7 @@
 //!
 //! Synchronous, deliberately. These are the primitives; an executor is the
 //! consumer's, and a runner with its own loop puts them on its own workers.
+//! Installable JS adapters call the same process/PTY implementation.
 //!
 //! @ref LLP 0068#1-the-shape — bindings that carry their grant
 //! @ref LLP 0067#3-the-check — one chokepoint, the grant the binding carries
@@ -26,15 +27,15 @@ use crate::secrets::{self, SecretStore};
 use crate::stdlib::fetch::{self, Request, Response, Transport};
 use crate::stdlib::fs::{self, FsOp, FsResult, Stat};
 
-/// The host: the platform's transport, its secret store, and its kv store,
-/// and nothing else. One per process is the expected shape; it is the
-/// analogue of the runtime, without an engine.
+/// The host's services and explicit configuration. One per process is the
+/// expected shape; it is the analogue of the runtime, without an engine.
 pub struct Host {
     transport: Arc<dyn Transport>,
     secrets: Arc<dyn SecretStore>,
     kv: Arc<dyn KvStore>,
     app_directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
     sqlite_provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+    process_support: bool,
 }
 
 impl Host {
@@ -52,6 +53,7 @@ impl Host {
             kv: Arc::from(kv::default_store()),
             app_directories: None,
             sqlite_provider: None,
+            process_support: false,
         }
     }
 
@@ -84,11 +86,23 @@ impl Host {
         self
     }
 
+    /// Explicitly enable native subprocess/PTY endowments. Each launch still
+    /// requires its own exact-executable grant. This conveys OS execution
+    /// authority, not a sandbox for the child (LLP 0068 §2.1).
+    pub fn with_process_support(mut self) -> Self {
+        self.process_support = true;
+        self
+    }
+
     /// Endow a consumer with `grants`: the bindings a module receives as
     /// parameters, each carrying this grant set for its whole life.
     pub fn endow(&self, grants: GrantSet) -> Bindings {
         let grants = Arc::new(grants);
         Bindings {
+            process: crate::stdlib::process::Processes::new(
+                Arc::clone(&grants),
+                self.process_support,
+            ),
             fetch: Fetch {
                 transport: Arc::clone(&self.transport),
                 grants: Arc::clone(&grants),
@@ -121,9 +135,10 @@ impl Default for Host {
     }
 }
 
-/// What a consumer holds: `fetch`, `fs`, `secrets`, `kv`, and `process.env`,
-/// as a module has them, over one grant set.
+/// What a consumer holds: host services over one grant set. The native
+/// process binding additionally carries the host's explicit opt-in.
 pub struct Bindings {
+    pub process: crate::stdlib::process::Processes,
     pub fetch: Fetch,
     pub fs: Fs,
     pub sqlite: Sqlite,

@@ -264,6 +264,25 @@ outputs are regenerated `[observed]` (`scripts/regenerate-vendored.sh`;
 
 ## C++ compilation
 
+On macOS, the Ibex 2 build script queries Cargo's `RUSTC` with `--target
+$TARGET --print deployment-target` before creating any C/C++ builders. The
+result supplies `MACOSX_DEPLOYMENT_TARGET` to its native compilations,
+including the always-built Objective-C++ transport and Keychain objects. Rust owns the default and the interpretation
+of an explicit target; the installed SDK version and a hardcoded macOS 14 do
+not choose the minimum OS. Set `MACOSX_DEPLOYMENT_TARGET` **before Cargo** to
+select a different minimum for Rust and native dependencies throughout the
+consumer's graph. A dependency build script cannot change sibling builds or
+retarget prebuilt Hermes archives. This is macOS-only; iOS policy is unchanged.
+`node scripts/macos-deployment-target.test.mjs` inspects Mach-O minimum-version
+commands from Rust and native objects for unset, lower, and higher targets,
+including Cargo rebuilds as the setting changes.
+
+The legacy runtime retains its existing macOS 14 native compilation target.
+Its structured number formatter uses floating-point `std::to_chars`, which
+requires macOS 13.3; applying Ibex 2's default Rust target (11.0 on arm64)
+to that runtime breaks compilation. The alignment change is scoped to Ibex 2;
+it does not lower the legacy runtime's supported OS requirement.
+
 `build.rs` compiles `src/engine/*.cc` with the `cc` crate, setting per-platform
 defines (`EXACT_NO_OPENSSL`, `EXACT_PLATFORM_IOS`, `EXACT_PLATFORM_WINDOWS`,
 `EXACT_HAS_CURL`, `HERMES_ENABLE_DEBUGGER`, etc.) and selecting the crypto/fetch/

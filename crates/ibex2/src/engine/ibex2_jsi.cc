@@ -12,6 +12,11 @@ extern "C" const void* ibex2_grants_retain(const void*);
 extern "C" void ibex2_grants_destroy(const void*);
 extern "C" void* ibex2_sqlite_owner_create(const void*, double, int);
 extern "C" void ibex2_sqlite_owner_destroy(void*);
+extern "C" void* ibex2_process_prepare(const void*, const void*, const Ibex2AbiValue*, size_t, Ibex2AbiValue*);
+extern "C" void* ibex2_process_begin(const void*, const void*, uint32_t, const Ibex2AbiValue*, size_t, uint64_t, Ibex2AbiValue*);
+extern "C" void ibex2_process_owner_destroy(void*);
+extern "C" void ibex2_process_ticket_destroy(void*);
+extern "C" void ibex2_bindings_shutdown(const void*);
 
 namespace ibex2::jsi_adapter {
 // Convert a JS argument. Strings are decoded into `owned`, which the caller
@@ -191,7 +196,7 @@ struct Integrity {
           "Reflect", "Number", "BigInt", "Uint8Array", "ArrayBuffer", "Error",
           "TypeError", "RangeError", "String", "JSON", "Symbol", "Map", "Set"}) {
       auto value = rt.global().getProperty(rt, name);
-      if (!value.isObject()) throw jsi::JSError(rt, "Ibex2 SQLite requires standard intrinsics");
+      if (!value.isObject()) throw jsi::JSError(rt, "Ibex2 bindings require standard intrinsics");
       globals.emplace_back(name, jsi::Value(rt, value));
       capture(rt, value.getObject(rt));
       auto d = descriptor.call(rt, value, "prototype");
@@ -232,7 +237,7 @@ struct Integrity {
   void require(jsi::Runtime& rt) {
     if (validated) return;
     auto refuse = [&]() {
-      throw jsi::JSError(rt, "Ibex2 SQLite requires unchanged, hardened intrinsics: create bindings before application code and run HARDEN_SOURCE before using them");
+      throw jsi::JSError(rt, "Ibex2 bindings require unchanged, hardened intrinsics: create bindings before application code and run HARDEN_SOURCE before using them");
     };
     for (const auto& [name, value] : globals) {
       auto d = descriptor.call(rt, rt.global(), jsi::String::createFromUtf8(rt, name));
@@ -263,7 +268,11 @@ struct Integrity {
 };
 
 struct Adapter::State {
-  struct Pending { jsi::Function resolve; jsi::Function reject; };
+  struct Pending {
+    jsi::Function resolve; jsi::Function reject;
+    std::shared_ptr<void> process_ticket;
+    std::shared_ptr<jsi::NativeState> process_owner;
+  };
   const void* queue;
   uint64_t next_task_id = 1;
   std::unordered_map<uint64_t, Pending> pending;
@@ -283,6 +292,7 @@ Adapter::~Adapter() { detach(); }
 void Adapter::detach() {
   if (!state_->alive) return;
   state_->alive = false;
+  ibex2_bindings_shutdown(state_->queue);
   state_->pending.clear();
   state_->integrity.reset();
   state_->queue = nullptr;
@@ -350,7 +360,7 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
               state->require(r);
               if (count < 2) throw jsi::JSError(r, "promise executor needs resolve and reject");
               state->pending.emplace(id, State::Pending{
-                  args[0].getObject(r).getFunction(r), args[1].getObject(r).getFunction(r)});
+                  args[0].getObject(r).getFunction(r), args[1].getObject(r).getFunction(r), nullptr, nullptr});
               return jsi::Value::undefined();
             });
         auto ctor = r.global().getPropertyAsFunction(r, "Promise");
@@ -365,6 +375,12 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
 }
 
 namespace {
+struct ProcessOwner final : jsi::NativeState {
+  void* owner;
+  const void* queue;
+  ProcessOwner(void* value, const void* context) : owner(value), queue(context) {}
+  ~ProcessOwner() override { ibex2_process_owner_destroy(owner); }
+};
 struct SqliteOwner final : jsi::NativeState {
   void* owner;
   explicit SqliteOwner(void* value) : owner(value) {}
@@ -427,12 +443,78 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
   return result;
 }
 
+jsi::Object Adapter::process(const void* grants, const jsi::Function& factory) {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  state_->require(rt);
+  auto state = state_;
+  std::shared_ptr<const void> authority(ibex2_grants_retain(grants), ibex2_grants_destroy);
+  jsi::Object raw(rt);
+  raw.setProperty(rt, "prepare", jsi::Function::createFromHostFunction(rt,
+      jsi::PropNameID::forAscii(rt, "prepareProcess"), 1,
+      [state, authority](jsi::Runtime& r, const jsi::Value&, const jsi::Value* args, size_t count) {
+        state->require(r);
+        state->integrity->require(r);
+        if (count > 775) throw jsi::JSError(r, "process argument count limit");
+        std::vector<std::string> owned; owned.reserve(count);
+        std::vector<Ibex2AbiValue> abi; abi.reserve(count);
+        for (size_t i = 0; i < count; ++i) abi.push_back(to_abi(r, args[i], owned));
+        Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0, nullptr, 0};
+        void* ptr = ibex2_process_prepare(state->queue, authority.get(), abi.data(), abi.size(), &out);
+        struct Release { Ibex2AbiValue& v; ~Release() { ibex2_host_release(&v); } } release{out};
+        if (!ptr) throw jsi::JSError(r, from_abi(r, out).getString(r).utf8(r));
+        auto owner = std::make_shared<ProcessOwner>(ptr, state->queue);
+        jsi::Object request(r); request.setNativeState(r, std::move(owner));
+        return jsi::Value(r, request);
+      }));
+  struct Method { const char* name; uint32_t op; };
+  for (const auto& method : {Method{"launch",0}, {"stdout",1}, {"stderr",2},
+         {"write",3}, {"closeInput",4}, {"wait",5}, {"cancel",6}, {"resize",7}}) {
+    raw.setProperty(rt, method.name, jsi::Function::createFromHostFunction(rt,
+        jsi::PropNameID::forAscii(rt, method.name), 1,
+        [state, op=method.op](jsi::Runtime& r, const jsi::Value&, const jsi::Value* args, size_t count) {
+          state->require(r);
+          if (!count || count > 3 || !args[0].isObject() || !args[0].getObject(r).hasNativeState<ProcessOwner>(r))
+            throw jsi::JSError(r, "process native owner required");
+          auto owner = args[0].getObject(r).getNativeState<ProcessOwner>(r);
+          if (owner->queue != state->queue) throw jsi::JSError(r, "process belongs to another context");
+          std::vector<std::string> owned; owned.reserve(count);
+          std::vector<Ibex2AbiValue> abi; abi.reserve(count);
+          for (size_t i = 1; i < count; ++i) abi.push_back(to_abi(r, args[i], owned));
+          const auto id = state->next_task_id++;
+          auto executor = jsi::Function::createFromHostFunction(r,
+              jsi::PropNameID::forAscii(r, "processExecutor"), 2,
+              [state, id, owner](jsi::Runtime& r, const jsi::Value&, const jsi::Value* args, size_t count) {
+                state->require(r);
+                if (count != 2) throw jsi::JSError(r, "process promise executor arguments");
+                state->pending.emplace(id, State::Pending{args[0].getObject(r).getFunction(r),
+                    args[1].getObject(r).getFunction(r), nullptr, owner});
+                return jsi::Value::undefined();
+              });
+          auto promise = r.global().getPropertyAsFunction(r, "Promise").callAsConstructor(r, executor);
+          Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0, nullptr, 0};
+          void* ticket = ibex2_process_begin(state->queue, owner->owner, op, abi.data(), abi.size(), id, &out);
+          struct Release { Ibex2AbiValue& v; ~Release() { ibex2_host_release(&v); } } release{out};
+          if (!ticket) {
+            state->pending.erase(id);
+            throw jsi::JSError(r, from_abi(r, out).getString(r).utf8(r));
+          }
+          state->pending.at(id).process_ticket = std::shared_ptr<void>(ticket, ibex2_process_ticket_destroy);
+          return promise;
+        }));
+  }
+  return factory.call(rt, raw).getObject(rt);
+}
+
 void Adapter::settle(uint64_t id, Ibex2AbiValue& value, bool is_error) {
   struct Release { Ibex2AbiValue& value; ~Release() { ibex2_host_release(&value); } } release{value};
   auto found = state_->pending.find(id);
   if (!state_->alive || found == state_->pending.end()) return;
   auto promise = std::move(found->second);
   state_->pending.erase(found);
+  // Release admission before resolving: the next JS read/write can start at
+  // the caller's subsequent checkpoint. Retain the native owner to settlement.
+  promise.process_ticket.reset();
   auto& rt = *runtime_;
   auto payload = from_abi(rt, value);
   if (is_error) {
@@ -449,7 +531,7 @@ bool Adapter::deliver_one() {
   if (!ibex2_take_task(state_->queue, &kind, &id, &value, &is_error)) return false;
   if (kind != 1) {
     ibex2_host_release(&value);
-    throw jsi::JSError(*runtime_, "storage adapter received a non-settlement task");
+    throw jsi::JSError(*runtime_, "bindings adapter received a non-settlement task");
   }
   settle(id, value, is_error != 0);
   return true;

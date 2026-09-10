@@ -158,6 +158,41 @@ impl Drop for Consumer {
 }
 
 #[test]
+fn detach_quiesces_old_atomic_writes_before_a_replacement_session() {
+    let path = std::env::temp_dir().join(format!("ibex-embed-replacement-{}", std::process::id()));
+    let grants = format!("fs.write {}", path.display());
+    let old = Consumer::new(&grants);
+    let js_path = serde_json::to_string(path.to_str().unwrap()).unwrap();
+    old.eval(&format!("globalThis.settled=0; for(let i=0;i<32;i++) storage.fs.atomicWriteFile({js_path}, new Uint8Array(65536)).then(()=>settled++,()=>settled++);")).unwrap();
+    unsafe {
+        storage_consumer_detach(old.handle);
+    }
+    let new = Consumer::new(&grants);
+    new.eval(&format!("globalThis.result=''; storage.fs.atomicWriteFile({js_path}, new Uint8Array([97,103,97,105,110])).then(()=>result='again',e=>result=String(e));")).unwrap();
+    assert_eq!(new.finish(), "again");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    // Detach deliberately clears JS roots. Discard late Rust settlements;
+    // queue non-emptiness is not evidence of a still-running filesystem call.
+    let state = unsafe { &*old.context.state_ptr().cast::<ibex2::task::RuntimeState>() };
+    let mut discarded = 0;
+    while !old.context.is_idle() {
+        while state.queue.take().is_some() {
+            discarded += 1;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "old filesystem jobs did not finish"
+        );
+        std::thread::yield_now();
+    }
+    assert_eq!(discarded, 32);
+    assert_eq!(std::fs::read(&path).unwrap(), b"again");
+    old.step(false);
+    assert_eq!(old.eval("String(settled)").unwrap(), "0");
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn caller_owns_checkpoints_and_storage_is_typed_and_granted() {
     let c = Consumer::new("fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/db");
     c.eval(r#"globalThis.result = ''; storage.fs.atomicWriteFile('app:/data/a\nb', new Uint8Array([1,2])).then(function(){ result = 'written'; });"#).unwrap();

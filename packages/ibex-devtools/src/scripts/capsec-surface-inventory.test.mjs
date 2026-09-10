@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -3548,6 +3549,41 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ).toThrow(/patch stack must not contain symbolic links/u);
     } finally {
       fs.rmSync(symbolicPatchRoot, { force: true, recursive: true });
+    }
+  });
+
+  test("Hermes source authority permits indentation but preserves exact bytes and uniqueness", () => {
+    const inputs = liveHermesEvaluatorIdentityInputs();
+    const invocation = '"$SCRIPT_DIR/apply-hermes-patches.sh" "$HERMES_SRC"';
+    const originalLine = `    ${invocation}`;
+    expect(inputs.appleSourceBuildText).toContain(originalLine);
+    const fixture = (line) => ({
+      ...inputs,
+      appleSourceBuildText: inputs.appleSourceBuildText.replace(originalLine, line),
+    });
+    const digests = new Set();
+    for (const indent of ["", "    ", "\t", " \t"]) {
+      const input = fixture(`${indent}${invocation}`);
+      const profiles = scanHermesEvaluatorIdentityProfiles(input);
+      const digest = profiles.find((profile) => profile.id === "source-patched")
+        .identity.sourceBuildAuthorityDigests["scripts/build-hermes.sh"];
+      expect(digest).toBe(
+        `sha256-${createHash("sha256").update(input.appleSourceBuildText).digest("hex")}`,
+      );
+      digests.add(digest);
+    }
+    expect(digests.size).toBe(4);
+
+    for (const line of [
+      `    # ${invocation}`,
+      `    ${invocation} --skip`,
+      `    ${invocation.replace("HERMES_SRC", "OTHER_SRC")}`,
+      `${invocation}\n\t${invocation}`,
+      `\u00a0${invocation}`,
+    ]) {
+      expect(() => scanHermesEvaluatorIdentityProfiles(fixture(line))).toThrow(
+        /build-hermes\.sh#apply-hermes-patches\.sh: expected exactly one source authority line/u,
+      );
     }
   });
 

@@ -149,10 +149,14 @@ impl CompletionQueue {
 pub struct RuntimeState {
     pub queue: CompletionQueue,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
+    pub(crate) processes: Arc<crate::process_abi::Registry>,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     shutdown: std::sync::atomic::AtomicBool,
+    /// Held across native filesystem effects, including atomic rename. Teardown
+    /// closes admission and drains this gate before a replacement can write.
+    filesystem: std::sync::RwLock<()>,
     /// Header lists JavaScript holds by handle, for the same reason responses
     /// are: a header list is not a primitive and §1.1 forbids serializing.
     headers: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Headers>>,
@@ -197,10 +201,12 @@ impl RuntimeState {
         Self {
             queue: CompletionQueue::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
+            processes: Arc::new(crate::process_abi::Registry::default()),
             app_directories: std::sync::OnceLock::new(),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             shutdown: std::sync::atomic::AtomicBool::new(false),
+            filesystem: std::sync::RwLock::new(()),
             headers: Mutex::new(std::collections::HashMap::new()),
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
@@ -326,10 +332,29 @@ impl RuntimeState {
         }
     }
 
+    pub(crate) fn enter_filesystem(&self) -> Result<std::sync::RwLockReadGuard<'_, ()>, HostError> {
+        let check = || {
+            if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+                Err(HostError::Failed("filesystem context is shut down".into()))
+            } else {
+                Ok(())
+            }
+        };
+        check()?;
+        let active = self.filesystem.read().unwrap();
+        check()?;
+        Ok(active)
+    }
+
+    /// Refuse queued filesystem effects and wait for admitted ones to finish.
+    /// Native filesystem calls cannot be interrupted safely; teardown may block
+    /// on one. On return no old filesystem mutation can reach a new session.
+    // @ref LLP 0068#2-synchronous-and-why — caller-owned effects and teardown
     pub fn shutdown(&self) {
-        self.sqlite.shutdown();
         self.shutdown
             .store(true, std::sync::atomic::Ordering::Release);
+        self.processes.shutdown();
+        self.sqlite.shutdown();
         let controls = std::mem::take(&mut *self.controls.lock().unwrap());
         for control in controls.into_values() {
             control.abort();
@@ -338,6 +363,9 @@ impl RuntimeState {
         for response in responses.into_values() {
             response.control.abort();
         }
+        // Interrupt other resources first; none of their callbacks run while
+        // holding this gate. Every shutdown caller waits, even on repeat calls.
+        drop(self.filesystem.write().unwrap());
     }
 
     pub fn store_headers(&self, headers: crate::stdlib::fetch::Headers) -> u64 {
@@ -607,6 +635,16 @@ pub unsafe extern "C" fn ibex2_queue_destroy(queue: *const RuntimeState) {
         let state = Arc::from_raw(queue);
         state.shutdown();
         drop(state);
+    }
+}
+
+/// Quiesce resources borrowed by an adapter without releasing its context.
+/// # Safety
+/// `queue` is null or a live Arc-backed RuntimeState pointer.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_bindings_shutdown(queue: *const RuntimeState) {
+    if let Some(state) = clone_queue(queue) {
+        state.shutdown();
     }
 }
 
