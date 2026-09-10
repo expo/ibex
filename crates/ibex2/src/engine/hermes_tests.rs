@@ -17,7 +17,10 @@ fn host_evaluation_works() {
 fn a_javascript_throw_is_reported_not_swallowed() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     let err = rt.eval("throw new Error('boom')").unwrap_err();
-    assert!(err.to_string().contains("boom"), "unexpected error text: {err}");
+    assert!(
+        err.to_string().contains("boom"),
+        "unexpected error text: {err}"
+    );
 }
 
 /// LLP 0060 D4: closed at construction, and the closure is real.
@@ -1228,7 +1231,11 @@ fn microtasks_drain_between_timers_not_after_all_of_them() {
     // Both deadlines pass with no pump in between, so both are admitted
     // together and the ONE-TASK-PER-CYCLE rule is what separates them.
     std::thread::sleep(std::time::Duration::from_millis(25));
-    assert_eq!(rt.pump().unwrap(), 1, "a drive cycle runs at most one host task");
+    assert_eq!(
+        rt.pump().unwrap(),
+        1,
+        "a drive cycle runs at most one host task"
+    );
     assert_eq!(
         rt.eval("order.join(',')").unwrap(),
         "t1,m1",

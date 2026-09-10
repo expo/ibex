@@ -158,14 +158,17 @@ uint32_t millis_until(std::chrono::steady_clock::time_point at,
 //
 // At the door: no deadline, run freely; deadline passed, refuse without
 // running anything. Otherwise the pin's time-limit monitor is asked to watch
-// for exactly the time that is left, and the interpreter's async-break check
-// — emitted at every loop back-edge and every return of evaluated source, per
-// RuntimeConfig's AsyncBreakCheckInEval — raises the engine's timeout, which
-// JavaScript cannot catch (Runtime::raiseTimeoutError is an uncatchable error
-// in the pinned source). On the way out the watch is always released, and if
-// the deadline passed during the entrance the outcome is the deadline,
-// whatever JavaScript was doing: classified by the clock, never by the text
-// of what was thrown, because text is JavaScript's to forge.
+// for at least the time that is left, rounded up to a millisecond (the
+// monitor counts in milliseconds; the clock below, not the monitor, decides
+// the outcome), and the interpreter's async-break check — emitted at every
+// loop back-edge and every return of evaluated source, per RuntimeConfig's
+// AsyncBreakCheckInEval, which ibex2_hermes_create pins on — raises the
+// engine's timeout, which JavaScript cannot catch (Runtime::raiseTimeoutError
+// is an uncatchable error in the pinned source). On the way out the watch is
+// always released, and if the deadline passed during the entrance the
+// outcome is the deadline, whatever JavaScript was doing: classified by the
+// clock, never by the text of what was thrown, because text is JavaScript's
+// to forge.
 //
 // The monitor fires once and leaves its request pending when nothing was at
 // a check — bytecode compiled without checks, or a fire that landed between
@@ -279,9 +282,16 @@ void *ibex2_hermes_create(int enable_eval) {
   // it on: it is what makes the job queue explicit and drainable, which is the
   // whole basis of the LLP 0058 §3 adapter. Without it there is no defined
   // point at which "microtasks have finished" is true.
+  // The async break check is pinned for the same reason, not trusted to the
+  // default (on, in this pin): it is what the deadline's stop depends on.
+  // Without it evaluated source carries no check at its loop back-edges and
+  // returns, `while (true) {}` runs until the process is killed, and an
+  // effect that try/catches fails open — silently, since the monitor would
+  // still fire and nothing would be there to hear it.
   auto config = ::hermes::vm::RuntimeConfig::Builder()
                     .withEnableEval(enable_eval != 0)
                     .withMicrotaskQueue(true)
+                    .withAsyncBreakCheckInEval(true)
                     .build();
   // Fully qualified: `using namespace facebook` makes bare `hermes` ambiguous
   // between ::hermes (the VM namespace) and facebook::hermes (the JSI one).
@@ -371,6 +381,37 @@ int ibex2_hermes_install_probe(void *handle, const char *name,
         [owned_value](jsi::Runtime &rt, const jsi::Value &,
                       const jsi::Value *, size_t) -> jsi::Value {
           return jsi::String::createFromUtf8(rt, owned_value);
+        });
+    runtime.global().setProperty(runtime, prop, std::move(fn));
+    return 0;
+  } catch (const std::exception &) {
+    return 1;
+  }
+}
+
+/// Install a host function that throws when called. Tests only: it is how
+/// the pump's contract for a task that fails natively is held. `native != 0`
+/// throws a std::runtime_error — which the pin translates into a JavaScript
+/// error before the caller sees it — and `native == 0` throws a jsi::JSError.
+/// Either way the message is `name` followed by " threw".
+int ibex2_hermes_install_throwing_probe(void *handle, const char *name,
+                                        int native) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || name == nullptr) {
+    return -1;
+  }
+  try {
+    jsi::Runtime &runtime = *rt->runtime;
+    std::string message = std::string(name) + " threw";
+    auto prop = jsi::PropNameID::forUtf8(runtime, std::string(name));
+    auto fn = jsi::Function::createFromHostFunction(
+        runtime, prop, 0,
+        [message, native](jsi::Runtime &rt, const jsi::Value &,
+                          const jsi::Value *, size_t) -> jsi::Value {
+          if (native != 0) {
+            throw std::runtime_error(message);
+          }
+          throw jsi::JSError(rt, message);
         });
     runtime.global().setProperty(runtime, prop, std::move(fn));
     return 0;
@@ -520,6 +561,17 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
     // unhandled error in one task does not cancel the next — but it is
     // reported, as a console error, rather than lost.
     report_uncaught(err);
+  } catch (const std::exception &err) {
+    // The same for what the engine or the adapter throws natively — a
+    // JSINativeException out of `call`, a settlement that cannot be built —
+    // for parity with the checkpoint and every other entrance. Nothing
+    // unwinds through this `extern "C"` boundary. (A host function's own
+    // std::exception never arrives here: the pin translates it into a
+    // JavaScript error inside the callback, so it is caught above.)
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
+    ibex2_report_uncaught(err.what());
   }
 
   // 5. PostCheckpoint.
@@ -854,6 +906,12 @@ const void *ibex2_hermes_state(void *handle) {
 
 /// Load and run an entry module. Returns 0 on success, 1 on failure with the
 /// message in `out_error` (Rust-released), 2 if the deadline passed.
+///
+/// The microtasks the module's body queued are drained through the same
+/// checkpoint as `pump` and `drain_microtasks`: a job that throws out of the
+/// queue is a console error and the drain resumes behind it, and only the
+/// deadline ends the drain early. A failure to load or run the module body
+/// itself is still the entry's own failure, reported through `out_error`.
 int ibex2_hermes_run_entry(void *handle, const char *specifier,
                            char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
@@ -866,7 +924,9 @@ int ibex2_hermes_run_entry(void *handle, const char *specifier,
   }
   try {
     load_module(*rt->runtime, rt, "./", specifier);
-    rt->runtime->drainMicrotasks();
+    if (!checkpoint(*rt, entrance)) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &e) {
     if (entrance.expired()) {
