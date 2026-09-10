@@ -36,7 +36,7 @@ pub fn align() {
                     .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
         })
         .unwrap_or_else(|| panic!("unexpected rustc deployment target: {stdout:?}"));
-    // SAFETY: both entrypoints call this before spawning threads or compiling.
+    // SAFETY: the Ibex 2 entrypoint calls this before spawning threads or compiling.
     // Setting the variable before cc reads it also covers its compiler probes,
     // C, C++, Objective-C++ and archives without conflicting -m flags.
     unsafe { std::env::set_var("MACOSX_DEPLOYMENT_TARGET", version) };
