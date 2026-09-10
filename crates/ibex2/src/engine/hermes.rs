@@ -4,7 +4,7 @@
 //! It uses stock JSI and nothing else — see `hermes_shim.cc`.
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // RuntimeState crosses as an opaque pointer that only Rust ever dereferences;
 // the C++ side treats it as `const void *`. clippy's improper_ctypes fires on
@@ -22,6 +22,11 @@ extern "C" {
         handle: *mut c_void,
         name: *const c_char,
         value: *const c_char,
+    ) -> c_int;
+    fn ibex2_hermes_install_throwing_probe(
+        handle: *mut c_void,
+        name: *const c_char,
+        native: c_int,
     ) -> c_int;
     fn ibex2_hermes_free_string(value: *mut c_char);
     fn ibex2_hermes_install_stdlib(handle: *mut c_void) -> c_int;
@@ -97,6 +102,11 @@ pub enum DynamicCode {
 /// A vanilla Hermes runtime.
 pub struct Hermes {
     handle: *mut c_void,
+    /// The armed deadline as this side handed it over. The engine holds the
+    /// same point on its own clock and is what stops JavaScript; this copy
+    /// is what the helpers that block *between* entrances cap their waits
+    /// by, so that no wait outlives the deadline either.
+    deadline: Option<Instant>,
 }
 
 /// Why an entrance returned no value.
@@ -112,6 +122,7 @@ pub enum JsError {
     /// it. Reported by kind and never by the text of what was thrown — text
     /// is JavaScript's to forge. Nothing JavaScript did on the way to the
     /// deadline is reported, and its state is whatever the stop left.
+    // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — the one outcome a consumer may act on without reading text: classified by the clock, uncatchable in JavaScript
     Deadline,
 }
 
@@ -172,7 +183,10 @@ impl Hermes {
         if handle.is_null() {
             return None;
         }
-        Some(Self { handle })
+        Some(Self {
+            handle,
+            deadline: None,
+        })
     }
 
     /// Evaluate source as the **host**. This is not JavaScript's `eval`: it
@@ -200,7 +214,10 @@ impl Hermes {
     /// raises an uncatchable error at the next async-break check, which
     /// evaluated source carries at every loop back-edge and every return.
     /// Bytecode carries only the checks it was compiled with, so a
-    /// check-free program runs to its end and is reported at exit.
+    /// check-free program runs to its end and is reported at exit — a
+    /// deadline is not, by itself, a bound on precompiled code, and an
+    /// adapter running bytecode it does not trust with time needs a bound
+    /// of its own.
     ///
     /// The deadline is a point on the monotonic clock. It crosses to the
     /// engine as the time left at this call, which the engine adds to its
@@ -208,21 +225,46 @@ impl Hermes {
     /// platform is not guaranteed, so the deadline cannot be handed over as
     /// an absolute value; the microseconds this costs are in the caller's
     /// favour.
+    ///
+    /// Owner thread only, like every entrance (LLP 0058.000.000 §2,
+    /// invariant 8): the deadline is read at each entrance without
+    /// synchronization, so arming or clearing it from another thread races
+    /// an entrance in flight.
+    // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — one deadline per runtime; every entrance is given what is left of it, never a fresh budget
     pub fn set_deadline(&mut self, deadline: Instant) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let nanos = u64::try_from(remaining.as_nanos()).unwrap_or(u64::MAX);
         // SAFETY: `handle` is non-null for the lifetime of self.
         let status = unsafe { ibex2_hermes_set_deadline(self.handle, nanos) };
         assert_eq!(status, 0, "ibex2_hermes_set_deadline returned {status}");
+        self.deadline = Some(deadline);
     }
 
     /// Disarm the deadline. A runtime whose deadline fired is usable again
     /// after this; its JavaScript state is whatever the stop left, which is
-    /// the consumer's to judge (Snapback 2 discards the runtime).
+    /// the consumer's to judge (Snapback 2 discards the runtime). Harmless
+    /// when nothing is armed. Owner thread only, as `set_deadline` says.
+    // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — a fired deadline leaves the runtime reusable once cleared; its pending break was flushed at the entrance that ended past it
     pub fn clear_deadline(&mut self) {
         // SAFETY: `handle` is non-null for the lifetime of self.
         let status = unsafe { ibex2_hermes_clear_deadline(self.handle) };
         assert_eq!(status, 0, "ibex2_hermes_clear_deadline returned {status}");
+        self.deadline = None;
+    }
+
+    /// Cap a wait between entrances by the armed deadline. A helper that
+    /// blocks must not outlive the deadline any more than an entrance may:
+    /// the wait is cut to the time left, rounded up so it ends at or after
+    /// the deadline and the next entrance is what reports it, and is zero
+    /// once the deadline has passed.
+    fn capped_by_deadline(&self, millis: u64) -> u64 {
+        let Some(deadline) = self.deadline else {
+            return millis;
+        };
+        let left = deadline.saturating_duration_since(Instant::now());
+        let whole = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
+        let ceil = whole.saturating_add(u64::from(left.subsec_nanos() % 1_000_000 != 0));
+        millis.min(ceil)
     }
 
     /// Evaluate the JavaScript binding preludes that SHIP.
@@ -327,15 +369,22 @@ impl Hermes {
         }
     }
 
-    /// Pump until `expected` host tasks have run, or the deadline passes.
+    /// Pump until `expected` host tasks have run, the armed deadline passes,
+    /// or thirty seconds go by.
     ///
     /// Blocks on the completion signal rather than spinning. The earlier
     /// version looped a fixed number of times yielding, which raced through
     /// 10,000 iterations in microseconds and gave up long before a real network
     /// request could finish — fine against a loopback socket, useless against
     /// NSURLSession.
+    ///
+    /// Under an armed deadline no wait outlives it: the deadline ends this
+    /// loop as it ends any entrance, and what was delivered by then is the
+    /// answer. The count does not say which of the three ended the loop; a
+    /// caller that must tell the deadline from the rest checks its own clock
+    /// against the deadline it armed.
     pub fn pump_until(&mut self, expected: i32) -> i32 {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let give_up = Instant::now() + Duration::from_secs(30);
         let mut delivered = 0;
         loop {
             match self.pump() {
@@ -343,11 +392,12 @@ impl Hermes {
                 // The runtime's own deadline: what was delivered is the answer.
                 Err(_) => return delivered,
             }
-            if delivered >= expected || std::time::Instant::now() >= deadline {
+            if delivered >= expected || Instant::now() >= give_up {
                 return delivered;
             }
+            let wait = self.capped_by_deadline(100);
             // SAFETY: `handle` is non-null for the lifetime of self.
-            unsafe { ibex2_hermes_wait(self.handle, 100) };
+            unsafe { ibex2_hermes_wait(self.handle, wait) };
         }
     }
 
@@ -456,18 +506,24 @@ impl Hermes {
         }
     }
 
-    /// Run the loop until nothing is pending: no completions, no timers.
+    /// Run the loop until nothing is pending: no completions, no timers —
+    /// or until `budget` or the armed deadline passes.
     ///
     /// The embedder's turn, and the thing that makes a program with a
     /// `setTimeout` in it terminate at the right moment rather than early.
-    pub fn run_to_quiescence(&mut self, budget: std::time::Duration) {
-        let deadline = std::time::Instant::now() + budget;
+    ///
+    /// Under an armed deadline no wait outlives it: the deadline ends this
+    /// loop as it ends any entrance. Returning says nothing about which of
+    /// the three ended it; a caller that must tell the deadline from
+    /// quiescence checks its own clock against the deadline it armed.
+    pub fn run_to_quiescence(&mut self, budget: Duration) {
+        let give_up = Instant::now() + budget;
         loop {
             // The runtime's own deadline, if one is armed, ends the loop too.
             if self.pump().is_err() {
                 return;
             }
-            if std::time::Instant::now() >= deadline {
+            if Instant::now() >= give_up {
                 return;
             }
             // SAFETY: `handle` is non-null for the lifetime of self.
@@ -486,10 +542,10 @@ impl Hermes {
             let until_timer = unsafe { crate::task::borrow_state(state) }
                 .and_then(|s| s.millis_until_next_timer())
                 .map(|ms| ms.ceil() as u64);
-            let remaining = deadline
-                .saturating_duration_since(std::time::Instant::now())
+            let remaining = give_up
+                .saturating_duration_since(Instant::now())
                 .as_millis() as u64;
-            let timeout = until_timer.unwrap_or(u64::MAX).min(remaining);
+            let timeout = self.capped_by_deadline(until_timer.unwrap_or(u64::MAX).min(remaining));
             if timeout == 0 {
                 continue;
             }
@@ -544,6 +600,19 @@ impl Hermes {
         let value = CString::new(value).expect("value contains a NUL byte");
         // SAFETY: both pointers outlive the call; the shim copies what it keeps.
         unsafe { ibex2_hermes_install_probe(self.handle, name.as_ptr(), value.as_ptr()) == 0 }
+    }
+
+    /// Install a zero-argument host function that throws `"<name> threw"`:
+    /// natively, as a `std::runtime_error` the engine translates into a
+    /// JavaScript error, or as a JavaScript error outright. Tests only — it
+    /// is how the pump is held to its contract for a task that fails.
+    pub fn install_throwing_probe(&mut self, name: &str, native: bool) -> bool {
+        let name = CString::new(name).expect("name contains a NUL byte");
+        // SAFETY: the pointer outlives the call; the shim copies what it keeps.
+        unsafe {
+            ibex2_hermes_install_throwing_probe(self.handle, name.as_ptr(), c_int::from(native))
+                == 0
+        }
     }
 }
 
