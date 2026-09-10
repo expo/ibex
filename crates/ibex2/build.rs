@@ -12,7 +12,11 @@
 
 use std::path::PathBuf;
 
+#[path = "../../build_support/macos_deployment_target.rs"]
+mod macos_deployment_target;
+
 fn main() {
+    macos_deployment_target::align();
     println!("cargo:rerun-if-changed=src/engine/hermes_shim.cc");
     println!("cargo:rerun-if-changed=tests/embedding.cc");
     println!("cargo:rerun-if-changed=src/engine/ibex2_jsi.cc");

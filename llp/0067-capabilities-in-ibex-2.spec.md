@@ -55,7 +55,7 @@ because of how it is spelt, and never to a package because of what its own
 naming something that does not exist is refused before any module runs. No
 manifest means no authority.
 
-Six families exist, each a parameterized question:
+Seven families exist, each a parameterized question:
 
 | family | grant | the question |
 |---|---|---|
@@ -65,6 +65,7 @@ Six families exist, each a parameterized question:
 | `secret.keep` | name | may this secret be read, replaced, and forgotten? (LLP 0069) |
 | `storage.kv` | scope | may this scope be read, written, listed, and deleted from? (LLP 0070) |
 | `sqlite.open` | database path | may this database be opened? (LLP 0059.000 §3.15) |
+| `process.spawn` / `process.pty` | exact executable path | may this executable run with pipes or a PTY? (LLP 0068 §2.1) |
 
 `process.env` is the model in one object: a snapshot of exactly the granted
 variables, so an ungranted one is undefined because it is absent, not because
@@ -99,6 +100,18 @@ relative Unix operations reject symlink traversal and keep their root identity.
 SQLite admits its database path once, then database and statement objects carry
 that authority. Its authorizer prevents SQL from opening additional files.
 The module's `sqlite` parameter is frozen and no raw database handle is exposed.
+
+**Author-required 2026-09-09, implemented by Codex for Fleet:** the Rust
+`process` binding additionally requires explicit `Host::with_process_support`.
+The installable JS adapter uses `Context::enable_process_support()` as the
+trusted opt-in, unavailable to app JS. It captures the installer's grants,
+uses private native owners, and requires intrinsic hardening before opening.
+An exact native executable grant admits arbitrary literal argv and explicit
+cwd/env; there is no implied shell or inherited environment. This is broad OS
+execution authority: child effects do not pass through Ibex's other grants.
+The trusted host owns executable paths and their stability. The earlier
+deliberate omission of processes is replaced for Fleet (LLP 0068 §2.1), without
+adding Node compatibility or a capability on JavaScript's global object.
 
 ## 4. Integrity
 

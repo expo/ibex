@@ -40,6 +40,12 @@ Everything not required by that does not exist.
 `child_process`, and `zlib`; `fs` returned as a promise-only subset over the
 capability model. Ibex 2 is an app runtime, not a general JavaScript one.
 
+Author-required 2026-09-09: Fleet's subprocess/PTY need now has a native Rust
+capability with an optional installable JS/TypeScript adapter (LLP 0068 §2.1),
+replacing its ad hoc Node / `node-pty` bridge as the
+consumer target. The earlier subprocess omission yields to that concrete need;
+general Node `child_process` compatibility stays off the doing-list.
+
 **capsec: in, and whole.** Exact 2 is expected to run npm dependencies
 (LLP 0057 OQ2), so the boundary model stays — authority as module parameters,
 grants by package, one check in Rust, the freeze — and is stated on one page,

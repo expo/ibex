@@ -36,10 +36,12 @@ void set_binding(jsi::Runtime&, jsi::Object&, const char*, uint32_t, const void*
 // The runtime and borrowed Rust queue must outlive detach. One adapter owns the
 // queue's task-id namespace. The caller owns checkpoints, scheduling and timers.
 // Construct before application code, then run the precompiled HARDEN_SOURCE
-// before application code uses storage. SQLite refuses mutable or replaced
+// before app code uses storage/process. SQLite and process refuse mutable or replaced
 // intrinsics, including methods changed before a later freeze.
 // Retained JavaScript bindings fail closed after detach; they never dereference
 // a destroyed adapter. Detach clears all JSI roots before the runtime is destroyed.
+// Detach shuts down the borrowed context and quiesces its filesystem effects;
+// it can block on an already admitted native filesystem operation.
 class Adapter {
 public:
   Adapter(jsi::Runtime&, const void* borrowed_queue);
@@ -51,9 +53,13 @@ public:
   // sqlite_factory is the completion value of precompiled bindings/sqlite.js.
   // This returns frozen {fs, sqlite}; it never modifies the global object.
   jsi::Object storage(const void* grants, const jsi::Function& sqlite_factory);
+  // Explicitly installed, frozen {spawn, pty}; modifies no globals. The caller
+  // bakes PROCESS_SOURCE ahead of time. Context must separately enable native
+  // process support; executable grants are still checked for every launch.
+  jsi::Object process(const void* grants, const jsi::Function& process_factory);
   // Takes/releases the ABI payload even if no promise is awaiting this id.
   void settle(uint64_t task_id, Ibex2AbiValue&, bool is_error);
-  // Takes at most one storage completion. No timers or microtask checkpoints.
+  // Takes at most one completion. No timers or microtask checkpoints.
   // Returns true if a task was delivered; throws for a non-settlement task.
   bool deliver_one();
 private:

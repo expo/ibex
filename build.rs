@@ -5,6 +5,9 @@ use std::path::PathBuf;
 
 use ibex_windows_dll_staging::stage_runtime_dlls;
 
+#[path = "build_support/macos_deployment_target.rs"]
+mod macos_deployment_target;
+
 #[path = "build_support/hermes_profile_provenance.rs"]
 mod hermes_profile_provenance;
 #[path = "build_support/hermes_symbol_probe.rs"]
@@ -693,6 +696,7 @@ fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
 }
 
 fn main() {
+    macos_deployment_target::align();
     println!("cargo:rustc-check-cfg=cfg(ibex_hermes_finalization_capable)");
     println!("cargo:rerun-if-env-changed=IBEX_LEGACY_HERMES_BLOCK_SCOPING");
     let manifest_dir = env_path("CARGO_MANIFEST_DIR");
@@ -2139,14 +2143,9 @@ fn main() {
             .flag_if_supported("-fPIC");
     }
 
-    // Set minimum deployment targets to match Xcode project settings.
-    // This avoids "was built for newer version" linker warnings for our C++ files.
-    // Note: bundled C deps (e.g. rusqlite's sqlite3) need the env var set before
-    // cargo runs — see build-kernel.sh which exports MACOSX_DEPLOYMENT_TARGET.
+    // macOS was aligned with rustc at entry, before any cc builders/probes.
+    // Keep the existing iOS and Android platform configuration here.
     match target_os.as_str() {
-        "macos" => {
-            build.flag("-mmacosx-version-min=14.0");
-        }
         "ios" => {
             build.flag("-mios-version-min=17.0");
         }
@@ -2429,9 +2428,7 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-std=c++17")
             .flag("-stdlib=libc++");
-        if target_os == "macos" {
-            fetch_build.flag("-mmacosx-version-min=14.0");
-        } else {
+        if target_os == "ios" {
             fetch_build.flag("-mios-version-min=17.0");
         }
         fetch_build.compile("exact_native_fetch");
@@ -2442,9 +2439,7 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-std=c++17")
             .flag("-stdlib=libc++");
-        if target_os == "macos" {
-            ws_build.flag("-mmacosx-version-min=14.0");
-        } else {
+        if target_os == "ios" {
             ws_build.flag("-mios-version-min=17.0");
         }
         ws_build.compile("exact_native_websocket");
@@ -2503,9 +2498,7 @@ fn main() {
             // Compile vendored Brotli from source
             let brotli_dir = manifest_dir.join("vendor").join("brotli");
             let mut brotli_build = cc::Build::new();
-            brotli_build
-                .include(brotli_dir.join("include"))
-                .flag("-mmacosx-version-min=14.0");
+            brotli_build.include(brotli_dir.join("include"));
 
             // Add all brotli C sources
             for subdir in &["common", "dec", "enc"] {

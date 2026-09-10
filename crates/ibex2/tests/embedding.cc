@@ -50,6 +50,30 @@ void *storage_consumer_create(const void *queue, const void *grants,
     return c.release();
   } catch (const std::exception &e) { *error = copy(e.what()); return nullptr; }
 }
+void *process_consumer_create(const void *queue, const void *grants,
+                              const uint8_t *factory, size_t len,
+                              const uint8_t *harden, size_t harden_len, char **error) {
+  try {
+    auto c = std::make_unique<Consumer>();
+    auto config = ::hermes::vm::RuntimeConfig::Builder()
+        .withEnableEval(false).withMicrotaskQueue(true).build();
+    c->runtime = facebook::hermes::makeHermesRuntimeNoThrow(config);
+    if (!c->runtime) return nullptr;
+    auto& rt = *c->runtime;
+    auto names = rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyNames");
+    auto stringify = rt.global().getPropertyAsObject(rt, "JSON").getPropertyAsFunction(rt, "stringify");
+    auto before = stringify.call(rt, names.call(rt, rt.global())).getString(rt).utf8(rt);
+    auto f = rt.evaluateJavaScript(std::make_shared<Bytes>(factory, len), "process.hbc").getObject(rt).getFunction(rt);
+    c->adapter = std::make_unique<ibex2::jsi_adapter::Adapter>(rt, queue);
+    if (harden_len) rt.evaluateJavaScript(std::make_shared<Bytes>(harden, harden_len), "harden.hbc");
+    auto processes = c->adapter->process(grants, f);
+    auto after = stringify.call(rt, names.call(rt, rt.global())).getString(rt).utf8(rt);
+    if (before != after) throw jsi::JSError(rt, "process installer mutated caller globals");
+    // Only this trusted fixture hands the returned capability to its test app.
+    rt.global().setProperty(rt, "processes", processes);
+    return c.release();
+  } catch (const std::exception& e) { *error = copy(e.what()); return nullptr; }
+}
 int storage_consumer_eval(void *h, const uint8_t *bytes, size_t len, char **out) {
   auto &rt = *static_cast<Consumer *>(h)->runtime;
   try {

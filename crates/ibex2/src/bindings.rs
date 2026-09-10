@@ -1,8 +1,8 @@
 //! Installable bindings for a caller-owned JSI runtime.
 //!
 //! Rust consumers use `host::Bindings` directly. A JS embedder compiles
-//! `JSI_SOURCE` against its own JSI headers, bakes `SQLITE_SOURCE` with its
-//! engine's compiler, and creates an `Adapter` from `JSI_HEADER`. This module
+//! `JSI_SOURCE` against its own JSI headers, bakes `SQLITE_SOURCE` and/or
+//! `PROCESS_SOURCE` with its compiler, and creates an `Adapter` from `JSI_HEADER`. This module
 //! links no engine, installs no globals, and owns no application loop.
 //!
 //! @ref LLP 0068#2-synchronous-and-why — the consumer owns execution
@@ -14,16 +14,24 @@ pub const JSI_HEADER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/include/ibex2
 pub const HARDEN_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/harden.js");
 pub const SQLITE_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/sqlite.js");
 pub const TYPESCRIPT: &str = include_str!("bindings/storage.d.ts");
+pub const PROCESS_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/process.js");
+pub const PROCESS_TYPESCRIPT: &str = include_str!("bindings/process.d.ts");
 
 /// Rust resources borrowed by one JSI adapter. Create after first pixel,
 /// configure before installation, and detach the adapter before dropping this.
-/// Each context has a separate completion queue and database handle space.
+/// Each context has separate completions, database handles, and child owners.
+/// Detach/drop refuses queued filesystem effects and waits for admitted ones.
 pub struct Context {
     state: Arc<RuntimeState>,
     grants: Arc<GrantSet>,
 }
 
 impl Context {
+    /// Trusted embedder opt-in. No JavaScript operation can enable processes;
+    /// each installed opener still requires its exact executable grant.
+    pub fn enable_process_support(&self) -> Result<(), crate::boundary::HostError> {
+        self.state.processes.enable()
+    }
     /// The host supplies already-admitted grants; never trust app exports to
     /// authorize themselves. Empty grants install capabilities that refuse.
     pub fn new(grants: GrantSet) -> Self {

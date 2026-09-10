@@ -50,7 +50,7 @@ impl AbiValue {
     /// # Safety
     /// `data`/`len` must describe a span valid for the duration of the call,
     /// and the returned borrow must not outlive it.
-    unsafe fn borrow<'a>(self) -> Result<HostArg<'a>, HostError> {
+    pub(crate) unsafe fn borrow<'a>(self) -> Result<HostArg<'a>, HostError> {
         Ok(match self.tag {
             TAG_UNDEFINED => HostArg::Undefined,
             TAG_NULL => HostArg::Null,
@@ -547,7 +547,7 @@ fn fail(out: *mut AbiValue, message: &str) -> c_int {
 }
 
 /// Move a value into a Rust allocation the shim borrows until it releases it.
-fn leak_value(value: HostValue) -> AbiValue {
+pub(crate) fn leak_value(value: HostValue) -> AbiValue {
     match value {
         HostValue::Undefined => AbiValue::undefined(),
         HostValue::Null => AbiValue {
@@ -635,7 +635,7 @@ pub unsafe extern "C" fn ibex2_grants_destroy(grants: *const GrantSet) {
     }
 }
 
-unsafe fn clone_grants(grants: *const GrantSet) -> Option<std::sync::Arc<GrantSet>> {
+pub(crate) unsafe fn clone_grants(grants: *const GrantSet) -> Option<std::sync::Arc<GrantSet>> {
     if grants.is_null() {
         return None;
     }
@@ -874,6 +874,7 @@ fn run_async(
         return crate::sqlite_abi::run(op as u32, args, state, grants);
     }
     if let Some(fs_op) = fs_op_for(op) {
+        let _active = state.enter_filesystem()?;
         return run_fs(fs_op, args, grants, state.app_directories());
     }
     match op {
@@ -974,6 +975,10 @@ fn run_async(
         _ => unreachable!("fs ops returned above, via fs_op_for"),
     }
 }
+
+#[cfg(test)]
+#[path = "boundary_abi_tests.rs"]
+mod filesystem_shutdown_tests;
 
 /// Resolve a module and produce its executable form.
 ///
