@@ -371,7 +371,7 @@ fn a_package_above_the_project_root_is_refused() {
     rt.install_bindings().expect("bindings");
     rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none())
         .expect("loader");
-    let err = rt.run_entry("./index.js").err().map(|e| e.0);
+    let err = rt.run_entry("./index.js").err().map(|e| e.to_string());
     let _ = std::fs::remove_dir_all(&outer);
     let err = err.expect("a package above the root must not resolve");
     assert!(err.contains("outside the project root"), "{err}");

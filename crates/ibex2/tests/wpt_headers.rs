@@ -24,7 +24,7 @@ fn run_file(name: &str) -> Vec<(String, bool, String)> {
     // The file itself, unmodified. A syntax or top-level error is a failure of
     // the binding, not of the test.
     if let Err(e) = rt.eval(&source) {
-        panic!("{name} failed to evaluate: {}", e.0);
+        panic!("{name} failed to evaluate: {e}");
     }
 
     let raw = rt.eval("__ibex2_test_results()").expect("results");

@@ -17,7 +17,7 @@ fn host_evaluation_works() {
 fn a_javascript_throw_is_reported_not_swallowed() {
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
     let err = rt.eval("throw new Error('boom')").unwrap_err();
-    assert!(err.0.contains("boom"), "unexpected error text: {}", err.0);
+    assert!(err.to_string().contains("boom"), "unexpected error text: {err}");
 }
 
 /// LLP 0060 D4: closed at construction, and the closure is real.
@@ -27,13 +27,13 @@ fn dynamic_code_is_closed_at_construction() {
 
     let eval_err = rt.eval("eval('1 + 1')").unwrap_err();
     assert!(
-        !eval_err.0.is_empty(),
+        !eval_err.to_string().is_empty(),
         "eval should have been refused outright"
     );
 
     let fn_err = rt.eval("new Function('return 1')()").unwrap_err();
     assert!(
-        !fn_err.0.is_empty(),
+        !fn_err.to_string().is_empty(),
         "the Function constructor should have been refused too"
     );
 
@@ -530,7 +530,7 @@ fn async_and_await_work_over_the_adapter() {
 #[test]
 fn pumping_an_empty_queue_delivers_nothing() {
     let mut rt = async_rt();
-    assert_eq!(rt.pump(), 0);
+    assert_eq!(rt.pump().unwrap(), 0);
 }
 
 // --- fetch, end to end -------------------------------------------------
@@ -1135,10 +1135,10 @@ fn timer_rt() -> Hermes {
 fn pump_for(rt: &mut Hermes, millis: u64) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(millis);
     while std::time::Instant::now() < deadline {
-        rt.pump();
+        rt.pump().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    rt.pump();
+    rt.pump().unwrap();
 }
 
 #[test]
@@ -1146,7 +1146,7 @@ fn a_timeout_fires_after_its_delay_and_not_before() {
     let mut rt = timer_rt();
     rt.eval("globalThis.fired = false; setTimeout(() => { fired = true }, 20);")
         .unwrap();
-    rt.pump();
+    rt.pump().unwrap();
     assert_eq!(rt.eval("String(fired)").unwrap(), "false", "fired early");
     pump_for(&mut rt, 60);
     assert_eq!(rt.eval("String(fired)").unwrap(), "true");
@@ -1228,15 +1228,15 @@ fn microtasks_drain_between_timers_not_after_all_of_them() {
     // Both deadlines pass with no pump in between, so both are admitted
     // together and the ONE-TASK-PER-CYCLE rule is what separates them.
     std::thread::sleep(std::time::Duration::from_millis(25));
-    assert_eq!(rt.pump(), 1, "a drive cycle runs at most one host task");
+    assert_eq!(rt.pump().unwrap(), 1, "a drive cycle runs at most one host task");
     assert_eq!(
         rt.eval("order.join(',')").unwrap(),
         "t1,m1",
         "the first timer's microtasks must drain before the second timer runs"
     );
-    assert_eq!(rt.pump(), 1);
+    assert_eq!(rt.pump().unwrap(), 1);
     assert_eq!(rt.eval("order.join(',')").unwrap(), "t1,m1,t2,m2");
-    assert_eq!(rt.pump(), 0, "nothing left");
+    assert_eq!(rt.pump().unwrap(), 0, "nothing left");
 }
 
 /// A throwing timer must not cancel the timers already due behind it,

@@ -1,9 +1,10 @@
 // Minimal C ABI over stock JSI for the Ibex 2 spike.
 //
 // This file deliberately uses ONLY the public Hermes/JSI embedding surface —
-// makeHermesRuntime, RuntimeConfig, evaluateJavaScript, and host functions. If
-// anything here ever needs a symbol the carried patch series adds, that is the
-// signal LLP 0060 D3 has been broken and the fork has grown back.
+// makeHermesRuntime, RuntimeConfig, evaluateJavaScript, host functions, and
+// the time-limit monitor. If anything here ever needs a symbol the carried
+// patch series adds, that is the signal LLP 0060 D3 has been broken and the
+// fork has grown back.
 //
 // @ref LLP 0060#1-the-decision — D4: eval is closed at construction, not latched after boot
 // @ref LLP 0058#1-what-an-engine-must-provide — requirement 2, host functions over primitives
@@ -13,6 +14,8 @@
 #include "../../include/ibex2_jsi.h"
 #include <jsi/instrumentation.h>
 
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <unordered_map>
 #include <vector>
@@ -37,6 +40,7 @@ extern "C" int ibex2_grants_env_at(const void *grants, size_t index,
 extern "C" void ibex2_string_free(char *value);
 extern "C" void ibex2_queue_destroy(const void *queue);
 extern "C" void ibex2_grants_destroy(const void *grants);
+extern "C" void ibex2_end_drive(const void *queue);
 
 namespace {
 
@@ -47,7 +51,9 @@ struct ResponseOwner final : jsi::NativeState {
 };
 
 struct Ibex2Runtime {
-  std::unique_ptr<jsi::Runtime> runtime;
+  // The concrete engine, not the JSI interface: the time-limit monitor is
+  // Hermes's own (hermes-interfaces.h), reached through HermesRuntime.
+  std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
   std::unique_ptr<Adapter> bindings;
   // This runtime's own completion queue. Per-runtime so two runtimes in one
   // process cannot take each other's completions (task::Pump C5).
@@ -82,6 +88,11 @@ struct Ibex2Runtime {
   // until the bindings are installed, in which case the raw binding is used.
   jsi::Value make_fetch;
   jsi::Value make_sqlite;
+  // The one deadline: armed by ibex2_hermes_set_deadline, consulted at every
+  // entrance until cleared. A steady-clock point, so what an entrance is
+  // given is the time left of the same deadline — never a fresh budget.
+  bool deadline_armed = false;
+  std::chrono::steady_clock::time_point deadline;
 };
 
 // An error that escaped a callback, to the console at error level with its
@@ -111,6 +122,147 @@ char *dup_c_string(const std::string &value) {
   }
   std::memcpy(out, value.c_str(), value.size() + 1);
   return out;
+}
+
+// What an entrance reports. Shared by eval, eval_bytes, drain_microtasks,
+// pump, and run_entry, and mirrored by `checked` in hermes.rs.
+constexpr int IBEX2_STATUS_OK = 0;
+constexpr int IBEX2_STATUS_THREW = 1;
+constexpr int IBEX2_STATUS_DEADLINE = 2;
+constexpr int IBEX2_STATUS_INVALID = -1;
+
+// Milliseconds from `now` until `at`, rounded up so the watch never fires
+// early, and never zero: the door has already refused an entrance whose
+// deadline has passed, so a sub-millisecond remainder is a one-millisecond
+// watch.
+uint32_t millis_until(std::chrono::steady_clock::time_point at,
+                      std::chrono::steady_clock::time_point now) {
+  auto remaining = at - now;
+  auto whole = std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+  if (whole < remaining) {
+    whole += std::chrono::milliseconds(1);
+  }
+  auto count = whole.count();
+  if (count < 1) {
+    return 1;
+  }
+  if (count > static_cast<decltype(count)>(UINT32_MAX)) {
+    return UINT32_MAX;
+  }
+  return static_cast<uint32_t>(count);
+}
+
+// One entrance into JavaScript, held to the runtime's deadline.
+//
+// @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — one deadline per runtime, held at every entrance; the engine fires it, the adapter owns it
+//
+// At the door: no deadline, run freely; deadline passed, refuse without
+// running anything. Otherwise the pin's time-limit monitor is asked to watch
+// for exactly the time that is left, and the interpreter's async-break check
+// — emitted at every loop back-edge and every return of evaluated source, per
+// RuntimeConfig's AsyncBreakCheckInEval — raises the engine's timeout, which
+// JavaScript cannot catch (Runtime::raiseTimeoutError is an uncatchable error
+// in the pinned source). On the way out the watch is always released, and if
+// the deadline passed during the entrance the outcome is the deadline,
+// whatever JavaScript was doing: classified by the clock, never by the text
+// of what was thrown, because text is JavaScript's to forge.
+//
+// The monitor fires once and leaves its request pending when nothing was at
+// a check — bytecode compiled without checks, or a fire that landed between
+// the last check and the return. Left alone, that request would stop the
+// runtime's next entrance for a deadline that is no longer armed. So an
+// entrance that ends past its deadline runs one empty program, whose return
+// check consumes whatever is pending, before it returns. That is what makes a
+// runtime whose deadline fired reusable once the deadline is cleared.
+class Entrance {
+public:
+  explicit Entrance(Ibex2Runtime &rt) : rt_(rt) {
+    if (!rt_.deadline_armed) {
+      return;
+    }
+    auto now = std::chrono::steady_clock::now();
+    if (now >= rt_.deadline) {
+      refused_ = true;
+      return;
+    }
+    rt_.runtime->watchTimeLimit(millis_until(rt_.deadline, now));
+    watching_ = true;
+  }
+  ~Entrance() {
+    if (!watching_) {
+      return;
+    }
+    rt_.runtime->unwatchTimeLimit();
+    if (expired()) {
+      flush_pending_break();
+    }
+  }
+  Entrance(const Entrance &) = delete;
+  Entrance &operator=(const Entrance &) = delete;
+
+  bool refused() const { return refused_; }
+  bool expired() const {
+    return rt_.deadline_armed &&
+           std::chrono::steady_clock::now() >= rt_.deadline;
+  }
+  // The status to report for an outcome JavaScript produced.
+  int status(int outcome) const {
+    return expired() ? IBEX2_STATUS_DEADLINE : outcome;
+  }
+
+private:
+  void flush_pending_break() {
+    try {
+      auto buffer = std::make_shared<jsi::StringBuffer>(std::string("0"));
+      rt_.runtime->evaluateJavaScript(buffer, "<deadline>");
+    } catch (const jsi::JSError &) {
+    } catch (const std::exception &) {
+    }
+  }
+
+  Ibex2Runtime &rt_;
+  bool refused_ = false;
+  bool watching_ = false;
+};
+
+// The drive flag, released on every way out of a pump. A cycle the deadline
+// stopped used to be able to leave it set, and a set flag refuses every cycle
+// after it as nested.
+class DriveGuard {
+public:
+  explicit DriveGuard(const void *queue) : queue_(queue) {}
+  ~DriveGuard() { ibex2_end_drive(queue_); }
+  DriveGuard(const DriveGuard &) = delete;
+  DriveGuard &operator=(const DriveGuard &) = delete;
+
+private:
+  const void *queue_;
+};
+
+// A microtask checkpoint that reports what it cannot finish. A job that
+// throws out of the queue — only an engine-raised error can, since Promise
+// reactions and queueMicrotask catch their own — is reported as an uncaught
+// error and the drain resumes behind it: the engine retires a job before it
+// runs it, so every retry makes progress. Before this a job's throw unwound
+// through the C ABI into Rust. The deadline is the one thing that ends a
+// checkpoint early; returns false when it did.
+bool checkpoint(Ibex2Runtime &rt, const Entrance &entrance) {
+  for (;;) {
+    try {
+      rt.runtime->drainMicrotasks();
+      return true;
+    } catch (const jsi::JSError &err) {
+      if (entrance.expired()) {
+        return false;
+      }
+      report_uncaught(err);
+    } catch (const std::exception &err) {
+      if (entrance.expired()) {
+        return false;
+      }
+      ibex2_report_uncaught(err.what());
+    }
+  }
 }
 
 } // namespace
@@ -152,6 +304,10 @@ void ibex2_hermes_destroy(void *handle) {
     for (const void *grants : rt->module_grants) {
       ibex2_grants_destroy(grants);
     }
+    // Never watched between entrances, so this is belt and braces: the
+    // monitor keys on the VM's address, and the VM is about to go. Teardown
+    // runs no JavaScript, so there is nothing here for a deadline to stop.
+    rt->runtime->unwatchTimeLimit();
     rt->bindings->detach();
     ibex2_queue_destroy(rt->queue);
   }
@@ -159,11 +315,16 @@ void ibex2_hermes_destroy(void *handle) {
 }
 
 /// Evaluate `source` as the host. Returns 0 on success and 1 if JavaScript
-/// threw; `*out` receives the result (or the error message) either way.
+/// threw, with `*out` the result or the error message; 2 if the deadline
+/// passed before or during the evaluation, with nothing in `*out` to trust.
 int ibex2_hermes_eval(void *handle, const char *source, char **out) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr || source == nullptr) {
-    return -1;
+    return IBEX2_STATUS_INVALID;
+  }
+  Entrance entrance(*rt);
+  if (entrance.refused()) {
+    return IBEX2_STATUS_DEADLINE;
   }
   try {
     auto buffer = std::make_shared<jsi::StringBuffer>(std::string(source));
@@ -171,17 +332,23 @@ int ibex2_hermes_eval(void *handle, const char *source, char **out) {
     if (out != nullptr) {
       *out = dup_c_string(value.toString(*rt->runtime).utf8(*rt->runtime));
     }
-    return 0;
+    return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     if (out != nullptr) {
       *out = dup_c_string(err.getMessage());
     }
-    return 1;
+    return IBEX2_STATUS_THREW;
   } catch (const std::exception &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     if (out != nullptr) {
       *out = dup_c_string(std::string(err.what()));
     }
-    return 1;
+    return IBEX2_STATUS_THREW;
   }
 }
 
@@ -288,24 +455,39 @@ int ibex2_hermes_collect_garbage(void *handle) {
 ///   4. Run it.
 ///   5. PostCheckpoint — drain the microtasks it caused, before any next task.
 ///
-/// Returns 1 if a task ran and 0 otherwise. **One task per cycle**, so a caller
-/// wanting to run the loop to quiescence calls this in a loop rather than
-/// expecting one call to drain everything. Batching tasks would make the order
-/// an application sees depend on how many happened to be ready at once.
-int ibex2_hermes_pump(void *handle) {
+/// `*out_ran` is 1 if a task ran and 0 otherwise. **One task per cycle**, so a
+/// caller wanting to run the loop to quiescence calls this in a loop rather
+/// than expecting one call to drain everything. Batching tasks would make the
+/// order an application sees depend on how many happened to be ready at once.
+///
+/// Returns 0, or 2 if the deadline passed before or during the cycle — at the
+/// door, in a checkpoint, or inside the task, which is then abandoned with no
+/// post-checkpoint: nothing runs after the deadline. A callback or job that
+/// throws for any other reason is a console error, never a status.
+int ibex2_hermes_pump(void *handle, int *out_ran) {
+  if (out_ran != nullptr) {
+    *out_ran = 0;
+  }
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr) {
-    return -1;
+    return IBEX2_STATUS_INVALID;
+  }
+  Entrance entrance(*rt);
+  if (entrance.refused()) {
+    return IBEX2_STATUS_DEADLINE;
   }
   // A drive request made while a cycle is running records a wakeup rather than
   // nesting a second host task inside project JavaScript (§8).
   if (ibex2_begin_drive(rt->queue) == 0) {
-    return 0;
+    return entrance.status(IBEX2_STATUS_OK);
   }
+  DriveGuard drive(rt->queue);
   jsi::Runtime &runtime = *rt->runtime;
 
   // 1. PreCheckpoint.
-  runtime.drainMicrotasks();
+  if (!checkpoint(*rt, entrance)) {
+    return IBEX2_STATUS_DEADLINE;
+  }
 
   // 2. Admission.
   ibex2_admit_due_timers(rt->queue);
@@ -316,36 +498,38 @@ int ibex2_hermes_pump(void *handle) {
   Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
   int is_error = 0;
   if (ibex2_take_task(rt->queue, &kind, &task_id, &value, &is_error) == 0) {
-    ibex2_end_drive(rt->queue);
-    return 0;
+    return entrance.status(IBEX2_STATUS_OK);
   }
 
   // 4. Run it.
-  if (kind == 2) {
-    jsi::Value fire = runtime.global().getProperty(runtime, "__ibex2_fire_timer");
-    if (fire.isObject() && fire.getObject(runtime).isFunction(runtime)) {
-      try {
+  try {
+    if (kind == 2) {
+      jsi::Value fire = runtime.global().getProperty(runtime, "__ibex2_fire_timer");
+      if (fire.isObject() && fire.getObject(runtime).isFunction(runtime)) {
         fire.getObject(runtime).getFunction(runtime).call(
             runtime, static_cast<double>(task_id));
-      } catch (const jsi::JSError &err) {
-        // A throwing callback does not stop the tasks behind it, exactly as an
-        // unhandled error in one task does not cancel the next — but it is
-        // reported, as a console error, rather than lost.
-        report_uncaught(err);
       }
-    }
-  } else {
-    try {
+    } else {
       rt->bindings->settle(task_id, value, is_error != 0);
-    } catch (const jsi::JSError &err) {
-      report_uncaught(err);
     }
+  } catch (const jsi::JSError &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
+    // A throwing callback does not stop the tasks behind it, exactly as an
+    // unhandled error in one task does not cancel the next — but it is
+    // reported, as a console error, rather than lost.
+    report_uncaught(err);
   }
 
   // 5. PostCheckpoint.
-  runtime.drainMicrotasks();
-  ibex2_end_drive(rt->queue);
-  return 1;
+  if (!checkpoint(*rt, entrance)) {
+    return IBEX2_STATUS_DEADLINE;
+  }
+  if (out_ran != nullptr) {
+    *out_ran = 1;
+  }
+  return entrance.status(IBEX2_STATUS_OK);
 }
 
 /// Block until a host task is ready, or the timeout elapses.
@@ -362,13 +546,38 @@ int ibex2_hermes_wait(void *handle, unsigned long long timeout_ms) {
 
 /// Drain microtasks without delivering completions — the "JavaScript ran and
 /// then yielded" step, used by the tests to observe ordering.
-int ibex2_hermes_drain_microtasks(void *handle) {
+///
+/// Returns 0; 1 if a job threw out of the queue, with the message in `*out`;
+/// 2 if the deadline passed before or during the drain.
+int ibex2_hermes_drain_microtasks(void *handle, char **out) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr) {
-    return -1;
+    return IBEX2_STATUS_INVALID;
   }
-  rt->runtime->drainMicrotasks();
-  return 0;
+  Entrance entrance(*rt);
+  if (entrance.refused()) {
+    return IBEX2_STATUS_DEADLINE;
+  }
+  try {
+    rt->runtime->drainMicrotasks();
+    return entrance.status(IBEX2_STATUS_OK);
+  } catch (const jsi::JSError &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
+    if (out != nullptr) {
+      *out = dup_c_string(err.getMessage());
+    }
+    return IBEX2_STATUS_THREW;
+  } catch (const std::exception &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
+    if (out != nullptr) {
+      *out = dup_c_string(std::string(err.what()));
+    }
+    return IBEX2_STATUS_THREW;
+  }
 }
 
 } // extern "C"
@@ -590,11 +799,20 @@ extern "C" {
 /// Hermes detects the HBC magic and takes the bytecode path, so this is the
 /// same entry point as source with a different payload — which is exactly what
 /// makes the comparison between them fair.
+///
+/// Same statuses as ibex2_hermes_eval. Bytecode carries only the break checks
+/// it was compiled with: hermesc emits none by default, so such a program is
+/// not stopped mid-way, but it is refused at the door and reported at exit
+/// like any other entrance.
 int ibex2_hermes_eval_bytes(void *handle, const unsigned char *data, size_t len,
                             char **out) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr || data == nullptr) {
-    return -1;
+    return IBEX2_STATUS_INVALID;
+  }
+  Entrance entrance(*rt);
+  if (entrance.refused()) {
+    return IBEX2_STATUS_DEADLINE;
   }
 
   try {
@@ -608,17 +826,23 @@ int ibex2_hermes_eval_bytes(void *handle, const unsigned char *data, size_t len,
                               ? std::string("undefined")
                               : value.toString(*rt->runtime).utf8(*rt->runtime));
     }
-    return 0;
+    return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     if (out != nullptr) {
       *out = dup_c_string(err.getMessage());
     }
-    return 1;
+    return IBEX2_STATUS_THREW;
   } catch (const std::exception &err) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     if (out != nullptr) {
       *out = dup_c_string(std::string(err.what()));
     }
-    return 1;
+    return IBEX2_STATUS_THREW;
   }
 }
 
@@ -628,30 +852,70 @@ const void *ibex2_hermes_state(void *handle) {
   return rt == nullptr ? nullptr : rt->queue;
 }
 
-/// Load and run an entry module. Returns 0 on success.
-///
-/// `out_error` receives the message on failure and is Rust-released.
+/// Load and run an entry module. Returns 0 on success, 1 on failure with the
+/// message in `out_error` (Rust-released), 2 if the deadline passed.
 int ibex2_hermes_run_entry(void *handle, const char *specifier,
                            char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr) {
-    return -1;
+    return IBEX2_STATUS_INVALID;
+  }
+  Entrance entrance(*rt);
+  if (entrance.refused()) {
+    return IBEX2_STATUS_DEADLINE;
   }
   try {
     load_module(*rt->runtime, rt, "./", specifier);
     rt->runtime->drainMicrotasks();
-    return 0;
+    return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &e) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     if (out_error != nullptr) {
       *out_error = dup_c_string(e.getMessage());
     }
-    return 1;
+    return IBEX2_STATUS_THREW;
   } catch (const std::exception &e) {
+    if (entrance.expired()) {
+      return IBEX2_STATUS_DEADLINE;
+    }
     if (out_error != nullptr) {
       *out_error = dup_c_string(std::string(e.what()));
     }
-    return 1;
+    return IBEX2_STATUS_THREW;
   }
+}
+
+/// Arm the runtime's one deadline, `remaining_nanos` from now on the steady
+/// clock, replacing any deadline already armed. Every entrance from here to
+/// ibex2_hermes_clear_deadline is refused once it has passed and stopped if it
+/// passes while JavaScript runs; each is given what is left of this deadline,
+/// never a fresh budget.
+int ibex2_hermes_set_deadline(void *handle, uint64_t remaining_nanos) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return IBEX2_STATUS_INVALID;
+  }
+  // Half the clock's range is still centuries; past that the sum would wrap.
+  const uint64_t farthest =
+      static_cast<uint64_t>(std::chrono::nanoseconds::max().count() / 2);
+  auto remaining = std::chrono::nanoseconds(
+      static_cast<int64_t>(remaining_nanos < farthest ? remaining_nanos : farthest));
+  rt->deadline = std::chrono::steady_clock::now() + remaining;
+  rt->deadline_armed = true;
+  return IBEX2_STATUS_OK;
+}
+
+/// Disarm the deadline. A runtime whose deadline fired is usable again after
+/// this; its JavaScript state is whatever the stop left.
+int ibex2_hermes_clear_deadline(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr) {
+    return IBEX2_STATUS_INVALID;
+  }
+  rt->deadline_armed = false;
+  return IBEX2_STATUS_OK;
 }
 
 } // extern "C"

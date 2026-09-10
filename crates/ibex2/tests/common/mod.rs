@@ -65,7 +65,7 @@ impl Project {
             precompiled_only,
         )
         .expect("manifest binds to the project");
-        let error = rt.run_entry(entry).err().map(|e| e.0);
+        let error = rt.run_entry(entry).err().map(|e| e.to_string());
         // Not a network budget. In a *debug* test binary the first
         // NSURLSession construction in the process costs 3-9s, because dyld
         // resolves the network stack's 880-odd images against a 34MB

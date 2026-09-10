@@ -435,7 +435,7 @@ fn run(
     if !rt.install_stdlib() {
         return Err("could not install the standard library".into());
     }
-    rt.install_bindings().map_err(|e| e.0)?;
+    rt.install_bindings().map_err(|e| e.to_string())?;
     let compiler = if compile || precompiled_only {
         match compiler_for_run(&root, precompiled_only) {
             Ok(compiler) => Some(compiler),
@@ -455,7 +455,7 @@ fn run(
 
     // R4: intrinsics frozen after the standard library is installed and before
     // any module code runs.
-    rt.harden().map_err(|e| e.0)?;
+    rt.harden().map_err(|e| e.to_string())?;
 
     // R5: assert what the global object carries, before running anything.
     let unexpected: Vec<String> = rt
@@ -471,7 +471,7 @@ fn run(
         ));
     }
 
-    rt.run_entry(&name).map_err(|e| e.0)?;
+    rt.run_entry(&name).map_err(|e| e.to_string())?;
     rt.run_to_quiescence(std::time::Duration::from_millis(budget_ms));
 
     for record in rt.drain_console() {
