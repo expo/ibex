@@ -26,6 +26,7 @@ HERMES_CLI_REF=false
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
 HERMES_INTL_FROM_ENV="${HERMES_ENABLE_INTL:-}"
 HERMES_INTL="${HERMES_ENABLE_INTL:-false}"
+HERMES_INTL_CLI=false
 HERMES_VANILLA="${IBEX_HERMES_VANILLA:-false}"
 CLEAN_CACHE=false
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes-linux"
@@ -50,10 +51,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --intl)
             HERMES_INTL=true
+            HERMES_INTL_CLI=true
             shift
             ;;
         --no-intl)
             HERMES_INTL=false
+            HERMES_INTL_CLI=true
             shift
             ;;
         --vanilla)
@@ -78,9 +81,15 @@ case "$HERMES_VANILLA" in
             echo "A vanilla Hermes build requires an exact 40-hex source commit: $HERMES_VERSION" >&2
             exit 1
         fi
-        if [[ -z "$HERMES_INTL_FROM_ENV" ]]; then
+        if [[ -z "$HERMES_INTL_FROM_ENV" && "$HERMES_INTL_CLI" != true ]]; then
             HERMES_INTL=true
         fi
+        case "$HERMES_INTL" in
+            0|false|FALSE|no|NO|off|OFF)
+                echo "A vanilla Hermes Linux build requires Intl" >&2
+                exit 1
+                ;;
+        esac
         case "$HERMES_DEBUGGER" in
             0|false|FALSE|no|NO|off|OFF) DEBUG_SUFFIX="" ;;
             *) DEBUG_SUFFIX="-debug" ;;
@@ -307,15 +316,19 @@ mkdir -p "$LINUX_LIB_DIR" "$LINUX_HEADERS_DIR" "$TOOLS_DIR"
 rm -rf "$LINUX_HEADERS_DIR"
 mkdir -p "$LINUX_HEADERS_DIR"
 cp -R "$INSTALL_DIR/include/"* "$LINUX_HEADERS_DIR/"
-cp -f "$INSTALL_DIR/lib/libhermesvm.so" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libhermesvm_a.a" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libjsi.a" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libboost_context.a" "$LINUX_LIB_DIR/"
 if [[ "$HERMES_VANILLA" == true ]]; then
+    # This directory is the publication input for the self-contained static
+    # engine. Do not retain a shared runtime from an earlier or adjacent build.
+    rm -f "$LINUX_LIB_DIR/libhermesvm.so"
     cp -f "$INSTALL_DIR/lib/libicui18n.a" "$LINUX_LIB_DIR/"
     cp -f "$INSTALL_DIR/lib/libicuuc.a" "$LINUX_LIB_DIR/"
     cp -f "$INSTALL_DIR/lib/libicudata.a" "$LINUX_LIB_DIR/"
     cp -f "$INSTALL_DIR/lib/libtinfo.a" "$LINUX_LIB_DIR/"
+else
+    cp -f "$INSTALL_DIR/lib/libhermesvm.so" "$LINUX_LIB_DIR/"
 fi
 if [[ "$HERMES_VANILLA" == true ]]; then
     rm -f "$LINUX_LIB_DIR/hermes-profile-provenance.json"

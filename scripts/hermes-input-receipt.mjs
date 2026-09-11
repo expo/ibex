@@ -85,7 +85,17 @@ try {
 } catch (error) {
   die(`cannot read symbols from ${engineBinary}: ${error.message}`);
 }
-const found = PATCHED_SYMBOLS.filter((symbol) => exported.includes(symbol));
+// Archive member headings are not symbols, and release libhermesvm_a.a also
+// defines RuntimeTaskRunner constructors whose parameter type mentions
+// AsyncDebuggerAPI. Parse only nm symbol rows and distinguish those references
+// from methods actually defined on AsyncDebuggerAPI.
+const exportedSymbols = exported
+  .split('\n')
+  .map((line) => line.trim().match(/^(?:[0-9a-fA-F]+\s+)?[A-Za-z]\s+(\S+)$/)?.[1])
+  .filter(Boolean);
+const found = PATCHED_SYMBOLS.filter((patched) =>
+  exportedSymbols.some((symbol) => symbol === patched || symbol === `_${patched}`)
+);
 if (found.length > 0) {
   die(
     `refusing to write an empty-patch-set receipt for a PATCHED engine; it exports ${found.join(', ')}`
@@ -102,12 +112,15 @@ const patchesPresent = existsSync(patchDir)
   ? readdirSync(patchDir).filter((name) => name.endsWith('.patch')).sort()
   : [];
 
-const hermescDir = join(repoRoot, 'tools/hermes-vanilla');
-const hermesc = existsSync(hermescDir)
-  ? readdirSync(hermescDir)
-      .filter((name) => name.startsWith('hermesc-'))
-      .map((name) => join(hermescDir, name))[0]
-  : undefined;
+const hostPlatform = process.platform === 'darwin' ? 'macos' : process.platform;
+const configuredHermesc = process.env.IBEX2_HERMESC;
+const hermescCandidate = configuredHermesc
+  ? resolve(configuredHermesc)
+  : join(repoRoot, 'tools/hermes-vanilla', `hermesc-${hostPlatform}-${process.arch}`);
+if (configuredHermesc && !existsSync(hermescCandidate)) {
+  die(`IBEX2_HERMESC does not exist: ${hermescCandidate}`);
+}
+const hermesc = existsSync(hermescCandidate) ? hermescCandidate : undefined;
 
 let sourceCommit = commitOverride;
 let sourceRef = '';
@@ -148,7 +161,11 @@ const receipt = {
     binaryDigest: `sha256-${sha256File(engineBinary)}`,
     // Debugger-enabled builds are ~35% slower to boot (LLP 0063 §6), so which
     // variant an artifact is must be part of its identity, not folklore.
-    variant: exported.includes('AsyncDebuggerAPI') ? 'debugger' : 'release',
+    variant: exportedSymbols.some((symbol) =>
+      /16AsyncDebuggerAPI(?:[0-9]|C[123]|D[012])/.test(symbol)
+    )
+      ? 'debugger'
+      : 'release',
     target: process.platform === 'darwin' ? 'apple' : process.platform,
   },
   patchSet: {
