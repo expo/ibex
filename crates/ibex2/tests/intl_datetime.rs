@@ -39,6 +39,28 @@ fn explicit_components_and_parts_come_from_one_formatter() {
 }
 
 #[test]
+fn fractional_milliseconds_are_time_clipped_before_format_and_parts() {
+    let mut runtime = runtime();
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              const f = new Intl.DateTimeFormat("en-US", {
+                timeZone:"UTC", year:"numeric", month:"2-digit", day:"2-digit",
+                hour:"2-digit", minute:"2-digit", second:"2-digit", hourCycle:"h23"
+              });
+              const text0 = f.format(0), parts0 = JSON.stringify(f.formatToParts(0));
+              return [f.format(-0.1) === text0,
+                JSON.stringify(f.formatToParts(-0.1)) === parts0,
+                f.format(0.9) === text0,
+                JSON.stringify(f.formatToParts(0.9)) === parts0].join("|");
+            })()"#,
+        ),
+        "true|true|true|true"
+    );
+}
+
+#[test]
 fn locale_extensions_calendars_numbering_and_hour_cycles_are_effective() {
     let mut runtime = runtime();
     assert_eq!(

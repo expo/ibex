@@ -512,7 +512,7 @@ fn checked_time(value: Option<&HostArg<'_>>) -> Result<f64, HostError> {
         .and_then(number_arg)
         .ok_or_else(|| HostError::InvalidArgument("date time value expected".into()))?;
     if value.is_finite() && value.abs() <= 8_640_000_000_000_000.0 {
-        Ok(value)
+        Ok(value.trunc())
     } else {
         range("Invalid time value")
     }
@@ -1200,5 +1200,15 @@ mod tests {
         assert!(checked_time(Some(&HostArg::Number(8_640_000_000_000_000.0))).is_ok());
         assert!(checked_time(Some(&HostArg::Number(8_640_000_000_000_001.0))).is_err());
         assert!(checked_time(Some(&HostArg::Number(f64::NAN))).is_err());
+        assert_eq!(
+            checked_time(Some(&HostArg::Number(-0.1)))
+                .expect("negative fraction")
+                .to_bits(),
+            (-0.0_f64).to_bits()
+        );
+        assert_eq!(
+            checked_time(Some(&HostArg::Number(999.9))).expect("positive fraction"),
+            999.0
+        );
     }
 }
