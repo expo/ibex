@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-09-11 (§5: Linux vanilla-Hermes artifact and qualification); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -131,6 +131,19 @@ manifest, once, and served from memory. Resolution is contained: a module cannot
 declared root, on either arm, after canonicalization (LLP 0065 §3–§5). The
 closure scan (`tests/closure.rs`) keeps the legacy runtime's authority
 machinery out of this crate's source and link closure.
+
+The Linux engine artifact is implemented for x86-64 as a source build of that
+same exact vanilla pin. Each build re-exports the pinned Git object into an
+isolated source directory rather than trusting mutable cached source. The
+installed static closure carries Hermes, JSI, Boost.Context, ICU, and tinfo;
+the resulting executable has no shared dependency on those libraries (nor on
+curl or a TLS library). Its remaining dynamic dependencies are the ordinary
+GNU/Linux C and C++ runtime libraries. The qualified target is specifically
+Ubuntu 24.04.4, glibc 2.39, built with GCC 13.3 and Rust 1.93.1, with observed
+symbol floors `GLIBC_2.39` and `GLIBCXX_3.4.30`; this is not an older-glibc or
+musl claim. The complete engine suite and a release-mode AOT CLI HTTPS fixture
+exercise the current effects path, including grant checks, redirects, body
+bounds, cancellation, aborts, deadlines, and task/microtask ordering.
 
 ## 6. What it is not
 
