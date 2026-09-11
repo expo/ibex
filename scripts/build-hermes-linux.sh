@@ -84,8 +84,9 @@ case "$HERMES_VANILLA" in
         if [[ -z "$HERMES_INTL_FROM_ENV" && "$HERMES_INTL_CLI" != true ]]; then
             HERMES_INTL=true
         fi
-        case "$HERMES_INTL" in
-            1|true|TRUE|yes|YES|on|ON)
+        HERMES_INTL_NORMALIZED="$(printf '%s' "$HERMES_INTL" | tr '[:upper:]' '[:lower:]')"
+        case "$HERMES_INTL_NORMALIZED" in
+            1|true|yes|on)
                 HERMES_INTL=true
                 ;;
             *)
