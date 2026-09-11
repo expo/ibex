@@ -499,12 +499,21 @@ fn case_variants_of_one_file_are_one_module() {
         "./index.js",
         "[*]\nnet.fetch https://127.0.0.1:1\n[./locked.js]\n",
     );
-    assert_eq!(err, None);
-    assert_eq!(out.len(), 2, "{out:?}");
-    assert!(
-        out.iter().all(|l| l.contains("denied: net.fetch")),
-        "the lockdown was bypassed by case: {out:?}"
-    );
+    if p.0.join("LOCKED.js").is_file() {
+        assert_eq!(err, None);
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert!(
+            out.iter().all(|l| l.contains("denied: net.fetch")),
+            "the lockdown was bypassed by case: {out:?}"
+        );
+    } else {
+        let err = err.expect("a case-sensitive filesystem must refuse the other spelling");
+        assert!(err.contains("is not a file"), "{err}");
+        assert!(
+            out.iter().all(|l| l.contains("denied: net.fetch")),
+            "the lower-case module bypassed its lockdown: {out:?}"
+        );
+    }
 }
 
 /// `exports` targets carrying `?query` are a real bundler convention. The
