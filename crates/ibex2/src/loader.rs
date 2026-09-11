@@ -525,6 +525,13 @@ impl ResolveCache {
         }
     }
 
+    fn has_case_variant(&self, dir: &Path, name: &str) -> bool {
+        self.listing(dir)
+            .folded
+            .get(&name.to_lowercase())
+            .is_some_and(|on_disk| on_disk != name)
+    }
+
     #[cfg(feature = "loader")]
     fn resolver(&self) -> &oxc_resolver::Resolver {
         self.resolver.get_or_init(|| {
@@ -648,6 +655,21 @@ pub fn resolve_in(
         // package could `require('./payload')` and execute bytes from outside
         // the project under an inside name.
         return contain(cache, root, &root.join(&resolved), specifier);
+    }
+
+    // On a case-sensitive filesystem a different-case entry must be a
+    // refusal, not a successful fallback under a second module identity.
+    // Case-folding filesystems took the `contain` arm above and returned the
+    // on-disk spelling.
+    let unresolved = root.join(&relative);
+    if let (Some(dir), Some(name)) = (unresolved.parent(), unresolved.file_name()) {
+        let name = name.to_string_lossy();
+        if cache.has_case_variant(dir, &name) {
+            return Err(format!(
+                "cannot resolve {specifier:?}: {} is not a file",
+                unresolved.display()
+            ));
+        }
     }
 
     // Nothing on disk. Return the specifier as written so the error names what

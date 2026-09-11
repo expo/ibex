@@ -172,21 +172,11 @@ impl Compiler {
     }
 
     fn find_hermesc(repo_root: &Path) -> Result<PathBuf, String> {
-        let hermesc = match std::env::var("IBEX2_HERMESC") {
-            Ok(path) => PathBuf::from(path),
-            Err(_) => {
-                let arch = if cfg!(target_arch = "aarch64") {
-                    "arm64"
-                } else {
-                    "x64"
-                };
-                repo_root.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}"))
-            }
-        };
+        let hermesc = hermesc_path(repo_root);
         if !hermesc.exists() {
             return Err(format!(
                 "hermesc not found at {}\n\
-                 build it with: ./scripts/build-hermes.sh --vanilla\n\
+                 build it with the platform's build-hermes script and --vanilla\n\
                  (or point IBEX2_HERMESC at one)",
                 hermesc.display()
             ));
@@ -197,21 +187,11 @@ impl Compiler {
     /// Find `hermesc` beside the vanilla engine, or wherever
     /// `IBEX2_HERMESC` points.
     pub fn discover(repo_root: &Path, cache_dir: PathBuf) -> Result<Self, String> {
-        let hermesc = match std::env::var("IBEX2_HERMESC") {
-            Ok(path) => PathBuf::from(path),
-            Err(_) => {
-                let arch = if cfg!(target_arch = "aarch64") {
-                    "arm64"
-                } else {
-                    "x64"
-                };
-                repo_root.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}"))
-            }
-        };
+        let hermesc = hermesc_path(repo_root);
         if !hermesc.exists() {
             return Err(format!(
                 "hermesc not found at {}\n\
-                 build it with: ./scripts/build-hermes.sh --vanilla\n\
+                 build it with the platform's build-hermes script and --vanilla\n\
                  (or point IBEX2_HERMESC at one)",
                 hermesc.display()
             ));
@@ -370,6 +350,23 @@ impl Compiler {
             let _ = std::fs::remove_file(&temp);
             format!("cannot install {}: {e}", path.display())
         })
+    }
+}
+
+fn hermesc_path(repo_root: &Path) -> PathBuf {
+    match std::env::var("IBEX2_HERMESC") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => {
+            let arch = if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            };
+            repo_root.join(format!(
+                "tools/hermes-vanilla/hermesc-{}-{arch}",
+                std::env::consts::OS
+            ))
+        }
     }
 }
 

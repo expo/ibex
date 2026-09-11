@@ -1,6 +1,7 @@
 //! The vanilla Hermes adapter.
 //!
-//! Built only with the `hermes` feature, against `ios/Frameworks-vanilla/`.
+//! Built only with the `hermes` feature, against the platform's unpatched
+//! vanilla Hermes install.
 //! It uses stock JSI and nothing else — see `hermes_shim.cc`.
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};

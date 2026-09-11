@@ -8,6 +8,7 @@
 #   ./scripts/build-hermes-linux.sh --clean
 #   ./scripts/build-hermes-linux.sh --release
 #   ./scripts/build-hermes-linux.sh --debug
+#   ./scripts/build-hermes-linux.sh --vanilla
 #   ./scripts/build-hermes-linux.sh <git-tag-or-branch-or-commit>
 #
 
@@ -19,9 +20,13 @@ source "$SCRIPT_DIR/hermes-version.sh"
 
 # Default to the pinned Hermes commit — the stable branch name moves under
 # cold clones (ENG-23092).
+HERMES_VERSION_FROM_ENV="${HERMES_VERSION:-}"
 HERMES_VERSION="${HERMES_VERSION:-$IBEX_HERMES_BUILD_REF}"
+HERMES_CLI_REF=false
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
+HERMES_INTL_FROM_ENV="${HERMES_ENABLE_INTL:-}"
 HERMES_INTL="${HERMES_ENABLE_INTL:-false}"
+HERMES_VANILLA="${IBEX_HERMES_VANILLA:-false}"
 CLEAN_CACHE=false
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes-linux"
 LINUX_DIR="$PROJECT_ROOT/linux"
@@ -51,12 +56,45 @@ while [[ $# -gt 0 ]]; do
             HERMES_INTL=false
             shift
             ;;
+        --vanilla)
+            HERMES_VANILLA=true
+            shift
+            ;;
         *)
             HERMES_VERSION="$1"
+            HERMES_CLI_REF=true
             shift
             ;;
     esac
 done
+
+case "$HERMES_VANILLA" in
+    1|true|TRUE|yes|YES|on|ON)
+        HERMES_VANILLA=true
+        if [[ "$HERMES_CLI_REF" != true && -z "$HERMES_VERSION_FROM_ENV" ]]; then
+            HERMES_VERSION="$IBEX_HERMES_VANILLA_SOURCE_COMMIT"
+        fi
+        if [[ ! "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "A vanilla Hermes build requires an exact 40-hex source commit: $HERMES_VERSION" >&2
+            exit 1
+        fi
+        if [[ -z "$HERMES_INTL_FROM_ENV" ]]; then
+            HERMES_INTL=true
+        fi
+        case "$HERMES_DEBUGGER" in
+            0|false|FALSE|no|NO|off|OFF) DEBUG_SUFFIX="" ;;
+            *) DEBUG_SUFFIX="-debug" ;;
+        esac
+        CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes2-linux-vanilla/${HERMES_VERSION}${DEBUG_SUFFIX}"
+        LINUX_DIR="$PROJECT_ROOT/linux/Frameworks-vanilla"
+        LINUX_LIB_DIR="$LINUX_DIR/linux-static"
+        LINUX_HEADERS_DIR="$LINUX_DIR/hermes-headers"
+        TOOLS_DIR="$PROJECT_ROOT/tools/hermes-vanilla"
+        ;;
+    *)
+        HERMES_VANILLA=false
+        ;;
+esac
 
 ibex_acquire_hermes_source_build_lock "$(basename "$0")"
 trap 'ibex_release_hermes_source_build_lock' EXIT
@@ -81,57 +119,94 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 NUM_CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 4)"
-SRC_DIR="$CACHE_DIR/hermes-src"
+if (( NUM_CORES > 32 )); then
+    NUM_CORES=32
+fi
+if [[ "$HERMES_VANILLA" == true ]]; then
+    SRC_DIR="$CACHE_DIR/source"
+else
+    SRC_DIR="$CACHE_DIR/hermes-src"
+fi
 BUILD_DIR="$CACHE_DIR/build"
 INSTALL_DIR="$CACHE_DIR/install"
 
 mkdir -p "$CACHE_DIR"
 
-if [[ ! -d "$SRC_DIR/.git" ]]; then
-    rm -rf "$SRC_DIR"
-    git clone https://github.com/facebook/hermes.git "$SRC_DIR"
-fi
-
-cd "$SRC_DIR"
-git reset --hard HEAD
-git clean -ffdx
-git fetch --all --tags
-if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
-    # Treat a full object ID as an object identity before consulting branch
-    # names; a 40-hex remote ref must never shadow the reviewed commit.
-    if ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
-        git fetch origin "$HERMES_VERSION"
+if [[ "$HERMES_VANILLA" == true ]]; then
+    # Never reset or clean the legacy source cache: it normally contains the
+    # applied Ibex patch stack. Export the exact upstream object into this
+    # vanilla lane's isolated build input instead.
+    SOURCE_REPOSITORY="${IBEX_HERMES_SOURCE_REPOSITORY:-${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes-linux/hermes-src}"
+    if [[ ! -d "$SOURCE_REPOSITORY/.git" ]]; then
+        echo "No existing Hermes source repository at $SOURCE_REPOSITORY" >&2
+        echo "Set IBEX_HERMES_SOURCE_REPOSITORY to an existing checkout containing $HERMES_VERSION" >&2
+        exit 1
     fi
-    git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null \
-        || { echo "Requested Hermes commit is unavailable: $HERMES_VERSION" >&2; exit 1; }
-    git checkout --detach "${HERMES_VERSION}^{commit}"
-elif [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
-    git checkout --detach origin/static_h
-elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
-    git checkout --detach "origin/$HERMES_VERSION"
+    EXPECTED_VANILLA_COMMIT="$HERMES_VERSION"
+    CHECKED_OUT_COMMIT="$(git -C "$SOURCE_REPOSITORY" rev-parse --verify "${EXPECTED_VANILLA_COMMIT}^{commit}")" \
+        || { echo "Existing Hermes source repository does not contain $HERMES_VERSION" >&2; exit 1; }
+    if [[ "$CHECKED_OUT_COMMIT" != "$EXPECTED_VANILLA_COMMIT" ]]; then
+        echo "Resolved Hermes commit $CHECKED_OUT_COMMIT differs from requested object $HERMES_VERSION" >&2
+        exit 1
+    fi
+    # Re-materialize every invocation. A marker alone would let an edited or
+    # partial prior export be relabeled as pinned vanilla. Git archive reads
+    # the committed object, not the dirty legacy worktree, and preserves the
+    # commit timestamps so an unchanged input remains an incremental build.
+    SOURCE_STAGE="$(mktemp -d "$CACHE_DIR/source.XXXXXX")"
+    git -C "$SOURCE_REPOSITORY" archive "$CHECKED_OUT_COMMIT" | tar -x -C "$SOURCE_STAGE"
+    rm -rf "$SRC_DIR"
+    mv "$SOURCE_STAGE" "$SRC_DIR"
+    printf '%s\n' "$CHECKED_OUT_COMMIT" >"$CACHE_DIR/source-commit"
 else
-    git checkout --detach "$HERMES_VERSION"
+    if [[ ! -d "$SRC_DIR/.git" ]]; then
+        rm -rf "$SRC_DIR"
+        git clone https://github.com/facebook/hermes.git "$SRC_DIR"
+    fi
+
+    cd "$SRC_DIR"
+    git reset --hard HEAD
+    git clean -ffdx
+    git fetch --all --tags
+    if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+        # Treat a full object ID as an object identity before consulting branch
+        # names; a 40-hex remote ref must never shadow the reviewed commit.
+        if ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
+            git fetch origin "$HERMES_VERSION"
+        fi
+        git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null \
+            || { echo "Requested Hermes commit is unavailable: $HERMES_VERSION" >&2; exit 1; }
+        git checkout --detach "${HERMES_VERSION}^{commit}"
+    elif [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
+        git checkout --detach origin/static_h
+    elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
+        git checkout --detach "origin/$HERMES_VERSION"
+    else
+        git checkout --detach "$HERMES_VERSION"
+    fi
+
+    CHECKED_OUT_COMMIT="$(git rev-parse HEAD^{commit})"
+    if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ && "$CHECKED_OUT_COMMIT" != "$HERMES_VERSION" ]]; then
+        echo "Checked-out Hermes commit $CHECKED_OUT_COMMIT differs from requested object $HERMES_VERSION" >&2
+        exit 1
+    fi
+    git reset --hard "$CHECKED_OUT_COMMIT"
+    git clean -ffdx
+    if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+        echo "Hermes source checkout is not pristine after reset/clean" >&2
+        exit 1
+    fi
+
+    # Build/install directories live beside the source checkout on Linux, so
+    # erase them before patch verification under the same lock.
+    rm -rf "$BUILD_DIR" "$INSTALL_DIR"
+
+    # @ref LLP 0013#upstream-tracking — the real index and complete persistent
+    # checkout are pristine before the carried Hermes patch stack is replayed.
+    "$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"
 fi
 
-CHECKED_OUT_COMMIT="$(git rev-parse HEAD^{commit})"
-if [[ "$HERMES_VERSION" =~ ^[0-9a-f]{40}$ && "$CHECKED_OUT_COMMIT" != "$HERMES_VERSION" ]]; then
-    echo "Checked-out Hermes commit $CHECKED_OUT_COMMIT differs from requested object $HERMES_VERSION" >&2
-    exit 1
-fi
-git reset --hard "$CHECKED_OUT_COMMIT"
-git clean -ffdx
-if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
-    echo "Hermes source checkout is not pristine after reset/clean" >&2
-    exit 1
-fi
-
-# Build/install directories live beside the source checkout on Linux, so erase
-# them before patch verification as part of the same locked pristine boundary.
-rm -rf "$BUILD_DIR" "$INSTALL_DIR"
-
-# @ref LLP 0013#upstream-tracking — the real index and complete persistent
-# checkout are pristine before the carried Hermes patch stack is replayed.
-"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"
+rm -rf "$INSTALL_DIR"
 
 ACTUAL_COMMIT="$(printf '%s' "$CHECKED_OUT_COMMIT" | cut -c1-12)"
 echo "Building Hermes for Linux from commit: $ACTUAL_COMMIT"
@@ -145,7 +220,7 @@ if command -v ninja >/dev/null 2>&1; then
     GENERATOR=(-G Ninja)
 fi
 
-cmake -S . -B "$BUILD_DIR" "${GENERATOR[@]}" \
+cmake -S "$SRC_DIR" -B "$BUILD_DIR" "${GENERATOR[@]}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DHERMES_ENABLE_DEBUGGER="$HERMES_DEBUGGER" \
     -DHERMES_ENABLE_INTL="$HERMES_INTL" \
@@ -182,6 +257,30 @@ if [[ ! -f "$BUILD_DIR/jsi/libjsi.a" ]]; then
 fi
 cp "$BUILD_DIR/jsi/libjsi.a" "$INSTALL_DIR/lib/libjsi.a"
 
+if [[ "$HERMES_VANILLA" == true ]]; then
+    # Ibex2 links the VM and its Linux Intl implementation statically. Carry
+    # that complete third-party closure beside Hermes so the final executable
+    # does not depend on the builder's libicu or terminfo shared objects.
+    if ! command -v pkg-config >/dev/null 2>&1; then
+        echo "pkg-config is required to locate the Linux static Hermes closure" >&2
+        exit 1
+    fi
+    ICU_LIB_DIR="$(pkg-config --variable=libdir icu-i18n)"
+    TINFO_LIB_DIR="$(pkg-config --variable=libdir tinfo)"
+    for archive in libicui18n.a libicuuc.a libicudata.a; do
+        if [[ ! -f "$ICU_LIB_DIR/$archive" ]]; then
+            echo "Static ICU archive is missing: $ICU_LIB_DIR/$archive" >&2
+            exit 1
+        fi
+        cp "$ICU_LIB_DIR/$archive" "$INSTALL_DIR/lib/"
+    done
+    if [[ ! -f "$TINFO_LIB_DIR/libtinfo.a" ]]; then
+        echo "Static terminfo archive is missing: $TINFO_LIB_DIR/libtinfo.a" >&2
+        exit 1
+    fi
+    cp "$TINFO_LIB_DIR/libtinfo.a" "$INSTALL_DIR/lib/"
+fi
+
 if [[ -f "$BUILD_DIR/bin/hermesc" ]]; then
     cp "$BUILD_DIR/bin/hermesc" "$INSTALL_DIR/bin/"
 else
@@ -212,19 +311,29 @@ cp -f "$INSTALL_DIR/lib/libhermesvm.so" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libhermesvm_a.a" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libjsi.a" "$LINUX_LIB_DIR/"
 cp -f "$INSTALL_DIR/lib/libboost_context.a" "$LINUX_LIB_DIR/"
-rm -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
-    "$LINUX_LIB_DIR/hermes-profile-provenance.json"
-LINUX_CACHE_KEY="$(ibex_hermes_linux_source_cache_key "${IBEX_HERMES_SOURCE_COMMIT:0:12}")"
-echo "Source cache key: $LINUX_CACHE_KEY"
-ibex_write_source_patched_profile_receipt \
-    "$INSTALL_DIR/lib/libhermesvm.so" \
-    "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
-    "$HERMES_VERSION" \
-    "$LINUX_CACHE_KEY"
-if [[ -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" ]]; then
-    cp -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" "$LINUX_LIB_DIR/"
+if [[ "$HERMES_VANILLA" == true ]]; then
+    cp -f "$INSTALL_DIR/lib/libicui18n.a" "$LINUX_LIB_DIR/"
+    cp -f "$INSTALL_DIR/lib/libicuuc.a" "$LINUX_LIB_DIR/"
+    cp -f "$INSTALL_DIR/lib/libicudata.a" "$LINUX_LIB_DIR/"
+    cp -f "$INSTALL_DIR/lib/libtinfo.a" "$LINUX_LIB_DIR/"
+fi
+if [[ "$HERMES_VANILLA" == true ]]; then
+    rm -f "$LINUX_LIB_DIR/hermes-profile-provenance.json"
 else
-    echo "[provenance] custom Hermes source build has no reviewed profile receipt." >&2
+    rm -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
+        "$LINUX_LIB_DIR/hermes-profile-provenance.json"
+    LINUX_CACHE_KEY="$(ibex_hermes_linux_source_cache_key "${IBEX_HERMES_SOURCE_COMMIT:0:12}")"
+    echo "Source cache key: $LINUX_CACHE_KEY"
+    ibex_write_source_patched_profile_receipt \
+        "$INSTALL_DIR/lib/libhermesvm.so" \
+        "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
+        "$HERMES_VERSION" \
+        "$LINUX_CACHE_KEY"
+    if [[ -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" ]]; then
+        cp -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" "$LINUX_LIB_DIR/"
+    else
+        echo "[provenance] custom Hermes source build has no reviewed profile receipt." >&2
+    fi
 fi
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -241,6 +350,11 @@ echo "  headers: $LINUX_HEADERS_DIR"
 echo "  libs:    $LINUX_LIB_DIR"
 echo "  hermesc: $TOOLS_DIR/hermesc-linux-$HERMESC_ARCH"
 echo "  hermes:  $TOOLS_DIR/hermes-linux-$HERMESC_ARCH"
+if [[ "$HERMES_VANILLA" == true ]]; then
+    echo ""
+    echo "Write a HermesInputReceipt with:"
+    echo "  node \"$SCRIPT_DIR/hermes-input-receipt.mjs\" \"$LINUX_DIR\""
+fi
 echo ""
 echo "Suggested env (optional):"
 echo "  export HERMES_INCLUDE_DIR=$LINUX_HEADERS_DIR"

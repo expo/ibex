@@ -65,18 +65,25 @@ const engineDir = resolve(args[0]);
 const outPath = flagValue(args, '--out') ?? join(engineDir, 'hermes-input-receipt.json');
 const commitOverride = flagValue(args, '--commit');
 
-const framework = join(engineDir, 'hermesvm.framework/Versions/1/hermesvm');
-if (!existsSync(framework)) {
-  die(`no engine binary at ${framework}`);
+const engineCandidates = [
+  join(engineDir, 'hermesvm.framework/Versions/1/hermesvm'),
+  join(engineDir, 'linux-static/libhermesvm_a.a'),
+];
+const engineBinary = engineCandidates.find(existsSync);
+if (!engineBinary) {
+  die(`no engine binary at ${engineCandidates.join(' or ')}`);
 }
 
 // The negative guarantee, checked rather than asserted: an engine carrying the
 // patch stack's exports is not an empty-patch-set engine, whatever produced it.
 let exported = '';
 try {
-  exported = execFileSync('nm', ['-gU', framework], { encoding: 'utf8' });
+  const nmArgs = process.platform === 'darwin'
+    ? ['-gU', engineBinary]
+    : ['-g', '--defined-only', engineBinary];
+  exported = execFileSync('nm', nmArgs, { encoding: 'utf8' });
 } catch (error) {
-  die(`cannot read symbols from ${framework}: ${error.message}`);
+  die(`cannot read symbols from ${engineBinary}: ${error.message}`);
 }
 const found = PATCHED_SYMBOLS.filter((symbol) => exported.includes(symbol));
 if (found.length > 0) {
@@ -137,8 +144,8 @@ const receipt = {
     sourceVersion,
   },
   engine: {
-    binary: basename(framework),
-    binaryDigest: `sha256-${sha256File(framework)}`,
+    binary: basename(engineBinary),
+    binaryDigest: `sha256-${sha256File(engineBinary)}`,
     // Debugger-enabled builds are ~35% slower to boot (LLP 0063 §6), so which
     // variant an artifact is must be part of its identity, not folklore.
     variant: exported.includes('AsyncDebuggerAPI') ? 'debugger' : 'release',
