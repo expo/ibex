@@ -88,8 +88,21 @@ Unicode option types before support lookup, retains a supported requested
 `ca`/`nu` extension when an unsupported explicit option leaves it selected,
 and removes `hc` when
 `hour12` overrides it. Time-zone matching folds ASCII case only. The public
-methods, accessors, bound format functions, and Date locale methods are
-nonconstructable and retain their builtin names and lengths.
+NumberFormat and DateTimeFormat methods, accessors, bound format functions,
+and Date locale methods are nonconstructable and retain their builtin names
+and lengths. Finite DateTimeFormat inputs inside the TimeClip range are
+truncated toward zero before ICU formatting, so fractional negative
+milliseconds do not cross an epoch second or UTC date boundary.
+
+Two narrower metadata/canonicalization gaps remain outside this selected
+completion. The option boundary performs ASCII case normalization, not full
+UTS 35 alias canonicalization: canonical calendar option names work, while
+legacy aliases such as `islamicc` and `ethiopic-amete-alem` do not yet resolve
+as `islamic-civil` and `ethioaa`. String locale lower/upper case results are
+native and locale-sensitive, but those two replacement methods remain
+constructable ordinary functions rather than the nonconstructable shape of
+built-in methods. Neither limit broadens the formatter claims above into a
+complete-Intl claim.
 
 One exact exotic-constructor limitation remains. On pinned Hermes,
 `Reflect.construct(Intl.NumberFormat, args, NewTarget)` (and the corresponding

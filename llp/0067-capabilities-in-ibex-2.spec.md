@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-09-11 (§4, §5: Linux native Intl completion over vanilla Hermes, narrow post-install intrinsic admission, and the bounded exotic-constructor limitation); 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-09-11 (§5: selected Intl option-alias and locale-case callable limits, and TimeClip semantics); 2026-09-11 (§4, §5: Linux native Intl completion over vanilla Hermes, narrow post-install intrinsic admission, and the bounded exotic-constructor limitation); 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -172,13 +172,21 @@ calendar or numbering-system option leaves a supported requested Unicode
 extension selected and retained in the resolved locale. Supplying `hour12`
 overrides and removes a requested
 `hc` extension. Time-zone identifiers are matched ASCII-case-insensitively;
-non-ASCII lookalikes are not admitted. Public formatter methods, accessors,
-bound format functions, and Date locale methods have their builtin
-nonconstructor shape, names, and lengths.
+non-ASCII lookalikes are not admitted. Finite in-range DateTimeFormat inputs
+are TimeClip-truncated toward zero before ICU receives them. Public
+NumberFormat and DateTimeFormat methods, accessors, bound format functions,
+and Date locale methods have their builtin nonconstructor shape, names, and
+lengths.
 
 This is deliberately not a complete-Intl or blanket ECMA-402 claim. It does
 not add the constructors absent from both qualified engine profiles, and the
 accepted `formatMatcher` choices currently share ICU's best-pattern selection.
+Option processing performs the selected ASCII case normalization but not full
+UTS 35 alias canonicalization: canonical calendar spellings work, while legacy
+aliases such as `islamicc` and `ethiopic-amete-alem` do not yet resolve as
+`islamic-civil` and `ethioaa`. The String locale lower/upper-case replacements
+produce the selected native results but remain constructable ordinary
+functions rather than the nonconstructable shape of built-in methods.
 The ordinary constructors preserve call/new behavior, custom object
 prototypes, subclasses, and the specified single observable prototype lookup.
 One exotic constructor case remains outside the selected completion: on this
