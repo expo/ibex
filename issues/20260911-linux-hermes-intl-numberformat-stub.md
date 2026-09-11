@@ -64,6 +64,38 @@ Bounded viable directions need an author choice:
 3. remove `Intl` from the cross-platform authored surface until upstream
    supplies it.
 
+## Implementation disposition, 2026-09-11
+
+The author selected direction 1. Ibex now installs a Linux-only trusted Intl
+completion before hardening while leaving vanilla Hermes unchanged. Rust owns
+locale negotiation, normalized options, formatter state, special-number
+handling, parts, and lifetime; the already-static ICU4C closure performs the
+native locale computation. Thin build-time JavaScript bytecode preserves
+ECMAScript `Get`/coercion order, constructors, receivers, prototypes, and bound
+format functions. Opaque JSI native owners keep formatter state alive without
+exposing raw handles or creating a JavaScript/native strong-reference cycle.
+
+The completed selected surface includes `Intl.NumberFormat`, Number and BigInt
+locale formatting, String locale lower/upper case mapping, and a native-owned
+`Intl.DateTimeFormat` whose `format` and `formatToParts` share one formatter;
+the dependent Date locale methods use it. It does not add the Intl constructors
+absent from both engine profiles or claim complete ECMA-402 conformance.
+`formatMatcher: "basic"` is validated and observable in the required option
+order but currently shares ICU's best-pattern selection with `"best fit"`.
+
+The Linux focused suite passes 31 tests spanning these operations and the
+narrow integrity-snapshot admission. The complete Hermes suite passes with no
+failures, including deadlines, fetch/redirect/body/cancellation semantics,
+the exact global surface, freeze, and the regression that mutating an admitted
+Intl intrinsic after trusted installation still makes SQLite refuse. One
+diagnostic run also found Hermes's canonical NaN carried a sign bit into ICU;
+normalizing NaN while preserving real signed zero and infinity fixed the parts
+and all four `signDisplay` modes without weakening their expected output.
+
+The issue remains open until the unchanged Snapback real-runtime Intl witness,
+complete Linux effects suite, and publication-stage artifact qualification are
+green. No publication qualification is claimed by this implementation record.
+
 **Done when:** an unpatched pinned Hermes plus the shipped Ibex standard-library
 tier passes the unchanged Snapback Intl witness on Linux, representative
 grouping/rounding/currency/percent/parts tests pass, the static closure remains

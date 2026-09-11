@@ -236,6 +236,179 @@ void install(jsi::Runtime &rt, const void *state) {
 
 } // namespace ibex2::intl_number_format
 
+namespace ibex2::intl_datetime {
+namespace {
+
+constexpr uint32_t kCreate = 130;
+constexpr uint32_t kFormat = 131;
+constexpr uint32_t kFormatParts = 132;
+constexpr uint32_t kPartType = 133;
+constexpr uint32_t kPartValue = 134;
+constexpr uint32_t kResolved = 135;
+constexpr uint32_t kSupportedLocales = 136;
+constexpr uint32_t kCanonicalTimeZone = 137;
+
+extern "C" void *ibex2_intl_datetime_owner_create(const void *, double);
+extern "C" void ibex2_intl_datetime_owner_destroy(void *);
+extern "C" double ibex2_intl_datetime_owner_handle(const void *);
+
+struct Owner final : jsi::NativeState {
+  void *value;
+  explicit Owner(void *owner) : value(owner) {}
+  ~Owner() override { ibex2_intl_datetime_owner_destroy(value); }
+};
+
+[[noreturn]] void throw_host_error(jsi::Runtime &rt,
+                                   const jsi::Value &value) {
+  std::string message = value.isString()
+      ? value.getString(rt).utf8(rt)
+      : std::string("Intl.DateTimeFormat native operation failed");
+  const char *constructor = "Error";
+  for (const char *kind : {"RangeError: ", "TypeError: "}) {
+    const std::string prefix(kind);
+    if (message.rfind(prefix, 0) == 0) {
+      constructor = prefix[0] == 'R' ? "RangeError" : "TypeError";
+      message.erase(0, prefix.size());
+      break;
+    }
+  }
+  auto error = rt.global()
+                   .getPropertyAsFunction(rt, constructor)
+                   .callAsConstructor(rt, message);
+  throw jsi::JSError(rt, jsi::Value(rt, error));
+}
+
+[[noreturn]] void throw_type_error(jsi::Runtime &rt, const char *message) {
+  auto error = rt.global()
+                   .getPropertyAsFunction(rt, "TypeError")
+                   .callAsConstructor(rt, message);
+  throw jsi::JSError(rt, jsi::Value(rt, error));
+}
+
+jsi::Value call_checked(jsi::Runtime &rt, const void *state, uint32_t op,
+                        const jsi::Value *args, size_t count) {
+  auto result = call_host_result(rt, state, op, args, count);
+  if (result.status != 0) throw_host_error(rt, result.value);
+  return std::move(result.value);
+}
+
+std::shared_ptr<Owner> owner_from(jsi::Runtime &rt,
+                                  const jsi::Value &value) {
+  if (!value.isObject())
+    throw_type_error(rt, "incompatible DateTimeFormat receiver");
+  auto object = value.getObject(rt);
+  if (!object.hasNativeState<Owner>(rt))
+    throw_type_error(rt, "incompatible DateTimeFormat receiver");
+  return object.getNativeState<Owner>(rt);
+}
+
+jsi::Value handle_value(const std::shared_ptr<Owner> &owner) {
+  return jsi::Value(ibex2_intl_datetime_owner_handle(owner->value));
+}
+
+jsi::Function host_function(jsi::Runtime &rt, const char *name,
+                            unsigned int length, jsi::HostFunctionType body) {
+  return jsi::Function::createFromHostFunction(
+      rt, jsi::PropNameID::forAscii(rt, name), length, std::move(body));
+}
+
+} // namespace
+
+std::vector<jsi::Value> factory_arguments(jsi::Runtime &rt,
+                                          const void *state) {
+  std::vector<jsi::Value> result;
+  result.reserve(8);
+
+  result.emplace_back(host_function(
+      rt, "createDateTimeFormat", 19,
+      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+              size_t count) -> jsi::Value {
+        if (count != 19)
+          throw jsi::JSError(r, "DateTimeFormat initialization failed");
+        auto handle = call_checked(r, state, kCreate, args, count);
+        if (!handle.isNumber())
+          throw jsi::JSError(r, "DateTimeFormat returned no native handle");
+        auto owner = std::make_shared<Owner>(
+            ibex2_intl_datetime_owner_create(state, handle.asNumber()));
+        if (owner->value == nullptr)
+          throw jsi::JSError(r, "DateTimeFormat could not own its native handle");
+        jsi::Object object(r);
+        object.setNativeState(r, std::move(owner));
+        return object;
+      }));
+
+  result.emplace_back(host_function(
+      rt, "formatDateTime", 2,
+      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+              size_t count) -> jsi::Value {
+        if (count != 2)
+          throw jsi::JSError(r, "DateTimeFormat format needs an owner and value");
+        auto owner = owner_from(r, args[0]);
+        jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
+        return call_checked(r, state, kFormat, input, 2);
+      }));
+
+  result.emplace_back(host_function(
+      rt, "dateTimeParts", 2,
+      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+              size_t count) -> jsi::Value {
+        if (count != 2)
+          throw jsi::JSError(r, "DateTimeFormat parts needs an owner and value");
+        auto owner = owner_from(r, args[0]);
+        jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
+        return call_checked(r, state, kFormatParts, input, 2);
+      }));
+
+  auto part = [state](const char *name, uint32_t op) {
+    return [state, name, op](jsi::Runtime &r, const jsi::Value &,
+                             const jsi::Value *args,
+                             size_t count) -> jsi::Value {
+      if (count != 2)
+        throw jsi::JSError(r, std::string(name) + " needs an owner and index");
+      auto owner = owner_from(r, args[0]);
+      jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
+      return call_checked(r, state, op, input, 2);
+    };
+  };
+  result.emplace_back(
+      host_function(rt, "dateTimePartType", 2, part("partType", kPartType)));
+  result.emplace_back(
+      host_function(rt, "dateTimePartValue", 2, part("partValue", kPartValue)));
+
+  result.emplace_back(host_function(
+      rt, "resolvedDateTimeOption", 2,
+      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+              size_t count) -> jsi::Value {
+        if (count != 2)
+          throw jsi::JSError(r, "resolved DateTimeFormat option needs owner and field");
+        auto owner = owner_from(r, args[0]);
+        jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
+        return call_checked(r, state, kResolved, input, 2);
+      }));
+
+  result.emplace_back(host_function(
+      rt, "supportedDateTimeLocales", 2,
+      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+              size_t count) -> jsi::Value {
+        if (count != 2)
+          throw jsi::JSError(r, "supported DateTimeFormat locales need list and matcher");
+        return call_checked(r, state, kSupportedLocales, args, count);
+      }));
+
+  result.emplace_back(host_function(
+      rt, "canonicalTimeZone", 1,
+      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+              size_t count) -> jsi::Value {
+        if (count > 1)
+          throw jsi::JSError(r, "canonical time zone accepts at most one value");
+        return call_checked(r, state, kCanonicalTimeZone, args, count);
+      }));
+
+  return result;
+}
+
+} // namespace ibex2::intl_datetime
+
 namespace ibex2::intl_case {
 
 void install(jsi::Runtime &rt, const void *state) {

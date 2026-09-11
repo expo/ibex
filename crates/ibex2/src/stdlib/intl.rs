@@ -324,8 +324,13 @@ impl NumberFormat {
             &["lookup", "best fit"],
             "localeMatcher",
         )?;
-        let requested_numbering = optional_str(args, 2)?;
-        if requested_numbering.is_some_and(|value| !valid_unicode_type(value)) {
+        // ECMA-402 2020 validates the Unicode type grammar here but compares
+        // the option against locale data without case folding.
+        let requested_numbering = optional_str(args, 2)?.map(str::to_string);
+        if requested_numbering
+            .as_deref()
+            .is_some_and(|value| !valid_unicode_type(value))
+        {
             return range("numberingSystem is not a Unicode locale type");
         }
         let style = Style::parse(required_str(args, 3, "style")?)?;
@@ -395,7 +400,9 @@ impl NumberFormat {
 
         let (data_locale, extension_numbering) = resolve_locale(requested, matcher)?;
         let default_numbering = default_numbering_system(&data_locale)?;
-        let option_numbering = requested_numbering.filter(|name| numbering_system_supported(name));
+        let option_numbering = requested_numbering
+            .as_deref()
+            .filter(|name| numbering_system_supported(name));
         let numbering_system = option_numbering
             .or_else(|| {
                 extension_numbering
@@ -448,21 +455,21 @@ impl NumberFormat {
         let currency_sign = (style == Style::Currency).then_some(currency_sign);
         let unit_display = (style == Style::Unit).then_some(unit_display);
         let compact_display = (notation == "compact").then_some(compact_display);
-        let skeleton = make_skeleton(
+        let skeleton = make_skeleton(SkeletonOptions {
             style,
-            currency.as_deref(),
-            currency_display.as_deref(),
-            currency_sign.as_deref(),
-            unit.as_deref(),
-            unit_display.as_deref(),
-            &precision,
+            currency: currency.as_deref(),
+            currency_display: currency_display.as_deref(),
+            currency_sign: currency_sign.as_deref(),
+            unit: unit.as_deref(),
+            unit_display: unit_display.as_deref(),
+            precision: &precision,
             minimum_integer_digits,
             use_grouping,
-            &notation,
-            compact_display.as_deref(),
-            &sign_display,
-            &numbering_system,
-        );
+            notation: &notation,
+            compact_display: compact_display.as_deref(),
+            sign_display: &sign_display,
+            numbering_system: &numbering_system,
+        });
         let native = native_formatter(&data_locale, &skeleton)?;
         Ok(Self {
             native,
@@ -698,21 +705,38 @@ fn part_kind(
     }
 }
 
-fn make_skeleton(
+struct SkeletonOptions<'a> {
     style: Style,
-    currency: Option<&str>,
-    currency_display: Option<&str>,
-    currency_sign: Option<&str>,
-    unit: Option<&str>,
-    unit_display: Option<&str>,
-    precision: &Precision,
+    currency: Option<&'a str>,
+    currency_display: Option<&'a str>,
+    currency_sign: Option<&'a str>,
+    unit: Option<&'a str>,
+    unit_display: Option<&'a str>,
+    precision: &'a Precision,
     minimum_integer_digits: u8,
     use_grouping: bool,
-    notation: &str,
-    compact_display: Option<&str>,
-    sign_display: &str,
-    numbering_system: &str,
-) -> String {
+    notation: &'a str,
+    compact_display: Option<&'a str>,
+    sign_display: &'a str,
+    numbering_system: &'a str,
+}
+
+fn make_skeleton(options: SkeletonOptions<'_>) -> String {
+    let SkeletonOptions {
+        style,
+        currency,
+        currency_display,
+        currency_sign,
+        unit,
+        unit_display,
+        precision,
+        minimum_integer_digits,
+        use_grouping,
+        notation,
+        compact_display,
+        sign_display,
+        numbering_system,
+    } = options;
     let mut tokens = Vec::new();
     match notation {
         "scientific" | "engineering" => tokens.push(notation.to_string()),
@@ -839,11 +863,25 @@ fn locale_base_and_nu(locale: &str) -> (String, Option<String>) {
         .unwrap_or(parts.len());
     let base = parts[..first_extension].join("-");
     let mut nu = None;
-    if let Some(u) = parts.iter().position(|part| part.eq_ignore_ascii_case("u")) {
+    let private_use = parts
+        .iter()
+        .position(|part| part.eq_ignore_ascii_case("x"))
+        .unwrap_or(parts.len());
+    if let Some(u) = parts[..private_use]
+        .iter()
+        .position(|part| part.eq_ignore_ascii_case("u"))
+    {
         let mut index = u + 1;
-        while index < parts.len() && parts[index].len() != 1 {
-            if parts[index].eq_ignore_ascii_case("nu") && index + 1 < parts.len() {
-                nu = Some(parts[index + 1].to_ascii_lowercase());
+        while index < private_use && parts[index].len() != 1 {
+            if parts[index].eq_ignore_ascii_case("nu") {
+                index += 1;
+                let start = index;
+                while index < private_use && parts[index].len() > 2 {
+                    index += 1;
+                }
+                if start < index {
+                    nu = Some(parts[start..index].join("-").to_ascii_lowercase());
+                }
                 break;
             }
             index += 1;
@@ -1075,24 +1113,24 @@ mod tests {
 
     #[test]
     fn skeleton_carries_es2020_rounding_and_display_choices() {
-        let skeleton = make_skeleton(
-            Style::Currency,
-            Some("USD"),
-            Some("code"),
-            Some("accounting"),
-            None,
-            None,
-            &Precision::Fraction {
+        let skeleton = make_skeleton(SkeletonOptions {
+            style: Style::Currency,
+            currency: Some("USD"),
+            currency_display: Some("code"),
+            currency_sign: Some("accounting"),
+            unit: None,
+            unit_display: None,
+            precision: &Precision::Fraction {
                 minimum: 2,
                 maximum: 4,
             },
-            3,
-            false,
-            "scientific",
-            None,
-            "always",
-            "arab",
-        );
+            minimum_integer_digits: 3,
+            use_grouping: false,
+            notation: "scientific",
+            compact_display: None,
+            sign_display: "always",
+            numbering_system: "arab",
+        });
         for token in [
             "scientific",
             "currency/USD",
@@ -1126,5 +1164,14 @@ mod tests {
             ("de-DE".into(), Some("arab".into()))
         );
         assert_eq!(locale_base_and_nu("fr-FR"), ("fr-FR".into(), None));
+        assert_eq!(locale_base_and_nu("en-x-u-nu-arab"), ("en".into(), None));
+        assert_eq!(
+            locale_base_and_nu("en-u-nu-arab-x-u-nu-latn"),
+            ("en".into(), Some("arab".into()))
+        );
+        assert_eq!(
+            locale_base_and_nu("en-u-nu-arab-foobar"),
+            ("en".into(), Some("arab-foobar".into()))
+        );
     }
 }

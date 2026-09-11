@@ -270,6 +270,29 @@ struct Integrity {
     }
     validated = true;
   }
+
+  void accept_property(jsi::Runtime& rt, const jsi::Object& object,
+                       const char* name) {
+    if (validated)
+      throw jsi::JSError(rt, "cannot replace an intrinsic after validation");
+    auto key = jsi::Value(rt, jsi::String::createFromUtf8(rt, name));
+    for (auto& item : intrinsics) {
+      if (!jsi::Object::strictEquals(rt, object, item.object)) continue;
+      for (auto& property : item.properties) {
+        if (!equal(rt, property.key, key)) continue;
+        auto raw = descriptor.call(rt, item.object, key);
+        if (!raw.isObject())
+          throw jsi::JSError(rt, "trusted intrinsic replacement is absent");
+        auto current = raw.getObject(rt);
+        property.value = current.getProperty(rt, "value");
+        property.get = current.getProperty(rt, "get");
+        property.set = current.getProperty(rt, "set");
+        return;
+      }
+      throw jsi::JSError(rt, "trusted intrinsic property was not captured");
+    }
+    throw jsi::JSError(rt, "trusted intrinsic object was not captured");
+  }
 };
 
 struct Adapter::State {
@@ -290,6 +313,12 @@ Adapter::Adapter(jsi::Runtime& rt, const void* queue)
   if (!queue) throw std::invalid_argument("Ibex2 bindings require runtime state");
 }
 Adapter::~Adapter() { detach(); }
+void Adapter::accept_trusted_intrinsic_property(jsi::Object object,
+                                                const char* name) {
+  if (!runtime_ || !state_->integrity)
+    throw std::logic_error("Ibex2 bindings are detached");
+  state_->integrity->accept_property(*runtime_, object, name);
+}
 void Adapter::detach() {
   if (!state_->alive) return;
   state_->alive = false;

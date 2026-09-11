@@ -17,6 +17,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/intl_number_format.cc");
     println!("cargo:rerun-if-changed=src/engine/intl_icu.cc");
     println!("cargo:rerun-if-changed=src/engine/intl_case_icu.cc");
+    println!("cargo:rerun-if-changed=src/engine/intl_datetime_icu.cc");
     println!("cargo:rerun-if-changed=tests/embedding.cc");
     println!("cargo:rerun-if-changed=src/engine/ibex2_jsi.cc");
     println!("cargo:rerun-if-changed=include/ibex2_jsi.h");
@@ -113,7 +114,8 @@ fn main() {
     if target_os == "linux" {
         shim.file("src/engine/intl_number_format.cc")
             .file("src/engine/intl_icu.cc")
-            .file("src/engine/intl_case_icu.cc");
+            .file("src/engine/intl_case_icu.cc")
+            .file("src/engine/intl_datetime_icu.cc");
     }
     if is_apple {
         shim.flag("-stdlib=libc++");
@@ -174,6 +176,7 @@ fn main() {
     if target_os == "linux" {
         bindings.push("intl_number_format");
         bindings.push("intl_case");
+        bindings.push("intl_datetime");
     }
     for name in bindings {
         let source = format!("src/bindings/{name}.js");

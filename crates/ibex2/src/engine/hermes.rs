@@ -49,6 +49,12 @@ extern "C" {
         bytes: *const u8,
         len: usize,
     ) -> c_int;
+    fn ibex2_hermes_accept_intl_intrinsics(handle: *mut c_void) -> c_int;
+    fn ibex2_hermes_install_intl_datetime(
+        handle: *mut c_void,
+        bytes: *const u8,
+        len: usize,
+    ) -> c_int;
     fn ibex2_hermes_state(handle: *mut c_void) -> *const crate::task::RuntimeState;
     fn ibex2_hermes_eval_bytes(
         handle: *mut c_void,
@@ -301,6 +307,28 @@ impl Hermes {
             &include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc"))[..],
         ] {
             self.eval_bytes(binding)?;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let datetime = include_bytes!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"));
+            let status = unsafe {
+                ibex2_hermes_install_intl_datetime(self.handle, datetime.as_ptr(), datetime.len())
+            };
+            if status != 0 {
+                return Err(JsError::Thrown(
+                    "the DateTimeFormat binding did not evaluate to its factory".into(),
+                ));
+            }
+        }
+        // These precompiled, repository-owned bindings intentionally replace
+        // four locale methods captured by SQLite's integrity witness. Update
+        // only those expected identities; the rest of the construction-time
+        // snapshot continues to detect pre-hardening application changes.
+        let status = unsafe { ibex2_hermes_accept_intl_intrinsics(self.handle) };
+        if status != 0 {
+            return Err(JsError::Thrown(
+                "the trusted Intl bindings did not preserve intrinsic integrity".into(),
+            ));
         }
         // fetch.js is different: its value is the fetch factory, and it must
         // not be a global (see the file). The shim keeps it.
