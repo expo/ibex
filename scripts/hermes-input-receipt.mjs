@@ -120,6 +120,9 @@ const hermescCandidate = configuredHermesc
 if (configuredHermesc && !existsSync(hermescCandidate)) {
   die(`IBEX2_HERMESC does not exist: ${hermescCandidate}`);
 }
+// `compiler: null` is deliberate for engine-only/run-only installations. A
+// build that does have hermesc records and verifies its digest, while a run
+// consumes already-receipted bytecode without discovering a compiler.
 const hermesc = existsSync(hermescCandidate) ? hermescCandidate : undefined;
 
 let sourceCommit = commitOverride;

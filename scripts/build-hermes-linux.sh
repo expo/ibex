@@ -85,7 +85,10 @@ case "$HERMES_VANILLA" in
             HERMES_INTL=true
         fi
         case "$HERMES_INTL" in
-            0|false|FALSE|no|NO|off|OFF)
+            1|true|TRUE|yes|YES|on|ON)
+                HERMES_INTL=true
+                ;;
+            *)
                 echo "A vanilla Hermes Linux build requires Intl" >&2
                 exit 1
                 ;;
