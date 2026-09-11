@@ -295,6 +295,13 @@ impl Hermes {
         ] {
             self.eval_bytes(binding)?;
         }
+        #[cfg(target_os = "linux")]
+        for binding in [
+            &include_bytes!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))[..],
+            &include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc"))[..],
+        ] {
+            self.eval_bytes(binding)?;
+        }
         // fetch.js is different: its value is the fetch factory, and it must
         // not be a global (see the file). The shim keeps it.
         let fetch = include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc"));

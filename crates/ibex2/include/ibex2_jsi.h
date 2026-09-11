@@ -29,6 +29,12 @@ namespace ibex2::jsi_adapter {
 namespace jsi = facebook::jsi;
 Ibex2AbiValue to_abi(jsi::Runtime&, const jsi::Value&, std::vector<std::string>&);
 jsi::Value from_abi(jsi::Runtime&, Ibex2AbiValue&);
+struct HostCallResult {
+  int status;
+  jsi::Value value;
+};
+HostCallResult call_host_result(jsi::Runtime&, const void*, uint32_t,
+                                const jsi::Value*, size_t);
 jsi::Function make_host_binding(jsi::Runtime&, const char*, uint32_t, const void*);
 void set_binding(jsi::Runtime&, jsi::Object&, const char*, uint32_t, const void*);
 

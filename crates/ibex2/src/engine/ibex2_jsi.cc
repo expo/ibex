@@ -118,9 +118,11 @@ jsi::Value from_abi(jsi::Runtime &rt, Ibex2AbiValue &value) {
   }
 }
 
-// All synchronous bindings share the same conversion and release path.
-static jsi::Value call_host(jsi::Runtime& rt, const void* state, uint32_t op,
-                           const jsi::Value* args, size_t count) {
+// The result-bearing half is also used by bindings that need to translate a
+// Rust-owned error kind into the matching JavaScript error constructor.
+HostCallResult call_host_result(jsi::Runtime& rt, const void* state,
+                                uint32_t op, const jsi::Value* args,
+                                size_t count) {
   std::vector<std::string> owned;
   owned.reserve(count);
   std::vector<Ibex2AbiValue> abi;
@@ -134,14 +136,22 @@ static jsi::Value call_host(jsi::Runtime& rt, const void* state, uint32_t op,
                                abi.size(), &out);
   struct Release { Ibex2AbiValue& value; ~Release() { ibex2_host_release(&value); } } release{out};
   jsi::Value result = from_abi(rt, out);
-  if (status != 0) {
+  return HostCallResult{status, std::move(result)};
+}
+
+// All ordinary synchronous bindings share the same conversion and release
+// path. Their public contracts report a generic host-call failure.
+static jsi::Value call_host(jsi::Runtime& rt, const void* state, uint32_t op,
+                           const jsi::Value* args, size_t count) {
+  auto result = call_host_result(rt, state, op, args, count);
+  if (result.status != 0) {
     // The Rust error taxonomy becomes a JS throw here, so failures are
     // identical on every platform (LLP 0057 §3).
-    throw jsi::JSError(rt, result.isString()
-                               ? result.getString(rt).utf8(rt)
+    throw jsi::JSError(rt, result.value.isString()
+                               ? result.value.getString(rt).utf8(rt)
                                : std::string("host call failed"));
   }
-  return result;
+  return std::move(result.value);
 }
 
 // One host function per op, so JavaScript sees ordinary callables while every

@@ -148,6 +148,8 @@ impl CompletionQueue {
 /// refers to.
 pub struct RuntimeState {
     pub queue: CompletionQueue,
+    #[cfg(all(feature = "hermes", target_os = "linux"))]
+    pub(crate) intl: crate::stdlib::intl::Registry,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
@@ -196,6 +198,8 @@ impl RuntimeState {
     pub fn new(transport: Box<dyn crate::stdlib::fetch::Transport>) -> Self {
         Self {
             queue: CompletionQueue::new(),
+            #[cfg(all(feature = "hermes", target_os = "linux"))]
+            intl: crate::stdlib::intl::Registry::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
             app_directories: std::sync::OnceLock::new(),
             responses: Mutex::new(std::collections::HashMap::new()),

@@ -14,6 +14,9 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_shim.cc");
+    println!("cargo:rerun-if-changed=src/engine/intl_number_format.cc");
+    println!("cargo:rerun-if-changed=src/engine/intl_icu.cc");
+    println!("cargo:rerun-if-changed=src/engine/intl_case_icu.cc");
     println!("cargo:rerun-if-changed=tests/embedding.cc");
     println!("cargo:rerun-if-changed=src/engine/ibex2_jsi.cc");
     println!("cargo:rerun-if-changed=include/ibex2_jsi.h");
@@ -107,6 +110,11 @@ fn main() {
         .file("tests/embedding.cc")
         .include(&headers)
         .flag("-std=c++17");
+    if target_os == "linux" {
+        shim.file("src/engine/intl_number_format.cc")
+            .file("src/engine/intl_icu.cc")
+            .file("src/engine/intl_case_icu.cc");
+    }
     if is_apple {
         shim.flag("-stdlib=libc++");
     }
@@ -151,7 +159,7 @@ fn main() {
         hermesc.display()
     );
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
-    for name in [
+    let mut bindings = vec![
         "esm",
         "headers",
         "timers",
@@ -162,7 +170,12 @@ fn main() {
         "fetch",
         "sqlite",
         "harden",
-    ] {
+    ];
+    if target_os == "linux" {
+        bindings.push("intl_number_format");
+        bindings.push("intl_case");
+    }
+    for name in bindings {
         let source = format!("src/bindings/{name}.js");
         println!("cargo:rerun-if-changed={source}");
         let artifact = out_dir.join(format!("{name}.hbc"));
