@@ -250,6 +250,15 @@ fn subclass_brand_bound_function_and_receiver_rules_hold() {
               const reflected = Reflect.construct(Intl.DateTimeFormat,
                 ["en-US", {timeZone:"UTC",year:"numeric"}], Other);
               const called = Intl.DateTimeFormat("en-US", {timeZone:"UTC",year:"numeric"});
+              const log = [], customPrototype = Object.create(Intl.DateTimeFormat.prototype);
+              function ObjectTarget() {}
+              const observedTarget = new Proxy(ObjectTarget, {get(target, name, receiver) {
+                if (name === "prototype") { log.push("prototype"); return customPrototype; }
+                return Reflect.get(target, name, receiver);
+              }});
+              const locales = {length:1, get 0() { log.push("locale"); return "en-US"; }};
+              const custom = Reflect.construct(Intl.DateTimeFormat,
+                [locales, {timeZone:"UTC",year:"numeric"}], observedTarget);
               const getter = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype,"format").get;
               let touched = false;
               let fakeParts, fakeGetter;
@@ -257,14 +266,36 @@ fn subclass_brand_bound_function_and_receiver_rules_hold() {
               catch (e) { fakeParts = e.name; }
               try { getter.call({}); } catch (e) { fakeGetter = e.name; }
               return [child instanceof Child, child.format(0), reflected instanceof Other,
-                reflected.format(0), called instanceof Intl.DateTimeFormat, fakeParts,
+                reflected.format(0), called instanceof Intl.DateTimeFormat,
+                Object.getPrototypeOf(custom) === customPrototype, log.join(","),
+                custom.format(0), fakeParts,
                 fakeGetter, touched, child.format === child.format,
+                Intl.DateTimeFormat.prototype.constructor === Intl.DateTimeFormat,
                 Intl.DateTimeFormat.length, Intl.DateTimeFormat.supportedLocalesOf.length,
                 Object.getOwnPropertyDescriptor(Intl.DateTimeFormat,"prototype").writable,
                 getter.name, JSON.stringify(child.format.name), child.format.length].join("|");
             })()"#,
         ),
-        "true|1970|true|1970|true|TypeError|TypeError|false|true|0|1|false|get format|\"\"|1"
+        "true|1970|true|1970|true|true|prototype,locale|1970|TypeError|TypeError|false|true|true|0|1|false|get format|\"\"|1"
+    );
+}
+
+#[test]
+#[ignore = "pinned Hermes cannot express the built-in constructor fallback through public JSI; tracked in the Linux Intl issue"]
+fn non_object_new_target_prototype_uses_the_intl_prototype_fallback() {
+    let mut runtime = runtime();
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              function PrimitiveTarget() {}
+              PrimitiveTarget.prototype = 0;
+              const value = Reflect.construct(Intl.DateTimeFormat,
+                ["en-US", {timeZone:"UTC",year:"numeric"}], PrimitiveTarget);
+              return Object.getPrototypeOf(value) === Intl.DateTimeFormat.prototype;
+            })()"#,
+        ),
+        "true"
     );
 }
 
@@ -283,6 +314,13 @@ fn bound_format_keeps_native_state_alive_across_gc_and_hardening() {
     assert_eq!(eval(&mut runtime, "savedDateFormat(0)"), "1970");
     runtime.harden().expect("harden");
     assert_eq!(eval(&mut runtime, "savedDateFormat(0)"), "1970");
+    assert_eq!(
+        eval(
+            &mut runtime,
+            "Object.isFrozen(Intl.DateTimeFormat.prototype) && Intl.DateTimeFormat.prototype.constructor === Intl.DateTimeFormat",
+        ),
+        "true"
+    );
     assert_eq!(
         eval(
             &mut runtime,
