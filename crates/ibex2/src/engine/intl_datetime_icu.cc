@@ -252,6 +252,11 @@ std::string canonical_time_zone(const char *zone) {
   } else if (!utf8_to_uchar(zone, input)) {
     return {};
   } else if (!input.empty()) {
+    // IANA time-zone identifiers are ASCII. ICU's Unicode case folding would
+    // otherwise accept lookalikes such as the Kelvin sign in Asia/Kolkata.
+    for (const UChar code_unit : input) {
+      if (code_unit > 0x7f) return {};
+    }
     input.pop_back();
     // ECMA-402 time-zone matching is ASCII case-insensitive. ICU's canonical
     // query is strict about spelling, so recover the spelling from ICU's own

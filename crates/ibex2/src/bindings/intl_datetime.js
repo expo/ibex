@@ -172,48 +172,32 @@
     return initialize(this, locales, options, "any", "date");
   }
 
-  function supportedLocalesOf(locales) {
-    var requested = localeList(locales);
-    var options;
-    if (arguments.length < 2 || arguments[1] === undefined) options = createObject(null);
-    else {
-      if (arguments[1] === null) throw new TypeError("options must not be null");
-      options = ObjectIntrinsic(arguments[1]);
-    }
-    var matcher = stringOption(options, "localeMatcher", ["lookup", "best fit"], "best fit");
-    var result = supported(requested, matcher);
-    return result === "" ? [] : result.split("\n");
-  }
-
-  defineProperty(DateTimeFormat, "supportedLocalesOf", {
-    value: supportedLocalesOf,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  });
-
-  var prototype = DateTimeFormat.prototype;
-  function getFormat() {
-    var state = direct(this);
-    if (state.bound === undefined) {
-      var owner = state.owner;
-      var bound = function (date) {
-        return format(owner, timeValue(date));
-      };
-      defineProperty(bound, "name", { value: "", configurable: true });
-      state.bound = bound;
-    }
-    return state.bound;
-  }
-  defineProperty(getFormat, "name", { value: "get format", configurable: true });
-  defineProperty(prototype, "format", {
-    get: getFormat,
-    enumerable: false,
-    configurable: true,
-  });
-
-  defineProperty(prototype, "formatToParts", {
-    value: function formatToParts(date) {
+  // Concise methods and arrows are not constructors. The public Intl methods
+  // reject `new`, while DateTimeFormat itself remains callable/constructable.
+  var publicMethods = {
+    supportedLocalesOf(locales) {
+      var requested = localeList(locales);
+      var options;
+      if (arguments.length < 2 || arguments[1] === undefined) options = createObject(null);
+      else {
+        if (arguments[1] === null) throw new TypeError("options must not be null");
+        options = ObjectIntrinsic(arguments[1]);
+      }
+      var matcher = stringOption(options, "localeMatcher", ["lookup", "best fit"], "best fit");
+      var result = supported(requested, matcher);
+      return result === "" ? [] : result.split("\n");
+    },
+    getFormat() {
+      var state = direct(this);
+      if (state.bound === undefined) {
+        var owner = state.owner;
+        var bound = (date) => format(owner, timeValue(date));
+        defineProperty(bound, "name", { value: "", configurable: true });
+        state.bound = bound;
+      }
+      return state.bound;
+    },
+    formatToParts(date) {
       // Brand first: a fake receiver must fail before coercing `date`.
       var owner = direct(this).owner;
       var count = parts(owner, timeValue(date));
@@ -223,13 +207,7 @@
       }
       return result;
     },
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  });
-
-  defineProperty(prototype, "resolvedOptions", {
-    value: function resolvedOptions() {
+    resolvedOptions() {
       var owner = direct(this).owner;
       var result = {};
       var names = [
@@ -242,7 +220,37 @@
         if (value !== undefined) result[names[i]] = value;
       }
       return result;
-    },
+    }
+  };
+  var supportedLocalesOf = publicMethods.supportedLocalesOf;
+  var getFormat = publicMethods.getFormat;
+  var formatToParts = publicMethods.formatToParts;
+  var resolvedOptions = publicMethods.resolvedOptions;
+
+  defineProperty(DateTimeFormat, "supportedLocalesOf", {
+    value: supportedLocalesOf,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+
+  var prototype = DateTimeFormat.prototype;
+  defineProperty(getFormat, "name", { value: "get format", configurable: true });
+  defineProperty(prototype, "format", {
+    get: getFormat,
+    enumerable: false,
+    configurable: true,
+  });
+
+  defineProperty(prototype, "formatToParts", {
+    value: formatToParts,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+
+  defineProperty(prototype, "resolvedOptions", {
+    value: resolvedOptions,
     writable: true,
     enumerable: false,
     configurable: true,
@@ -274,26 +282,31 @@
     return format(apply(create, undefined, vector), millis);
   }
 
-  defineProperty(DateIntrinsic.prototype, "toLocaleString", {
-    value: function toLocaleString(locales, options) {
-      return dateLocale.call(this, locales, options, "any", "all");
+  var dateMethods = {
+    toLocaleString() {
+      return dateLocale.call(this, arguments[0], arguments[1], "any", "all");
     },
+    toLocaleDateString() {
+      return dateLocale.call(this, arguments[0], arguments[1], "date", "date");
+    },
+    toLocaleTimeString() {
+      return dateLocale.call(this, arguments[0], arguments[1], "time", "time");
+    }
+  };
+  defineProperty(DateIntrinsic.prototype, "toLocaleString", {
+    value: dateMethods.toLocaleString,
     writable: true,
     enumerable: false,
     configurable: true,
   });
   defineProperty(DateIntrinsic.prototype, "toLocaleDateString", {
-    value: function toLocaleDateString(locales, options) {
-      return dateLocale.call(this, locales, options, "date", "date");
-    },
+    value: dateMethods.toLocaleDateString,
     writable: true,
     enumerable: false,
     configurable: true,
   });
   defineProperty(DateIntrinsic.prototype, "toLocaleTimeString", {
-    value: function toLocaleTimeString(locales, options) {
-      return dateLocale.call(this, locales, options, "time", "time");
-    },
+    value: dateMethods.toLocaleTimeString,
     writable: true,
     enumerable: false,
     configurable: true,

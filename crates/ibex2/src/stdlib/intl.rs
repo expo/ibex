@@ -324,9 +324,9 @@ impl NumberFormat {
             &["lookup", "best fit"],
             "localeMatcher",
         )?;
-        // ECMA-402 2020 validates the Unicode type grammar here but compares
-        // the option against locale data without case folding.
-        let requested_numbering = optional_str(args, 2)?.map(str::to_string);
+        // ResolveLocale case-normalizes Unicode type options before comparing
+        // them with the locale data selected by this 2020 profile.
+        let requested_numbering = optional_str(args, 2)?.map(str::to_ascii_lowercase);
         if requested_numbering
             .as_deref()
             .is_some_and(|value| !valid_unicode_type(value))

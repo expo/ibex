@@ -83,6 +83,13 @@ the dependent Date locale methods use it. It does not add the Intl constructors
 absent from both engine profiles or claim complete ECMA-402 conformance.
 `formatMatcher: "basic"` is validated and observable in the required option
 order but currently shares ICU's best-pattern selection with `"best fit"`.
+The selected 2020 locale negotiation ASCII-lowercases syntactically valid
+Unicode option types before support lookup, retains a supported requested
+`ca`/`nu` extension when an unsupported explicit option leaves it selected,
+and removes `hc` when
+`hour12` overrides it. Time-zone matching folds ASCII case only. The public
+methods, accessors, bound format functions, and Date locale methods are
+nonconstructable and retain their builtin names and lengths.
 
 One exact exotic-constructor limitation remains. On pinned Hermes,
 `Reflect.construct(Intl.NumberFormat, args, NewTarget)` (and the corresponding

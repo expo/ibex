@@ -326,7 +326,7 @@ impl DateTimeFormat {
             "localeMatcher",
         )?;
         let calendar_option = optional_str(args, 2)?.map(str::to_ascii_lowercase);
-        let numbering_option = optional_str(args, 3)?.map(str::to_string);
+        let numbering_option = optional_str(args, 3)?.map(str::to_ascii_lowercase);
         let hour12 = optional_bool(args, 4)?;
         let hour_cycle_option = optional_str(args, 5)?;
         let time_zone = required_str(args, 6, "timeZone")?.to_string();
@@ -408,8 +408,6 @@ impl DateTimeFormat {
         let locale = resolved_locale(
             &data_locale,
             &extensions,
-            calendar_option.as_deref(),
-            numbering_option.as_deref(),
             hour12,
             hour_cycle_option,
             &calendar,
@@ -682,8 +680,6 @@ fn locale_base_and_extensions(locale: &str) -> (String, LocaleExtensions) {
 fn resolved_locale(
     base: &str,
     extensions: &LocaleExtensions,
-    calendar_option: Option<&str>,
-    numbering_option: Option<&str>,
     hour12: Option<bool>,
     hour_cycle_option: Option<&str>,
     calendar: &str,
@@ -691,19 +687,19 @@ fn resolved_locale(
     locale_hour_cycle: &str,
 ) -> String {
     let mut kept = Vec::new();
-    if extensions.calendar.as_deref() == Some(calendar)
-        && calendar_option.is_none_or(|value| value == calendar)
-    {
+    // ResolveLocale retains a requested keyword when an unsupported option
+    // leaves that requested value selected. Comparing the selected value is
+    // sufficient; consulting the raw option would incorrectly strip it.
+    if extensions.calendar.as_deref() == Some(calendar) {
         kept.push(("ca", calendar));
     }
     if extensions.hour_cycle.as_deref() == Some(locale_hour_cycle)
-        && (hour12.is_some() || hour_cycle_option.is_none_or(|value| value == locale_hour_cycle))
+        && hour12.is_none()
+        && hour_cycle_option.is_none_or(|value| value == locale_hour_cycle)
     {
         kept.push(("hc", locale_hour_cycle));
     }
-    if extensions.numbering_system.as_deref() == Some(numbering)
-        && numbering_option.is_none_or(|value| value == numbering)
-    {
+    if extensions.numbering_system.as_deref() == Some(numbering) {
         kept.push(("nu", numbering));
     }
     locale_with_extensions(base, kept)
