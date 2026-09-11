@@ -16,7 +16,12 @@ pub struct Project(pub PathBuf);
 
 impl Project {
     pub fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("ibex2-loader-{name}-{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let instance = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "ibex2-loader-{name}-{}-{instance}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("project dir");
         Self(dir)

@@ -346,7 +346,7 @@ fn fs_paths_are_normalized_before_they_are_admitted() {
         "index.js",
         &format!(
             "(async () => {{
-               try {{ await fs.readFile('{dir}' + '/../../../../etc/hosts'); console.log('LEAKED'); }}
+               try {{ await fs.readFile('{dir}' + '/../outside'); console.log('LEAKED'); }}
                catch (e) {{ console.log(e.message); }}
              }})();"
         ),
