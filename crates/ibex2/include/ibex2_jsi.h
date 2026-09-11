@@ -53,6 +53,10 @@ public:
   Adapter(const Adapter&) = delete;
   Adapter& operator=(const Adapter&) = delete;
   void detach();
+  // Update only an already-captured intrinsic property's expected identity
+  // after Ibex's trusted bootstrap replaces that property. Every other
+  // captured identity remains anchored to runtime construction.
+  void accept_trusted_intrinsic_property(jsi::Object, const char* name);
   jsi::Function async_binding(const char* name, uint32_t op, const void* grants);
   // sqlite_factory is the completion value of precompiled bindings/sqlite.js.
   // This returns frozen {fs, sqlite}; it never modifies the global object.

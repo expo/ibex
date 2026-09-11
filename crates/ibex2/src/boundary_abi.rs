@@ -481,6 +481,16 @@ pub unsafe extern "C" fn ibex2_host_call(
         };
     }
     #[cfg(all(feature = "hermes", target_os = "linux"))]
+    if let Some(result) = crate::stdlib::intl_datetime::dispatch(op, &args, state.as_deref()) {
+        return match result {
+            Ok(value) => {
+                *out = leak_value(value);
+                0
+            }
+            Err(err) => fail(out, &err.to_string()),
+        };
+    }
+    #[cfg(all(feature = "hermes", target_os = "linux"))]
     if let Some(result) = crate::stdlib::intl_case::dispatch(op, &args) {
         return match result {
             Ok(value) => {

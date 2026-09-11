@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Module Loader, CapSec, Build
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-08-27
-**Revised:** 2026-08-30 (§5.2: two consumers, each at a seam — Snapback 2 for effects only, Exact 2 only where the plan and Rust are not sufficient; neither runs on Ibex 2) 2026-08-28 (OQ2 answered — in, whole — with the bounded list; OQ4 on third-party Rust) 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
+**Revised:** 2026-09-11 (§2, §3.1: Linux supplies the selected Intl operations through Rust-owned semantics and a native ICU computation backend where vanilla Hermes has stubs); 2026-08-30 (§5.2: two consumers, each at a seam — Snapback 2 for effects only, Exact 2 only where the plan and Rust are not sufficient; neither runs on Ibex 2) 2026-08-28 (OQ2 answered — in, whole — with the bounded list; OQ4 on third-party Rust) 2026-08-28 (§5.2: the target is Exact 2, not Exact; §3.1 states the Rust/JS split and why load time is not its reason; §6 OQ2 restated as whole-or-absent, with the deciding question and a recommendation) 2026-08-27 (initial draft)
 **Related:** LLP 0063 (where startup time goes — the measurement §7 said had not been taken), LLP 0000 (Ibex — the root this amends), LLP 0002 (host embedding ABI — the boundary this generalizes), LLP 0004 (module loading and builtins — the JS standard library this inverts), LLP 0013 (per-package capability compartments — the enforcement point this relocates), LLP 0039 (secure and insecure modes — the cost record this cites), LLP 0058 (the engine seam)
 
 ## Summary
@@ -68,7 +68,9 @@ timers, location. Rust interface, platform implementation. The sandwich model:
 Rust computes, the platform executes.
 
 **Pure computation** — `URL`, `TextEncoder`, base64, the streams state machine,
-`Intl`. Rust, no platform involved. Straightforward and correctness-critical.
+`Intl`. Rust owns the semantics; a native computation library such as ICU may
+perform locale algorithms without becoming a transport or authority-bearing
+platform API. Straightforward and correctness-critical.
 
 **Engine-intrinsic** — `Promise` and the microtask queue, `async`/`await`,
 module resolution semantics, GC interaction, error stacks, `WeakRef`. **These
@@ -137,7 +139,16 @@ second reason is the one §4 gives: one boundary is one place to check.
   strings at 2–3.5 ms/MB, and every host call has a fixed price. An API that
   is nothing but object plumbing gets slower and larger if each operation
   crosses.
-- **The engine keeps** what it does natively — `TextEncoder`, `JSON`, `Intl`.
+- **The engine keeps** what it implements correctly — `TextEncoder`, `JSON`,
+  and its correct `Intl` operations. The pinned non-Apple Hermes engine has
+  literal stubs for part of `Intl`, so the Linux adapter replaces only the
+  selected operations needed by the consumer: number formatting and the
+  dependent Number/BigInt locale methods, locale-sensitive String case
+  mapping, and date/time formatting plus parts and the dependent Date locale
+  methods. Rust owns normalized locale/options/formatter state and ICU is its
+  native computation backend. Thin trusted JavaScript preserves ECMAScript
+  object shape, `Get`/coercion order, and bound-function behavior. This is not
+  a claim that every ECMA-402 constructor or every edition is implemented.
 
 Two rules that follow. Modules load as bytecode only, and the floor stays at
 or under 2 ms, measured by `caps` rather than asserted. And authority arrives

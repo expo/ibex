@@ -36,6 +36,9 @@ void install(jsi::Runtime &, const void *);
 namespace ibex2::intl_case {
 void install(jsi::Runtime &, const void *);
 }
+namespace ibex2::intl_datetime {
+std::vector<jsi::Value> factory_arguments(jsi::Runtime &, const void *);
+}
 #endif
 extern "C" void ibex2_host_release(Ibex2AbiValue *);
 
@@ -1031,6 +1034,65 @@ int ibex2_hermes_install_sqlite_factory(void *handle, const unsigned char *bytes
     rt->make_sqlite = std::move(factory);
     return 0;
   } catch (const jsi::JSError &) { return 1; }
+}
+
+int ibex2_hermes_accept_intl_intrinsics(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
+    return 1;
+#if defined(__linux__)
+  try {
+    auto &runtime = *rt->runtime;
+    auto global = runtime.global();
+    auto accept = [&](const char *constructor, const char *property) {
+      auto prototype = global.getPropertyAsObject(runtime, constructor)
+                           .getPropertyAsObject(runtime, "prototype");
+      rt->bindings->accept_trusted_intrinsic_property(std::move(prototype),
+                                                       property);
+    };
+    // The Integrity snapshot predates trusted bytecode installation. Admit
+    // exactly the standard methods the Linux Intl completion replaces; all
+    // other captured identities stay anchored, so a pre-hardening mutation
+    // elsewhere is still refused by SQLite.
+    accept("Number", "toLocaleString");
+    accept("BigInt", "toLocaleString");
+    accept("String", "toLocaleLowerCase");
+    accept("String", "toLocaleUpperCase");
+    return 0;
+  } catch (...) {
+    return 1;
+  }
+#else
+  return 0;
+#endif
+}
+
+int ibex2_hermes_install_intl_datetime(void *handle,
+                                       const unsigned char *bytes,
+                                       size_t len) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || bytes == nullptr) return 1;
+#if defined(__linux__)
+  try {
+    auto &runtime = *rt->runtime;
+    auto buffer = std::make_shared<OwnedBytes>(
+        std::vector<unsigned char>(bytes, bytes + len));
+    auto value = runtime.evaluateJavaScript(buffer, "intl_datetime.js");
+    if (!value.isObject() || !value.getObject(runtime).isFunction(runtime))
+      return 1;
+    auto arguments =
+        ibex2::intl_datetime::factory_arguments(runtime, rt->queue);
+    value.getObject(runtime).getFunction(runtime).call(
+        runtime, static_cast<const jsi::Value *>(arguments.data()),
+        arguments.size());
+    return 0;
+  } catch (...) {
+    return 1;
+  }
+#else
+  (void)len;
+  return 1;
+#endif
 }
 
 int ibex2_hermes_install_fetch(void *handle, const void *grants) {

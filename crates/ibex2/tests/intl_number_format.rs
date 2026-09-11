@@ -91,6 +91,60 @@ fn parts_join_format_and_classify_special_values_and_signs() {
 }
 
 #[test]
+fn normalizes_nan_sign_and_preserves_real_signed_values() {
+    let mut runtime = runtime(false);
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              function show(options, value) {
+                var nf = new Intl.NumberFormat('en-US', options);
+                return nf.format(value) + '=' + nf.formatToParts(value).map(function (part) {
+                  return part.type + '(' + part.value + ')';
+                }).join(',');
+              }
+              return [
+                show({}, NaN), show({signDisplay:'always'}, NaN),
+                show({style:'currency',currency:'USD'}, NaN),
+                show({style:'currency',currency:'USD',signDisplay:'always'}, NaN),
+                show({}, -0), show({}, 0), show({signDisplay:'always'}, 0)
+              ].join('|');
+            })()"#,
+        ),
+        concat!(
+            "NaN=nan(NaN)|+NaN=plusSign(+),nan(NaN)|",
+            "$NaN=currency($),nan(NaN)|+$NaN=plusSign(+),currency($),nan(NaN)|",
+            "-0=minusSign(-),integer(0)|0=integer(0)|+0=plusSign(+),integer(0)"
+        )
+    );
+}
+
+#[test]
+fn sign_display_matrix_includes_special_and_rounded_zero_values() {
+    let mut runtime = runtime(false);
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              var values = [NaN, -0, 0, -1, 1, -Infinity, Infinity, -0.001, 0.001];
+              return ['auto','never','always','exceptZero'].map(function (mode) {
+                var nf = new Intl.NumberFormat('en-US', {
+                  signDisplay:mode, maximumFractionDigits:0, useGrouping:false
+                });
+                return mode + '=' + values.map(nf.format).join('|');
+              }).join(';');
+            })()"#,
+        ),
+        concat!(
+            "auto=NaN|-0|0|-1|1|-∞|∞|-0|0;",
+            "never=NaN|0|0|1|1|∞|∞|0|0;",
+            "always=+NaN|-0|+0|-1|+1|-∞|+∞|-0|+0;",
+            "exceptZero=NaN|0|0|-1|+1|-∞|+∞|0|0"
+        )
+    );
+}
+
+#[test]
 fn resolved_options_and_locale_negotiation_match_selected_configuration() {
     let mut runtime = runtime(false);
     assert_eq!(
@@ -99,6 +153,9 @@ fn resolved_options_and_locale_negotiation_match_selected_configuration() {
             r#"(function () {
               var same = new Intl.NumberFormat('de-u-nu-arab', {numberingSystem:'arab'}).resolvedOptions();
               var changed = new Intl.NumberFormat('de-u-nu-arab', {numberingSystem:'latn'}).resolvedOptions();
+              var privateUse = new Intl.NumberFormat('en-x-u-nu-arab').resolvedOptions();
+              var upperOption = new Intl.NumberFormat('en', {numberingSystem:'ARAB'}).resolvedOptions();
+              var unsupportedType = new Intl.NumberFormat('en-u-nu-arab-foobar').resolvedOptions();
               var currency = new Intl.NumberFormat(['zz-ZZ','de-DE'], {
                 style:'currency', currency:'KWD', currencyDisplay:'code',
                 currencySign:'accounting', minimumIntegerDigits:2,
@@ -109,6 +166,9 @@ fn resolved_options_and_locale_negotiation_match_selected_configuration() {
               return [
                 same.locale.indexOf('-u-nu-arab') >= 0, same.numberingSystem === 'arab',
                 changed.locale.indexOf('-u-nu-') < 0, changed.numberingSystem === 'latn',
+                privateUse.numberingSystem === 'latn' && privateUse.locale.indexOf('-u-nu-') < 0,
+                upperOption.numberingSystem === 'latn',
+                unsupportedType.numberingSystem === 'latn' && unsupportedType.locale.indexOf('-u-nu-') < 0,
                 currency.locale.indexOf('de') === 0, currency.style === 'currency',
                 currency.currency === 'KWD', currency.currencyDisplay === 'code',
                 currency.currencySign === 'accounting', currency.minimumIntegerDigits === 2,
@@ -118,7 +178,7 @@ fn resolved_options_and_locale_negotiation_match_selected_configuration() {
               ].join(':');
             })()"#,
         ),
-        "true:true:true:true:true:true:true:true:true:true:true:true:true:true:true"
+        "true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true"
     );
 }
 
@@ -276,11 +336,16 @@ fn hardening_preserves_public_surface_and_removes_private_factory() {
               return [
                 typeof globalThis.__ibex2_intl_number_format,
                 Object.isFrozen(Intl.NumberFormat.prototype),
+                Intl.NumberFormat.length,
+                Intl.NumberFormat.supportedLocalesOf.length,
+                Object.getOwnPropertyDescriptor(Intl.NumberFormat, 'prototype').writable,
+                Object.getOwnPropertyDescriptor(Intl.NumberFormat.prototype, 'format').get.name,
+                JSON.stringify(nf.format.name), nf.format.length,
                 Object.prototype.toString.call(nf),
                 nf.format(1234)
               ].join(':');
             })()"#,
         ),
-        "undefined:true:[object Intl.NumberFormat]:1,234"
+        "undefined:true:0:1:false:get format:\"\":1:[object Intl.NumberFormat]:1,234"
     );
 }

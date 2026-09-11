@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-09-11 (§4, §5: Linux native Intl completion over vanilla Hermes, and narrow post-install intrinsic admission); 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -111,6 +111,14 @@ extensible, because a property an application adds is state, not authority.
 Budget: **2 ms**, declared in `rules/RULES.md` and enforced by
 `the_freeze_stays_within_its_budget`; 0.7–1.0 ms today.
 
+The trusted Linux Intl completion replaces exactly four properties captured
+by the integrity snapshot: `Number.prototype.toLocaleString`,
+`BigInt.prototype.toLocaleString`, and String's two locale case methods. Once
+that installation succeeds, the adapter admits the new value/getter/setter
+identity for those already-captured properties only; it does not recapture an
+object or admit an arbitrary property. A later replacement of even one of the
+four still makes SQLite refuse the runtime, pinned by a regression test.
+
 Dynamic code is closed at construction (`withEnableEval(false)`): `eval`,
 `new Function`, and every form that compiles are refused. Hermes's cached
 `Function("return this")` fast path is not closed by it and yields the global
@@ -145,13 +153,26 @@ musl claim. The Ibex engine suite and a release-mode AOT CLI HTTPS fixture
 exercise grant checks, redirects, body bounds, cancellation, aborts,
 deadlines, and task/microtask ordering.
 
-That evidence does **not** qualify the complete authored standard-library
-surface or a Snapback Linux publication. At the exact pin, Hermes's
-non-Apple `Intl.NumberFormat` is explicitly a dummy: it ignores locales and
-options, returns `std::to_string`, and produces invalid `formatToParts`
-metadata. The Snapback real-runtime witness therefore fails (`"7.000000"`
-instead of `"7"`) while the other 74 effects tests pass. Issue
-`20260911-linux-hermes-intl-numberformat-stub.md` gates any broader claim.
+The engine itself remains unchanged, including its non-Apple Intl stubs. Ibex's
+trusted Linux standard-library tier now replaces the affected selected surface
+with Rust-owned formatter state and ICU computation: `Intl.NumberFormat` and
+its Number/BigInt locale methods, String locale case mapping, and
+`Intl.DateTimeFormat`/parts and the Date locale methods. The JavaScript tier is
+object and observable-coercion plumbing; formatter owners are unreachable JSI
+native state rather than exposed numeric handles. Focused tests cover locale
+negotiation, option validation/defaults, grouping and rounding, currency,
+percent, significant digits, special and signed values, parts, stable bound
+formatters, prototype/receiver behavior, lifetime, case mapping, time zones,
+calendars, and integrity after hardening. The complete Linux Hermes suite and
+freeze budget pass with that tier installed.
+
+This is deliberately not a complete-Intl or blanket ECMA-402 claim. It does
+not add the constructors absent from both qualified engine profiles, and the
+accepted `formatMatcher` choices currently share ICU's best-pattern selection.
+It also does not by itself qualify a Snapback Linux publication; the unchanged
+consumer witness and the actual packaged artifact remain separate release
+evidence. Issue `20260911-linux-hermes-intl-numberformat-stub.md` records that
+remaining disposition.
 
 ## 6. What it is not
 

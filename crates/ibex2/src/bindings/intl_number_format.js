@@ -190,7 +190,9 @@
     return ["number", Number(primitive)];
   }
 
-  function NumberFormat(locales, options) {
+  function NumberFormat() {
+    var locales = arguments[0];
+    var options = arguments[1];
     if (new.target === undefined) return new NumberFormat(locales, options);
     var normalized = normalize(locales, options);
     raw.initialize.apply(raw, [this].concat(normalized));
@@ -201,10 +203,11 @@
     var bound = boundFormats.get(this);
     if (bound === undefined) {
       var receiver = this;
-      bound = function format(value) {
+      bound = function (value) {
         var input = numeric(value);
         return raw.format(receiver, input[0], input[1]);
       };
+      objectDefineProperty(bound, "name", { value: "", configurable: true });
       boundFormats.set(this, bound);
     }
     return bound;
@@ -220,9 +223,9 @@
     return raw.resolvedOptions(this);
   }
 
-  function supportedLocalesOf(locales, options) {
+  function supportedLocalesOf(locales) {
     var requested = canonicalize(locales);
-    var opts = optionObject(options);
+    var opts = optionObject(arguments[1]);
     var matcher = stringOption(opts, "localeMatcher", ["lookup", "best fit"], "best fit");
     var supported = raw.supportedLocalesOf(requested.join("\n"), matcher);
     return supported === "" ? [] : supported.split("\n");
@@ -234,6 +237,8 @@
     formatToParts: { value: formatToParts, writable: true, configurable: true },
     resolvedOptions: { value: resolvedOptions, writable: true, configurable: true }
   });
+  objectDefineProperty(getFormat, "name", { value: "get format", configurable: true });
+  objectDefineProperty(NumberFormat, "prototype", { writable: false });
   objectDefineProperty(NumberFormat.prototype, Symbol.toStringTag, {
     value: "Intl.NumberFormat", configurable: true
   });
