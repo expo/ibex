@@ -95,6 +95,6 @@ loader = [
     "dep:oxc_span",
     "dep:oxc_transformer",
 ]
-# Link the spike against vanilla Hermes from ios/Frameworks-vanilla/.
+# Link against vanilla Hermes from the platform's Frameworks-vanilla install.
 # Off by default so the workspace builds without an engine present.
 hermes = []

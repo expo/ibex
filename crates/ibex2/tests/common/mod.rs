@@ -43,8 +43,12 @@ impl Project {
     pub fn engine_dir() -> std::path::PathBuf {
         match std::env::var("IBEX2_VANILLA_HERMES_DIR") {
             Ok(path) => std::path::PathBuf::from(path),
+            Err(_) if cfg!(target_vendor = "apple") => {
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../ios/Frameworks-vanilla")
+            }
             Err(_) => std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../ios/Frameworks-vanilla"),
+                .join("../../linux/Frameworks-vanilla"),
         }
     }
 

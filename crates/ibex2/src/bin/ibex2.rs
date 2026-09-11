@@ -162,7 +162,8 @@ fn repo_root() -> PathBuf {
 fn engine_dir() -> PathBuf {
     match std::env::var("IBEX2_VANILLA_HERMES_DIR") {
         Ok(path) => PathBuf::from(path),
-        Err(_) => repo_root().join("ios/Frameworks-vanilla"),
+        Err(_) if cfg!(target_vendor = "apple") => repo_root().join("ios/Frameworks-vanilla"),
+        Err(_) => repo_root().join("linux/Frameworks-vanilla"),
     }
 }
 

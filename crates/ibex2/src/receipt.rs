@@ -109,7 +109,7 @@ impl HermesInput {
     /// A receipt that does not describe the bytes actually present is worse
     /// than no receipt: it is a claim someone may rely on.
     pub fn verify_binary(&self, engine_dir: &Path) -> Result<(), String> {
-        let binary = engine_dir.join("hermesvm.framework/Versions/1/hermesvm");
+        let binary = engine_binary(engine_dir)?;
         let bytes =
             std::fs::read(&binary).map_err(|e| format!("cannot read {}: {e}", binary.display()))?;
         let actual = format!(
@@ -125,6 +125,22 @@ impl HermesInput {
         }
         Ok(())
     }
+}
+
+fn engine_binary(engine_dir: &Path) -> Result<std::path::PathBuf, String> {
+    for relative in [
+        "hermesvm.framework/Versions/1/hermesvm",
+        "linux-static/libhermesvm_a.a",
+    ] {
+        let candidate = engine_dir.join(relative);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "no Hermes engine binary under {}",
+        engine_dir.display()
+    ))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -191,7 +207,11 @@ mod tests {
     #[test]
     fn the_installed_receipt_describes_the_installed_engine() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for dir in ["ios/Frameworks-vanilla-nodebug", "ios/Frameworks-vanilla"] {
+        for dir in [
+            "ios/Frameworks-vanilla-nodebug",
+            "ios/Frameworks-vanilla",
+            "linux/Frameworks-vanilla",
+        ] {
             let engine = root.join(dir);
             if !HermesInput::path(&engine).exists() {
                 continue;
