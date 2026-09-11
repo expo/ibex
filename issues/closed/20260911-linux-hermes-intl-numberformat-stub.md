@@ -1,6 +1,7 @@
 # Linux vanilla Hermes exposes a dummy `Intl.NumberFormat`
 
-**Status:** Open
+**Status:** Closed
+**Resolved:** 2026-09-11
 **Impact:** 5
 **Urgency:** 5
 **Ease:** 2
@@ -126,9 +127,42 @@ diagnostic run also found Hermes's canonical NaN carried a sign bit into ICU;
 normalizing NaN while preserving real signed zero and infinity fixed the parts
 and all four `signDisplay` modes without weakening their expected output.
 
-The issue remains open until the unchanged Snapback real-runtime Intl witness,
-complete Linux effects suite, and publication-stage artifact qualification are
-green. No publication qualification is claimed by this implementation record.
+## Resolution, 2026-09-11
+
+The scoped publication blocker is resolved. The qualified product source is
+`49fa9841212cf1fc119a3f8dcd246b1f9ab71ea8`; it landed on Ibex `main` in
+`1bc50b1cfcb48877a30987867107211fe989309a`. The latter commit's
+`crates/ibex2` tree is byte-identical to the qualified product tree.
+
+Snapback's unchanged real-runtime effects suite passed 75/75 against that
+product. Final Linux publication qualification passed all 19 consumer steps,
+and the artifact retained the qualified static closure: no shared dependency
+on Hermes, JSI, Boost, ICU, curl, or a TLS library, with the Ubuntu 24.04.4 /
+glibc 2.39 compatibility floor stated rather than generalized.
+
+npm accepted the `0.0.24` publication sequence at 2026-09-11 21:20:34 UTC.
+The registry reports these exact integrities:
+
+```text
+snapback2@0.0.24
+sha512-4l9lsHD3I+IJyJkKGa3866SBkzD6JBc3pnO+PuXobc/0T7eXyxGNN8UB2wr1MC6O0ElSH4y4WHd+UY1DMeooWA==
+
+snapback2-linux-x64@0.0.24
+sha512-VsvB10DeVd040YbDh51XVmWaik5rZO5oNhxO1spjnphqkI0Y+ayHgrZgeQ4TkSKRuDikzK5GNMaFdLxlXBdUkA==
+```
+
+A clean EPYC registry-only consumer then installed `snapback2@0.0.24`, matched
+both integrities, and passed 19/19 steps with exit 0 (PID 2567728,
+2026-09-11 21:26:43.786–21:27:08.895 UTC). The retained Snapback release log
+`benchmarks/runs/2026-09-11-snapback2-release-0024-linux/registry-linux-consumer.log`
+has SHA-256
+`a32b684c9adef3f71d22ea1c11e61f32d377465338e14fecc58b9455d0c5ada0`.
+
+This closes only the dummy-NumberFormat Linux publication blocker. It does not
+claim complete Intl or ECMA-402 conformance. The separately open
+`20260911-selected-intl-conformance-followups.md` retains the known option
+alias, exotic-constructor, callable-shape, basic-matcher, and missing-
+constructor work.
 
 **Done when:** an unpatched pinned Hermes plus the shipped Ibex standard-library
 tier passes the unchanged Snapback Intl witness on Linux, representative
