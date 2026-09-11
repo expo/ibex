@@ -107,8 +107,15 @@ impl Consumer {
         let compiler = std::env::var("IBEX2_HERMESC")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../tools/hermes-vanilla/hermesc-macos-arm64")
+                let arch = if cfg!(target_arch = "aarch64") {
+                    "arm64"
+                } else {
+                    "x64"
+                };
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+                    "../../tools/hermes-vanilla/hermesc-{}-{arch}",
+                    std::env::consts::OS
+                ))
             });
         assert!(std::process::Command::new(compiler)
             .args(["-O", "-emit-binary", "-out"])
