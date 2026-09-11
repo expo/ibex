@@ -41,9 +41,9 @@ fn formats_locales_styles_precision_and_numbering_systems() {
               return [
                 grouped.indexOf('1.234') >= 0 && grouped.indexOf(',5') >= 0,
                 currency.indexOf('$') >= 0 && currency.indexOf('1,234.50') >= 0,
-                percent.indexOf('56') >= 0 && percent.indexOf('%') >= 0,
+                percent === '56%',
                 unit.indexOf('80') >= 0 && /km|kilometer/.test(unit),
-                /E4/.test(scientific), /E3/.test(engineering), /1.2/.test(compact),
+                /E4/.test(scientific), /E3/.test(engineering), compact === '1.2K',
                 significant.indexOf('12.30') >= 0,
                 arab !== '123' && arab.length === 3
               ].join(':');
@@ -237,19 +237,43 @@ fn construction_uses_new_target_and_never_symbol_has_instance() {
             &mut runtime,
             r#"(function () {
               var NF = Intl.NumberFormat;
-              function Derived() {}
-              Derived.prototype = Object.create(NF.prototype);
-              var derived = Reflect.construct(NF, ['en-US'], Derived);
-              var samePrototype = Object.getPrototypeOf(derived) === Derived.prototype;
+              var log = [], customPrototype = Object.create(NF.prototype);
+              function DerivedTarget() {}
+              var Derived = new Proxy(DerivedTarget, {get:function (target, name, receiver) {
+                if (name === 'prototype') { log.push('prototype'); return customPrototype; }
+                return Reflect.get(target, name, receiver);
+              }});
+              var locales = {length:1, get 0() { log.push('locale'); return 'en-US'; }};
+              var derived = Reflect.construct(NF, [locales], Derived);
+              var samePrototype = Object.getPrototypeOf(derived) === customPrototype;
               var works = Object.getOwnPropertyDescriptor(NF.prototype, 'format').get.call(derived)(12) === '12';
               Object.defineProperty(NF, Symbol.hasInstance, {
                 value: function () { throw new Error('consulted'); }, configurable: true
               });
               var ordinary = NF('en-US');
-              return [samePrototype, works, ordinary.resolvedOptions().locale.indexOf('en') === 0].join(':');
+              return [samePrototype, works, log.join(','),
+                ordinary.resolvedOptions().locale.indexOf('en') === 0].join(':');
             })()"#,
         ),
-        "true:true:true"
+        "true:true:prototype,locale:true"
+    );
+}
+
+#[test]
+#[ignore = "pinned Hermes cannot express the built-in constructor fallback through public JSI; tracked in the Linux Intl issue"]
+fn non_object_new_target_prototype_uses_the_intl_prototype_fallback() {
+    let mut runtime = runtime(false);
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              function PrimitiveTarget() {}
+              PrimitiveTarget.prototype = 0;
+              var fallback = Reflect.construct(Intl.NumberFormat, ['en'], PrimitiveTarget);
+              return Object.getPrototypeOf(fallback) === Intl.NumberFormat.prototype;
+            })()"#,
+        ),
+        "true"
     );
 }
 
@@ -341,11 +365,12 @@ fn hardening_preserves_public_surface_and_removes_private_factory() {
                 Object.getOwnPropertyDescriptor(Intl.NumberFormat, 'prototype').writable,
                 Object.getOwnPropertyDescriptor(Intl.NumberFormat.prototype, 'format').get.name,
                 JSON.stringify(nf.format.name), nf.format.length,
+                Intl.NumberFormat.prototype.constructor === Intl.NumberFormat,
                 Object.prototype.toString.call(nf),
                 nf.format(1234)
               ].join(':');
             })()"#,
         ),
-        "undefined:true:0:1:false:get format:\"\":1:[object Intl.NumberFormat]:1,234"
+        "undefined:true:0:1:false:get format:\"\":1:true:[object Intl.NumberFormat]:1,234"
     );
 }

@@ -71,9 +71,10 @@ completion before hardening while leaving vanilla Hermes unchanged. Rust owns
 locale negotiation, normalized options, formatter state, special-number
 handling, parts, and lifetime; the already-static ICU4C closure performs the
 native locale computation. Thin build-time JavaScript bytecode preserves
-ECMAScript `Get`/coercion order, constructors, receivers, prototypes, and bound
-format functions. Opaque JSI native owners keep formatter state alive without
-exposing raw handles or creating a JavaScript/native strong-reference cycle.
+ECMAScript `Get`/coercion order, ordinary constructor behavior, receivers,
+prototypes, and bound format functions. Opaque JSI native owners keep formatter
+state alive without exposing raw handles or creating a JavaScript/native
+strong-reference cycle.
 
 The completed selected surface includes `Intl.NumberFormat`, Number and BigInt
 locale formatting, String locale lower/upper case mapping, and a native-owned
@@ -82,6 +83,19 @@ the dependent Date locale methods use it. It does not add the Intl constructors
 absent from both engine profiles or claim complete ECMA-402 conformance.
 `formatMatcher: "basic"` is validated and observable in the required option
 order but currently shares ICU's best-pattern selection with `"best fit"`.
+
+One exact exotic-constructor limitation remains. On pinned Hermes,
+`Reflect.construct(Intl.NumberFormat, args, NewTarget)` (and the corresponding
+DateTimeFormat form) uses `Object.prototype` when `NewTarget.prototype` is not
+an object; ECMA-402 requires the matching Intl prototype. Normal calls,
+ordinary construction, subclasses, custom object prototypes, and the one
+observable prototype read before locale coercion are covered and pass. The
+engine's callable-Proxy path performs ordinary allocation and the observable
+prototype read before looking up the construct trap, so a Proxy replacement
+would read twice. Public JSI exposes callable host functions but no custom
+`[[Construct]]` callback. After three bounded implementation rounds, the
+remaining case is preserved as an ignored expected-correct regression rather
+than hidden with a second read, descriptor heuristic, or Hermes patch.
 
 The Linux focused suite passes 31 tests spanning these operations and the
 narrow integrity-snapshot admission. The complete Hermes suite passes with no
