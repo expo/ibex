@@ -198,38 +198,44 @@
     raw.initialize.apply(raw, [this].concat(normalized));
   }
 
-  function getFormat() {
-    raw.assertReceiver(this);
-    var bound = boundFormats.get(this);
-    if (bound === undefined) {
-      var receiver = this;
-      bound = function (value) {
-        var input = numeric(value);
-        return raw.format(receiver, input[0], input[1]);
-      };
-      objectDefineProperty(bound, "name", { value: "", configurable: true });
-      boundFormats.set(this, bound);
+  // Concise methods and arrows are not constructors. The selected Intl
+  // methods must reject `new` while the Intl constructor above remains an
+  // ordinary callable constructor.
+  var publicMethods = {
+    getFormat() {
+      raw.assertReceiver(this);
+      var bound = boundFormats.get(this);
+      if (bound === undefined) {
+        var receiver = this;
+        bound = (value) => {
+          var input = numeric(value);
+          return raw.format(receiver, input[0], input[1]);
+        };
+        objectDefineProperty(bound, "name", { value: "", configurable: true });
+        boundFormats.set(this, bound);
+      }
+      return bound;
+    },
+    formatToParts(value) {
+      raw.assertReceiver(this);
+      var input = numeric(value);
+      return raw.formatToParts(this, input[0], input[1]);
+    },
+    resolvedOptions() {
+      return raw.resolvedOptions(this);
+    },
+    supportedLocalesOf(locales) {
+      var requested = canonicalize(locales);
+      var opts = optionObject(arguments[1]);
+      var matcher = stringOption(opts, "localeMatcher", ["lookup", "best fit"], "best fit");
+      var supported = raw.supportedLocalesOf(requested.join("\n"), matcher);
+      return supported === "" ? [] : supported.split("\n");
     }
-    return bound;
-  }
-
-  function formatToParts(value) {
-    raw.assertReceiver(this);
-    var input = numeric(value);
-    return raw.formatToParts(this, input[0], input[1]);
-  }
-
-  function resolvedOptions() {
-    return raw.resolvedOptions(this);
-  }
-
-  function supportedLocalesOf(locales) {
-    var requested = canonicalize(locales);
-    var opts = optionObject(arguments[1]);
-    var matcher = stringOption(opts, "localeMatcher", ["lookup", "best fit"], "best fit");
-    var supported = raw.supportedLocalesOf(requested.join("\n"), matcher);
-    return supported === "" ? [] : supported.split("\n");
-  }
+  };
+  var getFormat = publicMethods.getFormat;
+  var formatToParts = publicMethods.formatToParts;
+  var resolvedOptions = publicMethods.resolvedOptions;
+  var supportedLocalesOf = publicMethods.supportedLocalesOf;
 
   objectDefineProperties(NumberFormat.prototype, {
     constructor: { value: NumberFormat, writable: true, configurable: true },
@@ -249,19 +255,23 @@
     value: NumberFormat, writable: true, configurable: true
   });
 
-  function numberToLocaleString() {
-    var value = reflectApply(numberValueOf, this, []);
-    return new NumberFormat(arguments[0], arguments[1]).format(value);
-  }
+  var numberToLocaleString = {
+    toLocaleString() {
+      var value = reflectApply(numberValueOf, this, []);
+      return new NumberFormat(arguments[0], arguments[1]).format(value);
+    }
+  }.toLocaleString;
   objectDefineProperty(Number.prototype, "toLocaleString", {
     value: numberToLocaleString, writable: true, configurable: true
   });
 
   if (bigintValueOf !== null) {
-    function bigintToLocaleString() {
-      var value = reflectApply(bigintValueOf, this, []);
-      return new NumberFormat(arguments[0], arguments[1]).format(value);
-    }
+    var bigintToLocaleString = {
+      toLocaleString() {
+        var value = reflectApply(bigintValueOf, this, []);
+        return new NumberFormat(arguments[0], arguments[1]).format(value);
+      }
+    }.toLocaleString;
     objectDefineProperty(BigInt.prototype, "toLocaleString", {
       value: bigintToLocaleString, writable: true, configurable: true
     });

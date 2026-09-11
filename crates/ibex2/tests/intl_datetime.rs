@@ -138,6 +138,7 @@ fn invalid_values_throw_at_the_ecma_402_boundary() {
                 name(() => f.format(NaN)), name(() => f.format(Infinity)),
                 name(() => f.format(8640000000000001)),
                 name(() => new Intl.DateTimeFormat("en-US", {timeZone:"Mars/Olympus"})),
+                name(() => new Intl.DateTimeFormat("en-US", {timeZone:"Asia/Kolkata"})),
                 name(() => new Intl.DateTimeFormat("en-US", {calendar:"x"})),
                 name(() => new Intl.DateTimeFormat("en-US", {hourCycle:"h99"})),
                 name(() => new Intl.DateTimeFormat("en-US", {dateStyle:"short",year:"numeric"})),
@@ -145,7 +146,7 @@ fn invalid_values_throw_at_the_ecma_402_boundary() {
               ].join("|");
             })()"#,
         ),
-        "RangeError|RangeError|RangeError|RangeError|RangeError|RangeError|TypeError|TypeError"
+        "RangeError|RangeError|RangeError|RangeError|RangeError|RangeError|RangeError|TypeError|TypeError"
     );
 }
 
@@ -226,13 +227,50 @@ fn time_zone_names_are_ascii_case_insensitive_and_canonical() {
               const b = new Intl.DateTimeFormat("en-US", {timeZone:"utc",year:"numeric"});
               const c = new Intl.DateTimeFormat("en-US", {timeZone:"UTC",calendar:"BUDDHIST",numberingSystem:"ARAB",year:"numeric"});
               const d = new Intl.DateTimeFormat("en-x-u-ca-buddhist-nu-arab", {timeZone:"UTC",year:"numeric"});
+              const e = new Intl.DateTimeFormat("en-u-ca-buddhist-nu-arab-hc-h23", {
+                timeZone:"UTC", calendar:"foobar", numberingSystem:"foobar",
+                hour12:true, hour:"numeric"
+              });
               const dr = d.resolvedOptions();
+              const er = e.resolvedOptions();
               return a.resolvedOptions().timeZone + "|" + b.resolvedOptions().timeZone + "|" +
                 c.resolvedOptions().calendar + "|" + c.resolvedOptions().numberingSystem + "|" +
-                dr.calendar + "|" + dr.numberingSystem;
+                dr.calendar + "|" + dr.numberingSystem + "|" + er.locale + "|" +
+                er.calendar + "|" + er.numberingSystem + "|" +
+                (er.locale.indexOf("-hc-") < 0 && er.locale.indexOf("-hc-h23") < 0);
             })()"#,
         ),
-        "America/New_York|UTC|buddhist|latn|gregory|latn"
+        "America/New_York|UTC|buddhist|arab|gregory|latn|en-u-ca-buddhist-nu-arab|buddhist|arab|true"
+    );
+}
+
+#[test]
+fn public_methods_have_builtin_names_lengths_and_are_not_constructors() {
+    let mut runtime = runtime();
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              const dtf = new Intl.DateTimeFormat("en-US", {timeZone:"UTC"});
+              const getter = Object.getOwnPropertyDescriptor(
+                Intl.DateTimeFormat.prototype, "format").get;
+              const methods = [Intl.DateTimeFormat.supportedLocalesOf, getter, dtf.format,
+                Intl.DateTimeFormat.prototype.formatToParts,
+                Intl.DateTimeFormat.prototype.resolvedOptions,
+                Date.prototype.toLocaleString, Date.prototype.toLocaleDateString,
+                Date.prototype.toLocaleTimeString];
+              function rejectsConstruction(fn) {
+                try { Reflect.construct(fn, []); return false; }
+                catch (error) { return error.name === "TypeError"; }
+              }
+              return [
+                methods.every(rejectsConstruction),
+                methods.map(fn => fn.name).join(","),
+                methods.map(fn => fn.length).join(",")
+              ].join("|");
+            })()"#,
+        ),
+        "true|supportedLocalesOf,get format,,formatToParts,resolvedOptions,toLocaleString,toLocaleDateString,toLocaleTimeString|1,0,1,1,0,0,0,0"
     );
 }
 

@@ -166,6 +166,16 @@ formatters, prototype/receiver behavior, lifetime, case mapping, time zones,
 calendars, and integrity after hardening. The complete Linux Hermes suite and
 freeze budget pass with that tier installed.
 
+The selected 2020 locale negotiation ASCII-lowercases syntactically valid
+Unicode option types before locale-data lookup. An unsupported explicit
+calendar or numbering-system option leaves a supported requested Unicode
+extension selected and retained in the resolved locale. Supplying `hour12`
+overrides and removes a requested
+`hc` extension. Time-zone identifiers are matched ASCII-case-insensitively;
+non-ASCII lookalikes are not admitted. Public formatter methods, accessors,
+bound format functions, and Date locale methods have their builtin
+nonconstructor shape, names, and lengths.
+
 This is deliberately not a complete-Intl or blanket ECMA-402 claim. It does
 not add the constructors absent from both qualified engine profiles, and the
 accepted `formatMatcher` choices currently share ICU's best-pattern selection.

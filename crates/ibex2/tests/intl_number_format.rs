@@ -155,6 +155,9 @@ fn resolved_options_and_locale_negotiation_match_selected_configuration() {
               var changed = new Intl.NumberFormat('de-u-nu-arab', {numberingSystem:'latn'}).resolvedOptions();
               var privateUse = new Intl.NumberFormat('en-x-u-nu-arab').resolvedOptions();
               var upperOption = new Intl.NumberFormat('en', {numberingSystem:'ARAB'}).resolvedOptions();
+              var upperSame = new Intl.NumberFormat('de-u-nu-arab', {numberingSystem:'ARAB'}).resolvedOptions();
+              var unsupportedOverride = new Intl.NumberFormat(
+                'de-u-nu-arab', {numberingSystem:'foobar'}).resolvedOptions();
               var unsupportedType = new Intl.NumberFormat('en-u-nu-arab-foobar').resolvedOptions();
               var currency = new Intl.NumberFormat(['zz-ZZ','de-DE'], {
                 style:'currency', currency:'KWD', currencyDisplay:'code',
@@ -167,7 +170,10 @@ fn resolved_options_and_locale_negotiation_match_selected_configuration() {
                 same.locale.indexOf('-u-nu-arab') >= 0, same.numberingSystem === 'arab',
                 changed.locale.indexOf('-u-nu-') < 0, changed.numberingSystem === 'latn',
                 privateUse.numberingSystem === 'latn' && privateUse.locale.indexOf('-u-nu-') < 0,
-                upperOption.numberingSystem === 'latn',
+                upperOption.numberingSystem === 'arab',
+                upperSame.numberingSystem === 'arab' && upperSame.locale.indexOf('-u-nu-arab') >= 0,
+                unsupportedOverride.numberingSystem === 'arab',
+                unsupportedOverride.locale.indexOf('-u-nu-arab') >= 0,
                 unsupportedType.numberingSystem === 'latn' && unsupportedType.locale.indexOf('-u-nu-') < 0,
                 currency.locale.indexOf('de') === 0, currency.style === 'currency',
                 currency.currency === 'KWD', currency.currencyDisplay === 'code',
@@ -178,7 +184,7 @@ fn resolved_options_and_locale_negotiation_match_selected_configuration() {
               ].join(':');
             })()"#,
         ),
-        "true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true"
+        "true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true:true"
     );
 }
 
@@ -321,6 +327,35 @@ fn bound_format_retains_native_state_without_exposing_handles() {
             "savedIntlFormat(1234.5).indexOf('1.234,50') >= 0 ? 'alive' : 'wrong'",
         ),
         "alive"
+    );
+}
+
+#[test]
+fn public_methods_have_builtin_names_lengths_and_are_not_constructors() {
+    let mut runtime = runtime(false);
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              var nf = new Intl.NumberFormat('en-US');
+              var getter = Object.getOwnPropertyDescriptor(
+                Intl.NumberFormat.prototype, 'format').get;
+              var methods = [Intl.NumberFormat.supportedLocalesOf, getter, nf.format,
+                Intl.NumberFormat.prototype.formatToParts,
+                Intl.NumberFormat.prototype.resolvedOptions,
+                Number.prototype.toLocaleString, BigInt.prototype.toLocaleString];
+              function rejectsConstruction(fn) {
+                try { Reflect.construct(fn, []); return false; }
+                catch (error) { return error.name === 'TypeError'; }
+              }
+              return [
+                methods.every(rejectsConstruction),
+                methods.map(function (fn) { return fn.name; }).join(','),
+                methods.map(function (fn) { return fn.length; }).join(',')
+              ].join('|');
+            })()"#,
+        ),
+        "true|supportedLocalesOf,get format,,formatToParts,resolvedOptions,toLocaleString,toLocaleString|1,0,1,1,0,0,0"
     );
 }
 
