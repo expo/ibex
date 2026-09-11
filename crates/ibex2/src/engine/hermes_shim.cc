@@ -29,6 +29,14 @@ extern "C" void ibex2_report_uncaught(const char *message);
 
 using namespace facebook;
 using namespace ibex2::jsi_adapter;
+#if defined(__linux__)
+namespace ibex2::intl_number_format {
+void install(jsi::Runtime &, const void *);
+}
+namespace ibex2::intl_case {
+void install(jsi::Runtime &, const void *);
+}
+#endif
 extern "C" void ibex2_host_release(Ibex2AbiValue *);
 
 extern "C" const void *ibex2_queue_create();
@@ -1160,6 +1168,11 @@ int ibex2_hermes_install_stdlib(void *handle) {
     set_binding(runtime, global, "__ibex2_timer_set_repeating", 61, rt->queue);
     set_binding(runtime, global, "__ibex2_timer_clear", 62, rt->queue);
     set_binding(runtime, global, "__ibex2_performance_now", 63, rt->queue);
+
+#if defined(__linux__)
+    ibex2::intl_number_format::install(runtime, rt->queue);
+    ibex2::intl_case::install(runtime, rt->queue);
+#endif
 
     return 0;
   } catch (const std::exception &) {
