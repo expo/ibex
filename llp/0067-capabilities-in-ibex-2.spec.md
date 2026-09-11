@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-09-11 (§5: selected Intl option-alias and locale-case callable limits, and TimeClip semantics); 2026-09-11 (§4, §5: Linux native Intl completion over vanilla Hermes, narrow post-install intrinsic admission, and the bounded exotic-constructor limitation); 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
+**Revised:** 2026-09-11 (§5: selected Linux Intl publication qualified in Snapback2 0.0.24; broader conformance boundaries remain open); 2026-09-11 (§5: selected Intl option-alias and locale-case callable limits, and TimeClip semantics); 2026-09-11 (§4, §5: Linux native Intl completion over vanilla Hermes, narrow post-install intrinsic admission, and the bounded exotic-constructor limitation); 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
 
 ## Summary
@@ -196,10 +196,13 @@ corresponding Intl prototype. Public JSI has no custom `[[Construct]]` hook,
 while a JavaScript Proxy performs Hermes's ordinary allocation and observable
 prototype read before its construct trap. Ibex does not add a second read, a
 descriptor heuristic, or a Hermes patch to disguise that engine constraint.
-It also does not by itself qualify a Snapback Linux publication; the unchanged
-consumer witness and the actual packaged artifact remain separate release
-evidence. Issue `20260911-linux-hermes-intl-numberformat-stub.md` records that
-remaining disposition.
+The implementation did not qualify publication by itself: the unchanged
+consumer witness and actual packaged artifact were separate release evidence.
+That evidence is now complete for Snapback2 0.0.24 on the stated Ubuntu target;
+the registry-only Linux consumer passed after publication. The closed issue
+`issues/closed/20260911-linux-hermes-intl-numberformat-stub.md` records that
+release, while open issue `20260911-selected-intl-conformance-followups.md`
+retains the deliberately broader Intl boundaries above.
 
 ## 6. What it is not
 
