@@ -300,17 +300,28 @@ export function normalizeReadableStreamBody(
 ): ReadableStream<Uint8Array> {
   const reader = stream.getReader();
   reader.closed.catch(function () {});
-  let released = false;
+  let releaseRequested = false;
 
-  function releaseReader(): void {
-    if (released) {
+  function releaseReaderAfterClosed(): void {
+    if (releaseRequested) {
       return;
     }
-    released = true;
-    try {
-      reader.releaseLock();
-      reader.closed.catch(function () {});
-    } catch {}
+    releaseRequested = true;
+
+    // The native HTTP adapter can resolve an EOF read one job before the
+    // reader's closed promise settles. Releasing in that gap rejects the
+    // lifecycle promise with "Reader was released" even though the body was
+    // drained successfully. Wait for the stream's terminal state, then release
+    // exactly once. The rejection branch covers errored/cancelled streams.
+    const releasePromise = reader.closed.then(
+      function () {
+        try { reader.releaseLock(); } catch {}
+      },
+      function () {
+        try { reader.releaseLock(); } catch {}
+      }
+    );
+    releasePromise.catch(function () {});
   }
 
   return new RuntimeReadableStream<Uint8Array>({
@@ -320,7 +331,7 @@ export function normalizeReadableStreamBody(
       return readPromise.then(
         function (result) {
           if (result.done) {
-            releaseReader();
+            releaseReaderAfterClosed();
             controller.close();
             return;
           }
@@ -328,12 +339,12 @@ export function normalizeReadableStreamBody(
             controller.enqueue(normalizeBodyChunk(result.value, source));
           } catch (error) {
             try { reader.cancel(error).catch(function () {}); } catch {}
-            releaseReader();
+            releaseReaderAfterClosed();
             throw error;
           }
         },
         function (error) {
-          releaseReader();
+          releaseReaderAfterClosed();
           throw error;
         }
       );
@@ -343,14 +354,14 @@ export function normalizeReadableStreamBody(
       if (cancelResult && typeof (cancelResult as Promise<void>).then === 'function') {
         return (cancelResult as Promise<void>).then(
           function () {
-            releaseReader();
+            releaseReaderAfterClosed();
           },
           function () {
-            releaseReader();
+            releaseReaderAfterClosed();
           }
         );
       }
-      releaseReader();
+      releaseReaderAfterClosed();
       return undefined;
     },
   });
@@ -504,6 +515,28 @@ export function readableStreamToUint8Array(
     reader.closed.catch(function () {});
     const chunks: Uint8Array[] = [];
     let settled = false;
+    let releaseRequested = false;
+
+    function releaseReaderAfterClosed(): void {
+      if (releaseRequested) {
+        return;
+      }
+      releaseRequested = true;
+
+      // See normalizeReadableStreamBody(): EOF and reader.closed are not
+      // guaranteed to become observable in the same embedded-runtime job.
+      // Releasing only after closed settles avoids creating a spurious
+      // "Reader was released" rejection and makes abort/EOF races idempotent.
+      const releasePromise = reader.closed.then(
+        function () {
+          try { reader.releaseLock(); } catch {}
+        },
+        function () {
+          try { reader.releaseLock(); } catch {}
+        }
+      );
+      releasePromise.catch(function () {});
+    }
 
     function cleanupAbortListener(): void {
       if (signal) {
@@ -518,10 +551,7 @@ export function readableStreamToUint8Array(
       settled = true;
       cleanupAbortListener();
       try { reader.cancel(error).catch(function () {}); } catch {}
-      try {
-        reader.releaseLock();
-        reader.closed.catch(function () {});
-      } catch {}
+      releaseReaderAfterClosed();
       outerReject(error);
     }
 
@@ -559,7 +589,7 @@ export function readableStreamToUint8Array(
           if (result.done) {
             settled = true;
             cleanupAbortListener();
-            reader.releaseLock();
+            releaseReaderAfterClosed();
             const concatenated = concatUint8Arrays(chunks);
             resolveWithoutThenable(outerResolve, concatenated);
             return;
