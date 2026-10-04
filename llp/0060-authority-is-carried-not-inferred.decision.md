@@ -70,7 +70,7 @@ answer. With the standard library in Rust the ambient surface to defend is
 are not carried forward. A CI gate builds and tests ibex2 against the pinned
 Hermes source with no patch series applied (§6).
 
-<!-- @ref patches/hermes — the carried series this decision retires most of -->
+<!-- @ref https://github.com/expo/ibex1/tree/96da97548fe24f44c153b6e172ab00e91f7567aa/patches/hermes — the carried series this decision retires most of -->
 
 **D4 — Dynamic code is closed at construction, not latched after boot.**
 `EnableEval` is a stock Hermes `RuntimeConfig` knob, and a Rust standard
@@ -205,7 +205,7 @@ compatibility fallback when it is absent. That path exists to keep
 Android/iOS linking, not to be secure, and it is not evidence for D3 — but it
 means an unpatched build is not starting from zero.
 
-<!-- @ref build.rs — the existing frame-attribution probe; an unpatched engine already links -->
+<!-- @ref https://github.com/expo/ibex1/blob/96da97548fe24f44c153b6e172ab00e91f7567aa/build.rs — the existing frame-attribution probe; an unpatched engine already links -->
 
 ## 7. Open questions
 

@@ -1,0 +1,10 @@
+* text=auto
+*.md text eol=lf
+*.mjs text eol=lf
+*.rs text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+Cargo.lock text eol=lf
+crates/ibex2/** text eol=lf
+third_party/wpt/** text eol=lf
+vendor/ring/** -whitespace

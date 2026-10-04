@@ -31,8 +31,7 @@ Everything not required by that does not exist.
   owns transport. Not the reverse — a platform that defines behavior gives you four
   different `fetch`es.
 - **A second executor for anything.** One implementation per capability, everywhere.
-- **A large CLI.** `src/bin/` is 137K lines against a 152K-line runtime core. `run`,
-  `build`, and probably `repl` is the surface.
+- **A large CLI.** Keep the command surface to the operations Ibex 2 actually needs.
 
 ## Decided (were open until 2026-08-28)
 

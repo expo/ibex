@@ -1,0 +1,6 @@
+[workspace]
+members = ["crates/ibex2", "crates/ibex2-sqlite"]
+resolver = "2"
+
+[patch.crates-io]
+ring = { path = "vendor/ring" }

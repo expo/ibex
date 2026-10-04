@@ -48,7 +48,7 @@ inside `startup.js`, and the loader transpiles each one to CommonJS at runtime
 before Hermes compiles it — through SWC, because Oxc cannot lower general ESM
 import/export syntax for the synchronous loader yet.
 
-<!-- @ref src/module_loader/transpile.rs — the runtime ESM→CJS transpile this proposal deletes -->
+<!-- @ref https://github.com/expo/ibex1/blob/96da97548fe24f44c153b6e172ab00e91f7567aa/src/module_loader/transpile.rs — the runtime ESM→CJS transpile this proposal deletes -->
 
 Compiling the outer bundle to bytecode does not help, because the module
 sources are string literals inside it: the wrapper measures 33ms from bytecode

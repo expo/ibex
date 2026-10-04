@@ -5,7 +5,7 @@
 //!
 //!     ./scripts/build-hermes.sh --vanilla          # Apple
 //!     ./scripts/build-hermes-linux.sh --vanilla    # Linux
-//!     ./scripts/build-hermes-windows.ps1 -Vanilla  # Windows (MSVC shell)
+//!     ./scripts/build-hermes-windows-vanilla.ps1  # Windows (MSVC shell)
 //!
 //! This deliberately points at the platform's `Frameworks-vanilla/`, never at
 //! the legacy patched install. Linking the reviewed patched engine here would
