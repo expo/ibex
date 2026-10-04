@@ -39,8 +39,8 @@ esac
 
 machine="$(uname -m)"
 case "$machine" in
-  x86_64|amd64) tool_arch=x64 ;;
-  arm64|aarch64) tool_arch=arm64 ;;
+  x86_64|amd64) tool_arch=x64; receipt_target=x86_64-unknown-linux-gnu ;;
+  arm64|aarch64) tool_arch=arm64; receipt_target=aarch64-unknown-linux-gnu ;;
   *) echo "unsupported Linux build host: $machine" >&2; exit 2 ;;
 esac
 
@@ -62,10 +62,40 @@ if [[ "$clean" == true ]]; then
   exit 0
 fi
 
-for command_name in cmake git pkg-config; do
+for command_name in cmake git node pkg-config; do
   command -v "$command_name" >/dev/null 2>&1 \
     || { echo "$command_name is required" >&2; exit 1; }
 done
+
+write_receipt() {
+  local -a receipt_args=(
+    "$script_dir/hermes-input-receipt.mjs"
+    "$engine_dir"
+    --target "$receipt_target"
+    --profile "$variant"
+    --commit "$hermes_commit"
+    --compiler "$tools_dir/hermesc-linux-$tool_arch"
+    --build-flag=-DCMAKE_BUILD_TYPE=Release
+    --build-flag=-DHERMES_ENABLE_DEBUGGER="$debugger"
+    --build-flag=-DHERMES_ENABLE_INTL=true
+    --build-flag=-DHERMES_BUILD_APPLE_FRAMEWORK=false
+    --build-flag=-DHERMES_BUILD_SHARED_JSI=false
+    --build-flag=-DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    --link-directive=rustc-link-search=native=linux-static
+    --link-directive=rustc-link-lib=static=hermesvm_a
+    --link-directive=rustc-link-lib=static=jsi
+    --link-directive=rustc-link-lib=static=boost_context
+    --link-directive=rustc-link-lib=static=icui18n
+    --link-directive=rustc-link-lib=static=icuuc
+    --link-directive=rustc-link-lib=static=icudata
+    --link-directive=rustc-link-lib=static=tinfo
+    --link-directive=rustc-link-lib=stdc++
+    --link-directive=rustc-link-lib=dl
+    --link-directive=rustc-link-lib=pthread
+    --link-directive=rustc-link-lib=m
+  )
+  node "${receipt_args[@]}"
+}
 
 install_artifacts() {
   local required
@@ -82,8 +112,8 @@ install_artifacts() {
   cp -R "$artifacts/linux-static" "$engine_dir/linux-static"
   cp "$artifacts/bin/hermesc" "$tools_dir/hermesc-linux-$tool_arch"
   cp "$artifacts/bin/hermes" "$tools_dir/hermes-linux-$tool_arch"
+  write_receipt
   echo "installed vanilla Hermes $hermes_commit in $engine_dir"
-  echo "write its receipt with: node scripts/hermes-input-receipt.mjs $engine_dir"
 }
 
 if install_artifacts; then

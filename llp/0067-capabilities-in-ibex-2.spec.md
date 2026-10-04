@@ -5,7 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
-**Revised:** 2026-10-04 (§5: canonical Hermes input receipt v2 binds the lean link closure and host compiler without a volatile production date; v1 remains readable)
+**Revised:** 2026-10-04 (§5: canonical Hermes input receipt v2 binds the lean link closure and host compiler without a volatile production date; v1 remains readable; local Apple and Linux builders write v2 as part of installation)
 **Revised:** 2026-10-04 (§1: `WebSocket` is a per-module grant-bound constructor and absent from the secure global)
 **Revised:** 2026-10-04 (§5: the legacy closure test traverses the resolved all-feature normal/build dependency graph and excludes dev-only edges); 2026-10-04 (§5: the legacy closure boundary is enforced from resolved Cargo dependencies; local `crate::host` is the intended R-c implementation); 2026-10-04 (§2: `net.websocket` is a built family; the `net.fetch` subdomain grant — both upstreamed from exact2's vendored copy); 2026-09-11 (§5: selected Linux Intl publication qualified in Snapback2 0.0.24; broader conformance boundaries remain open); 2026-09-11 (§5: selected Intl option-alias and locale-case callable limits, and TimeClip semantics); 2026-09-11 (§4, §5: Linux native Intl completion over vanilla Hermes, narrow post-install intrinsic admission, and the bounded exotic-constructor limitation); 2026-09-11 (§5: Linux vanilla-Hermes artifact, qualified scope, and Intl limitation); 2026-09-07 (app paths, rename source authority, and SQLite); 2026-08-30 (§2, §8: five families — `secret.keep` (LLP 0069) and `storage.kv` (LLP 0070) were added to the corpus without patching this page, which the LLP 0070 review caught; §8 now states the author-required form of a call site both arrived under) 2026-08-29 (accepted by Charlie Cheever, the same day) 2026-08-29 (§7: the tests the review added; §2 and §3 after the Grok 4.6 / Codex review: package identity is the bound install; fs paths are checked as realized as well as as spelt)
 **Related:** LLP 0057 (§3.1 the boundary split, §4, and OQ2 — the decision this states), LLP 0059.000 (§4 — the capability families), LLP 0062 (the measurements: the escape inventory and the freeze), LLP 0065 (§4 — grants and resolution), LLP 0058.000.000 (the adapter protocol the runtime follows), LLP 0060 and LLP 0058.000 (superseded by this document for the model), LLP 0058.000.001 (tombstoned — the program this replaces with tests)
@@ -155,7 +155,10 @@ canonical v2 receipt has no production date: it binds the source commit and
 empty patch set; target, profile, and ordered build flags; HBC bytecode
 version and compiler digest; every target archive digest; the sorted header
 manifest; and the ordered Cargo link directives. V1 receipts remain readable
-for already-built local installs, but release bundles are v2. The
+for already-built local installs, but release bundles are v2. The Apple and
+Linux local builders invoke the v2 writer with their exact target and link
+directives as part of installation, so the installed tree is immediately
+usable by `ibex2 build`; a receipt is not a separate manual after-step. The
 runtime hashes nothing at start: the archive it links is digested once at link
 time (`IBEX2_LINKED_ENGINE_DIGEST`), folded into every artifact key, and
 recorded in the manifest, which is checked before any module loads — artifacts

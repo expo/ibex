@@ -38,8 +38,8 @@ esac
 
 host_machine="$(uname -m)"
 case "$host_machine" in
-  arm64|aarch64) host_arch=arm64; tool_arch=arm64 ;;
-  x86_64|amd64) host_arch=x86_64; tool_arch=x64 ;;
+  arm64|aarch64) host_arch=arm64; tool_arch=arm64; receipt_target=aarch64-apple-darwin ;;
+  x86_64|amd64) host_arch=x86_64; tool_arch=x64; receipt_target=x86_64-apple-darwin ;;
   *) echo "unsupported Apple build host: $host_machine" >&2; exit 2 ;;
 esac
 
@@ -64,7 +64,7 @@ if [[ "$clean" == true ]]; then
   exit 0
 fi
 
-for command_name in cmake git xcodebuild lipo libtool; do
+for command_name in cmake git xcodebuild lipo libtool node; do
   command -v "$command_name" >/dev/null 2>&1 \
     || { echo "$command_name is required" >&2; exit 1; }
 done
@@ -83,6 +83,32 @@ normalize_archive() {
   chmod 0644 "$temp_dir/result.a"
   mv "$temp_dir/result.a" "$archive"
   rm -rf "$temp_dir"
+}
+
+write_receipt() {
+  local -a receipt_args=(
+    "$script_dir/hermes-input-receipt.mjs"
+    "$frameworks_dir"
+    --target "$receipt_target"
+    --profile "$variant"
+    --commit "$hermes_commit"
+    --compiler "$tools_dir/hermesc-macos-$tool_arch"
+    --build-flag=-DHERMES_APPLE_TARGET_PLATFORM=macosx
+    --build-flag=-DCMAKE_OSX_ARCHITECTURES=x86_64\;arm64
+    --build-flag=-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+    --build-flag=-DHERMES_ENABLE_DEBUGGER="$debugger"
+    --build-flag=-DHERMES_ENABLE_INTL=true
+    --build-flag=-DHERMES_BUILD_APPLE_FRAMEWORK=true
+    --build-flag=-DCMAKE_BUILD_TYPE=MinSizeRel
+    --link-directive=rustc-link-search=native=macos-static
+    --link-directive=rustc-link-lib=static=hermesvm_a
+    --link-directive=rustc-link-lib=static=jsi
+    --link-directive=rustc-link-lib=static=boost_context
+    --link-directive=rustc-link-lib=c++
+    --link-directive=rustc-link-lib=framework=CoreFoundation
+    --link-directive=rustc-link-lib=framework=Foundation
+  )
+  node "${receipt_args[@]}"
 }
 
 install_artifacts() {
@@ -108,8 +134,8 @@ install_artifacts() {
   if [[ -f "$artifacts/bin/hermes" ]]; then
     cp "$artifacts/bin/hermes" "$tools_dir/hermes"
   fi
+  write_receipt
   echo "installed vanilla Hermes $hermes_commit in $frameworks_dir"
-  echo "write its receipt with: node scripts/hermes-input-receipt.mjs $frameworks_dir"
 }
 
 if install_artifacts; then

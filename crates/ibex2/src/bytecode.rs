@@ -80,8 +80,9 @@ impl Compiler {
         if require_receipt && receipt.is_none() {
             return Err(format!(
                 "the engine at {} has no HermesInputReceipt, so nothing attests it is unpatched\n\
-                 produce one with: node scripts/hermes-input-receipt.mjs {}",
-                engine_dir.display(),
+                 produce one by rerunning the local vanilla builder (it writes receipt v2):\n  \
+                 Apple: scripts/build-hermes.sh --vanilla\n  \
+                 Linux: scripts/build-hermes-linux.sh --vanilla",
                 engine_dir.display()
             ));
         }
