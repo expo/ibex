@@ -30,6 +30,7 @@ pub const CANONICAL_EMPTY_PATCH_SET: &str =
 /// What a `HermesInputReceipt` asserts about an installed engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HermesInput {
+    pub binary_path: Option<String>,
     pub binary_digest: String,
     pub variant: String,
     pub patch_set_digest: String,
@@ -65,6 +66,13 @@ impl HermesInput {
         }
 
         let engine = object(root.get("engine"), "receipt has no engine object")?;
+        let binary_path = match engine.get("binary") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(string(Some(value), "receipt engine has no binary path")?),
+        };
+        if let Some(path) = &binary_path {
+            validate_engine_path(path)?;
+        }
         let binary_digest = string(
             engine.get("binaryDigest"),
             "receipt has no engine binaryDigest",
@@ -88,10 +96,16 @@ impl HermesInput {
         };
 
         if schema == HERMES_INPUT_SCHEMA {
-            validate_v2(root, engine, &binary_digest, compiler_digest.as_deref())?;
+            validate_v2(
+                root,
+                binary_path.as_deref(),
+                &binary_digest,
+                compiler_digest.as_deref(),
+            )?;
         }
 
         Ok(Self {
+            binary_path,
             binary_digest,
             variant,
             patch_set_digest,
@@ -110,6 +124,35 @@ impl HermesInput {
     /// A receipt that does not describe the bytes actually present is worse
     /// than no receipt: it is a claim someone may rely on.
     pub fn verify_binary(&self, engine_dir: &Path) -> Result<(), String> {
+        if let Some(relative) = &self.binary_path {
+            let binary = engine_dir.join(relative);
+            let metadata = std::fs::symlink_metadata(&binary)
+                .map_err(|e| format!("cannot inspect {}: {e}", binary.display()))?;
+            if !metadata.file_type().is_file() {
+                return Err(format!(
+                    "receipt engine archive is not a regular file: {}",
+                    binary.display()
+                ));
+            }
+            let bytes = std::fs::read(&binary)
+                .map_err(|e| format!("cannot read {}: {e}", binary.display()))?;
+            let digest = format!(
+                "sha256-{}",
+                hex(&<sha2::Sha256 as sha2::Digest>::digest(&bytes))
+            );
+            if digest == self.binary_digest {
+                return Ok(());
+            }
+            return Err(format!(
+                "receipt describes a different engine than the exact archive present\n  \
+                 receipt: {}\n  actual:  {}: {digest}",
+                self.binary_digest,
+                binary.display()
+            ));
+        }
+
+        // V1 did not require an archive path. Retain its compatibility search;
+        // canonical V2 receipts always take the exact-path branch above.
         let binaries = engine_binaries(engine_dir)?;
         let mut actual = Vec::with_capacity(binaries.len());
         for binary in binaries {
@@ -152,7 +195,7 @@ fn object<'a>(
 
 fn validate_v2(
     root: &serde_json::Map<String, serde_json::Value>,
-    engine: &serde_json::Map<String, serde_json::Value>,
+    binary_path: Option<&str>,
     binary_digest: &str,
     compiler_digest: Option<&str>,
 ) -> Result<(), String> {
@@ -171,7 +214,7 @@ fn validate_v2(
     {
         return Err("v2 receipt sourceCommit is not 40 lowercase hex characters".into());
     }
-    string(root.get("target"), "v2 receipt has no target")?;
+    let target = string(root.get("target"), "v2 receipt has no target")?;
     string(root.get("profile"), "v2 receipt has no profile")?;
 
     let build = object(root.get("build"), "v2 receipt has no build object")?;
@@ -195,10 +238,20 @@ fn validate_v2(
         return Err("v2 receipt has no compiler digest".into());
     }
 
-    let engine_path = string(engine.get("binary"), "v2 receipt has no engine binary path")?;
+    let engine_path = binary_path.ok_or("v2 receipt has no engine binary path")?;
+    let expected_engine_name = if target.ends_with("-pc-windows-msvc") {
+        "hermesvm_a.lib"
+    } else {
+        "libhermesvm_a.a"
+    };
+    if engine_path.rsplit('/').next() != Some(expected_engine_name) {
+        return Err(format!(
+            "v2 receipt engine binary is not the target's full VM archive {expected_engine_name}"
+        ));
+    }
     let archives = manifest(root.get("archives"), "archives")?;
     if !archives.iter().any(|entry| {
-        entry.get("path").and_then(serde_json::Value::as_str) == Some(engine_path.as_str())
+        entry.get("path").and_then(serde_json::Value::as_str) == Some(engine_path)
             && entry.get("digest").and_then(serde_json::Value::as_str) == Some(binary_digest)
     }) {
         return Err("v2 receipt engine is not bound by its archive manifest".into());
@@ -219,6 +272,19 @@ fn validate_v2(
         return Err("v2 receipt linkDirectives contains an empty or non-string value".into());
     }
     Ok(())
+}
+
+fn validate_engine_path(path: &str) -> Result<(), String> {
+    if Path::new(path).is_absolute()
+        || path.contains('\\')
+        || path
+            .split('/')
+            .any(|component| component.is_empty() || component == "." || component == "..")
+    {
+        Err("receipt engine binary path is not a safe bundle-relative path".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn manifest<'a>(
@@ -305,12 +371,13 @@ mod tests {
       "bytecode": { "version": 99 },
       "compiler": { "binary": "bin/hermesc", "digest": "sha256-def" },
       "engine": {
-        "binary": "lib/libhermesvmlean_a.a",
-        "binaryDigest": "sha256-abc",
+        "binary": "lib/libhermesvm_a.a",
+        "binaryDigest": "sha256-full",
         "variant": "release"
       },
       "archives": [
-        { "path": "lib/libhermesvmlean_a.a", "digest": "sha256-abc" },
+        { "path": "lib/libhermesvmlean_a.a", "digest": "sha256-lean" },
+        { "path": "lib/libhermesvm_a.a", "digest": "sha256-full" },
         { "path": "lib/libjsi.a", "digest": "sha256-jsi" }
       ],
       "headers": [
@@ -318,14 +385,15 @@ mod tests {
       ],
       "linkDirectives": [
         "rustc-link-search=native=lib",
-        "rustc-link-lib=static=hermesvmlean_a"
+        "rustc-link-lib=static=hermesvm_a"
       ]
     }"#;
 
     #[test]
     fn a_v2_vanilla_receipt_parses_and_reads_as_vanilla() {
         let receipt = HermesInput::parse(VANILLA).expect("parse");
-        assert_eq!(receipt.binary_digest, "sha256-abc");
+        assert_eq!(receipt.binary_path.as_deref(), Some("lib/libhermesvm_a.a"));
+        assert_eq!(receipt.binary_digest, "sha256-full");
         assert_eq!(receipt.variant, "release");
         assert_eq!(receipt.patches_applied, 0);
         assert!(receipt.is_vanilla());
@@ -335,6 +403,7 @@ mod tests {
     #[test]
     fn a_v1_receipt_remains_readable() {
         let receipt = HermesInput::parse(LEGACY_VANILLA).expect("parse legacy receipt");
+        assert_eq!(receipt.binary_path, None);
         assert_eq!(receipt.binary_digest, "sha256-abc");
         assert_eq!(receipt.variant, "release");
         assert!(receipt.is_vanilla());
@@ -388,11 +457,64 @@ mod tests {
     #[test]
     fn v2_requires_the_engine_digest_in_the_archive_manifest() {
         let inconsistent = VANILLA.replace(
-            r#""path": "lib/libhermesvmlean_a.a", "digest": "sha256-abc""#,
-            r#""path": "lib/libhermesvmlean_a.a", "digest": "sha256-other""#,
+            r#""path": "lib/libhermesvm_a.a", "digest": "sha256-full""#,
+            r#""path": "lib/libhermesvm_a.a", "digest": "sha256-other""#,
         );
         let err = HermesInput::parse(&inconsistent).unwrap_err();
         assert!(err.contains("archive manifest"), "{err}");
+    }
+
+    #[test]
+    fn v2_requires_the_target_full_vm_archive() {
+        let lean = VANILLA.replace(
+            r#""binary": "lib/libhermesvm_a.a""#,
+            r#""binary": "lib/libhermesvmlean_a.a""#,
+        );
+        let err = HermesInput::parse(&lean).unwrap_err();
+        assert!(err.contains("full VM archive"), "{err}");
+    }
+
+    #[test]
+    fn verification_rejects_a_changed_linked_full_archive_even_if_lean_is_unchanged() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let engine = std::env::temp_dir().join(format!(
+            "ibex2-exact-engine-archive-{}-{unique}",
+            std::process::id()
+        ));
+        let lib = engine.join("lib");
+        std::fs::create_dir_all(&lib).expect("create engine fixture");
+        let original = b"original full VM archive bytes";
+        std::fs::write(lib.join("libhermesvmlean_a.a"), original).expect("write lean archive");
+        std::fs::write(lib.join("libhermesvm_a.a"), original).expect("write full archive");
+        let digest = format!(
+            "sha256-{}",
+            hex(&<sha2::Sha256 as sha2::Digest>::digest(original))
+        );
+        let receipt = HermesInput {
+            binary_path: Some("lib/libhermesvm_a.a".into()),
+            binary_digest: digest,
+            variant: "release".into(),
+            patch_set_digest: CANONICAL_EMPTY_PATCH_SET.into(),
+            patches_applied: 0,
+            compiler_digest: Some("sha256-compiler".into()),
+        };
+        receipt
+            .verify_binary(&engine)
+            .expect("full archive matches");
+
+        std::fs::write(
+            lib.join("libhermesvm_a.a"),
+            b"mutated full VM archive bytes",
+        )
+        .expect("mutate linked full archive");
+        let err = receipt
+            .verify_binary(&engine)
+            .expect_err("unchanged lean archive must not satisfy the full archive receipt");
+        assert!(err.contains("exact archive"), "{err}");
+        std::fs::remove_dir_all(engine).expect("remove engine fixture");
     }
 
     /// The receipt the build actually produced, checked against the engine it

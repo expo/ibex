@@ -727,6 +727,7 @@ mod tests {
                 .expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
+                binary_path: None,
                 binary_digest: "sha256-engine-a".into(),
                 variant: "release".into(),
                 patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
@@ -742,6 +743,7 @@ mod tests {
                 .expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
+                binary_path: None,
                 binary_digest: "sha256-engine-b".into(),
                 variant: "release".into(),
                 patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),

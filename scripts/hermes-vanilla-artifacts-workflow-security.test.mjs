@@ -26,6 +26,17 @@ const publisherWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/hermes-vanilla-publish.yml"),
   "utf8",
 );
+const receiptWriter = readFileSync(join(repoRoot, "scripts/hermes-input-receipt.mjs"), "utf8");
+const localAppleBuilder = readFileSync(join(repoRoot, "scripts/build-hermes.sh"), "utf8");
+const localLinuxBuilder = readFileSync(join(repoRoot, "scripts/build-hermes-linux.sh"), "utf8");
+const releaseBuilder = readFileSync(
+  join(repoRoot, "scripts/build-hermes-vanilla-release.sh"),
+  "utf8",
+);
+const windowsReleaseBuilder = readFileSync(
+  join(repoRoot, "scripts/build-hermes-windows-vanilla-release.ps1"),
+  "utf8",
+);
 
 const builders = [
   "macos_arm64",
@@ -243,6 +254,25 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
     assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v1$`, "m"));
     assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v1`, "m"));
   }
+});
+
+test("receipt producers identify the exact full VM archive", () => {
+  assert.match(receiptWriter, /const engineBinary = inside\(bundleDir, requestedEngineArchive/);
+  assert.match(receiptWriter, /const symbols = exportedSymbols\(engineBinary\)/);
+  assert.match(receiptWriter, /const enginePath = canonicalRelative\(bundleDir, engineBinary\)/);
+  assert.doesNotMatch(receiptWriter, /preferredEngineNames/);
+
+  for (const [name, producer, archive] of [
+    ["local Apple", localAppleBuilder, "--engine-archive macos-static/libhermesvm_a.a"],
+    ["local Linux", localLinuxBuilder, "--engine-archive linux-static/libhermesvm_a.a"],
+    ["Unix release", releaseBuilder, "--engine-archive lib/libhermesvm_a.a"],
+    ["Windows release", windowsReleaseBuilder, "--engine-archive=lib/hermesvm_a.lib"],
+  ]) {
+    assert.ok(producer.includes(archive), `${name} producer does not name its full VM archive`);
+    assert.match(producer, /link-directive=rustc-link-lib=static=hermesvm_a/);
+  }
+  assert.doesNotMatch(releaseBuilder, /hermesvmlean_a/);
+  assert.doesNotMatch(windowsReleaseBuilder, /hermesvmlean_a/);
 });
 
 const validator = blockScalar(publisherWorkflow, "HANDOFF_VALIDATOR");

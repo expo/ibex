@@ -1,5 +1,5 @@
 # @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v2
-# receipt and exact vanilla lean link closure without release or OIDC
+# receipt and exact vanilla full-VM link closure without release or OIDC
 # authority. A default-branch workflow_run publisher consumes the handoff.
 name: Hermes vanilla release builder
 
@@ -18,7 +18,7 @@ env:
 
 jobs:
   macos_arm64:
-    name: Build macOS arm64 lean bundle
+    name: Build macOS arm64 full-VM bundle
     runs-on: macos-15
     timeout-minutes: 150
     permissions:
@@ -67,7 +67,7 @@ jobs:
           [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   macos_x86_64:
-    name: Build macOS x86_64 lean bundle
+    name: Build macOS x86_64 full-VM bundle
     runs-on: macos-15-intel
     timeout-minutes: 150
     permissions:
@@ -116,7 +116,7 @@ jobs:
           [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   ios_device:
-    name: Build iOS device lean bundle
+    name: Build iOS device full-VM bundle
     runs-on: macos-15
     timeout-minutes: 150
     permissions:
@@ -165,7 +165,7 @@ jobs:
           [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   ios_simulator:
-    name: Build universal iOS simulator lean bundle
+    name: Build universal iOS simulator full-VM bundle
     runs-on: macos-15
     timeout-minutes: 150
     permissions:
@@ -214,7 +214,7 @@ jobs:
           [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   linux_x86_64:
-    name: Build Linux x86_64 lean bundle
+    name: Build Linux x86_64 full-VM bundle
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     permissions:
@@ -268,7 +268,7 @@ jobs:
           [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   linux_arm64:
-    name: Build Linux arm64 lean bundle
+    name: Build Linux arm64 full-VM bundle
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 150
     permissions:
@@ -322,7 +322,7 @@ jobs:
           [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
 
   windows_x64:
-    name: Build Windows x64 lean bundle
+    name: Build Windows x64 full-VM bundle
     runs-on: windows-2022
     timeout-minutes: 150
     permissions:

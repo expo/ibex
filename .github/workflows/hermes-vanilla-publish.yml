@@ -510,7 +510,7 @@ jobs:
             require_absent_tag
             release_notes="$DRAFT_MARKER
 
-          Pinned vanilla Hermes $HERMES_COMMIT lean target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
+          Pinned vanilla Hermes $HERMES_COMMIT full-VM target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_SHA" \

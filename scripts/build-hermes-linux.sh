@@ -75,6 +75,7 @@ write_receipt() {
     --profile "$variant"
     --commit "$hermes_commit"
     --compiler "$tools_dir/hermesc-linux-$tool_arch"
+    --engine-archive linux-static/libhermesvm_a.a
     --build-flag=-DCMAKE_BUILD_TYPE=Release
     --build-flag=-DHERMES_ENABLE_DEBUGGER="$debugger"
     --build-flag=-DHERMES_ENABLE_INTL=true

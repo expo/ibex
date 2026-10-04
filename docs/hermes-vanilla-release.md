@@ -5,12 +5,14 @@ The release for the current pin is the immutable prerelease
 `hermes-vanilla-d412d3bd8512-v1`. It contains seven deterministic archives,
 `SHA256SUMS`, and one retained Sigstore bundle beside each archive.
 
-Each archive contains the lean target link closure under `lib/`, host `hermesc`
+Each archive contains the full-VM target link closure under `lib/`, host `hermesc`
 under `bin/`, public headers under `include/`, the upstream license, and a
 canonical `hermes-input-receipt.json`. Receipt v2 binds the source commit,
 empty patch set, target, profile and build flags, HBC version, compiler,
-archive/header digests, and ordered Cargo link directives. It deliberately has
-no production date.
+archive/header digests, the explicit full-VM archive linked for the target, and
+ordered Cargo link directives. Patched-symbol scanning and installed-engine
+verification both use that exact archive path. The receipt deliberately has no
+production date.
 
 ## Required repository settings
 
@@ -301,6 +303,8 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     .upstream.sourceCommit == "d412d3bd851278712c20cca25d094e32641a0465" and
     .patchSet.applied == [] and
     (.producedOn | not) and
+    (.engine.binary == "lib/libhermesvm_a.a" or
+      .engine.binary == "lib/hermesvm_a.lib") and
     (.archives | length > 0) and
     (.headers | length > 0) and
     (.linkDirectives | length > 0)'

@@ -11,8 +11,9 @@
  *
  *   node scripts/hermes-input-receipt.mjs <bundle-dir> \
  *     --target aarch64-apple-darwin --profile release \
+ *     --engine-archive lib/libhermesvm_a.a \
  *     --build-flag=-DHERMES_ENABLE_DEBUGGER=false \
- *     --link-directive=rustc-link-lib=static=hermesvmlean_a
+ *     --link-directive=rustc-link-lib=static=hermesvm_a
  */
 
 import { createHash } from 'node:crypto';
@@ -69,11 +70,11 @@ function parseArguments(argv) {
     options.set(name, [...(options.get(name) ?? []), value]);
   }
   if (positionals.length !== 1) {
-    die('usage: hermes-input-receipt.mjs <bundle-dir> --target <triple> --profile <name> --link-directive <directive> [...]');
+    die('usage: hermes-input-receipt.mjs <bundle-dir> --target <triple> --profile <name> --engine-archive <path> --link-directive <directive> [...]');
   }
   const known = new Set([
     '--archive', '--build-flag', '--bytecode-version', '--commit', '--compiler',
-    '--headers', '--link-directive', '--out', '--profile', '--target',
+    '--engine-archive', '--headers', '--link-directive', '--out', '--profile', '--target',
   ]);
   for (const name of options.keys()) {
     if (!known.has(name)) die(`unknown option ${name}`);
@@ -200,6 +201,8 @@ const target = one('--target');
 const profile = one('--profile') ?? 'release';
 if (!target || !/^[A-Za-z0-9_.-]+$/.test(target)) die('--target must name one release target');
 if (!/^[A-Za-z0-9_.-]+$/.test(profile)) die('--profile contains unsupported characters');
+const requestedEngineArchive = one('--engine-archive');
+if (!requestedEngineArchive) die('--engine-archive must name the full VM archive linked for this target');
 const linkDirectives = many('--link-directive');
 if (linkDirectives.length === 0 || linkDirectives.some((item) => !item.trim() || /[\r\n]/.test(item))) {
   die('at least one non-empty --link-directive is required');
@@ -240,15 +243,17 @@ archivePaths = [...new Set(archivePaths)].sort((a, b) => {
 if (archivePaths.length === 0) die('bundle has no static archives');
 for (const path of archivePaths) if (!isFile(path)) die(`archive is not a regular file: ${path}`);
 
-const preferredEngineNames = process.platform === 'win32'
-  ? ['hermesvmlean_a.lib', 'hermesvm_a.lib']
-  : ['libhermesvmlean_a.a', 'libhermesvm_a.a'];
-let engineBinary;
-for (const name of preferredEngineNames) {
-  engineBinary = archivePaths.find((path) => basename(path) === name);
-  if (engineBinary) break;
+const engineBinary = inside(bundleDir, requestedEngineArchive, 'engine archive');
+const expectedEngineName = target.endsWith('-pc-windows-msvc')
+  ? 'hermesvm_a.lib'
+  : 'libhermesvm_a.a';
+if (basename(engineBinary) !== expectedEngineName) {
+  die(`engine archive must be the target's full VM archive ${expectedEngineName}`);
 }
-if (!engineBinary) die(`archive list has no ${preferredEngineNames.join(' or ')}`);
+if (!isFile(engineBinary)) die(`engine archive is not a regular file: ${engineBinary}`);
+if (!archivePaths.includes(engineBinary)) {
+  die('engine archive is not present in the archive manifest');
+}
 
 const symbols = exportedSymbols(engineBinary);
 const foundPatched = PATCHED_SYMBOLS.filter((patched) =>
