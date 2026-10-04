@@ -606,6 +606,36 @@ symlink fixture on this token's `EPERM` privilege refusal. Logs and byte/provena
 checks are retained under `target/windows-v2-*`; timings are functional checks,
 not an isolated performance comparison. No global PATH or installed CLI changes.
 
+#### Windows complete-install override documentation
+
+The L1b README incorrectly advised setting `HERMES_LEAN_SYS_DIR` to the
+repository builder's `windows-x64` directory. That root has the archives and
+headers, but its compiler lives in the parent directory with a platform suffix.
+The actual override resolver requires `hermesc.exe` or `bin/hermesc.exe` inside
+the selected root. Reproducing the documented override fails with that missing
+compiler; leaving the variable unset correctly selects both repository paths.
+
+Root approved a separate documentation-only correction before implementation:
+describe the complete override layout, keep the builder's default selection,
+and explain that L1b bakes these paths into the runtime during the Cargo build.
+The full CLI's AOT build also needs the matching receipt in the engine root.
+No resolver fallback, runtime environment override, receipt rule or installed
+distribution is changed by this correction.
+
+Qualification copies the three matching archives, 136 headers and compiler
+into a private complete install whose path contains spaces, `#` and `café`.
+The existing receipt producer emits its v2 receipt with unchanged engine and
+compiler digests and a local `hermesc.exe` name. With that absolute override,
+`cargo check --locked -p ibex2 --no-default-features --features bindings` passes;
+exported build metadata names the copied root and compiler. Removing the
+process-local override and repeating the command passes and restores the
+repository builder's engine/compiler metadata. The inherited two vendored
+`ring` lifetime warnings remain; these compile checks are not strict lint
+claims. Prior installed inputs remain unchanged.
+A separate Codex agent reviewed the final README/LLP diff against the resolver,
+runtime receipt path and retained failure/success logs, with no blocker; the
+review did not rerun builds. The independently reviewed scope remains docs only.
+
 ### Windows app storage qualification
 
 Implementation owner: Codex, 2026-10-04, following the Windows engine slice.
