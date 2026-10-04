@@ -7,11 +7,12 @@
 //! be resolved and by whom, and which modules are boot-eager (reachable by
 //! static edges) against lazy (reachable only through a dynamic `import()`).
 //!
-//!     cargo run -p ibex2 --example graph -- <root> <entry> [out-dir]
+//!     cargo run -p ibex2-runtime --example graph -- <root> <entry> [out-dir]
 //!
 //! With an out-dir, `eager.txt` and `lazy.txt` list the two sets, which is
-//! what the API-usage counts in LLP 0066 §3 were taken over. No engine is
-//! needed: this is the loader alone.
+//! what the API-usage counts in LLP 0066 §3 were taken over. This path does
+//! not create or evaluate an engine, although the owning runtime crate still
+//! links its engine.
 use ibex2_runtime::loader::{self, Root};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;

@@ -9,7 +9,7 @@
 //! what LLP 0062 R3's ahead-of-time requirement exists to remove, and the
 //! number here is what says how urgent that is.
 //!
-//!     cargo test -p ibex2 --features hermes --release --test boot_real -- --ignored --nocapture
+//!     cargo test -p ibex2-runtime --release --test boot_real -- --ignored --nocapture
 
 #![cfg(feature = "loader")]
 

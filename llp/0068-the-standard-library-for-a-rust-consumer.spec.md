@@ -133,7 +133,7 @@ selection on the caller's behalf. The groups are:
 | `ENV` | endowed `process.env` snapshot | grant-selected environment snapshot | — | core |
 | `SECRETS` | no JSI projection yet; named for the existing Rust binding | `secret.keep` library operations | — | core/platform backend |
 | `KV` | no JSI projection yet; named for the existing Rust binding | `storage.kv` library operations | — | core/platform backend |
-| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `hermes` on Linux today |
+| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `bindings` on Linux; the caller's engine supplies ICU link lines |
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
@@ -330,7 +330,7 @@ SQLite support. Absolute Windows paths and their capability spelling need
 their own tests before they are admitted by the native filesystem family.
 
 Qualification evidence on 2026-10-04: the pinned vanilla engine builds with
-Visual Studio 2022 and Ninja; `cargo build -p ibex2 --features hermes` links
+Visual Studio 2022 and Ninja; `cargo build -p ibex2-runtime` links
 and runs. The no-engine library suite passes 173 tests, the engine library
 suite 293, closure 6, embedding 16, hardening 5, and the no-loader run-only
 profile 1. Four Windows symlink fixtures require Developer Mode or the
@@ -399,7 +399,8 @@ assertions; this is not a passing symlink-authority qualification. Hard links an
 junctions are not substituted for these fixtures. Privilege availability also
 does not establish native absolute-grant support, which remains refused above.
 
-Strict `ibex2 --features hermes --all-targets` Clippy now compiles on Windows.
+Strict `cargo clippy -p ibex2-runtime --all-features --all-targets -- -D warnings`
+now compiles on Windows.
 The broader loader/resolution runtime checks remain incomplete: native absolute
 grant fixtures encounter that deliberate refusal, granted public HTTPS requests
 return Winsock error 10022, and the `/etc/passwd` absolute-specifier fixture names
@@ -634,10 +635,10 @@ substitute for those fixtures. The Rust consumer fixture now quotes its native
 grant, uses the platform home variable, and checks denial against its own
 existing executable instead of a Unix-only pathname. Native SQLite execution
 remains refused even with a syntactically admitted native SQLite grant.
-The complete `cargo test -p ibex2 --features hermes --tests` sweep passes 586
+The complete `cargo test -p ibex2-runtime --all-features --tests` sweep passes 586
 tests across 37 binaries, with 21 existing ignored measurements/prerequisite
 fixtures; the library accounts for 369 passed and 7 ignored. Strict
-`cargo clippy -p ibex2 -p ibex2-sqlite --features hermes --all-targets -- -D warnings`,
+`cargo clippy --workspace --all-features --all-targets -- -D warnings`,
 formatting and reference validation pass. The existing caps failure remains
 137 oversized files against 133. These are Windows qualifications; no fresh
 Apple/Linux execution or cross-link is claimed for this slice.

@@ -7,7 +7,7 @@
 //! picture does not exist yet.
 //!
 //! Run with:
-//!     cargo test -p ibex2 --features hermes --release --test boot_floor -- --ignored --nocapture
+//!     cargo test -p ibex2-runtime --release --test boot_floor -- --ignored --nocapture
 
 use std::time::{Duration, Instant};
 

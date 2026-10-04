@@ -11,7 +11,7 @@
 //!
 //! Requires the `hermesc` selected by `hermes-lean-sys`.
 //!
-//!     cargo test -p ibex2 --features hermes --release --test bytecode_vs_source -- --ignored --nocapture
+//!     cargo test -p ibex2-runtime --release --test bytecode_vs_source -- --ignored --nocapture
 
 #![cfg(feature = "loader")]
 

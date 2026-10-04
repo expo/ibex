@@ -6,7 +6,7 @@
 //! source and from ahead-of-time bytecode, and the cost of crossing the
 //! boundary once, synchronously and as an async host task.
 //!
-//!     cargo run -p ibex2 --release --features hermes --example speed
+//!     cargo run -p ibex2-runtime --release --example speed
 //!
 //! Medians over repeated runs, because a single sample of anything here is
 //! dominated by whatever else the machine was doing (LLP 0063 §2's note).

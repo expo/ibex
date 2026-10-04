@@ -8,7 +8,7 @@
 //! That is the measurement that says how urgent LLP 0062 R3 (wrappers compiled
 //! ahead of time) is, and it says: very.
 //!
-//!     cargo test -p ibex2 --features hermes --release --test eval_overhead -- --ignored --nocapture
+//!     cargo test -p ibex2-runtime --release --test eval_overhead -- --ignored --nocapture
 
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 use std::time::Instant;

@@ -1,6 +1,6 @@
 // A caller-owned runtime: no ibex2 Hermes owner, loader, or pump.
 #include <hermes/hermes.h>
-#include "../include/ibex2_jsi.h"
+#include "ibex2_jsi.h"
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>

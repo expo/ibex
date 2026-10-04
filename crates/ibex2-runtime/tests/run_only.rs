@@ -2,7 +2,7 @@
 //! linked. It runs precompiled artifacts from the manifest and the bundle,
 //! resolves nothing at run time, and refuses everything else.
 //!
-//!     cargo test -p ibex2 --no-default-features --features hermes --test run_only
+//!     cargo test -p ibex2-runtime --no-default-features --test run_only
 #![cfg(not(feature = "loader"))]
 
 use ibex2_runtime::bytecode::{Bundle, Compiler, Manifest};

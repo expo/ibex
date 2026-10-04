@@ -330,7 +330,7 @@ fn the_product_artifact_carries_no_patched_export() {
         .expect("target/<profile>");
     let product = profile_dir.join("ibex2");
     if !product.exists() {
-        // Built by `cargo build --features hermes --bin ibex2`; a test run that
+        // Built by `cargo build -p ibex2-runtime --bin ibex2`; a test run that
         // has not built it has nothing to scan, and saying so beats passing.
         eprintln!("skipping: no {} to scan", product.display());
         return;
