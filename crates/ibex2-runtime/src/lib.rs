@@ -19,7 +19,10 @@ mod loader_state;
 pub use ibex2::{bindings, boundary, boundary_abi, grant, host, pool, stdlib, task, transport};
 
 /// Identity of the VM linked through `hermes-lean-sys`.
-pub const LINKED_ENGINE_DIGEST: &str = hermes_lean_sys::ENGINE_DIGEST;
+pub const LINKED_ENGINE_DIGEST: &str = env!("IBEX2_LINKED_ENGINE_DIGEST");
+
+/// Archive whose link lines `hermes-lean-sys` emitted for this runtime.
+pub const LINKED_ENGINE_ARCHIVE: &str = env!("IBEX2_LINKED_ENGINE_ARCHIVE");
 
 /// Compiler selected by the same `hermes-lean-sys` resolution as the VM.
 pub const HERMESC_PATH: &str = env!("IBEX2_HERMESC_PATH");

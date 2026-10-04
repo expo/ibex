@@ -154,6 +154,11 @@ hold only in a hardened runtime. Findings that depend on an unhardened runtime
 belong in `issues/20261004-binding-intrinsic-capture-audit.md`; they are not
 fixed one by one into an unsupported second security posture.
 
+R-e selects the target's full VM archive in every `hermes-lean-sys` feature
+context because the owning runtime requires its source entrance. `link`
+controls only link-line emission; `ENGINE_DIGEST` and the exported archive path
+therefore identify the same bytes for the binding compiler and linked runtime.
+
 The one JSI entry point is:
 
 ```cpp

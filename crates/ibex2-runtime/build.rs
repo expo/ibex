@@ -29,9 +29,11 @@ fn main() {
     compile_javascript(&hermesc, "src/bindings/esm.js", &out_dir.join("esm.hbc"));
 
     let engine_digest = required("DEP_HERMES_LEAN_ENGINE_DIGEST");
+    let engine_archive = required("DEP_HERMES_LEAN_ARCHIVE");
     let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");
     let engine_dir = required("DEP_HERMES_LEAN_ENGINE_DIR");
     println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DIGEST={engine_digest}");
+    println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_ARCHIVE={engine_archive}");
     println!("cargo:rustc-env=IBEX2_LINKED_BYTECODE_VERSION={bytecode_version}");
     println!("cargo:rustc-env=IBEX2_HERMESC_PATH={}", hermesc.display());
     println!("cargo:rustc-env=IBEX2_ENGINE_DIR={engine_dir}");

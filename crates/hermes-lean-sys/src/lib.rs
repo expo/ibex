@@ -3,7 +3,11 @@
 //! This first version resolves only a caller-supplied or repository-local
 //! engine install. Downloading verified release artifacts belongs to L1c.
 
-/// Digest of the VM archive selected by the build script.
+/// Full VM archive selected for this target. The owning Ibex runtime needs
+/// its source entrance; the `link` feature controls only link-line emission.
+pub const ARCHIVE: &str = env!("HERMES_LEAN_ARCHIVE");
+
+/// Digest of [`ARCHIVE`], independent of the `link` feature.
 pub const ENGINE_DIGEST: &str = env!("HERMES_LEAN_ENGINE_DIGEST");
 
 /// HBC version reported by the matching `hermesc`.

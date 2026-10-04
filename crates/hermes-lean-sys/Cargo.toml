@@ -8,8 +8,8 @@ publish = false
 
 [features]
 default = []
-# The owning Ibex runtime still needs the full VM's host source entrance. A
-# bindings-only dependency resolves the lean archive instead.
+# Archive selection is invariant across feature contexts. `link` controls only
+# whether this crate emits the selected full VM's native link lines.
 link = []
 
 [build-dependencies]

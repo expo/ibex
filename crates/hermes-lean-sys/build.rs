@@ -25,14 +25,8 @@ fn main() {
     let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let links_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
 
-    let install = resolve_engine_directory(
-        repo_root,
-        &target_os,
-        &target_vendor,
-        target_arch,
-        &host,
-        links_runtime,
-    );
+    let install =
+        resolve_engine_directory(repo_root, &target_os, &target_vendor, target_arch, &host);
     validate_install(&install);
 
     println!("cargo:rerun-if-changed={}", install.vm_archive.display());
@@ -43,10 +37,15 @@ fn main() {
     metadata("include_dir", &install.include_dir.display().to_string());
     metadata("hermesc_path", &install.hermesc.display().to_string());
     metadata("lib_root", &install.lib_root.display().to_string());
+    metadata("archive", &install.vm_archive.display().to_string());
     metadata("engine_digest", &engine_digest);
     metadata("bytecode_version", &bytecode_version);
     metadata("engine_dir", &install.root.display().to_string());
     println!("cargo:rustc-env=HERMES_LEAN_ENGINE_DIGEST={engine_digest}");
+    println!(
+        "cargo:rustc-env=HERMES_LEAN_ARCHIVE={}",
+        install.vm_archive.display()
+    );
     println!("cargo:rustc-env=HERMES_LEAN_BYTECODE_VERSION={bytecode_version}");
 
     if links_runtime {
@@ -68,7 +67,6 @@ fn resolve_engine_directory(
     target_vendor: &str,
     target_arch: &str,
     host: &str,
-    links_runtime: bool,
 ) -> EngineInstall {
     let overridden = std::env::var_os("HERMES_LEAN_SYS_DIR").map(PathBuf::from);
     let root = overridden.clone().unwrap_or_else(|| {
@@ -90,27 +88,15 @@ fn resolve_engine_directory(
     } else {
         "linux-static"
     });
-    // ibex2-runtime still needs Hermes's source compiler for its host entrance
-    // and therefore links the full VM. A bindings-only resolution prefers the
-    // lean archive used by caller-owned lean runtimes, falling back to the
-    // full-only local layouts currently produced on some platforms. Cargo
-    // feature unification makes ibex2[bindings] observe the full digest when
-    // it is built as part of ibex2-runtime, preserving bytecode/VM coupling.
-    let full_vm = lib_root.join(if target_os == "windows" {
+    // This repository's owning runtime evaluates source at its host entrance,
+    // so every feature context names the full VM archive. In particular,
+    // resolver-v2 build and normal dependencies must export one identity even
+    // when only the latter enables link-line emission.
+    let vm_archive = lib_root.join(if target_os == "windows" {
         "hermesvm_a.lib"
     } else {
         "libhermesvm_a.a"
     });
-    let lean_vm = lib_root.join(if target_os == "windows" {
-        "hermesvmlean_a.lib"
-    } else {
-        "libhermesvmlean_a.a"
-    });
-    let vm_archive = if links_runtime {
-        full_vm
-    } else {
-        find_first(&[lean_vm.clone(), full_vm]).unwrap_or(lean_vm)
-    };
     let hermesc = if overridden.is_some() {
         find_first(&[
             root.join(executable("hermesc", target_os)),
