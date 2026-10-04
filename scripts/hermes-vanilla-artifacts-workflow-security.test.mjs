@@ -92,6 +92,7 @@ test("read-only builders are separated from the default-branch publisher", () =>
   assert.match(publisherTrigger, /types: \[completed\]/);
   assert.doesNotMatch(publisherTrigger, /\n  (?:push|pull_request|workflow_dispatch):/);
 
+  const uploadNames = [];
   for (const [name, builder] of jobBlocks(builderWorkflow)) {
     assert.deepEqual(permissions(builder), { contents: "read" }, `${name} is read-only`);
     assert.doesNotMatch(builder, /\$\{\{\s*secrets\.|^\s+GH_TOKEN:/m);
@@ -102,10 +103,26 @@ test("read-only builders are separated from the default-branch publisher", () =>
     assert.match(checkout.text, /\n          persist-credentials: false\n/);
     const uploads = stepBlocks(builder).filter((step) => step.text.includes("actions/upload-artifact@"));
     assert.equal(uploads.length, 1, `${name} emits one handoff`);
+    const uploadName = uploads[0].text.match(/\n          name: (hermes-vanilla-handoff-[a-z0-9_-]+)\n/)?.[1];
+    assert.ok(uploadName, `${name} has a static handoff name`);
+    uploadNames.push(uploadName);
     assert.match(uploads[0].text, /\n          archive: false\n/);
     assert.match(uploads[0].text, /\n          if-no-files-found: error\n/);
     assert.match(uploads[0].text, /\n          overwrite: false\n/);
+    assert.match(builder, /ARCHIVE_SHA256: \$\{\{ steps\.package\.outputs\.asset_sha256 \}\}/);
+    assert.match(builder, /HANDOFF_DIGEST: \$\{\{ steps\.handoff\.outputs\.artifact-digest \}\}/);
+    if (name === "windows_x64") {
+      assert.match(builder, /\$env:HANDOFF_DIGEST -ne \$env:ARCHIVE_SHA256/);
+    } else {
+      assert.match(builder, /\[\[ "\$HANDOFF_DIGEST" == "\$ARCHIVE_SHA256" \]\]/);
+    }
   }
+  assert.equal(new Set(uploadNames).size, 7, "handoff artifact names are unique");
+  const windowsBuilder = jobBlocks(builderWorkflow).get("windows_x64");
+  assert.match(windowsBuilder, /Microsoft Visual Studio\\Installer\\vswhere\.exe/);
+  assert.match(windowsBuilder, /VC\\Auxiliary\\Build\\vcvarsall\.bat/);
+  assert.match(windowsBuilder, /"`"\$vcvarsall`" x64 >nul && set"/);
+  assert.doesNotMatch(windowsBuilder, /ilammy\/msvc-dev-cmd/);
 
   const publisher = jobBlocks(publisherWorkflow).get("publish");
   assert.deepEqual(permissions(publisher), {
@@ -114,6 +131,8 @@ test("read-only builders are separated from the default-branch publisher", () =>
     contents: "write",
     "id-token": "write",
   });
+  assert.match(publisher, /^    environment: hermes-vanilla-release$/m);
+  assert.doesNotMatch(publisher, /\$\{\{\s*secrets\.|^\s+[A-Z0-9_]*SECRET[A-Z0-9_]*:/m);
   assert.match(publisher, /github\.event\.workflow_run\.conclusion == 'success'/);
   assert.match(publisher, /github\.event\.workflow_run\.head_branch == 'main'/);
   assert.match(publisher, /github\.event\.workflow_run\.event == 'workflow_dispatch'/);
@@ -141,6 +160,12 @@ test("read-only builders are separated from the default-branch publisher", () =>
     assert.doesNotMatch(attestation.text, /subject-path:/);
   }
 
+  const validations = stepBlocks(publisher).filter((step) => step.name.startsWith("Validate "));
+  assert.equal(validations.length, builders.length);
+  for (const validation of validations) {
+    assert.match(validation.text, /run: python3 -c "\$HANDOFF_VALIDATOR"/);
+  }
+
   assert.match(publisher, /gh release create "\$RELEASE_TAG"/);
   assert.match(publisher, /--target "\$SOURCE_SHA"/);
   assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$RELEASE_TAG"/);
@@ -162,7 +187,6 @@ test("every action reference is an approved full commit SHA", () => {
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
     "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
     "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be",
-    "ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756",
   ]);
   const references = [...`${builderWorkflow}\n${publisherWorkflow}`.matchAll(/^\s+uses: ([^\s#]+)/gm)]
     .map((match) => match[1]);
@@ -186,7 +210,13 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
 
 const validator = blockScalar(publisherWorkflow, "HANDOFF_VALIDATOR");
 
-function runValidator(setup) {
+test("publisher validator cross-binds every artifact digest to its archive SHA-256", () => {
+  assert.match(validator, /artifact_digest = digest\.removeprefix\("sha256:"\)/);
+  assert.match(validator, /if artifact_digest != asset_sha256:/);
+  assert.match(validator, /raise SystemExit\("artifact_digest does not equal asset_sha256"\)/);
+});
+
+function runValidator(setup, environment = {}) {
   const temporary = mkdtempSync(join(tmpdir(), "hermes-vanilla-handoff-test-"));
   const handoff = join(temporary, "handoff");
   mkdirSync(handoff);
@@ -213,6 +243,7 @@ function runValidator(setup) {
       ARTIFACTS_FILE: artifactsFile,
       HANDOFF_DIR: handoff,
       GITHUB_OUTPUT: output,
+      ...environment,
     },
   });
   rmSync(temporary, { recursive: true, force: true });
@@ -222,6 +253,37 @@ function runValidator(setup) {
 test("publisher accepts exactly one named regular archive with matching bytes", () => {
   const result = runValidator();
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("publisher rejects traversal and newline archive names", () => {
+  const traversal = runValidator(undefined, {
+    EXPECTED_ASSET_NAME: "../hermes-vanilla-test-target.tar.gz",
+  });
+  assert.notEqual(traversal.status, 0);
+
+  const newline = runValidator(undefined, {
+    EXPECTED_ASSET_NAME: "hermes-vanilla-test\ntarget.tar.gz",
+  });
+  assert.notEqual(newline.status, 0);
+});
+
+test("publisher rejects empty digests, zero sizes, and digest mismatches", () => {
+  function changeArtifact(field, value) {
+    return ({ artifactsFile }) => {
+      const pages = JSON.parse(readFileSync(artifactsFile, "utf8"));
+      pages[0].artifacts[0][field] = value;
+      writeFileSync(artifactsFile, JSON.stringify(pages));
+    };
+  }
+
+  const emptyDigest = runValidator(changeArtifact("digest", ""));
+  assert.notEqual(emptyDigest.status, 0);
+
+  const zeroSize = runValidator(changeArtifact("size_in_bytes", 0));
+  assert.notEqual(zeroSize.status, 0);
+
+  const mismatchedDigest = runValidator(changeArtifact("digest", `sha256:${"0".repeat(64)}`));
+  assert.notEqual(mismatchedDigest.status, 0);
 });
 
 test("publisher rejects extra entries, symlinks, and changed bytes", () => {

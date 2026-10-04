@@ -346,9 +346,34 @@ jobs:
           persist-credentials: false
 
       - name: Enter x64 Visual Studio environment
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
-        with:
-          arch: x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe is missing from the GitHub-hosted runner"
+          }
+          $installation = (& $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath).Trim()
+          if (-not $installation) { throw "Visual Studio with the x64 C++ tools is not installed" }
+          $vcvarsall = Join-Path $installation "VC\Auxiliary\Build\vcvarsall.bat"
+          if (-not (Test-Path -LiteralPath $vcvarsall -PathType Leaf)) {
+            throw "vcvarsall.bat is missing from $installation"
+          }
+          $environment = & cmd.exe /d /s /c "`"$vcvarsall`" x64 >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvarsall.bat x64 failed" }
+          $export = @(
+            "PATH", "INCLUDE", "LIB", "LIBPATH", "VCToolsInstallDir",
+            "VCINSTALLDIR", "VSINSTALLDIR", "WindowsSdkDir",
+            "WindowsSDKVersion", "UCRTVersion", "UniversalCRTSdkDir"
+          )
+          foreach ($line in $environment) {
+            if ($line -match '^([^=]+)=(.*)$' -and $export -contains $Matches[1]) {
+              "$($Matches[1])=$($Matches[2])" |
+                Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
 
       - name: Build and package Windows x64
         id: package
