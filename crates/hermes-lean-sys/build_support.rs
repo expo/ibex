@@ -202,7 +202,17 @@ pub(crate) fn resolve_engine_directory(
     let hermesc = if target_layout.origin == InstallOrigin::Repository {
         repository_hermesc(repo_root, host)?
     } else if target == host {
-        compiler_in_bundle_or_install(&target_layout.root, host)
+        let local = compiler_in_bundle_or_install(&target_layout.root, host);
+        if local.is_file() || target_layout.origin != InstallOrigin::Override {
+            local
+        } else if repository_install_root(repo_root, target)
+            .as_deref()
+            .is_some_and(|repository_root| same_location(repository_root, &target_layout.root))
+        {
+            repository_hermesc(repo_root, host)?
+        } else {
+            local
+        }
     } else {
         let host_pin = pin_for_target(host).map_err(|_| {
             format!(
@@ -316,6 +326,13 @@ fn compiler_in_bundle_or_install(root: &Path, host: &str) -> PathBuf {
         .into_iter()
         .find(|path| path.is_file())
         .unwrap_or_else(|| root.join("bin").join(name))
+}
+
+fn same_location(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
 }
 
 fn validate_layout(layout: &InstallLayout) -> Result<(), String> {
