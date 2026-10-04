@@ -432,27 +432,29 @@ jobs:
           release_notes="$DRAFT_MARKER
 
           Pinned vanilla Hermes $HERMES_COMMIT full-VM target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
-          gh release create "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$SOURCE_SHA" \
-            --draft \
-            --title "$RELEASE_TAG" \
-            --notes "$release_notes"
-
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"
-          release_id="$(python3 - <<'PY'
+          # Create through the API and keep the returned id. Listing releases
+          # right after creation can miss the new draft (read-after-write lag),
+          # and gh's tag-based release commands resolve drafts by listing.
+          created="$RUNNER_TEMP/hermes-vanilla-created.json"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="$SOURCE_SHA" \
+            -f name="$RELEASE_TAG" \
+            -f body="$release_notes" \
+            -F draft=true \
+            -F prerelease=true \
+            -f make_latest=false > "$created"
+          release_id="$(CREATED="$created" python3 - <<'PY'
           import json
           import os
-          with open(os.environ["RUNNER_TEMP"] + "/hermes-vanilla-existing-releases.json", encoding="utf-8") as source:
-              pages = json.load(source)
-          matches = [release for page in pages for release in page
-                     if release["tag_name"] == os.environ["RELEASE_TAG"]
-                     and release["draft"]
-                     and os.environ["DRAFT_MARKER"] in (release.get("body") or "")]
-          if len(matches) != 1:
-              raise SystemExit("created draft release is not unique and marker-owned")
-          print(matches[0]["id"])
+          with open(os.environ["CREATED"], encoding="utf-8") as source:
+              release = json.load(source)
+          if (release.get("tag_name") != os.environ["RELEASE_TAG"]
+                  or release.get("draft") is not True
+                  or release.get("target_commitish") != os.environ["SOURCE_SHA"]
+                  or os.environ["DRAFT_MARKER"] not in (release.get("body") or "")):
+              raise SystemExit("created draft does not carry the requested tag, target, and marker")
+          print(release["id"])
           PY
           )"
           [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
@@ -497,22 +499,42 @@ jobs:
           PY
           }
 
-          gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/* \
-            --repo "$GITHUB_REPOSITORY"
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
-            > "$remote_assets"
-          verify_remote_assets
+          # Asset listings can lag a write; retry the comparison briefly. A
+          # real mismatch still fails once the retries are spent.
+          fetch_and_verify_assets() {
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              gh api --paginate --slurp \
+                "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
+                > "$remote_assets"
+              if verify_remote_assets; then
+                return 0
+              fi
+              sleep 3
+            done
+            echo "::error::remote release assets never matched the local release set"
+            return 1
+          }
 
-          gh release edit "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft=false \
-            --prerelease \
-            --latest=false
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
-            > "$remote_assets"
-          verify_remote_assets
+          # Asset names are the validated archive basenames, their Sigstore
+          # bundles, and SHA256SUMS, so they need no URL encoding.
+          for asset in "$RELEASE_DIR"/*; do
+            curl --fail --silent --show-error --retry 3 \
+              -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$asset" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$(basename "$asset")" \
+              > /dev/null
+          done
+          fetch_and_verify_assets
+
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false \
+            -F prerelease=true \
+            -f make_latest=false > /dev/null
+          fetch_and_verify_assets
           # Verify what was published, not only the draft. The update endpoint
           # has no compare-and-swap, so a writer could swap an asset or plant
           # the tag between the draft check and publication; with immutable
@@ -521,7 +543,17 @@ jobs:
           published="$RUNNER_TEMP/hermes-vanilla-published.json"
           tag_ref="$RUNNER_TEMP/hermes-vanilla-tag-ref.json"
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$published"
-          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > "$tag_ref"
+          # Publication creates the tag; give the ref a moment to appear.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > "$tag_ref" 2>/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == 10 ]]; then
+              echo "::error::the published release's tag ref never appeared"
+              exit 1
+            fi
+            sleep 3
+          done
           PUBLISHED="$published" TAG_REF="$tag_ref" python3 - <<'PY'
           import json
           import os

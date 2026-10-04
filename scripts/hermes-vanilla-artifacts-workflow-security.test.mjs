@@ -202,26 +202,30 @@ test("read-only builders are separated from the default-branch publisher", () =>
   assert.ok(jobEnv.length > 0, "publisher has a job-level env block");
   assert.doesNotMatch(jobEnv, /runner\./);
   assert.doesNotMatch(publisherWorkflow.slice(0, publisherWorkflow.indexOf("\njobs:\n")), /runner\./);
-  assert.match(publisher, /gh release create "\$RELEASE_TAG"/);
-  assert.match(publisher, /--target "\$SOURCE_SHA"/);
+  // The draft is created through the API and addressed by its returned id
+  // from then on; listing right after a write can miss it.
+  assert.match(publisher, /gh api --method POST "repos\/\$GITHUB_REPOSITORY\/releases"/);
+  assert.match(publisher, /-f target_commitish="\$SOURCE_SHA"/);
+  assert.match(publisher, /created draft does not carry the requested tag, target, and marker/);
+  assert.doesNotMatch(publisher, /gh release (create|upload|edit)/);
   assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$RELEASE_TAG"/);
   assert.match(publisher, /DRAFT_MARKER="\$DRAFT_MARKER_PREFIX source-sha=\$SOURCE_SHA -->"/);
-  assert.match(publisher, /--draft \\/);
-  assert.match(publisher, /gh release upload "\$RELEASE_TAG" "\$RELEASE_DIR"\/\*/);
+  assert.match(publisher, /-F draft=true \\/);
+  assert.match(publisher, /https:\/\/uploads\.github\.com\/repos\/\$GITHUB_REPOSITORY\/releases\/\$release_id\/assets/);
   assert.match(publisher, /releases\/\$release_id\/assets\?per_page=100/);
   assert.match(publisher, /remote release asset names are not the exact local set/);
   assert.match(publisher, /remote asset digest mismatch/);
-  assert.match(publisher, /gh release edit "\$RELEASE_TAG"/);
-  assert.match(publisher, /--draft=false \\/);
-  assert.match(publisher, /--prerelease \\/);
+  assert.match(publisher, /gh api --method PATCH "repos\/\$GITHUB_REPOSITORY\/releases\/\$release_id"/);
+  assert.match(publisher, /-F draft=false \\/);
+  assert.match(publisher, /-F prerelease=true \\/);
   // An existing release, draft or published, is refused and never adopted.
   assert.match(publisher, /if \[\[ "\$existing_count" != 0 \]\]; then\n\s+echo "::error::a release named/);
   assert.doesNotMatch(publisher, /releases\/assets\/\$asset_id|--method DELETE/);
   // What was published is verified again: assets, immutability, and the tag.
-  const publish = publisher.indexOf("--draft=false \\");
-  const finalAssetCheck = publisher.lastIndexOf("\n          verify_remote_assets\n");
+  const publish = publisher.indexOf("-F draft=false \\");
+  const finalAssetCheck = publisher.lastIndexOf("\n          fetch_and_verify_assets\n");
   assert.ok(publish !== -1 && finalAssetCheck > publish, "assets are re-verified after publication");
-  assert.equal(publisher.split("\n          verify_remote_assets\n").length, 3);
+  assert.equal(publisher.split("\n          fetch_and_verify_assets\n").length, 3);
   assert.match(publisher, /release\.get\("immutable"\) is not True/);
   assert.match(publisher, /tag\.get\("type"\) != "commit" or tag\.get\("sha"\) != os\.environ\["SOURCE_SHA"\]/);
   const releaseLookup = publisher.indexOf(
