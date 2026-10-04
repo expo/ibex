@@ -1,0 +1,388 @@
+# @ref LLP 0067#5-the-engine-and-the-artifacts — only this default-branch
+# workflow may attest and publish the canonical v2 vanilla Hermes bundles.
+name: Hermes vanilla release publisher
+
+on:
+  workflow_run:
+    workflows: [Hermes vanilla release builder]
+    types: [completed]
+
+concurrency:
+  group: hermes-vanilla-d412d3bd8512-v1-publish
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v1
+
+jobs:
+  publish:
+    name: Validate, attest, and publish immutable vanilla release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: hermes-vanilla-release
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    env:
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      PUBLISHER_SHA: ${{ github.sha }}
+      ARTIFACTS_FILE: ${{ runner.temp }}/hermes-vanilla-artifacts.json
+      EXPECTED_ARTIFACT_NAMES: >-
+        ["hermes-vanilla-handoff-macos-arm64",
+        "hermes-vanilla-handoff-macos-x86_64",
+        "hermes-vanilla-handoff-ios-device",
+        "hermes-vanilla-handoff-ios-simulator",
+        "hermes-vanilla-handoff-linux-x86_64",
+        "hermes-vanilla-handoff-linux-arm64",
+        "hermes-vanilla-handoff-windows-x64"]
+      HANDOFF_VALIDATOR: |
+        import hashlib
+        import json
+        import os
+        import pathlib
+        import re
+
+        artifact_name = os.environ["EXPECTED_ARTIFACT_NAME"]
+        asset_name = os.environ["EXPECTED_ASSET_NAME"]
+        if not re.fullmatch(r"hermes-vanilla-handoff-[a-z0-9_-]+", artifact_name):
+            raise SystemExit("unsafe artifact name")
+        if not re.fullmatch(r"hermes-vanilla-[a-z0-9_.-]+\.tar\.gz", asset_name):
+            raise SystemExit("unsafe archive name")
+        with open(os.environ["ARTIFACTS_FILE"], encoding="utf-8") as source:
+            pages = json.load(source)
+        artifacts = [artifact for page in pages for artifact in page["artifacts"]]
+        matches = [artifact for artifact in artifacts if artifact["name"] == artifact_name]
+        if len(matches) != 1:
+            raise SystemExit("handoff artifact is not unique")
+        artifact = matches[0]
+        digest = artifact.get("digest", "")
+        size = artifact.get("size_in_bytes")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise SystemExit("unsafe artifact digest")
+        if not isinstance(size, int) or not 0 < size <= 2 * 1024 * 1024 * 1024:
+            raise SystemExit("unsafe artifact size")
+        root = pathlib.Path(os.environ["HANDOFF_DIR"]).resolve(strict=True)
+        entries = list(root.iterdir())
+        if len(entries) != 1 or entries[0].name != asset_name:
+            raise SystemExit("handoff is not exactly the named raw archive")
+        subject = entries[0]
+        if subject.is_symlink() or not subject.is_file() or subject.stat().st_size != size:
+            raise SystemExit("handoff subject is not the expected regular file and size")
+        hasher = hashlib.sha256()
+        with subject.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        asset_sha256 = hasher.hexdigest()
+        artifact_digest = digest.removeprefix("sha256:")
+        if artifact_digest != asset_sha256:
+            raise SystemExit("artifact_digest does not equal asset_sha256")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"asset_name={asset_name}\n")
+            output.write(f"asset_sha256={asset_sha256}\n")
+            output.write(f"asset_size={size}\n")
+            output.write(f"artifact_digest={artifact_digest}\n")
+
+    steps:
+      - name: Authorize triggering run and enumerate exact handoffs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PUBLISHER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HERMES_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_TAG" == "hermes-vanilla-${HERMES_COMMIT:0:12}-v1" ]]
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [[ "$SOURCE_SHA" != "$main_sha" || "$PUBLISHER_SHA" != "$main_sha" ]]; then
+            echo "::error::trigger, publisher, and current main must name the same commit"
+            exit 1
+          fi
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            > "$ARTIFACTS_FILE"
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          with open(os.environ["ARTIFACTS_FILE"], encoding="utf-8") as source:
+              pages = json.load(source)
+          artifacts = [artifact for page in pages for artifact in page["artifacts"]]
+          expected = json.loads(os.environ["EXPECTED_ARTIFACT_NAMES"])
+          if len(expected) != 7 or len(set(expected)) != 7:
+              raise SystemExit("publisher does not name seven unique handoffs")
+          if len(artifacts) != 7 or sorted(a["name"] for a in artifacts) != sorted(expected):
+              raise SystemExit("triggering run does not contain the exact handoff set")
+          for artifact in artifacts:
+              if artifact.get("expired") is not False:
+                  raise SystemExit(f"expired handoff: {artifact['name']}")
+              if not re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", "")):
+                  raise SystemExit(f"invalid handoff digest: {artifact['name']}")
+              size = artifact.get("size_in_bytes")
+              if not isinstance(size, int) or not 0 < size <= 2 * 1024 * 1024 * 1024:
+                  raise SystemExit(f"invalid handoff size: {artifact['name']}")
+          PY
+
+      - name: Download macOS arm64 raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-macos-arm64
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/macos-arm64
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate macOS arm64 raw handoff
+        id: validate_macos_arm64
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-macos-arm64
+          EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-apple-darwin.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/macos-arm64
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download macOS x86_64 raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-macos-x86_64
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/macos-x86_64
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate macOS x86_64 raw handoff
+        id: validate_macos_x86_64
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-macos-x86_64
+          EXPECTED_ASSET_NAME: hermes-vanilla-x86_64-apple-darwin.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/macos-x86_64
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download iOS device raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-ios-device
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/ios-device
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate iOS device raw handoff
+        id: validate_ios_device
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-ios-device
+          EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-apple-ios.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/ios-device
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download iOS simulator raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-ios-simulator
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/ios-simulator
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate iOS simulator raw handoff
+        id: validate_ios_simulator
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-ios-simulator
+          EXPECTED_ASSET_NAME: hermes-vanilla-universal-apple-ios-simulator.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/ios-simulator
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download Linux x86_64 raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-linux-x86_64
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/linux-x86_64
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate Linux x86_64 raw handoff
+        id: validate_linux_x86_64
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-linux-x86_64
+          EXPECTED_ASSET_NAME: hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/linux-x86_64
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download Linux arm64 raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-linux-arm64
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/linux-arm64
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate Linux arm64 raw handoff
+        id: validate_linux_arm64
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-linux-arm64
+          EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/linux-arm64
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download Windows x64 raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-handoff-windows-x64
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/windows-x64
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate Windows x64 raw handoff
+        id: validate_windows_x64
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-windows-x64
+          EXPECTED_ASSET_NAME: hermes-vanilla-x86_64-pc-windows-msvc.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/windows-x64
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Attest macOS arm64 archive
+        id: attest_macos_arm64
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_macos_arm64.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_macos_arm64.outputs.asset_sha256 }}
+
+      - name: Attest macOS x86_64 archive
+        id: attest_macos_x86_64
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_macos_x86_64.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_macos_x86_64.outputs.asset_sha256 }}
+
+      - name: Attest iOS device archive
+        id: attest_ios_device
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_ios_device.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_ios_device.outputs.asset_sha256 }}
+
+      - name: Attest iOS simulator archive
+        id: attest_ios_simulator
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_ios_simulator.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_ios_simulator.outputs.asset_sha256 }}
+
+      - name: Attest Linux x86_64 archive
+        id: attest_linux_x86_64
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_linux_x86_64.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_linux_x86_64.outputs.asset_sha256 }}
+
+      - name: Attest Linux arm64 archive
+        id: attest_linux_arm64
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_linux_arm64.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_linux_arm64.outputs.asset_sha256 }}
+
+      - name: Attest Windows x64 archive
+        id: attest_windows_x64
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_windows_x64.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_windows_x64.outputs.asset_sha256 }}
+
+      - name: Assemble exact release set
+        env:
+          MACOS_ARM64_NAME: ${{ steps.validate_macos_arm64.outputs.asset_name }}
+          MACOS_ARM64_BUNDLE: ${{ steps.attest_macos_arm64.outputs.bundle-path }}
+          MACOS_X86_64_NAME: ${{ steps.validate_macos_x86_64.outputs.asset_name }}
+          MACOS_X86_64_BUNDLE: ${{ steps.attest_macos_x86_64.outputs.bundle-path }}
+          IOS_DEVICE_NAME: ${{ steps.validate_ios_device.outputs.asset_name }}
+          IOS_DEVICE_BUNDLE: ${{ steps.attest_ios_device.outputs.bundle-path }}
+          IOS_SIMULATOR_NAME: ${{ steps.validate_ios_simulator.outputs.asset_name }}
+          IOS_SIMULATOR_BUNDLE: ${{ steps.attest_ios_simulator.outputs.bundle-path }}
+          LINUX_X86_64_NAME: ${{ steps.validate_linux_x86_64.outputs.asset_name }}
+          LINUX_X86_64_BUNDLE: ${{ steps.attest_linux_x86_64.outputs.bundle-path }}
+          LINUX_ARM64_NAME: ${{ steps.validate_linux_arm64.outputs.asset_name }}
+          LINUX_ARM64_BUNDLE: ${{ steps.attest_linux_arm64.outputs.bundle-path }}
+          WINDOWS_X64_NAME: ${{ steps.validate_windows_x64.outputs.asset_name }}
+          WINDOWS_X64_BUNDLE: ${{ steps.attest_windows_x64.outputs.bundle-path }}
+          HANDOFF_ROOT: ${{ runner.temp }}/hermes-vanilla-handoff
+          RELEASE_DIR: ${{ runner.temp }}/hermes-vanilla-release
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_DIR"
+          retain() {
+            local handoff="$1" name="$2" bundle="$3"
+            test -f "$HANDOFF_ROOT/$handoff/$name"
+            test -f "$bundle"
+            cp "$HANDOFF_ROOT/$handoff/$name" "$RELEASE_DIR/$name"
+            cp "$bundle" "$RELEASE_DIR/$name.sigstore.json"
+          }
+          retain macos-arm64 "$MACOS_ARM64_NAME" "$MACOS_ARM64_BUNDLE"
+          retain macos-x86_64 "$MACOS_X86_64_NAME" "$MACOS_X86_64_BUNDLE"
+          retain ios-device "$IOS_DEVICE_NAME" "$IOS_DEVICE_BUNDLE"
+          retain ios-simulator "$IOS_SIMULATOR_NAME" "$IOS_SIMULATOR_BUNDLE"
+          retain linux-x86_64 "$LINUX_X86_64_NAME" "$LINUX_X86_64_BUNDLE"
+          retain linux-arm64 "$LINUX_ARM64_NAME" "$LINUX_ARM64_BUNDLE"
+          retain windows-x64 "$WINDOWS_X64_NAME" "$WINDOWS_X64_BUNDLE"
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import pathlib
+          root = pathlib.Path(os.environ["RELEASE_DIR"])
+          files = sorted(path for path in root.iterdir() if path.is_file())
+          if len(files) != 14 or any(path.is_symlink() for path in files):
+              raise SystemExit("release set is not seven archives plus seven Sigstore bundles")
+          lines = []
+          for path in files:
+              hasher = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      hasher.update(chunk)
+              lines.append(f"{hasher.hexdigest()}  {path.name}\n")
+          (root / "SHA256SUMS").write_text("".join(lines), encoding="ascii")
+          PY
+
+      - name: Create immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DIR: ${{ runner.temp }}/hermes-vanilla-release
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::release $RELEASE_TAG already exists; immutable releases are never edited"
+            exit 1
+          fi
+          test "$(find "$RELEASE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 15
+          gh release create "$RELEASE_TAG" "$RELEASE_DIR"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --prerelease \
+            --title "$RELEASE_TAG" \
+            --notes "Pinned vanilla Hermes $HERMES_COMMIT lean target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and published retained Sigstore bundles plus SHA256SUMS."

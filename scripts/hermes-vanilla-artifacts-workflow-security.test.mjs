@@ -1,5 +1,5 @@
 // @ref LLP 0067#5-the-engine-and-the-artifacts — native builders hand inert
-// bytes to a checkout-free publisher; only that publisher has release/OIDC
+// bytes to a default-branch publisher; only that publisher has release/OIDC
 // authority.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -18,8 +18,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const workflow = readFileSync(
-  join(repoRoot, ".github/workflows/hermes-vanilla-artifacts.yml"),
+const builderWorkflow = readFileSync(
+  join(repoRoot, ".github/workflows/hermes-vanilla-build.yml"),
+  "utf8",
+);
+const publisherWorkflow = readFileSync(
+  join(repoRoot, ".github/workflows/hermes-vanilla-publish.yml"),
   "utf8",
 );
 
@@ -33,7 +37,7 @@ const builders = [
   "windows_x64",
 ];
 
-function jobBlocks() {
+function jobBlocks(workflow) {
   const jobsStart = workflow.indexOf("\njobs:\n");
   assert.notEqual(jobsStart, -1, "workflow must have a jobs mapping");
   const jobsText = workflow.slice(jobsStart + 1);
@@ -60,7 +64,7 @@ function permissions(job) {
   );
 }
 
-function blockScalar(key) {
+function blockScalar(workflow, key) {
   const marker = `      ${key}: |\n`;
   const start = workflow.indexOf(marker);
   assert.notEqual(start, -1, `missing ${key} block scalar`);
@@ -72,16 +76,23 @@ function blockScalar(key) {
   return body.join("\n");
 }
 
-test("workflow isolates seven read-only builders from one checkout-free publisher", () => {
-  const jobs = jobBlocks();
-  assert.deepEqual([...jobs.keys()], [...builders, "publish"]);
-  assert.match(workflow, /^permissions: \{\}$/m);
-  const trigger = workflow.slice(0, workflow.indexOf("\njobs:\n"));
-  assert.match(trigger, /\non:\n  workflow_dispatch:\n/);
-  assert.doesNotMatch(trigger, /\n  (?:push|pull_request|workflow_run):/);
+test("read-only builders are separated from the default-branch publisher", () => {
+  assert.deepEqual([...jobBlocks(builderWorkflow).keys()], builders);
+  assert.deepEqual([...jobBlocks(publisherWorkflow).keys()], ["publish"]);
+  assert.match(builderWorkflow, /^permissions: \{\}$/m);
+  assert.match(publisherWorkflow, /^permissions: \{\}$/m);
 
-  for (const name of builders) {
-    const builder = jobs.get(name);
+  const builderTrigger = builderWorkflow.slice(0, builderWorkflow.indexOf("\njobs:\n"));
+  assert.match(builderTrigger, /\non:\n  workflow_dispatch:\n/);
+  assert.doesNotMatch(builderTrigger, /\n  (?:pull_request_target|workflow_run):/);
+
+  const publisherTrigger = publisherWorkflow.slice(0, publisherWorkflow.indexOf("\njobs:\n"));
+  assert.match(publisherTrigger, /\non:\n  workflow_run:\n/);
+  assert.match(publisherTrigger, /workflows: \[Hermes vanilla release builder\]/);
+  assert.match(publisherTrigger, /types: \[completed\]/);
+  assert.doesNotMatch(publisherTrigger, /\n  (?:push|pull_request|workflow_dispatch):/);
+
+  for (const [name, builder] of jobBlocks(builderWorkflow)) {
     assert.deepEqual(permissions(builder), { contents: "read" }, `${name} is read-only`);
     assert.doesNotMatch(builder, /\$\{\{\s*secrets\.|^\s+GH_TOKEN:/m);
     assert.doesNotMatch(builder, /actions\/download-artifact|actions\/attest-build-provenance|gh release/);
@@ -94,41 +105,44 @@ test("workflow isolates seven read-only builders from one checkout-free publishe
     assert.match(uploads[0].text, /\n          archive: false\n/);
     assert.match(uploads[0].text, /\n          if-no-files-found: error\n/);
     assert.match(uploads[0].text, /\n          overwrite: false\n/);
-    assert.match(builder, /artifact_id: \$\{\{ steps\.handoff\.outputs\.artifact-id \}\}/);
-    assert.match(builder, /artifact_digest: \$\{\{ steps\.handoff\.outputs\.artifact-digest \}\}/);
   }
 
-  const publisher = jobs.get("publish");
+  const publisher = jobBlocks(publisherWorkflow).get("publish");
   assert.deepEqual(permissions(publisher), {
     actions: "read",
     attestations: "write",
     contents: "write",
     "id-token": "write",
   });
+  assert.match(publisher, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(publisher, /github\.event\.workflow_run\.head_branch == 'main'/);
+  assert.match(publisher, /github\.event\.workflow_run\.event == 'workflow_dispatch'/);
+  assert.match(publisher, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
+  assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/commits\/main" --jq \.sha/);
+  assert.match(publisher, /"\$SOURCE_SHA" != "\$main_sha"/);
   assert.doesNotMatch(publisher, /actions\/checkout|uses: \.\/|scripts\//);
   assert.doesNotMatch(publisher, /\b(?:unzip|Expand-Archive)\b|\btar\s+-/);
-  assert.doesNotMatch(publisher, /^    (?:container|services|environment):/m);
 
   const downloads = stepBlocks(publisher).filter((step) => step.text.includes("actions/download-artifact@"));
   assert.equal(downloads.length, builders.length);
   for (const download of downloads) {
-    assert.match(download.text, /\n          artifact-ids: \$\{\{ needs\.[a-z0-9_]+\.outputs\.artifact_id \}\}\n/);
+    assert.match(download.text, /\n          run-id: \$\{\{ github\.event\.workflow_run\.id \}\}\n/);
+    assert.match(download.text, /\n          github-token: \$\{\{ github\.token \}\}\n/);
+    assert.match(download.text, /\n          repository: \$\{\{ github\.repository \}\}\n/);
     assert.match(download.text, /\n          skip-decompress: true\n/);
     assert.match(download.text, /\n          digest-mismatch: error\n/);
-    assert.doesNotMatch(download.text, /\n          (?:github-token|repository|run-id|name|pattern|merge-multiple):/);
   }
 
   const attestations = stepBlocks(publisher).filter((step) => step.text.includes("actions/attest-build-provenance@"));
   assert.equal(attestations.length, builders.length);
   for (const attestation of attestations) {
-    assert.match(attestation.text, /\n          subject-name: \$\{\{ needs\.[a-z0-9_]+\.outputs\.asset_name \}\}\n/);
-    assert.match(attestation.text, /\n          subject-digest: sha256:\$\{\{ needs\.[a-z0-9_]+\.outputs\.asset_sha256 \}\}\n/);
+    assert.match(attestation.text, /\n          subject-name: \$\{\{ steps\.validate_[a-z0-9_]+\.outputs\.asset_name \}\}\n/);
+    assert.match(attestation.text, /\n          subject-digest: sha256:\$\{\{ steps\.validate_[a-z0-9_]+\.outputs\.asset_sha256 \}\}\n/);
     assert.doesNotMatch(attestation.text, /subject-path:/);
   }
 
   assert.match(publisher, /gh release create "\$RELEASE_TAG"/);
-  assert.match(publisher, /release .* already exists; immutable releases are never edited/);
-  assert.doesNotMatch(publisher, /gh release (?:edit|upload|delete)|--clobber|--method DELETE/);
+  assert.match(publisher, /--target "\$SOURCE_SHA"/);
 });
 
 test("every action reference is an approved full commit SHA", () => {
@@ -139,7 +153,8 @@ test("every action reference is an approved full commit SHA", () => {
     "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be",
     "ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756",
   ]);
-  const references = [...workflow.matchAll(/^\s+uses: ([^\s#]+)/gm)].map((match) => match[1]);
+  const references = [...`${builderWorkflow}\n${publisherWorkflow}`.matchAll(/^\s+uses: ([^\s#]+)/gm)]
+    .map((match) => match[1]);
   assert.ok(references.length > 0);
   for (const reference of references) {
     assert.match(reference, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[0-9a-f]{40}$/);
@@ -151,30 +166,42 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   const version = readFileSync(join(repoRoot, "scripts/hermes-version.sh"), "utf8");
   const commit = version.match(/IBEX_HERMES_VANILLA_SOURCE_COMMIT="\$\{IBEX_HERMES_VANILLA_SOURCE_COMMIT:-([0-9a-f]{40})\}"/)?.[1];
   assert.ok(commit);
-  assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-  assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v1$`, "m"));
-  assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v1$`, "m"));
+  for (const workflow of [builderWorkflow, publisherWorkflow]) {
+    assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v1$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v1`, "m"));
+  }
 });
 
-const validator = blockScalar("HANDOFF_VALIDATOR");
+const validator = blockScalar(publisherWorkflow, "HANDOFF_VALIDATOR");
 
 function runValidator(setup) {
   const temporary = mkdtempSync(join(tmpdir(), "hermes-vanilla-handoff-test-"));
   const handoff = join(temporary, "handoff");
   mkdirSync(handoff);
-  const name = "hermes-vanilla-test-target.tar.gz";
+  const artifactName = "hermes-vanilla-handoff-test-target";
+  const assetName = "hermes-vanilla-test-target.tar.gz";
   const bytes = Buffer.from("inert archive bytes");
-  writeFileSync(join(handoff, name), bytes);
-  setup?.({ temporary, handoff, name, bytes });
-  const expected = createHash("sha256").update(bytes).digest("hex");
+  writeFileSync(join(handoff, assetName), bytes);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const artifactsFile = join(temporary, "artifacts.json");
+  writeFileSync(artifactsFile, JSON.stringify([{ artifacts: [{
+    name: artifactName,
+    digest: `sha256:${digest}`,
+    size_in_bytes: bytes.length,
+    expired: false,
+  }] }]));
+  setup?.({ temporary, handoff, artifactName, assetName, bytes, artifactsFile });
+  const output = join(temporary, "output");
   const result = spawnSync("python3", ["-c", validator], {
     encoding: "utf8",
     env: {
       ...process.env,
-      EXPECTED_NAME: name,
-      EXPECTED_SHA256: expected,
-      EXPECTED_SIZE: String(bytes.length),
+      EXPECTED_ARTIFACT_NAME: artifactName,
+      EXPECTED_ASSET_NAME: assetName,
+      ARTIFACTS_FILE: artifactsFile,
       HANDOFF_DIR: handoff,
+      GITHUB_OUTPUT: output,
     },
   });
   rmSync(temporary, { recursive: true, force: true });
@@ -190,14 +217,14 @@ test("publisher rejects extra entries, symlinks, and changed bytes", () => {
   const extra = runValidator(({ handoff }) => writeFileSync(join(handoff, "extra"), "x"));
   assert.notEqual(extra.status, 0);
 
-  const linked = runValidator(({ temporary, handoff, name }) => {
-    rmSync(join(handoff, name));
+  const linked = runValidator(({ temporary, handoff, assetName }) => {
+    rmSync(join(handoff, assetName));
     const outside = join(temporary, "outside");
     writeFileSync(outside, "inert archive bytes");
-    symlinkSync(outside, join(handoff, name));
+    symlinkSync(outside, join(handoff, assetName));
   });
   assert.notEqual(linked.status, 0);
 
-  const changed = runValidator(({ handoff, name }) => writeFileSync(join(handoff, name), "changed"));
+  const changed = runValidator(({ handoff, assetName }) => writeFileSync(join(handoff, assetName), "changed"));
   assert.notEqual(changed.status, 0);
 });

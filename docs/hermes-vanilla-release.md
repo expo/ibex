@@ -16,9 +16,10 @@ no production date.
 
 1. Resolve an upstream tag to its exact commit and update
    `scripts/hermes-version.sh`. Update the fixed commit/tag/concurrency values
-   in `.github/workflows/hermes-vanilla-artifacts.yml`; the security test fails
-   if they drift. Windows reads the same commit pin and therefore moves with
-   every pin bump, while retaining its supported Release+debugger, Intl-off
+   in `.github/workflows/hermes-vanilla-build.yml` and
+   `.github/workflows/hermes-vanilla-publish.yml`; the security test fails if
+   they drift. Windows reads the same commit pin and therefore moves with every
+   pin bump, while retaining its supported Release+debugger, Intl-off
    configuration.
 2. Run the local checks and, where the host supports them, packaging dry runs:
 
@@ -27,7 +28,8 @@ no production date.
    node --check scripts/hermes-vanilla-artifacts-workflow-security.test.mjs
    node --test scripts/hermes-vanilla-artifacts-workflow-security.test.mjs
    cargo test -p ibex2 receipt::tests --no-default-features
-   actionlint .github/workflows/hermes-vanilla-artifacts.yml
+   actionlint .github/workflows/hermes-vanilla-build.yml
+   actionlint .github/workflows/hermes-vanilla-publish.yml
    ./ref-check
 
    scripts/build-hermes-vanilla-release.sh \
@@ -36,30 +38,47 @@ no production date.
      aarch64-apple-ios /tmp/hermes-vanilla-aarch64-apple-ios.tar.gz
    ```
 
-3. After review, push and merge the branch. The orchestrator then runs the
-   manual workflow; its checkout-free publisher creates the prerelease and all
-   assets in one `gh release create`. If the tag already exists, publication
-   fails. The workflow never edits, replaces, or deletes an existing release.
+3. After review, push and merge the branch. The orchestrator then dispatches
+   the read-only builder on `main`. Its successful completion triggers the
+   checkout-free publisher definition loaded by GitHub from the default
+   branch. The publisher proceeds only for a `workflow_dispatch` builder run
+   whose branch is `main` and whose source commit still equals the `main` head
+   fetched through the API. It downloads the exact triggering run's handoffs
+   by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
+   and publishes them.
 
    ```sh
    git push -u origin l1c-release
 
    repo=expo/ibex
    ref=main
-   workflow=hermes-vanilla-artifacts.yml
+   builder_workflow=hermes-vanilla-build.yml
+   publisher_workflow=hermes-vanilla-publish.yml
    source_revision="$(gh api "repos/$repo/commits/$ref" --jq .sha)"
-   gh workflow run "$workflow" --repo "$repo" --ref "$ref"
-   run_id=
+   gh workflow run "$builder_workflow" --repo "$repo" --ref "$ref"
+   builder_run_id=
    attempts=0
-   while test -z "$run_id" && test "$attempts" -lt 30; do
-     run_id="$(gh run list --repo "$repo" --workflow "$workflow" \
+   while test -z "$builder_run_id" && test "$attempts" -lt 30; do
+     builder_run_id="$(gh run list --repo "$repo" --workflow "$builder_workflow" \
        --branch "$ref" --commit "$source_revision" --event workflow_dispatch \
        --limit 1 --json databaseId --jq '.[0].databaseId')"
      attempts=$((attempts + 1))
-     test -n "$run_id" || sleep 2
+     test -n "$builder_run_id" || sleep 2
    done
-   test -n "$run_id"
-   gh run watch "$run_id" --repo "$repo" --exit-status
+   test -n "$builder_run_id"
+   gh run watch "$builder_run_id" --repo "$repo" --exit-status
+
+   publisher_run_id=
+   attempts=0
+   while test -z "$publisher_run_id" && test "$attempts" -lt 30; do
+     publisher_run_id="$(gh run list --repo "$repo" --workflow "$publisher_workflow" \
+       --branch "$ref" --commit "$source_revision" --event workflow_run \
+       --limit 1 --json databaseId --jq '.[0].databaseId')"
+     attempts=$((attempts + 1))
+     test -n "$publisher_run_id" || sleep 2
+   done
+   test -n "$publisher_run_id"
+   gh run watch "$publisher_run_id" --repo "$repo" --exit-status
    gh release view hermes-vanilla-d412d3bd8512-v1 --repo "$repo"
    ```
 
@@ -72,6 +91,7 @@ repository from satisfying this check.
 ```sh
 repo=expo/ibex
 tag=hermes-vanilla-d412d3bd8512-v1
+source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
 (cd "$verify_dir" && shasum -a 256 -c SHA256SUMS)
@@ -80,7 +100,12 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
   gh attestation verify "$archive" \
     --repo "$repo" \
     --bundle "$archive.sigstore.json" \
-    --signer-workflow expo/ibex/.github/workflows/hermes-vanilla-artifacts.yml
+    --signer-workflow expo/ibex/.github/workflows/hermes-vanilla-publish.yml \
+    --cert-identity \
+      https://github.com/expo/ibex/.github/workflows/hermes-vanilla-publish.yml@refs/heads/main \
+    --source-ref refs/heads/main \
+    --source-digest "$source_revision" \
+    --signer-digest "$source_revision"
   tar -xOzf "$archive" hermes-input-receipt.json | jq -e '
     .schema == "ibex/hermes-upstream-pinned-receipt/2" and
     .upstream.sourceCommit == "d412d3bd851278712c20cca25d094e32641a0465" and
@@ -91,6 +116,15 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     (.linkDirectives | length > 0)'
 done
 ```
+
+This checks the downloaded bytes against `SHA256SUMS`; verifies the retained
+Sigstore bundle for each archive; requires the attestation repository and
+signer workflow to be `expo/ibex` and the publisher path above; requires the
+certificate subject to bind that workflow to `refs/heads/main`; and requires
+both the source and signer digests to equal the Ibex commit named by the
+release tag. Separately, the receipt check binds the archive contents to the
+pinned upstream Hermes commit, an empty patch set, and the closed v2
+archive/header/link manifests.
 
 ## Bump consumer pins
 
