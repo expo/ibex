@@ -57,9 +57,11 @@ fn rust_and_native_sources() -> Vec<PathBuf> {
     for root in participating_crate_roots() {
         walk(&root.join("src"), &mut out);
         walk(&root.join("include"), &mut out);
-        let build = root.join("build.rs");
-        if build.is_file() {
-            out.push(build);
+        for build_source in ["build.rs", "build_support.rs"] {
+            let path = root.join(build_source);
+            if path.is_file() {
+                out.push(path);
+            }
         }
     }
     out.sort();
@@ -279,8 +281,15 @@ fn the_patch_series_is_not_a_build_input() {
         .into_iter()
         .map(|root| {
             let path = root.join("build.rs");
-            let text = std::fs::read_to_string(&path)
+            let mut text = std::fs::read_to_string(&path)
                 .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+            let support = root.join("build_support.rs");
+            if support.is_file() {
+                text.push_str(
+                    &std::fs::read_to_string(&support)
+                        .unwrap_or_else(|error| panic!("read {}: {error}", support.display())),
+                );
+            }
             (path, text)
         })
         .collect();
