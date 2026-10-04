@@ -453,6 +453,75 @@ formatting, caps and reference checks pass. The separate WebSocket failures
 recorded above remain outside this change; no full-runtime or fresh non-Windows
 qualification is inferred from these focused results.
 
+#### Standalone Windows setup qualification
+
+Implementation owner: Codex, 2026-10-04. The standalone README omitted the
+Windows developer shell, native tool prerequisites, receipt generation and
+full/run-only CLI sequence. Engine-bearing tests so far reused a qualified
+old-checkout vanilla installation through the explicit overrides. That is valid
+runtime evidence but does not prove that a new standalone checkout can prepare
+itself without those files. The Windows builder has a direct pinned archive
+download path; unlike the Apple/Linux scripts, it did not print the separate
+receipt command required by AOT `build`.
+
+Root independently reviewed the read-only setup/migration audit and approved
+only README setup instructions and the existing builder's receipt next-step
+hint, with evidence here. Keep the receipt producer separate and preserve its
+symbol checks and engine/compiler digests. No new installer, global environment
+change or runtime policy is added. Qualify with both Ibex overrides absent and
+a process-local LOCALAPPDATA pointing at a fresh private ignored cache, forcing
+the archive fetch and cold source build without cleaning the existing cache.
+Create a new repository-local install and receipt, build the current full and
+run-only CLI, run fresh 100/500 source/AOT graphs and runtime tests, and inspect
+DLL dependencies. Record source/tool versions and actual outcomes; this is not
+a claim of bit-identical output across compiler versions or absolute paths.
+Primary-checkout history migration and any global PATH/CLI installation remain
+separate decisions after the cold qualification and backup inventory review.
+
+Qualification on 2026-10-04 used Rust 1.97.0, VS 2022 MSVC 14.44.35207,
+Windows SDK 10.0.26100.0, CMake 4.3.2, Ninja 1.12.0, Python 3.13.14 and
+Node 24.15.0. A fresh process-local LOCALAPPDATA under `ibex-cold-1004` forced
+the archive-download branch and all 436 native build steps, with neither Ibex
+override set and no old-checkout source, engine, compiler or receipt reused.
+The separate producer verified an empty patch set and absence of all four
+patched symbols for source `6badada762121682b5481b6124e6c3a991ae6046`.
+Its debugger engine SHA-256 is
+`d893280a99a75c47f3d475297daf988ca96931e6ef2fb6d538f17590deb4cf45`;
+its compiler SHA-256 is
+`3bbb242a7e918f134c968f54cb8d8bb9b42545fcf0b7c16332df07723325ddbb`.
+The builder's printed receipt command names the correct new local install.
+
+Both current release CLI variants build with the overrides absent. Fresh
+100/500-module chains (about 9.6 KiB per dependency, paths with spaces, `#` and
+`café`) assert `m0` in full source mode, full precompiled mode and run-only
+precompiled mode; run-only source requests explicitly refuse. The README's
+`hello` example works in both variants, as do both 500-module precompiled runs
+from an unrelated temporary working directory. PE headers retain the reviewed
+8 MiB reserve/4 KiB initial commit. DLL imports contain Windows/ICU and Microsoft
+runtime dependencies, with no Hermes DLL or tool/cache-directory dependency.
+
+The first runtime sweep had 615 passes, one unread-response HTTP fixture
+timeout, and 23 existing ignores. The peer's three-second read budget begins
+before the separate request is completed and the first response is dropped;
+the failure does not isolate drop latency. The exact fixture then passed in
+0.03 seconds, the complete library passed 394/0/7, and a complete unchanged
+runtime sweep passed 616/0/23. No transport behavior or timeout was relaxed;
+the one observed timeout remains a qualification limitation, not a diagnosed
+or fixed defect. Workspace Hermes strict Clippy, formatting, caps and ref-check
+pass. Logs and the graph/binary inventory are retained under
+`target/standalone-cold-*` in the private qualification checkout.
+
+An earlier fresh-cache attempt nested under a much longer checkout-local
+`target/hermes-cold-20261004` path downloaded successfully but failed in MSVC
+MASM/C++ Boost object creation (A1000/C1083, generated paths over MAX_PATH).
+Its log remains `target/standalone-cold-hermes-build.log`; its failed cache was
+retained under `target/build/hermes-cold-20261004`, outside ref-check's source
+scan. The successful shorter cache was also empty at entry. The README records
+this native-tool path-length limit; the builder has no new cache semantics.
+The 208-second native build is functional evidence, not an isolated performance
+comparison. No primary branch, old install or global PATH was changed by this
+qualification.
+
 ### Windows app storage qualification
 
 Implementation owner: Codex, 2026-10-04, following the Windows engine slice.
