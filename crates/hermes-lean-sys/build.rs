@@ -28,6 +28,7 @@ fn main() {
     let target_arch = cargo_arch("CARGO_CFG_TARGET_ARCH");
     let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let links_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
+    let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
 
     let install =
         resolve_engine_directory(repo_root, &target_os, &target_vendor, target_arch, &host);
@@ -45,12 +46,6 @@ fn main() {
     metadata("engine_digest", &engine_digest);
     metadata("bytecode_version", &bytecode_version);
     metadata("engine_dir", &install.root.display().to_string());
-    if target_os == "linux" {
-        metadata("icu_lib_dir", &install.lib_root.display().to_string());
-        metadata("icu_i18n", LINUX_ICU_I18N);
-        metadata("icu_uc", LINUX_ICU_UC);
-        metadata("icu_data", LINUX_ICU_DATA);
-    }
     println!("cargo:rustc-env=HERMES_LEAN_ENGINE_DIGEST={engine_digest}");
     println!(
         "cargo:rustc-env=HERMES_LEAN_ARCHIVE={}",
@@ -65,6 +60,9 @@ fn main() {
             &install.lib_root,
             &install.vm_archive,
         );
+    }
+    if links_icu && target_os == "linux" {
+        emit_linux_icu_link_lines(&install.lib_root);
     }
 }
 
@@ -239,13 +237,18 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_arc
         println!("cargo:rustc-link-lib=psapi");
         println!("cargo:rustc-link-lib=winmm");
     } else {
-        println!("cargo:rustc-link-lib=static={LINUX_ICU_I18N}");
-        println!("cargo:rustc-link-lib=static={LINUX_ICU_UC}");
-        println!("cargo:rustc-link-lib=static={LINUX_ICU_DATA}");
+        // ICU comes from the `icu` feature, which `link` implies.
         println!("cargo:rustc-link-lib=static=tinfo");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=dl");
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=m");
     }
+}
+
+fn emit_linux_icu_link_lines(lib_root: &Path) {
+    println!("cargo:rustc-link-search=native={}", lib_root.display());
+    println!("cargo:rustc-link-lib=static={LINUX_ICU_I18N}");
+    println!("cargo:rustc-link-lib=static={LINUX_ICU_UC}");
+    println!("cargo:rustc-link-lib=static={LINUX_ICU_DATA}");
 }

@@ -10,7 +10,11 @@ publish = false
 default = []
 # Archive selection is invariant across feature contexts. `link` controls only
 # whether this crate emits the selected full VM's native link lines.
-link = []
+link = ["icu"]
+# Linux ICU link lines only. The JSI bindings' Intl shims call ICU directly
+# without linking a VM, so `ibex2[bindings]` enables this alone; `link`
+# implies it, so ICU is emitted by exactly one crate in any graph.
+icu = []
 
 [build-dependencies]
 sha2 = "0.10"

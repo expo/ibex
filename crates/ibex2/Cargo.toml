@@ -16,7 +16,9 @@ sha2 = "0.10"
 ring = { version = "0.17", optional = true }
 url = "2.5"
 serde_json = "1"
-hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
+# `icu` on the normal dependency only: the bindings' Linux Intl shims need ICU
+# at link time, and hermes-lean-sys is its single owner (`link` implies it).
+hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false, features = ["icu"] }
 
 [dev-dependencies]
 ibex2-sqlite = { path = "../ibex2-sqlite" }

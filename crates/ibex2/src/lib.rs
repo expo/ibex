@@ -18,6 +18,11 @@
 
 #[cfg(feature = "bindings")]
 pub mod bindings;
+// No Rust item from hermes-lean-sys is used here, so name the crate to make
+// rustc link it: its `icu` feature carries the ICU archives the Linux Intl
+// shims in the bindings call.
+#[cfg(feature = "bindings")]
+extern crate hermes_lean_sys as _;
 pub mod boundary;
 #[cfg(feature = "bindings")]
 pub mod boundary_abi;
