@@ -21,9 +21,19 @@ const FORBIDDEN_LEGACY_PACKAGES: &[&str] = &[
     "ibex-sfe-format",
     "ibex-sfe-catalog",
 ];
+const PARTICIPATING_PACKAGES: &[&str] = &["ibex2", "ibex2-runtime", "hermes-lean-sys"];
 
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn participating_crate_roots() -> Vec<PathBuf> {
+    let runtime = crate_root();
+    vec![
+        runtime.join("../ibex2"),
+        runtime,
+        crate_root().join("../hermes-lean-sys"),
+    ]
 }
 
 fn rust_and_native_sources() -> Vec<PathBuf> {
@@ -44,11 +54,22 @@ fn rust_and_native_sources() -> Vec<PathBuf> {
         }
     }
     let mut out = Vec::new();
-    walk(&crate_root().join("src"), &mut out);
+    for root in participating_crate_roots() {
+        walk(&root.join("src"), &mut out);
+        walk(&root.join("include"), &mut out);
+        let build = root.join("build.rs");
+        if build.is_file() {
+            out.push(build);
+        }
+    }
+    out.sort();
     out
 }
 
-fn forbidden_resolved_dependencies(metadata: &serde_json::Value) -> Vec<String> {
+fn forbidden_resolved_dependencies(
+    metadata: &serde_json::Value,
+    root_names: &[&str],
+) -> Vec<String> {
     let packages = metadata["packages"]
         .as_array()
         .expect("package list in cargo metadata");
@@ -61,11 +82,16 @@ fn forbidden_resolved_dependencies(metadata: &serde_json::Value) -> Vec<String> 
             )
         })
         .collect();
-    let root = packages
+    let roots: Vec<_> = root_names
         .iter()
-        .find(|package| package["name"] == "ibex2")
-        .and_then(|package| package["id"].as_str())
-        .expect("ibex2 package in cargo metadata");
+        .map(|name| {
+            packages
+                .iter()
+                .find(|package| package["name"] == **name)
+                .and_then(|package| package["id"].as_str())
+                .unwrap_or_else(|| panic!("{name} package in cargo metadata"))
+        })
+        .collect();
     let nodes = metadata["resolve"]["nodes"]
         .as_array()
         .expect("resolved nodes in cargo metadata");
@@ -73,10 +99,12 @@ fn forbidden_resolved_dependencies(metadata: &serde_json::Value) -> Vec<String> 
         .iter()
         .map(|node| (node["id"].as_str().expect("resolved node id"), node))
         .collect();
-    assert!(nodes_by_id.contains_key(root), "ibex2 resolve node");
+    for root in &roots {
+        assert!(nodes_by_id.contains_key(root), "{root} resolve node");
+    }
 
     let mut reachable = HashSet::new();
-    let mut pending = vec![root];
+    let mut pending = roots;
     while let Some(package_id) = pending.pop() {
         if !reachable.insert(package_id) {
             continue;
@@ -137,10 +165,10 @@ fn the_kernel_does_not_depend_on_the_legacy_runtime() {
     );
     let metadata: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("cargo metadata JSON");
-    let forbidden = forbidden_resolved_dependencies(&metadata);
+    let forbidden = forbidden_resolved_dependencies(&metadata, PARTICIPATING_PACKAGES);
     assert!(
         forbidden.is_empty(),
-        "crates/ibex2's resolved normal/build dependency graph reaches forbidden legacy packages (§5.3): {forbidden:?}"
+        "the three door crates' resolved normal/build dependency graph reaches forbidden legacy packages (§5.3): {forbidden:?}"
     );
 }
 
@@ -176,7 +204,7 @@ fn closure_walk_follows_renamed_transitive_and_build_dependencies() {
     });
 
     assert_eq!(
-        forbidden_resolved_dependencies(&metadata),
+        forbidden_resolved_dependencies(&metadata, &["ibex2"]),
         vec!["ibex-runtime"]
     );
 }
@@ -203,7 +231,7 @@ fn closure_walk_excludes_dev_only_dependencies() {
         }
     });
 
-    assert!(forbidden_resolved_dependencies(&metadata).is_empty());
+    assert!(forbidden_resolved_dependencies(&metadata, &["ibex2"]).is_empty());
 }
 
 /// §5.4 — no patched-engine symbol or identity-reading helper appears in the
@@ -247,17 +275,31 @@ fn no_patched_engine_symbol_is_referenced_in_code() {
 /// §5.2 — nothing below `patches/hermes/` is a build input.
 #[test]
 fn the_patch_series_is_not_a_build_input() {
-    let build = std::fs::read_to_string(crate_root().join("build.rs")).expect("build.rs");
-    let engine_build = std::fs::read_to_string(crate_root().join("../hermes-lean-sys/build.rs"))
-        .expect("hermes-lean-sys build.rs");
+    let builds: Vec<_> = participating_crate_roots()
+        .into_iter()
+        .map(|root| {
+            let path = root.join("build.rs");
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+            (path, text)
+        })
+        .collect();
+    let offenders: Vec<_> = builds
+        .iter()
+        .filter(|(_, build)| build.contains("patches/hermes"))
+        .map(|(path, _)| path.display().to_string())
+        .collect();
     assert!(
-        !build.contains("patches/hermes") && !engine_build.contains("patches/hermes"),
-        "a build.rs reads from patches/hermes (§5.2)"
+        offenders.is_empty(),
+        "build scripts reading from patches/hermes (§5.2): {offenders:?}"
     );
+    let runtime_build = &builds[1].1;
+    let bindings_build = &builds[0].1;
+    let engine_build = &builds[2].1;
     // Runtime/bindings consume only sys metadata; the one resolver names the
     // vanilla tree and never the reviewed one.
     assert!(
-        build.contains("DEP_HERMES_LEAN_"),
+        runtime_build.contains("DEP_HERMES_LEAN_") && bindings_build.contains("DEP_HERMES_LEAN_"),
         "runtime build.rs must consume hermes-lean-sys metadata"
     );
     assert!(
