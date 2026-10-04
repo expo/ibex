@@ -98,6 +98,10 @@ fn main() {
         !is_windows || arch == "x64",
         "Windows Hermes currently supports x64 only"
     );
+    if is_windows && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        // @ref LLP 0068#proposed-windows-cli-stack-reserve — CLI policy, never an embedder's stack
+        println!("cargo:rustc-link-arg-bin=ibex2=/STACK:8388608");
+    }
 
     // canonicalize produces a verbatim Windows path that MSVC's include
     // search does not accept. Cargo already supplies an absolute path.

@@ -381,6 +381,78 @@ new upstream WebSocket conversation/lifecycle cases (abnormal close 1006).
 These failures are not hidden by the metrics qualification, and the ordinary
 Windows CLI's 500-deep module-chain limit remains a separate product issue.
 
+#### Proposed Windows CLI stack reserve
+
+Implementation owner: Codex, 2026-10-04. The ordinary release `ibex2.exe` at
+`dad280ce` has a measured PE32+ stack reserve of 1,048,576 bytes and commit of
+4,096 bytes. Its source and precompiled 100-module dependency chains complete;
+both 500-module chains return exit 1 with Hermes's native-stack-depth exception.
+Ahead-of-time compilation of both graphs succeeds. The diagnostic's separately
+owned 8 MiB thread completes the same 500-module workload, establishing a real
+CLI allocation mismatch without changing any engine guard or loader recursion.
+
+Prefer an 8 MiB PE stack reserve for the supported Windows MSVC CLI. Add
+`cargo:rustc-link-arg-bin=ibex2=/STACK:8388608` in the existing Hermes-enabled
+build script, conditional on the target OS and MSVC environment. Cargo scopes
+this argument to the named binary; neither library consumers nor examples,
+tests, non-Windows binaries or no-engine builds receive it. Both full and
+run-only CLI configurations do receive it. The existing main thread continues
+owning runtime construction, use and destruction, with unchanged exit codes,
+panic propagation, deadline handling, and Hermes stack guards. No new command,
+configuration switch, runtime thread, engine patch, or vendor refresh is added.
+
+An owned 8 MiB execution worker is an alternative: it could preserve the
+runtime's single-thread ownership and propagate its result/panic through join.
+It would also create a thread for every invocation, retain the waiting main
+thread and its reserve, and alter the CLI execution thread unnecessarily.
+Changing linker defaults globally or enlarging all embedding threads would
+instead impose policy on other hosts. The binary-specific reserve is the
+smallest change for the observed CLI failure.
+
+The 8 MiB reservation consumes additional virtual address space, not an eagerly
+committed 8 MiB allocation. Leave the initial commit at the linker default;
+Windows commits more stack pages as needed. The executable's reserve may also
+be inherited by native threads created without an explicit stack size. Existing
+Rust-created threads retain their explicit runtime/thread-builder policies.
+This is a bounded CLI budget, not a promise of arbitrary module depth or a
+change to engine limits. Embedders continue to own the actual stack of the
+thread on which they create and enter Hermes; this crate does not resize it.
+
+Before implementation, obtain an independent review of this amendment. The
+production allowlist is `crates/ibex2/build.rs`; retain the regression in an
+existing integration-test file, with evidence in this LLP and its review file.
+Qualify the actual full CLI in fresh processes on both 100/500 source and
+precompiled chains, asserting a final value so success cannot mean skipped
+execution. Verify recursive JavaScript still exits through an engine exception,
+normal thrown errors retain their diagnostics, and the async pump honors its
+existing `--budget-ms` bound. This CLI flag does not arm a synchronous engine
+deadline; separately rerun the existing Hermes deadline tests. Verify the
+run-only CLI executes the same precompiled graphs. Inspect both CLI PE headers
+for the intended reserve/commit and an example/integration binary for absence
+of leakage. Rerun focused loader/consumer/no-engine tests, strict workspace
+Clippy, formatting, caps and reference checks. Keep the separate upstream
+WebSocket failures visible; they are not evidence about stack allocation.
+
+References: [MSVC stack reserve and commit](https://learn.microsoft.com/en-us/cpp/build/reference/stack-stack-allocations?view=msvc-170)
+and [Cargo's named-binary linker argument](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-link-arg-bin).
+
+Root independently approved the amendment before implementation. Windows
+qualification passes the two new product-process regressions, including exact
+100/500-deep result values from source and bytecode, guard refusal with exit 1,
+an ordinary thrown exception, and a zero async-pump budget. The actual release
+CLI also passes the original 9.6 KiB-per-module 100/500 source and precompiled
+workloads, and the no-loader release CLI runs both resulting bytecode graphs.
+Both release PE headers now reserve 8,388,608 bytes and initially commit 4,096;
+the speed example, loader integration executable and no-engine Rust-consumer
+executable still reserve 1,048,576 and commit 4,096. No thread was added.
+
+The loader and Rust-consumer suites pass 50 tests with one existing symlink
+privilege ignore; all 23 engine deadline tests pass. The no-engine workspace
+passes 257 tests with five existing ignores. Strict workspace Hermes Clippy,
+formatting, caps and reference checks pass. The separate WebSocket failures
+recorded above remain outside this change; no full-runtime or fresh non-Windows
+qualification is inferred from these focused results.
+
 ### Windows app storage qualification
 
 Implementation owner: Codex, 2026-10-04, following the Windows engine slice.
