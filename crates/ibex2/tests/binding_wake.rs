@@ -1,4 +1,6 @@
 //! The embedder's wake can inspect the queue without re-entering a queue lock.
+#![cfg(feature = "bindings")]
+
 use ibex2::{boundary::HostValue, task::CompletionQueue};
 use std::{
     sync::{mpsc, Arc},

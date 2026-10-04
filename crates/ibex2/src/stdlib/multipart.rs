@@ -72,10 +72,12 @@ impl FormDataEntry {
 /// written, so the ABI adds no intermediate file-byte copy.
 // @ref LLP 0059.000#12-what-by-handle-requires — inbound ArrayBuffers remain borrowed for the host call
 #[derive(Debug, Default)]
+#[cfg(feature = "bindings")]
 pub(crate) struct BorrowedFormData<'a> {
     entries: Vec<EntryRef<'a>>,
 }
 
+#[cfg(feature = "bindings")]
 impl<'a> BorrowedFormData<'a> {
     pub(crate) fn new() -> Self {
         Self::default()
@@ -182,6 +184,7 @@ impl EncodedMultipart {
         Ok(Self { boundary, bytes })
     }
 
+    #[cfg(feature = "bindings")]
     pub(crate) fn with_borrowed_boundary(
         form: &BorrowedFormData<'_>,
         boundary: &str,
@@ -525,6 +528,7 @@ last\r\n\
     }
 
     #[test]
+    #[cfg(feature = "bindings")]
     fn borrowed_form_data_writes_directly_from_the_inbound_file_slice() {
         let file_bytes = [0, 1, 0xff];
         let mut borrowed = BorrowedFormData::new();

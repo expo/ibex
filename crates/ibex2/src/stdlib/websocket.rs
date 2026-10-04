@@ -417,6 +417,7 @@ fn saturating_add(amount: &std::sync::atomic::AtomicUsize, bytes: usize) {
 /// Start one event-producing socket. Admission happens before the worker is
 /// spawned; a denial therefore publishes `error`, then `close(1006)`, without
 /// touching the transport.
+#[cfg(feature = "bindings")]
 pub(crate) fn watch_with(
     transport: Arc<dyn SocketTransport>,
     grants: Arc<GrantSet>,

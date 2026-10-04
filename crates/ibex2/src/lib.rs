@@ -19,15 +19,20 @@
 #[cfg(feature = "bindings")]
 pub mod bindings;
 pub mod boundary;
+#[cfg(feature = "bindings")]
 pub mod boundary_abi;
 pub mod grant;
 pub mod host;
+#[cfg(feature = "bindings")]
 mod host_opcodes;
 pub mod kv;
+#[cfg(feature = "bindings")]
 pub mod pool;
 pub mod secrets;
 pub mod stdlib;
+#[cfg(feature = "bindings")]
 pub mod task;
 pub mod transport;
 
+#[cfg(feature = "bindings")]
 mod sqlite_abi;

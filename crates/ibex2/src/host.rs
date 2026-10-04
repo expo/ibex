@@ -153,10 +153,12 @@ impl Bindings {
         Arc::clone(&self.fetch.grants)
     }
 
+    #[cfg(feature = "bindings")]
     pub(crate) fn app_directories(&self) -> Option<Arc<crate::stdlib::app_fs::AppDirectories>> {
         self.fs.directories.clone()
     }
 
+    #[cfg(feature = "bindings")]
     pub(crate) fn sqlite_provider(&self) -> Option<Arc<dyn crate::stdlib::sqlite::Provider>> {
         self.sqlite.provider.clone()
     }
@@ -226,6 +228,7 @@ impl WebSocket {
     /// Build a module-scoped watch over this host's transport and the grant
     /// carried by that module's lexical `WebSocket` constructor.
     // @ref LLP 0067#1-five-properties — capability-bearing WebSocket authority is a module parameter, never runtime ambient state
+    #[cfg(feature = "bindings")]
     pub(crate) fn watch_with_grants(
         &self,
         grants: Arc<GrantSet>,
@@ -372,6 +375,7 @@ pub struct Fetch {
 }
 
 impl Fetch {
+    #[cfg(feature = "bindings")]
     pub(crate) fn transport(&self) -> &dyn Transport {
         self.transport.as_ref()
     }

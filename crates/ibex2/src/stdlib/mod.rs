@@ -18,6 +18,7 @@ pub(crate) mod intl_case;
 pub(crate) mod intl_datetime;
 pub mod multipart;
 pub mod subtle;
+#[cfg(feature = "bindings")]
 pub(crate) mod subtle_abi;
 pub mod text;
 pub mod timers;

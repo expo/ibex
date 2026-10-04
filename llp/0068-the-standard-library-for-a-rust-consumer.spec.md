@@ -647,10 +647,12 @@ Apple/Linux execution or cross-link is claimed for this slice.
 **OQ1 — The crate boundary.** *Resolved 2026-10-04 by L1b:* `ibex2` is the
 engine-free Rust library with VM-free JSI bindings behind `bindings`,
 `ibex2-runtime` owns Hermes and carries Oxc behind its default-on `loader`
-feature, and `hermes-lean-sys` alone resolves and links the selected engine. A Rust
-consumer depends on `ibex2` with `default-features = false` and compiles none of
-the loader or engine; the same cut remains the run-only binary shape of
-LLP 0065 §3.3.
+feature, and `hermes-lean-sys` alone resolves and links the selected engine.
+The binding ABI, queue/state, and binding worker pool compile only with
+`bindings`; the engine-free host retains the Rust error/value, admission, and
+event-subscription types it actually shares. A Rust consumer depends on `ibex2`
+with `default-features = false` and compiles none of the binding ABI, loader, or
+engine; the same cut remains the run-only binary shape of LLP 0065 §3.3.
 
 **OQ2 — Linux.** *Resolved 2026-08-30, for Exact 2's Linux host (its LLP
 1016 D2):* the default transport off Apple platforms is
