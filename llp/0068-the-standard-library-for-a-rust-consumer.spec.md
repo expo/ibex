@@ -328,6 +328,59 @@ These results qualify this engine slice only; the remaining storage, platform,
 and test-fixture work is tracked in
 [`issues/20261004-ibex2-windows-platform-gaps.md`](../issues/20261004-ibex2-windows-platform-gaps.md).
 
+**Standalone Windows metrics follow-up (2026-10-04).** Implementer: Codex.
+After the repository split, the retained `scripts/metrics.mjs` fails before
+building on Windows: using a file URL's `pathname` as a filesystem path doubles
+the drive prefix and preserves percent-encoded spaces. The existing diagnostic
+will use `fileURLToPath` for its repository root and the platform executable
+suffix for its ordinary, example, and run-only binaries. POSIX paths keep their
+current filenames; no runtime, timing formula, budget, or new check is added.
+Root independently approved this narrow correction before implementation.
+Qualification runs the actual Windows metrics CLI with the existing pinned
+vanilla engine/compiler overrides, plus existing caps tests and reference checks.
+Separate full-runtime results, including any unrelated WebSocket failures,
+remain separate from the diagnostic's own qualification.
+
+The corrected launcher reaches the existing recursive graph benchmark, which
+then raises Hermes's native-stack overflow on the Windows main thread. The
+produced PE reserves 1 MiB. Before changing allocation, identify the failing
+source/bytecode graph size and compare the same graph through the ordinary
+CLI. Root approved an explicit 8 MiB Windows worker for this diagnostic only:
+all runtime creation, use and destruction stay on that worker; join propagates
+its original panic. The 100/500-module workloads, timing intervals and Hermes
+guards stay unchanged. This declares the diagnostic's measurement stack, not
+an increase to the product CLI's supported depth or the embedder's stack.
+The larger diagnostic stack exposes its next fixture defect: canonical Windows
+paths expand to the full profile name, and the async-filesystem grant wrote that
+name as an unquoted token. Root separately reviewed JSON serialization of both
+the grant target and the embedded JavaScript filename using existing serde_json.
+Each grammar receives the exact path without widening filesystem authority.
+
+Qualification on the standalone `dc326458` baseline: the unmodified product
+CLI passes source and precompiled 100-module chains; both 500-module executions
+refuse with Hermes's native-stack guard, although both AOT builds succeed.
+Diagnostic error context independently identifies its failure as the
+500-module precompiled graph. The explicit diagnostic worker completes the
+unchanged workload and propagates a subsequent fixture panic through `join`
+without a second diagnostic. The quoted path correction then lets the actual
+`bun scripts/metrics.mjs --json` finish, including source/bytecode graphs, async
+filesystem I/O, fresh-process precompiled execution and both executable sizes.
+Its temporary root contains spaces, `#` and `café`; the checkout also contains
+profile-name spaces. Elapsed time (44.8 seconds including builds) is functional
+qualification under concurrent work, not an isolated performance comparison.
+The declared Node entrypoint completes the same real CLI with that temporary
+path (29.2 seconds, warm build). Root independently reviewed the worker and
+serialization changes before landing.
+Strict workspace Hermes Clippy, the changed example's final strict Clippy,
+formatting and reference checks pass. Existing caps CLI tests pass 16/16.
+
+Separate standalone-runtime evidence remains 257 no-engine workspace tests
+passing, with five existing ignores. The selected Hermes library/storage/loader/
+resolution/consumer sweep passes 464 tests, with ten ignores and six failures in
+new upstream WebSocket conversation/lifecycle cases (abnormal close 1006).
+These failures are not hidden by the metrics qualification, and the ordinary
+Windows CLI's 500-deep module-chain limit remains a separate product issue.
+
 ### Windows app storage qualification
 
 Implementation owner: Codex, 2026-10-04, following the Windows engine slice.

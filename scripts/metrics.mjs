@@ -18,9 +18,10 @@ import {
 } from 'node:fs';
 import { cpus, hostname, loadavg, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const t0 = Date.now();
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const json = process.argv.includes('--json');
 const record = process.argv.includes('--record');
 const rules = readFileSync(resolve(ROOT, 'rules/RULES.md'), 'utf8');
@@ -42,8 +43,9 @@ const out = {
 };
 const loaded = out.load1 > out.cores / 2;
 const step = (name, f) => { const t = Date.now(); const v = f(); out[`_${name}_s`] = +((Date.now() - t) / 1000).toFixed(2); return v; };
-const BIN = resolve(ROOT, 'target/release/ibex2');
-const SPEED = resolve(ROOT, 'target/release/examples/speed');
+const exe = process.platform === 'win32' ? '.exe' : '';
+const BIN = resolve(ROOT, `target/release/ibex2${exe}`);
+const SPEED = resolve(ROOT, `target/release/examples/speed${exe}`);
 
 // 1. The build. A no-op on a warm cache; its time is reported, not counted as speed.
 step('build', () => {
@@ -95,7 +97,7 @@ step('process', () => {
 step('size', () => {
   out.binary_bytes = statSync(BIN).size;
   const runOnly = run('cargo', ['build', '-q', '--release', '--no-default-features', '--features', 'hermes', '-p', 'ibex2', '--bin', 'ibex2', '--target-dir', 'target/run-only']);
-  if (runOnly.status === 0) out.binary_run_only_bytes = statSync(resolve(ROOT, 'target/run-only/release/ibex2')).size;
+  if (runOnly.status === 0) out.binary_run_only_bytes = statSync(resolve(ROOT, `target/run-only/release/ibex2${exe}`)).size;
   const bindingsDir = resolve(ROOT, 'crates/ibex2/src/bindings');
   out.bindings_js_bytes = readdirSync(bindingsDir)
     .filter((f) => f.endsWith('.js') && f !== 'testharness.js')
