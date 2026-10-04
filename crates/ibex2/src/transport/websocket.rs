@@ -181,6 +181,19 @@ impl SocketTransport for TcpSocketTransport {
         signal: &AbortSignal,
         protocols: &[String],
     ) -> Result<Box<dyn MessageSource>, HostError> {
+        self.open_socket(url, max_message, signal, protocols)
+            .map(|socket| Box::new(socket) as Box<dyn MessageSource>)
+    }
+}
+
+impl TcpSocketTransport {
+    fn open_socket(
+        &self,
+        url: &url::Url,
+        max_message: usize,
+        signal: &AbortSignal,
+        protocols: &[String],
+    ) -> Result<Socket, HostError> {
         let host = url.host_str().ok_or_else(|| failed("no host"))?;
         let port = url
             .port_or_known_default()
@@ -232,14 +245,18 @@ impl SocketTransport for TcpSocketTransport {
                 Err(aborted) => aborted,
                 Ok(()) => e,
             })?;
-        shutdown
-            .set_read_timeout(Some(Duration::from_millis(25)))
+        // Windows clones do not share these timeout options. Configure the
+        // retained I/O handle, not a handle used only to shut it down.
+        let tcp = match &wire {
+            Wire::Plain(tcp) => tcp,
+            Wire::Tls(tls) => &tls.sock,
+        };
+        tcp.set_read_timeout(Some(Duration::from_millis(25)))
             .map_err(failed)?;
         // A writer holds the shared wire while a frame drains. If the peer
         // stops reading, that write must not block forever: the stall is
         // bounded, and then the connection fails like any other write error.
-        shutdown
-            .set_write_timeout(Some(WRITE_STALL_TIMEOUT))
+        tcp.set_write_timeout(Some(WRITE_STALL_TIMEOUT))
             .map_err(failed)?;
         let wire = Arc::new(SharedWire::new(wire));
         let buffered_amount = Arc::new(AtomicUsize::new(0));
@@ -276,7 +293,7 @@ impl SocketTransport for TcpSocketTransport {
                 send_state,
             )
         });
-        Ok(Box::new(Socket {
+        Ok(Socket {
             wire,
             buffered,
             at: 0,
@@ -286,7 +303,7 @@ impl SocketTransport for TcpSocketTransport {
             _registration: registration,
             sender,
             protocol,
-        }))
+        })
     }
 }
 
