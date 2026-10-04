@@ -184,18 +184,17 @@ pub(crate) fn resolve_engine_directory(
     target: &str,
     host: &str,
 ) -> Result<EngineInstall, String> {
-    // The table is both the supported-target list and the download trust root.
-    // An override changes artifact location, never the qualified target set.
-    pin_for_target(target)?;
     let target_layout = if let Some(overridden) = env::var_os("HERMES_LEAN_SYS_DIR") {
         install_layout(PathBuf::from(overridden), target, InstallOrigin::Override)
-    } else if let Some(root) = repository_install_root(repo_root, target) {
-        install_layout(root, target, InstallOrigin::Repository)
     } else {
-        let options = download_options_from_env()?;
         let pin = pin_for_target(target)?;
-        let root = acquire_bundle(pin, &options)?;
-        install_layout(root, target, InstallOrigin::Bundle)
+        if let Some(root) = repository_install_root(repo_root, target) {
+            install_layout(root, target, InstallOrigin::Repository)
+        } else {
+            let options = download_options_from_env()?;
+            let root = acquire_bundle(pin, &options)?;
+            install_layout(root, target, InstallOrigin::Bundle)
+        }
     };
 
     validate_layout(&target_layout)?;
