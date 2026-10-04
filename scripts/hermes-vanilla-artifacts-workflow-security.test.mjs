@@ -21,11 +21,11 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const builderWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/hermes-vanilla-build.yml"),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 const publisherWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/hermes-vanilla-publish.yml"),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 const receiptWriter = readFileSync(join(repoRoot, "scripts/hermes-input-receipt.mjs"), "utf8");
 const localAppleBuilder = readFileSync(join(repoRoot, "scripts/build-hermes.sh"), "utf8");
 const localLinuxBuilder = readFileSync(join(repoRoot, "scripts/build-hermes-linux.sh"), "utf8");
@@ -312,22 +312,28 @@ function runValidator(setup, environment = {}) {
     size_in_bytes: bytes.length,
     expired: false,
   }] }]));
-  setup?.({ temporary, handoff, artifactName, assetName, bytes, artifactsFile });
-  const output = join(temporary, "output");
-  const result = spawnSync("python3", ["-c", validator], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      EXPECTED_ARTIFACT_NAME: artifactName,
-      EXPECTED_ASSET_NAME: assetName,
-      ARTIFACTS_FILE: artifactsFile,
-      HANDOFF_DIR: handoff,
-      GITHUB_OUTPUT: output,
-      ...environment,
-    },
-  });
-  rmSync(temporary, { recursive: true, force: true });
-  return result;
+  try {
+    setup?.({ temporary, handoff, artifactName, assetName, bytes, artifactsFile });
+    const output = join(temporary, "output");
+    const python = process.platform === "win32" ? "python" : "python3";
+    const result = spawnSync(python, ["-c", validator], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EXPECTED_ARTIFACT_NAME: artifactName,
+        EXPECTED_ASSET_NAME: assetName,
+        ARTIFACTS_FILE: artifactsFile,
+        HANDOFF_DIR: handoff,
+        GITHUB_OUTPUT: output,
+        ...environment,
+      },
+    });
+    assert.ifError(result.error);
+    assert.notEqual(result.status, null, `${python} did not exit normally: ${result.signal}`);
+    return result;
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 test("publisher accepts exactly one named regular archive with matching bytes", () => {
@@ -366,18 +372,29 @@ test("publisher rejects empty digests, zero sizes, and digest mismatches", () =>
   assert.notEqual(mismatchedDigest.status, 0);
 });
 
-test("publisher rejects extra entries, symlinks, and changed bytes", () => {
+test("publisher rejects extra entries and changed bytes", () => {
   const extra = runValidator(({ handoff }) => writeFileSync(join(handoff, "extra"), "x"));
   assert.notEqual(extra.status, 0);
 
-  const linked = runValidator(({ temporary, handoff, assetName }) => {
-    rmSync(join(handoff, assetName));
-    const outside = join(temporary, "outside");
-    writeFileSync(outside, "inert archive bytes");
-    symlinkSync(outside, join(handoff, assetName));
-  });
-  assert.notEqual(linked.status, 0);
-
   const changed = runValidator(({ handoff, assetName }) => writeFileSync(join(handoff, assetName), "changed"));
   assert.notEqual(changed.status, 0);
+});
+
+test("publisher rejects an actual symlink archive", (t) => {
+  try {
+    const linked = runValidator(({ temporary, handoff, assetName }) => {
+      rmSync(join(handoff, assetName));
+      const outside = join(temporary, "outside");
+      writeFileSync(outside, "inert archive bytes");
+      symlinkSync(outside, join(handoff, assetName));
+    });
+    assert.notEqual(linked.status, 0);
+  } catch (error) {
+    if (process.platform === "win32" && error.syscall === "symlink"
+        && ["EPERM", "EACCES"].includes(error.code)) {
+      t.skip(`Windows symlink creation privilege unavailable: ${error.code}`);
+      return;
+    }
+    throw error;
+  }
 });
