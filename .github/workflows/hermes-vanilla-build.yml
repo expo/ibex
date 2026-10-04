@@ -1,0 +1,406 @@
+# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v2
+# receipt and exact vanilla full-VM link closure without release or OIDC
+# authority. A default-branch workflow_run publisher consumes the handoff.
+name: Hermes vanilla release builder
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: hermes-vanilla-d412d3bd8512-v1
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v1
+
+jobs:
+  macos_arm64:
+    name: Build macOS arm64 full-VM bundle
+    runs-on: macos-15
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and package macOS arm64
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-aarch64-apple-darwin.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh aarch64-apple-darwin "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert macOS arm64 handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  macos_x86_64:
+    name: Build macOS x86_64 full-VM bundle
+    runs-on: macos-15-intel
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and package macOS x86_64
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-x86_64-apple-darwin.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh x86_64-apple-darwin "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert macOS x86_64 handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  ios_device:
+    name: Build iOS device full-VM bundle
+    runs-on: macos-15
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and package iOS device
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-aarch64-apple-ios.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh aarch64-apple-ios "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert iOS device handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  ios_simulator:
+    name: Build universal iOS simulator full-VM bundle
+    runs-on: macos-15
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and package iOS simulator
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-universal-apple-ios-simulator.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh universal-apple-ios-simulator "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert iOS simulator handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  linux_x86_64:
+    name: Build Linux x86_64 full-VM bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libicu-dev libtinfo-dev ninja-build pkg-config
+
+      - name: Build and package Linux x86_64
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh x86_64-unknown-linux-gnu "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert Linux x86_64 handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  linux_arm64:
+    name: Build Linux arm64 full-VM bundle
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libicu-dev libtinfo-dev ninja-build pkg-config
+
+      - name: Build and package Linux arm64
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh aarch64-unknown-linux-gnu "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert Linux arm64 handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  windows_x64:
+    name: Build Windows x64 full-VM bundle
+    runs-on: windows-2022
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Enter x64 Visual Studio environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe is missing from the GitHub-hosted runner"
+          }
+          $installation = (& $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath).Trim()
+          if (-not $installation) { throw "Visual Studio with the x64 C++ tools is not installed" }
+          $vcvarsall = Join-Path $installation "VC\Auxiliary\Build\vcvarsall.bat"
+          if (-not (Test-Path -LiteralPath $vcvarsall -PathType Leaf)) {
+            throw "vcvarsall.bat is missing from $installation"
+          }
+          $environment = & cmd.exe /d /s /c "`"$vcvarsall`" x64 >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvarsall.bat x64 failed" }
+          $export = @(
+            "PATH", "INCLUDE", "LIB", "LIBPATH", "VCToolsInstallDir",
+            "VCINSTALLDIR", "VSINSTALLDIR", "WindowsSdkDir",
+            "WindowsSDKVersion", "UCRTVersion", "UniversalCRTSdkDir"
+          )
+          foreach ($line in $environment) {
+            if ($line -match '^([^=]+)=(.*)$' -and $export -contains $Matches[1]) {
+              "$($Matches[1])=$($Matches[2])" |
+                Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
+
+      - name: Build and package Windows x64
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetName = "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz"
+          $assetPath = Join-Path $env:RUNNER_TEMP $assetName
+          scripts/build-hermes-windows-vanilla-release.ps1 -OutputArchive $assetPath
+          $assetSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash.ToLowerInvariant()
+          $assetSize = (Get-Item -LiteralPath $assetPath).Length
+          "asset_name=$assetName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "asset_path=$assetPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "asset_sha256=$assetSha256" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "asset_size=$assetSize" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload inert Windows x64 handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        shell: pwsh
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          if ($env:HANDOFF_ID -notmatch '^[1-9][0-9]*$' -or
+              $env:HANDOFF_DIGEST -ne $env:ARCHIVE_SHA256) {
+            throw "Artifact-service handoff does not identify these exact archive bytes"
+          }

@@ -79,8 +79,9 @@ impl Compiler {
         if require_receipt && receipt.is_none() {
             return Err(format!(
                 "the engine at {} has no HermesInputReceipt, so nothing attests it is unpatched\n\
-                 produce one with: node scripts/hermes-input-receipt.mjs {}",
-                engine_dir.display(),
+                 produce one by rerunning the local vanilla builder (it writes receipt v2):\n  \
+                 Apple: scripts/build-hermes.sh --vanilla\n  \
+                 Linux: scripts/build-hermes-linux.sh --vanilla",
                 engine_dir.display()
             ));
         }
@@ -98,6 +99,9 @@ impl Compiler {
             // it runs the engine linked into it, whose digest was baked in at
             // link time (`linked_engine`).
             receipt.verify_binary(engine_dir)?;
+            if require_receipt {
+                require_linked_engine(&receipt.binary_digest, Self::linked_engine())?;
+            }
         }
         let hermesc = Self::find_hermesc()?;
         if let Some(expected) = receipt.as_ref().and_then(|r| r.compiler_digest.as_deref()) {
@@ -613,12 +617,36 @@ fn hash_file(path: &Path) -> Result<String, String> {
     Ok(format!("sha256-{}", hex(&Sha256::digest(&bytes))))
 }
 
+/// The receipt verified above names an archive by path and digest, and that
+/// archive was hashed on disk. Neither proves it is the archive this binary
+/// linked: a bundle may hold an unpatched decoy at another path while
+/// `build.rs` linked a patched archive. Bind the receipt to the digest
+/// `build.rs` took of the archive it actually linked.
+fn require_linked_engine(receipt_digest: &str, linked: &str) -> Result<(), String> {
+    if linked == "no-linked-engine" || receipt_digest == linked {
+        Ok(())
+    } else {
+        Err(format!(
+            "the receipt describes a different engine archive than the one this binary links\n  \
+             receipt: {receipt_digest}\n  linked:  {linked}"
+        ))
+    }
+}
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_receipt_for_a_decoy_archive_is_refused() {
+        let linked = format!("sha256-{}", "a".repeat(64));
+        let decoy = format!("sha256-{}", "b".repeat(64));
+        assert!(super::require_linked_engine(&linked, &linked).is_ok());
+        let err = super::require_linked_engine(&decoy, &linked).unwrap_err();
+        assert!(err.contains("different engine archive"), "{err}");
+    }
+
     use super::*;
 
     fn compiler(name: &str) -> Option<(Compiler, PathBuf)> {
@@ -708,6 +736,7 @@ mod tests {
                 .expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
+                binary_path: None,
                 binary_digest: "sha256-engine-a".into(),
                 variant: "release".into(),
                 patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
@@ -723,6 +752,7 @@ mod tests {
                 .expect("a discovered compiler has hermesc"),
             cache.clone(),
             Some(crate::receipt::HermesInput {
+                binary_path: None,
                 binary_digest: "sha256-engine-b".into(),
                 variant: "release".into(),
                 patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
