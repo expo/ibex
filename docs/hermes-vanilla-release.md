@@ -213,8 +213,8 @@ gh api -H "X-GitHub-Api-Version: $api_version" \
    fetched through the API. It downloads the exact triggering run's handoffs
    by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
    them. It first looks for a release using the requested tag. With no release,
-   it refuses any pre-existing tag ref and creates a commit-bound marker-owned
-   draft. It uploads all 15 assets, fetches the remote asset list, and requires
+   it refuses any pre-existing tag ref and creates a commit-bound draft; any
+   existing release with that tag is refused. It uploads all 15 assets, fetches the remote asset list, and requires
    the exact names, sizes, and SHA-256 digests before publishing the draft as a
    prerelease. A published release is never edited or deleted.
 
@@ -255,24 +255,36 @@ gh api -H "X-GitHub-Api-Version: $api_version" \
 
 ## Recover a stuck draft
 
-If the publisher stops after creating its draft but before publishing it,
-leave the draft and tag namespace alone. After the underlying failure is
-fixed, dispatch the builder again from the unchanged current `main`. The
-publisher recognizes its own draft only by the
-`<!-- ibex-hermes-vanilla-publisher:v1 source-sha=<commit> -->` body marker.
-It requires that recorded commit to equal the newly authorized builder source
-and requires the existing tag ref to point directly and exactly at that commit.
-It then deletes only the draft's assets, confirms the asset set is empty,
-uploads the complete 15-file set again, and repeats the exact remote name,
-size, and SHA-256 verification before publishing. It never deletes or recreates
-the draft or tag.
+The publisher never adopts, edits, or deletes an existing release. If any
+release named the requested tag exists, draft or published, it fails. A body
+marker cannot prove a draft is the publisher's own (any writer can reproduce
+it), a draft need not carry a tag yet, and an adopted draft would keep title
+and notes this workflow did not write.
 
-The recovery path refuses an unmarked draft, any published release, and any
-draft whose recorded commit, current authorized source, and tag target do not
-all agree. When no release exists, any existing `refs/tags/hermes-vanilla-*`
-ref is also refused. Investigate those cases rather than deleting them through
-the workflow; if the intended bytes or authority have changed, increment the
-immutable release suffix (`-v2`, `-v3`, and so on).
+If a run stops after creating its draft but before publishing it:
+
+1. Inspect the draft (`gh release view <tag> --repo expo/ibex`) and record why
+   the run failed.
+2. Confirm the tag does not exist (`gh api repos/expo/ibex/git/ref/tags/<tag>`
+   returns 404). GitHub creates a draft's tag only when the draft is published,
+   so a stuck draft normally has none.
+3. Delete the draft through the web UI or
+   `gh api --method DELETE repos/expo/ibex/releases/<release-id>`. Deleting a
+   draft never deletes a tag, so the tag deletion ban stays as configured.
+4. After the underlying failure is fixed, dispatch the builder again from the
+   unchanged current `main`.
+
+If the tag already exists, or a published release exists, don't delete either:
+increment the immutable release suffix (`-v2`, `-v3`, and so on).
+
+After publication the workflow re-reads the release. It requires it to be a
+non-draft, immutable prerelease with the exact 15-asset set and digests, and
+its tag to name the authorized source commit directly. GitHub's update
+endpoint has no compare-and-swap, so a writer with `contents: write` could
+swap an asset between the draft check and publication. This final check turns
+that race into a failed run on an immutable release, which is then superseded
+with the next suffix. Consumers pin the archive digests independently of the
+release object.
 
 ## Verify a published release
 

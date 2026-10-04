@@ -200,9 +200,6 @@ test("read-only builders are separated from the default-branch publisher", () =>
   assert.match(publisher, /--target "\$SOURCE_SHA"/);
   assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$RELEASE_TAG"/);
   assert.match(publisher, /DRAFT_MARKER="\$DRAFT_MARKER_PREFIX source-sha=\$SOURCE_SHA -->"/);
-  assert.match(publisher, /"\$existing_source_sha" != "\$SOURCE_SHA"/);
-  assert.match(publisher, /tag_type != "commit"/);
-  assert.match(publisher, /"\$tag_sha" != "\$existing_source_sha"/);
   assert.match(publisher, /--draft \\/);
   assert.match(publisher, /gh release upload "\$RELEASE_TAG" "\$RELEASE_DIR"\/\*/);
   assert.match(publisher, /releases\/\$release_id\/assets\?per_page=100/);
@@ -211,17 +208,23 @@ test("read-only builders are separated from the default-branch publisher", () =>
   assert.match(publisher, /gh release edit "\$RELEASE_TAG"/);
   assert.match(publisher, /--draft=false \\/);
   assert.match(publisher, /--prerelease \\/);
-  assert.match(
-    publisher,
-    /gh api --method DELETE \\\n\s+"repos\/\$GITHUB_REPOSITORY\/releases\/assets\/\$asset_id"/,
-  );
+  // An existing release, draft or published, is refused and never adopted.
+  assert.match(publisher, /if \[\[ "\$existing_count" != 0 \]\]; then\n\s+echo "::error::a release named/);
+  assert.doesNotMatch(publisher, /releases\/assets\/\$asset_id|--method DELETE/);
+  // What was published is verified again: assets, immutability, and the tag.
+  const publish = publisher.indexOf("--draft=false \\");
+  const finalAssetCheck = publisher.lastIndexOf("\n          verify_remote_assets\n");
+  assert.ok(publish !== -1 && finalAssetCheck > publish, "assets are re-verified after publication");
+  assert.equal(publisher.split("\n          verify_remote_assets\n").length, 3);
+  assert.match(publisher, /release\.get\("immutable"\) is not True/);
+  assert.match(publisher, /tag\.get\("type"\) != "commit" or tag\.get\("sha"\) != os\.environ\["SOURCE_SHA"\]/);
   const releaseLookup = publisher.indexOf(
     '"repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"',
   );
   const absentTagCheck = publisher.search(/^\s+require_absent_tag$/m);
   assert.notEqual(releaseLookup, -1, "publisher first looks for a release by tag");
   assert.notEqual(absentTagCheck, -1, "new-draft path checks tag absence");
-  assert.ok(releaseLookup < absentTagCheck, "draft reuse is considered before tag absence");
+  assert.ok(releaseLookup < absentTagCheck, "existing releases are refused before tag absence");
   assert.doesNotMatch(
     publisher,
     /--method DELETE\s+(?:\\\n\s+)?"repos\/\$GITHUB_REPOSITORY\/releases\/\$existing_id"/,
