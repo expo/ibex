@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-04 (§3: the engine-free default, empty, bindings-only, and crypto-only feature combinations are explicit compile gates)
 **Revised:** 2026-10-04 (§1/§3/OQ1: L1b split the library/bindings, owning runtime, and lean-engine resolver; Decision C requires hardening before application code)
 **Revised:** 2026-10-04 (§3: `WEBSOCKET` is default-on and is a grant-bound module constructor in the secure runtime; borrowed runtimes retain the installer-endowed global)
 **Revised:** 2026-10-04 (§1/§3: WebSocket sending/watch and explicit `WEBSOCKET` group; OQ3's Receiver is now used by L4); 2026-10-04 (§3: borrowed-adapter delivery contains callback exceptions and reports them through the cancelable error-event path); 2026-10-04 (§3: wake callbacks are serialized edge-triggered notifications; concurrent admissions coalesce, re-entrant close returns, and cross-thread close waits for the sole invocation); 2026-10-04 (OQ2: the off-Apple HTTP transport loads the native trust store lazily and at most once per process; §3: a default `Context` defers its platform transport so adoption does not build and discard it); 2026-10-04 (§3: bytecode preflight requires the pin's complete 128-byte `BytecodeFileHeader` before reading prefix fields or mutating the runtime); 2026-10-04 (§3: a late completion and queue closure serialize with FIFO insertion, so the result is dropped with its resources); 2026-10-04 (§3: Hermes adoption snapshots configuration applied through the source `Context` after construction); 2026-10-04 (§3: the last owner lease, not the last worker reference, begins shutdown and retires the wake callback); 2026-10-04 (§3: the install input is a typed, validated endowment handle; bytecode preflight checks the complete header and declared length; a failed one-shot install spends the adapter, and failure after publication requires discarding the runtime; the Hermes bootstrap order is stated as implemented); 2026-10-04 (§3: named install groups and their explicit dependency graph); 2026-09-11 (OQ2: Snapback2 0.0.24 separately qualifies and publishes the selected Linux engine-facing Intl tier; broader Intl conformance remains open); 2026-09-11 (OQ2: Linux's selected engine-facing Intl stubs are replaced by the native standard-library tier; this does not expand the no-engine Rust surface or qualify publication); 2026-09-11 (OQ2: the same transport qualified through the Linux Hermes runtime; Linux Intl and publication remain unqualified); 2026-09-07 (app-scoped filesystem and separate SQLite provider); 2026-09-06 (§2: author-required streaming and cancellation); 2026-09-03 (LLP 0057.000 plans how `Bindings` grows — one field per family, feature-gated where a family pulls a dependency or a framework, present and refusing when the feature is off — and answers OQ3 in its lane L3 with a `Receiver`; neither is built yet) 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
@@ -110,6 +111,12 @@ the crate's `--lib` suite (LLP 0069 §5), kv there and end-to-end in
 transport is compiled whether or not there is an engine; it had been gated
 on the engine by accident of `build.rs`, which would have left a Rust
 consumer with the development TCP transport and no TLS.
+
+The library's compile gate is the four-way matrix in
+`scripts/check-ibex2-features.sh`: default features, no features,
+`bindings` alone, and `crypto` alone. Definitions shared by the Rust crypto
+surface and the JSI crypto projection must use the union of those feature
+gates, so either door remains independently buildable.
 
 ### Caller-owned JavaScript runtimes
 

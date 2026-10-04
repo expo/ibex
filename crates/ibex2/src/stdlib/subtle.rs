@@ -82,7 +82,7 @@ impl Error {
         Self::new(ErrorName::DataError, message)
     }
 
-    #[cfg(any(feature = "bindings", feature = "crypto-asymmetric"))]
+    #[cfg(any(feature = "crypto", feature = "bindings"))]
     pub(crate) fn operation(message: impl Into<String>) -> Self {
         Self::new(ErrorName::OperationError, message)
     }
@@ -643,7 +643,7 @@ fn preflight_secret_import(
 const MAX_JWK_METADATA_BYTES: usize = 64;
 #[cfg(feature = "crypto")]
 const MAX_JWK_KEY_OPS_BYTES: usize = 128;
-#[cfg(feature = "bindings")]
+#[cfg(any(feature = "crypto", feature = "bindings"))]
 pub(crate) const MAX_JWK_KEY_OPS_COUNT: usize = 8;
 
 /// Bound borrowed JWK members before the ABI constructs owned strings. The

@@ -18,6 +18,12 @@ Engine-free consumers can use the default Rust library surface directly:
 cargo test -p ibex2 --no-default-features
 ```
 
+The supported library feature combinations have a CI-ready compile check:
+
+```sh
+./scripts/check-ibex2-features.sh
+```
+
 The bindings door is off by default:
 
 ```sh
