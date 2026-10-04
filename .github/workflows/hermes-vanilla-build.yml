@@ -51,7 +51,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-macos-arm64
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error
@@ -101,7 +100,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-macos-x86_64
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error
@@ -151,7 +149,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-ios-device
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error
@@ -201,7 +198,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-ios-simulator
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error
@@ -256,7 +252,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-linux-x86_64
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error
@@ -311,7 +306,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-linux-arm64
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error
@@ -394,7 +388,6 @@ jobs:
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hermes-vanilla-handoff-windows-x64
           path: ${{ steps.package.outputs.asset_path }}
           archive: false
           if-no-files-found: error

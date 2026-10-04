@@ -39,13 +39,13 @@ jobs:
       PUBLISHER_SHA: ${{ github.sha }}
       ARTIFACTS_FILE: ${{ runner.temp }}/hermes-vanilla-artifacts.json
       EXPECTED_ARTIFACT_NAMES: >-
-        ["hermes-vanilla-handoff-macos-arm64",
-        "hermes-vanilla-handoff-macos-x86_64",
-        "hermes-vanilla-handoff-ios-device",
-        "hermes-vanilla-handoff-ios-simulator",
-        "hermes-vanilla-handoff-linux-x86_64",
-        "hermes-vanilla-handoff-linux-arm64",
-        "hermes-vanilla-handoff-windows-x64"]
+        ["hermes-vanilla-aarch64-apple-darwin.tar.gz",
+        "hermes-vanilla-x86_64-apple-darwin.tar.gz",
+        "hermes-vanilla-aarch64-apple-ios.tar.gz",
+        "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
+        "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
+        "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
+        "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz"]
       HANDOFF_VALIDATOR: |
         import hashlib
         import json
@@ -55,10 +55,12 @@ jobs:
 
         artifact_name = os.environ["EXPECTED_ARTIFACT_NAME"]
         asset_name = os.environ["EXPECTED_ASSET_NAME"]
-        if not re.fullmatch(r"hermes-vanilla-handoff-[a-z0-9_-]+", artifact_name):
+        if not re.fullmatch(r"hermes-vanilla-[a-z0-9_.-]+\.tar\.gz", artifact_name):
             raise SystemExit("unsafe artifact name")
         if not re.fullmatch(r"hermes-vanilla-[a-z0-9_.-]+\.tar\.gz", asset_name):
             raise SystemExit("unsafe archive name")
+        if artifact_name != asset_name:
+            raise SystemExit("artifact name does not equal archive basename")
         with open(os.environ["ARTIFACTS_FILE"], encoding="utf-8") as source:
             pages = json.load(source)
         artifacts = [artifact for page in pages for artifact in page["artifacts"]]
@@ -137,7 +139,7 @@ jobs:
       - name: Download macOS arm64 raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-macos-arm64
+          name: hermes-vanilla-aarch64-apple-darwin.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/macos-arm64
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -148,7 +150,7 @@ jobs:
       - name: Validate macOS arm64 raw handoff
         id: validate_macos_arm64
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-macos-arm64
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-aarch64-apple-darwin.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-apple-darwin.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/macos-arm64
         run: python3 -c "$HANDOFF_VALIDATOR"
@@ -156,7 +158,7 @@ jobs:
       - name: Download macOS x86_64 raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-macos-x86_64
+          name: hermes-vanilla-x86_64-apple-darwin.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/macos-x86_64
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -167,7 +169,7 @@ jobs:
       - name: Validate macOS x86_64 raw handoff
         id: validate_macos_x86_64
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-macos-x86_64
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-x86_64-apple-darwin.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-x86_64-apple-darwin.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/macos-x86_64
         run: python3 -c "$HANDOFF_VALIDATOR"
@@ -175,7 +177,7 @@ jobs:
       - name: Download iOS device raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-ios-device
+          name: hermes-vanilla-aarch64-apple-ios.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/ios-device
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -186,7 +188,7 @@ jobs:
       - name: Validate iOS device raw handoff
         id: validate_ios_device
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-ios-device
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-aarch64-apple-ios.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-apple-ios.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/ios-device
         run: python3 -c "$HANDOFF_VALIDATOR"
@@ -194,7 +196,7 @@ jobs:
       - name: Download iOS simulator raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-ios-simulator
+          name: hermes-vanilla-universal-apple-ios-simulator.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/ios-simulator
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -205,7 +207,7 @@ jobs:
       - name: Validate iOS simulator raw handoff
         id: validate_ios_simulator
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-ios-simulator
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-universal-apple-ios-simulator.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-universal-apple-ios-simulator.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/ios-simulator
         run: python3 -c "$HANDOFF_VALIDATOR"
@@ -213,7 +215,7 @@ jobs:
       - name: Download Linux x86_64 raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-linux-x86_64
+          name: hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/linux-x86_64
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -224,7 +226,7 @@ jobs:
       - name: Validate Linux x86_64 raw handoff
         id: validate_linux_x86_64
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-linux-x86_64
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/linux-x86_64
         run: python3 -c "$HANDOFF_VALIDATOR"
@@ -232,7 +234,7 @@ jobs:
       - name: Download Linux arm64 raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-linux-arm64
+          name: hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/linux-arm64
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -243,7 +245,7 @@ jobs:
       - name: Validate Linux arm64 raw handoff
         id: validate_linux_arm64
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-linux-arm64
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/linux-arm64
         run: python3 -c "$HANDOFF_VALIDATOR"
@@ -251,7 +253,7 @@ jobs:
       - name: Download Windows x64 raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: hermes-vanilla-handoff-windows-x64
+          name: hermes-vanilla-x86_64-pc-windows-msvc.tar.gz
           path: ${{ runner.temp }}/hermes-vanilla-handoff/windows-x64
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -262,7 +264,7 @@ jobs:
       - name: Validate Windows x64 raw handoff
         id: validate_windows_x64
         env:
-          EXPECTED_ARTIFACT_NAME: hermes-vanilla-handoff-windows-x64
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-x86_64-pc-windows-msvc.tar.gz
           EXPECTED_ASSET_NAME: hermes-vanilla-x86_64-pc-windows-msvc.tar.gz
           HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/windows-x64
         run: python3 -c "$HANDOFF_VALIDATOR"

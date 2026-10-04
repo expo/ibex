@@ -76,6 +76,18 @@ function blockScalar(workflow, key) {
   return body.join("\n");
 }
 
+function foldedJson(workflow, key) {
+  const match = workflow.match(new RegExp(`^      ${key}: >-\\n((?:        .*\\n)+)`, "m"));
+  assert.ok(match, `missing ${key} folded scalar`);
+  return JSON.parse(match[1].split("\n").map((line) => line.trim()).join(" "));
+}
+
+function builderArchiveBasenames(workflow) {
+  return [...workflow.matchAll(
+    /^\s+(?:asset_name=|\$assetName = ")(hermes-vanilla-[a-z0-9_.-]+\.tar\.gz)"?$/gm,
+  )].map((match) => match[1]);
+}
+
 test("read-only builders are separated from the default-branch publisher", () => {
   assert.deepEqual([...jobBlocks(builderWorkflow).keys()], builders);
   assert.deepEqual([...jobBlocks(publisherWorkflow).keys()], ["publish"]);
@@ -92,7 +104,10 @@ test("read-only builders are separated from the default-branch publisher", () =>
   assert.match(publisherTrigger, /types: \[completed\]/);
   assert.doesNotMatch(publisherTrigger, /\n  (?:push|pull_request|workflow_dispatch):/);
 
-  const uploadNames = [];
+  const archiveNames = builderArchiveBasenames(builderWorkflow);
+  assert.equal(archiveNames.length, builders.length);
+  assert.equal(new Set(archiveNames).size, builders.length, "builder archive basenames are unique");
+  assert.deepEqual(foldedJson(publisherWorkflow, "EXPECTED_ARTIFACT_NAMES"), archiveNames);
   for (const [name, builder] of jobBlocks(builderWorkflow)) {
     assert.deepEqual(permissions(builder), { contents: "read" }, `${name} is read-only`);
     assert.doesNotMatch(builder, /\$\{\{\s*secrets\.|^\s+GH_TOKEN:/m);
@@ -103,9 +118,7 @@ test("read-only builders are separated from the default-branch publisher", () =>
     assert.match(checkout.text, /\n          persist-credentials: false\n/);
     const uploads = stepBlocks(builder).filter((step) => step.text.includes("actions/upload-artifact@"));
     assert.equal(uploads.length, 1, `${name} emits one handoff`);
-    const uploadName = uploads[0].text.match(/\n          name: (hermes-vanilla-handoff-[a-z0-9_-]+)\n/)?.[1];
-    assert.ok(uploadName, `${name} has a static handoff name`);
-    uploadNames.push(uploadName);
+    assert.doesNotMatch(uploads[0].text, /\n          name:/);
     assert.match(uploads[0].text, /\n          archive: false\n/);
     assert.match(uploads[0].text, /\n          if-no-files-found: error\n/);
     assert.match(uploads[0].text, /\n          overwrite: false\n/);
@@ -117,7 +130,6 @@ test("read-only builders are separated from the default-branch publisher", () =>
       assert.match(builder, /\[\[ "\$HANDOFF_DIGEST" == "\$ARCHIVE_SHA256" \]\]/);
     }
   }
-  assert.equal(new Set(uploadNames).size, 7, "handoff artifact names are unique");
   const windowsBuilder = jobBlocks(builderWorkflow).get("windows_x64");
   assert.match(windowsBuilder, /Microsoft Visual Studio\\Installer\\vswhere\.exe/);
   assert.match(windowsBuilder, /VC\\Auxiliary\\Build\\vcvarsall\.bat/);
@@ -144,13 +156,20 @@ test("read-only builders are separated from the default-branch publisher", () =>
 
   const downloads = stepBlocks(publisher).filter((step) => step.text.includes("actions/download-artifact@"));
   assert.equal(downloads.length, builders.length);
+  const downloadNames = [];
   for (const download of downloads) {
+    const artifactName = download.text.match(
+      /\n          name: (hermes-vanilla-[a-z0-9_.-]+\.tar\.gz)\n/,
+    )?.[1];
+    assert.ok(artifactName, "download names an archive basename");
+    downloadNames.push(artifactName);
     assert.match(download.text, /\n          run-id: \$\{\{ github\.event\.workflow_run\.id \}\}\n/);
     assert.match(download.text, /\n          github-token: \$\{\{ github\.token \}\}\n/);
     assert.match(download.text, /\n          repository: \$\{\{ github\.repository \}\}\n/);
     assert.match(download.text, /\n          skip-decompress: true\n/);
     assert.match(download.text, /\n          digest-mismatch: error\n/);
   }
+  assert.deepEqual(downloadNames, archiveNames);
 
   const attestations = stepBlocks(publisher).filter((step) => step.text.includes("actions/attest-build-provenance@"));
   assert.equal(attestations.length, builders.length);
@@ -220,8 +239,8 @@ function runValidator(setup, environment = {}) {
   const temporary = mkdtempSync(join(tmpdir(), "hermes-vanilla-handoff-test-"));
   const handoff = join(temporary, "handoff");
   mkdirSync(handoff);
-  const artifactName = "hermes-vanilla-handoff-test-target";
   const assetName = "hermes-vanilla-test-target.tar.gz";
+  const artifactName = assetName;
   const bytes = Buffer.from("inert archive bytes");
   writeFileSync(join(handoff, assetName), bytes);
   const digest = createHash("sha256").update(bytes).digest("hex");
