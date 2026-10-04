@@ -304,8 +304,10 @@ archive/header/link manifests.
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
 directory) and the published layout (`include/`, `lib/`, and `bin/hermesc`) are
-accepted for local installs. Unsupported triples are refused with instructions
-to provide `HERMES_LEAN_SYS_DIR`; `aarch64-apple-ios-sim` and
+accepted for local installs. A published-layout override is complete only with
+its v2 receipt; a legacy repository-layout install may omit one. Unsupported
+triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
+`aarch64-apple-ios-sim` and
 `x86_64-apple-ios` both select the universal iOS Simulator archive.
 
 The downloader uses rustls with WebPKI roots and always verifies the pinned
