@@ -35,51 +35,20 @@ gh api -H "X-GitHub-Api-Version: $api_version" \
   "repos/$repo/immutable-releases" --jq '.enabled == true'
 ```
 
-Protect `refs/tags/hermes-vanilla-*` with two aggregated tag rulesets. GitHub
-ruleset bypass actors are GitHub Apps rather than individual workflow files,
-so the first ruleset admits the GitHub Actions App for creation and update;
-the repository's only `contents: write` workflow is the protected
-default-branch publisher. The second ruleset has no bypass actor, making tag
-deletion unavailable even to that App.
+Protect `refs/tags/hermes-vanilla-*` from deletion with a tag ruleset that has
+no bypass actor, so no one, including the publisher, can delete a release tag.
+
+A second ruleset restricting tag creation and update to the GitHub Actions App
+was planned, but GitHub refuses that App as a bypass actor unless it is part
+of the ruleset's owner organization ("Actor GitHub Actions integration must be
+part of the ruleset source or owner organization", HTTP 422, 2026-10-04). The
+publisher doesn't depend on it: it refuses a pre-existing tag before creating
+its draft, publication creates the tag from `--target`, immutable releases then
+lock the tag, and the post-publication check requires the tag to name the
+authorized source commit. A planted tag can only make the publisher refuse,
+which is resolved with the next suffix.
 
 ```sh
-github_actions_app_id="$(gh api -H "X-GitHub-Api-Version: $api_version" \
-  /apps/github-actions --jq .id)"
-test -n "$github_actions_app_id"
-
-publication_ruleset_id="$(
-  gh api --method POST \
-    -H "X-GitHub-Api-Version: $api_version" \
-    "repos/$repo/rulesets" --input - --jq .id <<JSON
-{
-  "name": "Hermes vanilla tag publication",
-  "target": "tag",
-  "enforcement": "active",
-  "bypass_actors": [
-    {
-      "actor_id": $github_actions_app_id,
-      "actor_type": "Integration",
-      "bypass_mode": "always"
-    }
-  ],
-  "conditions": {
-    "ref_name": {
-      "include": ["refs/tags/hermes-vanilla-*"],
-      "exclude": []
-    }
-  },
-  "rules": [
-    {"type": "creation"},
-    {
-      "type": "update",
-      "parameters": {"update_allows_fetch_and_merge": false}
-    }
-  ]
-}
-JSON
-)"
-test -n "$publication_ruleset_id"
-
 deletion_ruleset_id="$(
   gh api --method POST \
     -H "X-GitHub-Api-Version: $api_version" \
@@ -102,10 +71,6 @@ deletion_ruleset_id="$(
 JSON
 )"
 test -n "$deletion_ruleset_id"
-
-gh api -H "X-GitHub-Api-Version: $api_version" \
-  "repos/$repo/rulesets/$publication_ruleset_id" --jq \
-  '{name,target,enforcement,bypass_actors,conditions,rules}'
 gh api -H "X-GitHub-Api-Version: $api_version" \
   "repos/$repo/rulesets/$deletion_ruleset_id" --jq \
   '{name,target,enforcement,bypass_actors,conditions,rules}'

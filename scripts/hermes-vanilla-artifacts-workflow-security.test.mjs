@@ -196,6 +196,12 @@ test("read-only builders are separated from the default-branch publisher", () =>
     assert.match(validation.text, /run: python3 -c "\$HANDOFF_VALIDATOR"/);
   }
 
+  // The runner context is unavailable in workflow- and job-level env; using
+  // it there makes GitHub reject the whole workflow file.
+  const jobEnv = publisher.slice(publisher.indexOf("\n    env:\n"), publisher.indexOf("\n    steps:\n"));
+  assert.ok(jobEnv.length > 0, "publisher has a job-level env block");
+  assert.doesNotMatch(jobEnv, /runner\./);
+  assert.doesNotMatch(publisherWorkflow.slice(0, publisherWorkflow.indexOf("\njobs:\n")), /runner\./);
   assert.match(publisher, /gh release create "\$RELEASE_TAG"/);
   assert.match(publisher, /--target "\$SOURCE_SHA"/);
   assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$RELEASE_TAG"/);
