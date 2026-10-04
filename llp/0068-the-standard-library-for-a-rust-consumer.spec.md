@@ -357,6 +357,200 @@ These results qualify this engine slice only; the remaining storage, platform,
 and test-fixture work is tracked in
 [`issues/20261004-ibex2-windows-platform-gaps.md`](../issues/20261004-ibex2-windows-platform-gaps.md).
 
+**Standalone Windows metrics follow-up (2026-10-04).** Implementer: Codex.
+After the repository split, the retained `scripts/metrics.mjs` fails before
+building on Windows: using a file URL's `pathname` as a filesystem path doubles
+the drive prefix and preserves percent-encoded spaces. The existing diagnostic
+will use `fileURLToPath` for its repository root and the platform executable
+suffix for its ordinary, example, and run-only binaries. POSIX paths keep their
+current filenames; no runtime, timing formula, budget, or new check is added.
+Root independently approved this narrow correction before implementation.
+Qualification runs the actual Windows metrics CLI with the existing pinned
+vanilla engine/compiler overrides, plus existing caps tests and reference checks.
+Separate full-runtime results, including any unrelated WebSocket failures,
+remain separate from the diagnostic's own qualification.
+
+The corrected launcher reaches the existing recursive graph benchmark, which
+then raises Hermes's native-stack overflow on the Windows main thread. The
+produced PE reserves 1 MiB. Before changing allocation, identify the failing
+source/bytecode graph size and compare the same graph through the ordinary
+CLI. Root approved an explicit 8 MiB Windows worker for this diagnostic only:
+all runtime creation, use and destruction stay on that worker; join propagates
+its original panic. The 100/500-module workloads, timing intervals and Hermes
+guards stay unchanged. This declares the diagnostic's measurement stack, not
+an increase to the product CLI's supported depth or the embedder's stack.
+The larger diagnostic stack exposes its next fixture defect: canonical Windows
+paths expand to the full profile name, and the async-filesystem grant wrote that
+name as an unquoted token. Root separately reviewed JSON serialization of both
+the grant target and the embedded JavaScript filename using existing serde_json.
+Each grammar receives the exact path without widening filesystem authority.
+
+Qualification on the standalone `dc326458` baseline: the unmodified product
+CLI passes source and precompiled 100-module chains; both 500-module executions
+refuse with Hermes's native-stack guard, although both AOT builds succeed.
+Diagnostic error context independently identifies its failure as the
+500-module precompiled graph. The explicit diagnostic worker completes the
+unchanged workload and propagates a subsequent fixture panic through `join`
+without a second diagnostic. The quoted path correction then lets the actual
+`bun scripts/metrics.mjs --json` finish, including source/bytecode graphs, async
+filesystem I/O, fresh-process precompiled execution and both executable sizes.
+Its temporary root contains spaces, `#` and `café`; the checkout also contains
+profile-name spaces. Elapsed time (44.8 seconds including builds) is functional
+qualification under concurrent work, not an isolated performance comparison.
+The declared Node entrypoint completes the same real CLI with that temporary
+path (29.2 seconds, warm build). Root independently reviewed the worker and
+serialization changes before landing.
+Strict workspace Hermes Clippy, the changed example's final strict Clippy,
+formatting and reference checks pass. Existing caps CLI tests pass 16/16.
+
+Separate standalone-runtime evidence remains 257 no-engine workspace tests
+passing, with five existing ignores. The selected Hermes library/storage/loader/
+resolution/consumer sweep passes 464 tests, with ten ignores and six failures in
+new upstream WebSocket conversation/lifecycle cases (abnormal close 1006).
+These failures are not hidden by the metrics qualification, and the ordinary
+Windows CLI's 500-deep module-chain limit remains a separate product issue.
+
+#### Proposed Windows CLI stack reserve
+
+Implementation owner: Codex, 2026-10-04. The ordinary release `ibex2.exe` at
+`dad280ce` has a measured PE32+ stack reserve of 1,048,576 bytes and commit of
+4,096 bytes. Its source and precompiled 100-module dependency chains complete;
+both 500-module chains return exit 1 with Hermes's native-stack-depth exception.
+Ahead-of-time compilation of both graphs succeeds. The diagnostic's separately
+owned 8 MiB thread completes the same 500-module workload, establishing a real
+CLI allocation mismatch without changing any engine guard or loader recursion.
+
+Prefer an 8 MiB PE stack reserve for the supported Windows MSVC CLI. Add
+`cargo:rustc-link-arg-bin=ibex2=/STACK:8388608` in the existing Hermes-enabled
+build script, conditional on the target OS and MSVC environment. Cargo scopes
+this argument to the named binary; neither library consumers nor examples,
+tests, non-Windows binaries or no-engine builds receive it. Both full and
+run-only CLI configurations do receive it. The existing main thread continues
+owning runtime construction, use and destruction, with unchanged exit codes,
+panic propagation, deadline handling, and Hermes stack guards. No new command,
+configuration switch, runtime thread, engine patch, or vendor refresh is added.
+
+An owned 8 MiB execution worker is an alternative: it could preserve the
+runtime's single-thread ownership and propagate its result/panic through join.
+It would also create a thread for every invocation, retain the waiting main
+thread and its reserve, and alter the CLI execution thread unnecessarily.
+Changing linker defaults globally or enlarging all embedding threads would
+instead impose policy on other hosts. The binary-specific reserve is the
+smallest change for the observed CLI failure.
+
+The 8 MiB reservation consumes additional virtual address space, not an eagerly
+committed 8 MiB allocation. Leave the initial commit at the linker default;
+Windows commits more stack pages as needed. The executable's reserve may also
+be inherited by native threads created without an explicit stack size. Existing
+Rust-created threads retain their explicit runtime/thread-builder policies.
+This is a bounded CLI budget, not a promise of arbitrary module depth or a
+change to engine limits. Embedders continue to own the actual stack of the
+thread on which they create and enter Hermes; this crate does not resize it.
+
+Before implementation, obtain an independent review of this amendment. The
+production allowlist is `crates/ibex2/build.rs`; retain the regression in an
+existing integration-test file, with evidence in this LLP and its review file.
+Qualify the actual full CLI in fresh processes on both 100/500 source and
+precompiled chains, asserting a final value so success cannot mean skipped
+execution. Verify recursive JavaScript still exits through an engine exception,
+normal thrown errors retain their diagnostics, and the async pump honors its
+existing `--budget-ms` bound. This CLI flag does not arm a synchronous engine
+deadline; separately rerun the existing Hermes deadline tests. Verify the
+run-only CLI executes the same precompiled graphs. Inspect both CLI PE headers
+for the intended reserve/commit and an example/integration binary for absence
+of leakage. Rerun focused loader/consumer/no-engine tests, strict workspace
+Clippy, formatting, caps and reference checks. Keep the separate upstream
+WebSocket failures visible; they are not evidence about stack allocation.
+
+References: [MSVC stack reserve and commit](https://learn.microsoft.com/en-us/cpp/build/reference/stack-stack-allocations?view=msvc-170)
+and [Cargo's named-binary linker argument](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-link-arg-bin).
+
+Root independently approved the amendment before implementation. Windows
+qualification passes the two new product-process regressions, including exact
+100/500-deep result values from source and bytecode, guard refusal with exit 1,
+an ordinary thrown exception, and a zero async-pump budget. The actual release
+CLI also passes the original 9.6 KiB-per-module 100/500 source and precompiled
+workloads, and the no-loader release CLI runs both resulting bytecode graphs.
+Both release PE headers now reserve 8,388,608 bytes and initially commit 4,096;
+the speed example, loader integration executable and no-engine Rust-consumer
+executable still reserve 1,048,576 and commit 4,096. No thread was added.
+
+The loader and Rust-consumer suites pass 50 tests with one existing symlink
+privilege ignore; all 23 engine deadline tests pass. The no-engine workspace
+passes 257 tests with five existing ignores. Strict workspace Hermes Clippy,
+formatting, caps and reference checks pass. The separate WebSocket failures
+recorded above remain outside this change; no full-runtime or fresh non-Windows
+qualification is inferred from these focused results.
+
+#### Standalone Windows setup qualification
+
+Implementation owner: Codex, 2026-10-04. The standalone README omitted the
+Windows developer shell, native tool prerequisites, receipt generation and
+full/run-only CLI sequence. Engine-bearing tests so far reused a qualified
+old-checkout vanilla installation through the explicit overrides. That is valid
+runtime evidence but does not prove that a new standalone checkout can prepare
+itself without those files. The Windows builder has a direct pinned archive
+download path; unlike the Apple/Linux scripts, it did not print the separate
+receipt command required by AOT `build`.
+
+Root independently reviewed the read-only setup/migration audit and approved
+only README setup instructions and the existing builder's receipt next-step
+hint, with evidence here. Keep the receipt producer separate and preserve its
+symbol checks and engine/compiler digests. No new installer, global environment
+change or runtime policy is added. Qualify with both Ibex overrides absent and
+a process-local LOCALAPPDATA pointing at a fresh private ignored cache, forcing
+the archive fetch and cold source build without cleaning the existing cache.
+Create a new repository-local install and receipt, build the current full and
+run-only CLI, run fresh 100/500 source/AOT graphs and runtime tests, and inspect
+DLL dependencies. Record source/tool versions and actual outcomes; this is not
+a claim of bit-identical output across compiler versions or absolute paths.
+Primary-checkout history migration and any global PATH/CLI installation remain
+separate decisions after the cold qualification and backup inventory review.
+
+Qualification on 2026-10-04 used Rust 1.97.0, VS 2022 MSVC 14.44.35207,
+Windows SDK 10.0.26100.0, CMake 4.3.2, Ninja 1.12.0, Python 3.13.14 and
+Node 24.15.0. A fresh process-local LOCALAPPDATA under `ibex-cold-1004` forced
+the archive-download branch and all 436 native build steps, with neither Ibex
+override set and no old-checkout source, engine, compiler or receipt reused.
+The separate producer verified an empty patch set and absence of all four
+patched symbols for source `6badada762121682b5481b6124e6c3a991ae6046`.
+Its debugger engine SHA-256 is
+`d893280a99a75c47f3d475297daf988ca96931e6ef2fb6d538f17590deb4cf45`;
+its compiler SHA-256 is
+`3bbb242a7e918f134c968f54cb8d8bb9b42545fcf0b7c16332df07723325ddbb`.
+The builder's printed receipt command names the correct new local install.
+
+Both current release CLI variants build with the overrides absent. Fresh
+100/500-module chains (about 9.6 KiB per dependency, paths with spaces, `#` and
+`café`) assert `m0` in full source mode, full precompiled mode and run-only
+precompiled mode; run-only source requests explicitly refuse. The README's
+`hello` example works in both variants, as do both 500-module precompiled runs
+from an unrelated temporary working directory. PE headers retain the reviewed
+8 MiB reserve/4 KiB initial commit. DLL imports contain Windows/ICU and Microsoft
+runtime dependencies, with no Hermes DLL or tool/cache-directory dependency.
+
+The first runtime sweep had 615 passes, one unread-response HTTP fixture
+timeout, and 23 existing ignores. The peer's three-second read budget begins
+before the separate request is completed and the first response is dropped;
+the failure does not isolate drop latency. The exact fixture then passed in
+0.03 seconds, the complete library passed 394/0/7, and a complete unchanged
+runtime sweep passed 616/0/23. No transport behavior or timeout was relaxed;
+the one observed timeout remains a qualification limitation, not a diagnosed
+or fixed defect. Workspace Hermes strict Clippy, formatting, caps and ref-check
+pass. Logs and the graph/binary inventory are retained under
+`target/standalone-cold-*` in the private qualification checkout.
+
+An earlier fresh-cache attempt nested under a much longer checkout-local
+`target/hermes-cold-20261004` path downloaded successfully but failed in MSVC
+MASM/C++ Boost object creation (A1000/C1083, generated paths over MAX_PATH).
+Its log remains `target/standalone-cold-hermes-build.log`; its failed cache was
+retained under `target/build/hermes-cold-20261004`, outside ref-check's source
+scan. The successful shorter cache was also empty at entry. The README records
+this native-tool path-length limit; the builder has no new cache semantics.
+The 208-second native build is functional evidence, not an isolated performance
+comparison. No primary branch, old install or global PATH was changed by this
+qualification.
+
 ### Windows app storage qualification
 
 Implementation owner: Codex, 2026-10-04, following the Windows engine slice.

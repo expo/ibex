@@ -208,7 +208,13 @@ fn load(
     .expect("loader");
     rt.harden().expect("harden");
     let t = Instant::now();
-    rt.run_entry("./index.js").expect("entry");
+    rt.run_entry("./index.js").unwrap_or_else(|error| {
+        panic!(
+            "{} graph at {}: {error:?}",
+            if precompiled { "precompiled" } else { "source" },
+            root.display()
+        )
+    });
     ms(t.elapsed())
 }
 
@@ -260,18 +266,19 @@ fn async_fs_roundtrip_us() -> f64 {
     let dir = dir.canonicalize().expect("canonical");
     let file = dir.join("tiny.txt");
     std::fs::write(&file, "x").expect("file");
+    let filename = serde_json::to_string(&file.to_string_lossy()).expect("file JSON");
     let n = 300u32;
     std::fs::write(
         dir.join("index.js"),
         format!(
             "let i = 0;\n\
-             function step() {{ if (i++ === {n}) return; fs.readFile({:?}).then(step); }}\n\
+             function step() {{ if (i++ === {n}) return; fs.readFile({filename}).then(step); }}\n\
              step();\n",
-            file.to_string_lossy()
         ),
     )
     .expect("entry");
-    let manifest = format!("[./index.js]\nfs.read {}\n", dir.to_string_lossy());
+    let prefix = serde_json::to_string(&dir.to_string_lossy()).expect("directory JSON");
+    let manifest = format!("[./index.js]\nfs.read {prefix}\n");
 
     let mut samples = Vec::new();
     for _ in 0..3 {
@@ -292,7 +299,26 @@ fn async_fs_roundtrip_us() -> f64 {
     median(samples)
 }
 
+#[cfg(windows)]
 fn main() {
+    // The diagnostic's recursive 500-module graph needs a declared stack budget;
+    // this does not change the product CLI or Hermes's own overflow guard.
+    let worker = std::thread::Builder::new()
+        .name("ibex2-metrics".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(measure)
+        .expect("metrics worker");
+    if let Err(panic) = worker.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+#[cfg(not(windows))]
+fn main() {
+    measure();
+}
+
+fn measure() {
     let mut out: Vec<(String, String)> = Vec::new();
     let mut put = |k: &str, v: String| out.push((k.to_string(), v));
     let num = |v: f64| format!("{v:.3}");

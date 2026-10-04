@@ -19,6 +19,10 @@ fn main() {
     if target_os == "windows" {
         shim.flag("/EHsc").define("NOMINMAX", None);
     }
+    if target_os == "windows" && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        // @ref LLP 0068#proposed-windows-cli-stack-reserve — CLI policy, never an embedder's stack
+        println!("cargo:rustc-link-arg-bin=ibex2=/STACK:8388608");
+    }
     if target_vendor == "apple" {
         shim.flag("-stdlib=libc++");
     }

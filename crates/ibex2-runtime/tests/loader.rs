@@ -8,6 +8,80 @@ use common::Project;
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 use ibex2_runtime::loader::{ModuleGrants, Root};
 
+/// Exercise the product main thread, not the test runner's larger worker stack.
+/// @ref LLP 0068#proposed-windows-cli-stack-reserve — both source and AOT require the CLI budget
+#[cfg(all(windows, target_env = "msvc"))]
+#[test]
+fn windows_cli_loads_deep_source_and_precompiled_graphs() {
+    for count in [100, 500] {
+        let p = Project::new(&format!("cli chain café {count}"));
+        for index in 0..count {
+            let source = if index + 1 < count {
+                format!("exports.depth = 1 + require('./m{}').depth;", index + 1)
+            } else {
+                "exports.depth = 1;".to_owned()
+            };
+            p.file(&format!("m{index}.js"), &source);
+        }
+        p.file("index.js", "console.log(require('./m0').depth);");
+        for (command, flags) in [
+            ("run", &["--no-compile"][..]),
+            ("build", &[][..]),
+            ("run", &["--precompiled"][..]),
+        ] {
+            let output = std::process::Command::new(env!("CARGO_BIN_EXE_ibex2"))
+                .current_dir(&p.0)
+                .args([command, "index.js", "--root", "."])
+                .args(flags)
+                .output()
+                .expect("start the CLI");
+            assert!(
+                output.status.success(),
+                "{count} modules, {command} {flags:?}: {output:?}"
+            );
+            if command == "run" {
+                assert_eq!(
+                    String::from_utf8(output.stdout).unwrap().trim(),
+                    count.to_string()
+                );
+            }
+        }
+    }
+}
+
+#[cfg(all(windows, target_env = "msvc"))]
+#[test]
+fn windows_cli_keeps_engine_errors_and_async_pump_budget() {
+    let p = Project::new("cli errors");
+    for (source, expected) in [
+        (
+            "function recurse() { return 1 + recurse(); } recurse();",
+            "Maximum call stack size exceeded",
+        ),
+        ("throw new Error('cli sentinel');", "cli sentinel"),
+    ] {
+        p.file("index.js", source);
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_ibex2"))
+            .current_dir(&p.0)
+            .args(["run", "index.js", "--no-compile"])
+            .output()
+            .expect("start the CLI");
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(String::from_utf8(output.stderr).unwrap().contains(expected));
+    }
+    p.file(
+        "index.js",
+        "console.log('entry'); setTimeout(() => console.log('later'), 10000);",
+    );
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ibex2"))
+        .current_dir(&p.0)
+        .args(["run", "index.js", "--no-compile", "--budget-ms", "0"])
+        .output()
+        .expect("start the CLI");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "entry");
+}
+
 #[test]
 fn modules_require_each_other_and_exports_flow() {
     let p = Project::new("basic");

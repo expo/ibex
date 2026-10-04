@@ -84,6 +84,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $buildDir "bin\$name.exe") -Destination (Join-Path $toolsDir "$name-windows-$Arch.exe") -Force
   }
   Write-Host "Installed vanilla Windows Hermes at $installDir ($Ref)"
+  Write-Host ('Write its receipt with: node "{0}" "{1}"' -f (Join-Path $PSScriptRoot 'hermes-input-receipt.mjs'), $installDir)
 } finally {
   $lock.Dispose()
 }
