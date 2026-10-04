@@ -12,6 +12,171 @@ empty patch set, target, profile and build flags, HBC version, compiler,
 archive/header digests, and ordered Cargo link directives. It deliberately has
 no production date.
 
+## Required repository settings
+
+Apply these settings after the publisher workflow is merged to `main` and
+before the first builder dispatch. Run the commands as a repository
+administrator. They intentionally do not create a release or run a workflow.
+
+```sh
+repo=expo/ibex
+api_version=2026-03-10
+```
+
+Enable immutable releases for all releases created after this setting:
+
+```sh
+gh api --method PUT \
+  -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/immutable-releases"
+gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/immutable-releases" --jq '.enabled == true'
+```
+
+Protect `refs/tags/hermes-vanilla-*` with two aggregated tag rulesets. GitHub
+ruleset bypass actors are GitHub Apps rather than individual workflow files,
+so the first ruleset admits the GitHub Actions App for creation and update;
+the repository's only `contents: write` workflow is the protected
+default-branch publisher. The second ruleset has no bypass actor, making tag
+deletion unavailable even to that App.
+
+```sh
+github_actions_app_id="$(gh api -H "X-GitHub-Api-Version: $api_version" \
+  /apps/github-actions --jq .id)"
+test -n "$github_actions_app_id"
+
+publication_ruleset_id="$(
+  gh api --method POST \
+    -H "X-GitHub-Api-Version: $api_version" \
+    "repos/$repo/rulesets" --input - --jq .id <<JSON
+{
+  "name": "Hermes vanilla tag publication",
+  "target": "tag",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": $github_actions_app_id,
+      "actor_type": "Integration",
+      "bypass_mode": "always"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/tags/hermes-vanilla-*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "creation"},
+    {
+      "type": "update",
+      "parameters": {"update_allows_fetch_and_merge": false}
+    }
+  ]
+}
+JSON
+)"
+test -n "$publication_ruleset_id"
+
+deletion_ruleset_id="$(
+  gh api --method POST \
+    -H "X-GitHub-Api-Version: $api_version" \
+    "repos/$repo/rulesets" --input - --jq .id <<'JSON'
+{
+  "name": "Hermes vanilla tag deletion ban",
+  "target": "tag",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/tags/hermes-vanilla-*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "deletion"}
+  ]
+}
+JSON
+)"
+test -n "$deletion_ruleset_id"
+
+gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/rulesets/$publication_ruleset_id" --jq \
+  '{name,target,enforcement,bypass_actors,conditions,rules}'
+gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/rulesets/$deletion_ruleset_id" --jq \
+  '{name,target,enforcement,bypass_actors,conditions,rules}'
+```
+
+Create the secret-free `hermes-vanilla-release` environment and allow
+deployments only from the `main` branch:
+
+```sh
+gh api --method PUT \
+  -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/environments/hermes-vanilla-release" --input - <<'JSON'
+{
+  "wait_timer": 0,
+  "prevent_self_review": false,
+  "reviewers": [],
+  "deployment_branch_policy": {
+    "protected_branches": false,
+    "custom_branch_policies": true
+  }
+}
+JSON
+
+gh api --method POST \
+  -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/environments/hermes-vanilla-release/deployment-branch-policies" \
+  -f name=main -f type=branch
+
+gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/environments/hermes-vanilla-release"
+gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/environments/hermes-vanilla-release/deployment-branch-policies" \
+  --jq '{total_count,branch_policies}'
+test "$(gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/environments/hermes-vanilla-release/secrets" \
+  --jq .total_count)" = 0
+```
+
+Protect `main`: require a pull request with one non-author approval, dismiss
+stale approvals, require approval after the last push, enforce the rule for
+administrators, require linear history and resolved conversations, and forbid
+force pushes and deletion. This command deliberately names no bypass actor
+and no status check; add required checks separately once their stable check
+names are known.
+
+```sh
+gh api --method PUT \
+  -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/branches/main/protection" --input - <<'JSON'
+{
+  "required_status_checks": null,
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 1,
+    "require_last_push_approval": true
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": false
+}
+JSON
+
+gh api -H "X-GitHub-Api-Version: $api_version" \
+  "repos/$repo/branches/main/protection"
+```
+
 ## Cut the release
 
 1. Resolve an upstream tag to its exact commit and update
