@@ -10,31 +10,24 @@
 //! Two consumers, one standard library. A JavaScript module reaches it through
 //! the engine adapter and the bindings; a Rust consumer — Exact 2's plan
 //! runner — reaches it through `host` (LLP 0068), with no engine in the
-//! process. The `hermes` feature is the engine; everything else builds and
-//! runs without it.
+//! process. The optional `bindings` feature projects the library into a JSI
+//! runtime supplied by the caller and links no VM.
 //!
 //! @ref LLP 0057#2-the-inversion — the three-category split this crate implements
 //! @ref LLP 0067#1-five-properties — authority is carried, not inferred
 
+#[cfg(feature = "bindings")]
 pub mod bindings;
 pub mod boundary;
 pub mod boundary_abi;
-pub mod bytecode;
-pub mod engine;
-#[cfg(feature = "loader")]
-pub mod esm;
 pub mod grant;
 pub mod host;
 mod host_opcodes;
 pub mod kv;
-pub mod loader;
 pub mod pool;
-pub mod receipt;
 pub mod secrets;
 pub mod stdlib;
 pub mod task;
 pub mod transport;
-#[cfg(feature = "loader")]
-pub mod typescript;
 
 mod sqlite_abi;

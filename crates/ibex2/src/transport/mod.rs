@@ -16,7 +16,7 @@ pub use dev_tcp::DevTcpTransport;
 pub mod darwin;
 #[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
-#[cfg(any(not(target_vendor = "apple"), test))]
+#[cfg(any(not(target_vendor = "apple"), test, feature = "test-support"))]
 pub mod rustls_http;
 #[cfg(not(target_vendor = "apple"))]
 pub use rustls_http::RustlsHttpTransport;
@@ -24,7 +24,10 @@ pub use rustls_http::RustlsHttpTransport;
 // TCP and rustls elsewhere (and in tests everywhere).
 #[cfg(all(feature = "websocket", target_vendor = "apple"))]
 pub mod darwin_websocket;
-#[cfg(all(feature = "websocket", any(not(target_vendor = "apple"), test)))]
+#[cfg(all(
+    feature = "websocket",
+    any(not(target_vendor = "apple"), test, feature = "test-support")
+))]
 pub mod websocket;
 #[cfg(windows)]
 mod windows_connect;
@@ -51,10 +54,12 @@ pub fn default_transport() -> Box<dyn crate::stdlib::fetch::Transport> {
 /// Context construction should not initialize a platform transport that an
 /// owning runtime is about to replace. The cloned host endowment keeps this
 /// cell, so the selected default is constructed only if that endowment fetches.
+#[cfg(feature = "bindings")]
 pub(crate) struct LazyDefaultTransport {
     transport: std::sync::OnceLock<Box<dyn crate::stdlib::fetch::Transport>>,
 }
 
+#[cfg(feature = "bindings")]
 impl LazyDefaultTransport {
     pub(crate) fn new() -> Self {
         Self {
@@ -63,6 +68,7 @@ impl LazyDefaultTransport {
     }
 }
 
+#[cfg(feature = "bindings")]
 impl crate::stdlib::fetch::Transport for LazyDefaultTransport {
     fn open(
         &self,

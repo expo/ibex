@@ -1,6 +1,6 @@
 //! The Keychain behind the `SecretStore` trait.
 //!
-//! See `src/engine/darwin_keychain.mm` for the Objective-C++ half: generic
+//! See `src/secrets/darwin_keychain.mm` for the Objective-C++ half: generic
 //! password items, service = the app's identity, account = the name. On iOS
 //! the item is `AfterFirstUnlockThisDeviceOnly`; on macOS it goes to the login
 //! keychain, whose ACL trusts the app that created it by its code signature —

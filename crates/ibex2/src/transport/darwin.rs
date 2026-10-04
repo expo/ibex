@@ -1,6 +1,6 @@
 //! `NSURLSession` behind the `Transport` trait.
 //!
-//! See `src/engine/darwin_http.mm` for the Objective-C++ half, and in
+//! See `src/transport/darwin_http.mm` for the Objective-C++ half, and in
 //! particular for why redirects are refused there: Rust re-checks the
 //! `net.fetch` grant on every hop, so a platform that followed redirects
 //! internally would deliver a response from an origin the caller was never

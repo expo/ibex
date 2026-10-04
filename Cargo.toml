@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/ibex2", "crates/ibex2-sqlite"]
+members = [
+    "crates/hermes-lean-sys",
+    "crates/ibex2",
+    "crates/ibex2-runtime",
+    "crates/ibex2-sqlite",
+]
 resolver = "2"
 
 [patch.crates-io]

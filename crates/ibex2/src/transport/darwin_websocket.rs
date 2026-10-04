@@ -1,5 +1,5 @@
 //! `NSURLSessionWebSocketTask` behind `SocketTransport`. See
-//! `src/engine/darwin_websocket.mm` for the Objective-C++ half: an ephemeral
+//! `src/transport/darwin_websocket.mm` for the Objective-C++ half: an ephemeral
 //! session per socket that refuses redirects and sends with the platform task.
 
 use crate::boundary::HostError;

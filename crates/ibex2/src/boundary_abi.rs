@@ -17,6 +17,9 @@ use crate::grant::GrantSet;
 use crate::host_opcodes;
 use crate::stdlib::{base64, console, crypto, text, url};
 
+#[path = "bindings/headers_ops.rs"]
+mod headers_ops;
+
 pub const TAG_UNDEFINED: i32 = 0;
 pub const TAG_NULL: i32 = 1;
 pub const TAG_BOOL: i32 = 2;
@@ -283,7 +286,7 @@ fn dispatch(
     if let Some(result) = crate::stdlib::subtle_abi::dispatch(op as u32, args, state) {
         return result;
     }
-    if let Some(result) = crate::bindings::headers_ops::dispatch(op as u32, args, state) {
+    if let Some(result) = headers_ops::dispatch(op as u32, args, state) {
         return result;
     }
     if let Some(level) = op.console_level() {
@@ -547,7 +550,7 @@ pub unsafe extern "C" fn ibex2_host_call(
     }
 
     let state = crate::task::clone_queue(state);
-    #[cfg(all(feature = "hermes", target_os = "linux"))]
+    #[cfg(all(feature = "bindings", target_os = "linux"))]
     if let Some(result) = crate::stdlib::intl::dispatch(op, &args, state.as_deref()) {
         return match result {
             Ok(value) => {
@@ -557,7 +560,7 @@ pub unsafe extern "C" fn ibex2_host_call(
             Err(err) => fail(out, &err.to_string()),
         };
     }
-    #[cfg(all(feature = "hermes", target_os = "linux"))]
+    #[cfg(all(feature = "bindings", target_os = "linux"))]
     if let Some(result) = crate::stdlib::intl_datetime::dispatch(op, &args, state.as_deref()) {
         return match result {
             Ok(value) => {
@@ -567,7 +570,7 @@ pub unsafe extern "C" fn ibex2_host_call(
             Err(err) => fail(out, &err.to_string()),
         };
     }
-    #[cfg(all(feature = "hermes", target_os = "linux"))]
+    #[cfg(all(feature = "bindings", target_os = "linux"))]
     if let Some(result) = crate::stdlib::intl_case::dispatch(op, &args) {
         return match result {
             Ok(value) => {
@@ -655,7 +658,8 @@ fn fail(out: *mut AbiValue, message: &str) -> c_int {
 }
 
 /// Move a value into a Rust allocation the shim borrows until it releases it.
-fn leak_value(value: HostValue) -> AbiValue {
+#[doc(hidden)]
+pub fn leak_value(value: HostValue) -> AbiValue {
     match value {
         HostValue::Undefined => AbiValue::undefined(),
         HostValue::Null => AbiValue {
@@ -1090,105 +1094,6 @@ fn run_async(
     }
 }
 
-/// Resolve a module and produce its executable form.
-///
-/// Returns 0 on success, writing the resolved specifier into `out_resolved` and
-/// the module's bytes into `out_source` — Hermes bytecode when a compiler is
-/// configured, wrapped source otherwise. 1 on failure with the message in
-/// `out_resolved`. Both are Rust-owned and released with `ibex2_host_release`.
-///
-/// # Safety
-/// All pointers must be valid.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_loader_load(
-    state: *const crate::task::RuntimeState,
-    from: *const c_char,
-    specifier: *const c_char,
-    out_resolved: *mut AbiValue,
-    out_source: *mut AbiValue,
-) -> c_int {
-    if out_resolved.is_null() || out_source.is_null() {
-        return 1;
-    }
-    *out_resolved = AbiValue::undefined();
-    *out_source = AbiValue::undefined();
-
-    let Some(state) = crate::task::clone_queue(state) else {
-        return fail(out_resolved, "no runtime state");
-    };
-    let read = |raw: *const c_char| -> String {
-        if raw.is_null() {
-            String::new()
-        } else {
-            std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned()
-        }
-    };
-
-    match state.load_module(&read(from), &read(specifier)) {
-        Ok((resolved, bytes)) => {
-            *out_resolved = leak_value(HostValue::Str(resolved));
-            *out_source = leak_value(HostValue::Bytes(bytes));
-            0
-        }
-        Err(message) => fail(out_resolved, &message),
-    }
-}
-
-/// The grant set for one module, as an owned pointer.
-///
-/// # Safety
-/// The result must be released with `ibex2_grants_destroy`.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_loader_grants_for(
-    state: *const crate::task::RuntimeState,
-    specifier: *const c_char,
-) -> *const GrantSet {
-    let Some(state) = crate::task::clone_queue(state) else {
-        return std::ptr::null();
-    };
-    let specifier = if specifier.is_null() {
-        String::new()
-    } else {
-        std::ffi::CStr::from_ptr(specifier)
-            .to_string_lossy()
-            .into_owned()
-    };
-    std::sync::Arc::into_raw(state.grants_for(&specifier))
-}
-
-/// Milliseconds until the next timer, or -1 when none is scheduled.
-///
-/// # Safety
-/// `state` must be a live runtime state.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_millis_until_next_timer(
-    state: *const crate::task::RuntimeState,
-) -> f64 {
-    let Some(state) = crate::task::clone_queue(state) else {
-        return -1.0;
-    };
-    state.millis_until_next_timer().unwrap_or(-1.0)
-}
-
-/// Block until a completion is ready or `timeout_ms` elapses.
-///
-/// # Safety
-/// `state` must be a live runtime state.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_wait_for_completion(
-    state: *const crate::task::RuntimeState,
-    timeout_ms: u64,
-) -> c_int {
-    let Some(state) = crate::task::clone_queue(state) else {
-        return 0;
-    };
-    i32::from(
-        state
-            .queue
-            .wait(std::time::Duration::from_millis(timeout_ms)),
-    )
-}
-
 fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
     use crate::stdlib::fs::FsOp;
     Some(match op {
@@ -1328,40 +1233,6 @@ pub unsafe extern "C" fn ibex2_take_task(
             *out = leak_value(payload);
             1
         }
-    }
-}
-
-/// Move every timer due now into the host-task FIFO, and report how many.
-///
-/// # Safety
-/// `state` must be a live runtime state.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_admit_due_timers(state: *const crate::task::RuntimeState) -> c_int {
-    let Some(state) = crate::task::clone_queue(state) else {
-        return 0;
-    };
-    state.admit_due_timers() as c_int
-}
-
-/// Claim the driver, so a nested drive records a wakeup instead of starting a
-/// second host task inside project JavaScript.
-///
-/// # Safety
-/// `state` must be a live runtime state.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_begin_drive(state: *const crate::task::RuntimeState) -> c_int {
-    match crate::task::clone_queue(state) {
-        Some(state) => c_int::from(state.begin_drive()),
-        None => 0,
-    }
-}
-
-/// # Safety
-/// `state` must be a live runtime state.
-#[no_mangle]
-pub unsafe extern "C" fn ibex2_end_drive(state: *const crate::task::RuntimeState) {
-    if let Some(state) = crate::task::clone_queue(state) {
-        state.end_drive();
     }
 }
 
@@ -1548,7 +1419,7 @@ mod fetch_header_tests {
         // to miss. Parsing is intentionally strict: replacing a numeric literal
         // or changing a binding requires changing the declarative registry too.
         let mut cpp = Vec::new();
-        for line in include_str!("engine/ibex2_jsi.cc").lines() {
+        for line in include_str!("bindings/install.cc").lines() {
             let line = line.trim();
             let Some(call) = line
                 .strip_prefix("set_group_binding(")

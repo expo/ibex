@@ -1,0 +1,16 @@
+[package]
+name = "hermes-lean-sys"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+links = "hermes_lean"
+publish = false
+
+[features]
+default = []
+# The owning Ibex runtime still needs the full VM's host source entrance. A
+# bindings-only dependency resolves the lean archive instead.
+link = []
+
+[build-dependencies]
+sha2 = "0.10"

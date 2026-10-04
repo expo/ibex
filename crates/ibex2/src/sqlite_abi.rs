@@ -51,9 +51,11 @@ impl Registry {
             .set(provider)
             .map_err(|_| invalid("SQLite provider is already configured"))
     }
+    #[cfg(feature = "bindings")]
     pub(crate) fn has_provider(&self) -> bool {
         self.provider.get().is_some()
     }
+    #[cfg(feature = "bindings")]
     pub(crate) fn provider(&self) -> Option<Arc<dyn Provider>> {
         self.provider.get().cloned()
     }

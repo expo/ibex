@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-04 (§1/§3/OQ1: L1b split the library/bindings, owning runtime, and lean-engine resolver; Decision C requires hardening before application code)
 **Revised:** 2026-10-04 (§3: `WEBSOCKET` is default-on and is a grant-bound module constructor in the secure runtime; borrowed runtimes retain the installer-endowed global)
 **Revised:** 2026-10-04 (§1/§3: WebSocket sending/watch and explicit `WEBSOCKET` group; OQ3's Receiver is now used by L4); 2026-10-04 (§3: borrowed-adapter delivery contains callback exceptions and reports them through the cancelable error-event path); 2026-10-04 (§3: wake callbacks are serialized edge-triggered notifications; concurrent admissions coalesce, re-entrant close returns, and cross-thread close waits for the sole invocation); 2026-10-04 (OQ2: the off-Apple HTTP transport loads the native trust store lazily and at most once per process; §3: a default `Context` defers its platform transport so adoption does not build and discard it); 2026-10-04 (§3: bytecode preflight requires the pin's complete 128-byte `BytecodeFileHeader` before reading prefix fields or mutating the runtime); 2026-10-04 (§3: a late completion and queue closure serialize with FIFO insertion, so the result is dropped with its resources); 2026-10-04 (§3: Hermes adoption snapshots configuration applied through the source `Context` after construction); 2026-10-04 (§3: the last owner lease, not the last worker reference, begins shutdown and retires the wake callback); 2026-10-04 (§3: the install input is a typed, validated endowment handle; bytecode preflight checks the complete header and declared length; a failed one-shot install spends the adapter, and failure after publication requires discarding the runtime; the Hermes bootstrap order is stated as implemented); 2026-10-04 (§3: named install groups and their explicit dependency graph); 2026-09-11 (OQ2: Snapback2 0.0.24 separately qualifies and publishes the selected Linux engine-facing Intl tier; broader Intl conformance remains open); 2026-09-11 (OQ2: Linux's selected engine-facing Intl stubs are replaced by the native standard-library tier; this does not expand the no-engine Rust surface or qualify publication); 2026-09-11 (OQ2: the same transport qualified through the Linux Hermes runtime; Linux Intl and publication remain unqualified); 2026-09-07 (app-scoped filesystem and separate SQLite provider); 2026-09-06 (§2: author-required streaming and cancellation); 2026-09-03 (LLP 0057.000 plans how `Bindings` grows — one field per family, feature-gated where a family pulls a dependency or a framework, present and refusing when the feature is off — and answers OQ3 in its lane L3 with a `Receiver`; neither is built yet) 2026-08-30 (§1: `Bindings` grew `secrets` (LLP 0069) and `kv` (LLP 0070), and `Host` carries their stores beside the transport — caught by the LLP 0070 review as drift on this page; §3: the whole-surface sentence now says where the fourth and fifth bindings' tests live, caught by its round 2)
 **Revised:** 2026-10-04 (§3: BLOB is in `Groups::DEFAULT` and `Groups::ALL` under the final 150 KB / 150 µs default-on budget)
@@ -21,6 +22,9 @@ implementation — every function is the one the JavaScript bindings call,
 behind the same `boundary::admit`, taking the same `GrantSet` a manifest
 section parses to — and it links no engine. What it states in Rust is
 LLP 0067's model: a consumer is endowed with bindings that carry their grant.
+The crate boundary makes the three doors explicit: `ibex2` is this Rust
+surface plus optional VM-free JSI bindings, `ibex2-runtime` owns Hermes and its
+loop/loader, and `hermes-lean-sys` supplies one compiler/VM resolution.
 
 ## 1. The shape
 
@@ -95,8 +99,9 @@ executor. No async runtime enters the crate.
 
 ## 3. No engine in the process
 
-The `hermes` feature is the engine. With it off — the crate's default — no
-Hermes is linked, and `cargo test -p ibex2 --no-default-features` runs the
+`ibex2` has no engine feature and always links no VM. Its `bindings` feature is
+off by default and adds only the JSI installer and precompiled binding inputs;
+the caller provides the engine. `cargo test -p ibex2 --no-default-features` runs the
 whole surface: `--test rust_consumer` covers a fetch through `NSURLSession`,
 filesystem operations inside and outside a granted prefix, an env snapshot,
 and the pure tier; the fourth and fifth bindings run beside it — secrets in
@@ -132,11 +137,21 @@ selection on the caller's behalf. The groups are:
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
-`bindings::scripts(groups)` returns the ordered `(name, source_path)` inputs
-for the caller to compile with its own engine compiler. It excludes the
-runtime-only `esm.js`, `harden.js`, and test harness. The order preserves the
-shipping runtime's established bootstrap order while filtering out unselected
-groups.
+`bindings::scripts(groups)` returns the ordered `(name, source_path)` inputs;
+`bindings::compiled_scripts(groups)` returns the same order compiled with the
+`hermesc` selected by `hermes-lean-sys`. Both exclude runtime-only `esm.js`,
+`harden.js`, and the test harness. The order preserves the shipping runtime's
+established bootstrap order while filtering out unselected groups.
+
+**Decision C (Charlie, 2026-10-04): the bindings door requires hardening
+before app code.** An embedder that installs bindings must then evaluate
+`bindings::HARDEN_SOURCE`, its matching `bindings::HARDEN_BYTECODE`, or perform
+an equivalent freeze before evaluating application code. The
+`bindings::HARDEN_BYTECODE_PATH` constant exposes the compiled artifact to
+build systems. The `isTrusted`, brand-registry, and private-state guarantees
+hold only in a hardened runtime. Findings that depend on an unhardened runtime
+belong in `issues/20261004-binding-intrinsic-capture-audit.md`; they are not
+fixed one by one into an unsupported second security posture.
 
 The one JSI entry point is:
 
@@ -206,7 +221,7 @@ Implemented 2026-09-07 (Charlie: make the bindings available in Rust and
 TypeScript; Codex). `ibex2::bindings::Context` supplies a separate Rust state
 and host-admitted grant set. Its directories and optional SQLite provider are
 configured exactly as the Rust host's. `include/ibex2_jsi.h` and
-`src/engine/ibex2_jsi.cc` are the installable JSI adapter; the embedder compiles
+`src/bindings/install.cc` are the installable JSI adapter; the embedder compiles
 them against its own JSI headers, with no `hermes` feature required. The
 existing Ibex2 Hermes runtime uses this same adapter.
 
@@ -623,11 +638,13 @@ Apple/Linux execution or cross-link is claimed for this slice.
 
 ## 5. Open questions
 
-**OQ1 — The crate boundary.** *Resolved the same day:* the loader — Oxc's
-parser, transformer, and resolver — is behind the `loader` feature, on by
-default. A Rust consumer depends on `ibex2` with `default-features = false`
-and compiles none of it; the same cut is the run-only binary of LLP 0065
-§3.3, 5.6 MB against 9.6 MB.
+**OQ1 — The crate boundary.** *Resolved 2026-10-04 by L1b:* `ibex2` is the
+engine-free Rust library with VM-free JSI bindings behind `bindings`,
+`ibex2-runtime` owns Hermes and carries Oxc behind its default-on `loader`
+feature, and `hermes-lean-sys` alone resolves and links the selected engine. A Rust
+consumer depends on `ibex2` with `default-features = false` and compiles none of
+the loader or engine; the same cut remains the run-only binary shape of
+LLP 0065 §3.3.
 
 **OQ2 — Linux.** *Resolved 2026-08-30, for Exact 2's Linux host (its LLP
 1016 D2):* the default transport off Apple platforms is

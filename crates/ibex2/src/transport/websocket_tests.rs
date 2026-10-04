@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "test-support", allow(dead_code))]
 //! The socket transports against a local WebSocket peer (LLP 0059.000
 //! §3.12): upgrade, text frames (fragmented and extended-length), a ping, the
 //! closing handshake, an over-limit frame, a binary frame, a refused
@@ -53,7 +54,7 @@ fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
 }
 
 /// A local peer; what it saw from the client arrives on the receiver.
-pub(crate) fn peer() -> (u16, Receiver<String>) {
+pub fn peer() -> (u16, Receiver<String>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (saw, seen) = channel();

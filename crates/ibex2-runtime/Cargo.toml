@@ -1,0 +1,64 @@
+[package]
+name = "ibex2-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "ibex2"
+path = "src/bin/ibex2.rs"
+
+[[example]]
+name = "speed"
+required-features = ["loader"]
+
+[[example]]
+name = "graph"
+required-features = ["loader"]
+
+[dependencies]
+ibex2 = { path = "../ibex2", default-features = false, features = ["bindings"] }
+hermes-lean-sys = { path = "../hermes-lean-sys", features = ["link"] }
+libc = "0.2"
+serde_json = "1"
+sha2 = "0.10"
+oxc_allocator = { version = "=0.140.0", optional = true }
+oxc_ast = { version = "=0.140.0", optional = true }
+oxc_ast_visit = { version = "=0.140.0", optional = true }
+oxc_codegen = { version = "=0.140.0", optional = true }
+oxc_parser = { version = "=0.140.0", optional = true }
+oxc_resolver = { version = "=11.24.2", optional = true }
+oxc_semantic = { version = "=0.140.0", optional = true }
+oxc_span = { version = "=0.140.0", optional = true }
+oxc_transformer = { version = "=0.140.0", optional = true }
+
+[dev-dependencies]
+ibex2 = { path = "../ibex2", default-features = false, features = ["bindings", "test-support"] }
+ibex2-sqlite = { path = "../ibex2-sqlite" }
+socket2 = "0.6"
+ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.7"
+webpki-roots = "1"
+url = "2.5"
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = ["loader", "crypto", "websocket"]
+crypto = ["ibex2/crypto"]
+crypto-asymmetric = ["crypto", "ibex2/crypto-asymmetric"]
+loader = [
+    "dep:oxc_allocator",
+    "dep:oxc_ast",
+    "dep:oxc_ast_visit",
+    "dep:oxc_codegen",
+    "dep:oxc_parser",
+    "dep:oxc_resolver",
+    "dep:oxc_semantic",
+    "dep:oxc_span",
+    "dep:oxc_transformer",
+]
+websocket = ["ibex2/websocket"]

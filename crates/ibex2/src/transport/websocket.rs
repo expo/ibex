@@ -900,6 +900,6 @@ impl Drop for Socket {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "websocket_tests.rs"]
-pub(crate) mod tests;
+pub mod tests;

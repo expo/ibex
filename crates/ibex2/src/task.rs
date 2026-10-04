@@ -361,9 +361,9 @@ impl CompletionQueue {
 /// refers to.
 pub struct RuntimeState {
     pub queue: CompletionQueue,
-    #[cfg(all(feature = "hermes", target_os = "linux"))]
+    #[cfg(all(feature = "bindings", target_os = "linux"))]
     pub(crate) intl: crate::stdlib::intl::Registry,
-    #[cfg(all(feature = "hermes", target_os = "linux"))]
+    #[cfg(all(feature = "bindings", target_os = "linux"))]
     pub(crate) intl_datetime: crate::stdlib::intl_datetime::Registry,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
@@ -389,16 +389,6 @@ pub struct RuntimeState {
     /// The runtime's monotonic origin, so `now()` is milliseconds since boot —
     /// the same base `performance.now` will read (§2).
     started: std::time::Instant,
-    /// Where modules are loaded from, and what each one may reach.
-    loader: Mutex<Option<LoaderConfig>>,
-    /// One `Arc` per distinct grant set, for the runtime's life. Two modules
-    /// with equal grants get the same pointer, and the engine side keys the
-    /// bindings it builds — `fetch`, `fs`, `process` — on that pointer, so
-    /// they are built once per grant set rather than once per module. Never
-    /// cleared: a set is immutable, and a binding built for it is right for
-    /// every module that ever receives it.
-    interned_grants:
-        Mutex<std::collections::HashMap<crate::grant::GrantSet, Arc<crate::grant::GrantSet>>>,
     /// True while a drive cycle is running, so a nested request records a
     /// wakeup instead of starting a second host task.
     driving: std::sync::atomic::AtomicBool,
@@ -532,9 +522,9 @@ impl RuntimeState {
         }
         let state = Self {
             queue: CompletionQueue::new(),
-            #[cfg(all(feature = "hermes", target_os = "linux"))]
+            #[cfg(all(feature = "bindings", target_os = "linux"))]
             intl: crate::stdlib::intl::Registry::new(),
-            #[cfg(all(feature = "hermes", target_os = "linux"))]
+            #[cfg(all(feature = "bindings", target_os = "linux"))]
             intl_datetime: crate::stdlib::intl_datetime::Registry::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
             app_directories,
@@ -550,8 +540,6 @@ impl RuntimeState {
             crypto_keys: Mutex::new(std::collections::HashMap::new()),
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
-            loader: Mutex::new(None),
-            interned_grants: Mutex::new(std::collections::HashMap::new()),
             driving: std::sync::atomic::AtomicBool::new(false),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
@@ -686,6 +674,7 @@ impl RuntimeState {
     /// Snapshot the source endowment together with configuration applied
     /// directly to this state after the Context was constructed.
     // @ref LLP 0068#3-no-engine-in-the-process — owning Hermes adopts the configured Context without sharing its runtime identity
+    #[cfg(feature = "bindings")]
     pub(crate) fn bindings_snapshot(&self, bindings: &host::Bindings) -> host::Bindings {
         bindings.with_runtime_configuration(
             self.app_directories.get().cloned().map(Arc::new),
@@ -698,6 +687,7 @@ impl RuntimeState {
     /// Explicit configuration already installed directly on the runtime wins
     /// when the endowment omits that optional component.
     // @ref LLP 0057.000#50-three-doors-one-implementation — owning engines copy the endowed mechanisms without sharing runtime identity
+    #[cfg(feature = "bindings")]
     pub(crate) fn adopt_bindings(&self, bindings: &host::Bindings) -> Result<(), HostError> {
         if self.adopted_endowment.get().is_some() {
             return Err(HostError::InvalidArgument(
@@ -929,8 +919,9 @@ impl RuntimeState {
             .remove(&handle);
     }
 
-    #[cfg(feature = "hermes")]
-    pub(crate) fn live_headers(&self) -> usize {
+    #[cfg(feature = "bindings")]
+    #[doc(hidden)]
+    pub fn live_headers(&self) -> usize {
         self.headers.lock().expect("header registry poisoned").len()
     }
 
@@ -964,7 +955,8 @@ impl RuntimeState {
             .remove(&handle);
     }
 
-    pub(crate) fn crypto_key_count(&self) -> usize {
+    #[doc(hidden)]
+    pub fn crypto_key_count(&self) -> usize {
         self.crypto_keys
             .lock()
             .expect("crypto key registry poisoned")
@@ -1104,7 +1096,8 @@ impl RuntimeState {
     /// after that lock is released because the embedder wake may re-enter any
     /// subscription operation.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn publish_event(&self, subscription: u64, payload: HostValue) -> bool {
+    #[doc(hidden)]
+    pub fn publish_event(&self, subscription: u64, payload: HostValue) -> bool {
         let bytes = host_value_size(&payload);
         let state = {
             let subscriptions = self
@@ -1224,124 +1217,6 @@ fn websocket_event_payload(event: crate::stdlib::websocket::Event) -> HostValue 
     HostValue::Bytes(bytes)
 }
 
-/// Where the loader reads from, and the authority it hands each module.
-#[derive(Debug)]
-pub struct LoaderConfig {
-    pub root: crate::loader::Root,
-    pub grants: crate::loader::ModuleGrants,
-    /// Compiles module wrappers ahead of time. Absent means source loading,
-    /// which `rules/RULES.md` forbids for anything shippable and which exists
-    /// only so a machine without hermesc can still run something.
-    pub compiler: Option<crate::bytecode::Compiler>,
-    /// Refuse to compile on demand: every module must already be built.
-    pub precompiled_only: bool,
-    /// Resolved specifier to artifact key, written by the build. When present,
-    /// a module is found without reading or hashing its source.
-    pub manifest: Option<crate::bytecode::Manifest>,
-    /// What resolution asked the filesystem, for this loader's life.
-    pub cache: crate::loader::ResolveCache,
-    /// The build's artifacts in one file, read once. A key it lacks falls
-    /// back to the artifact's own file.
-    pub bundle: Option<crate::bytecode::Bundle>,
-}
-
-impl RuntimeState {
-    pub fn set_loader(&self, config: LoaderConfig) {
-        *self.loader.lock().expect("loader poisoned") = Some(config);
-    }
-
-    /// Resolve a specifier and produce the module's executable form.
-    ///
-    /// Resolution refuses anything outside the root before a file is opened, so
-    /// a traversal is a loader error rather than a filesystem question. The
-    /// second element is Hermes bytecode when a compiler is configured and
-    /// wrapped source otherwise; the caller distinguishes them by the HBC
-    /// magic rather than by asking.
-    pub fn load_module(&self, from: &str, specifier: &str) -> Result<(String, Vec<u8>), String> {
-        let guard = self.loader.lock().expect("loader poisoned");
-        let config = guard.as_ref().ok_or("no loader configured")?;
-        // The build already resolved this edge, if there was a build: no
-        // resolver, no directory listing, no realpath. Otherwise resolve.
-        let resolved = match config
-            .manifest
-            .as_ref()
-            .and_then(|manifest| manifest.edge(from, specifier))
-        {
-            Some(resolved) => resolved.to_string(),
-            None => crate::loader::resolve_in(&config.cache, &config.root, from, specifier)?,
-        };
-
-        // The fast path: the build already said which artifact this is, so the
-        // source file is never opened.
-        if let (Some(compiler), Some(manifest)) = (&config.compiler, &config.manifest) {
-            if let Some(key) = manifest.get(&resolved) {
-                if let Some(bytes) = config.bundle.as_ref().and_then(|bundle| bundle.get(key)) {
-                    return Ok((resolved, bytes.to_vec()));
-                }
-                let bytes = compiler
-                    .by_key(key)
-                    .map_err(|e| format!("{resolved}: {e}"))?;
-                return Ok((resolved, bytes));
-            }
-            if config.precompiled_only {
-                return Err(format!("{resolved}: not in the build manifest"));
-            }
-        }
-
-        #[cfg(not(feature = "loader"))]
-        #[allow(clippy::needless_return)]
-        {
-            return Err(format!(
-                "{resolved}: not in the build manifest, and this build has no loader — it runs precompiled artifacts only"
-            ));
-        }
-        #[cfg(feature = "loader")]
-        let path = config.root.join(resolved.trim_start_matches("./"));
-        #[cfg(feature = "loader")]
-        let source = std::fs::read_to_string(&path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        #[cfg(feature = "loader")]
-        {
-            // The wrapper is built HERE, once, because it is what gets compiled —
-            // the artifact is the wrapper, so a second definition of it elsewhere
-            // would be a second definition of the thing the cache is keyed on.
-            let wrapped = crate::loader::lower_and_wrap(&source, &resolved)?;
-
-            match &config.compiler {
-                Some(compiler) => {
-                    let bytes = if config.precompiled_only {
-                        compiler.cached_only(&wrapped)
-                    } else {
-                        compiler.compile(&wrapped)
-                    }
-                    .map_err(|e| format!("{resolved}: {e}"))?;
-                    Ok((resolved, bytes))
-                }
-                None => Ok((resolved, wrapped.into_bytes())),
-            }
-        }
-    }
-
-    /// The authority for one module, as an owned handle the binding keeps.
-    pub fn grants_for(&self, specifier: &str) -> Arc<crate::grant::GrantSet> {
-        let guard = self.loader.lock().expect("loader poisoned");
-        let set = match guard.as_ref() {
-            Some(config) => config.grants.for_module(specifier).clone(),
-            None => crate::grant::GrantSet::none(),
-        };
-        let mut interned = self
-            .interned_grants
-            .lock()
-            .expect("interned grants poisoned");
-        if let Some(existing) = interned.get(&set) {
-            return Arc::clone(existing);
-        }
-        let shared = Arc::new(set.clone());
-        interned.insert(set, Arc::clone(&shared));
-        shared
-    }
-}
-
 impl Drop for RuntimeState {
     fn drop(&mut self) {
         self.shutdown();
@@ -1351,10 +1226,12 @@ impl Drop for RuntimeState {
 /// A runtime owner. Worker Arcs deliberately do not contain one, so the last
 /// embedder owner initiates shutdown even while blocked work retains storage.
 // @ref LLP 0058.000.000#9-teardown-and-lifecycle — worker storage references do not postpone owner-initiated Closing
+#[cfg(any(test, feature = "bindings"))]
 pub(crate) struct OwnerLease {
     state: Arc<RuntimeState>,
 }
 
+#[cfg(any(test, feature = "bindings"))]
 impl OwnerLease {
     pub(crate) fn new(state: Arc<RuntimeState>) -> Self {
         state.acquire_owner();
@@ -1362,6 +1239,7 @@ impl OwnerLease {
     }
 }
 
+#[cfg(any(test, feature = "bindings"))]
 impl Drop for OwnerLease {
     fn drop(&mut self) {
         self.state.release_owner();
@@ -1696,7 +1574,7 @@ pub unsafe extern "C" fn ibex2_websocket_buffered_amount(
 ///
 /// # Safety
 /// `state` must remain a live runtime-state pointer for this call.
-#[cfg(feature = "hermes")]
+#[cfg(feature = "bindings")]
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_test_publish_event(
     state: *const RuntimeState,

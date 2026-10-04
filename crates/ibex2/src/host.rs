@@ -148,6 +148,7 @@ pub struct Bindings {
 }
 
 impl Bindings {
+    #[cfg(feature = "bindings")]
     pub(crate) fn grants(&self) -> Arc<GrantSet> {
         Arc::clone(&self.fetch.grants)
     }
@@ -160,6 +161,7 @@ impl Bindings {
         self.sqlite.provider.clone()
     }
 
+    #[cfg(feature = "bindings")]
     pub(crate) fn with_runtime_configuration(
         &self,
         directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,

@@ -15,11 +15,21 @@ use std::{
     time::Duration,
 };
 
-pub(crate) mod headers_ops;
-
-pub const JSI_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/engine/ibex2_jsi.cc");
+pub const JSI_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/install.cc");
 pub const JSI_HEADER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/include/ibex2_jsi.h");
-pub const HARDEN_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/harden.js");
+/// Hardening source an embedder must evaluate after installation and before
+/// application code. The guarantees documented for binding private state and
+/// trusted events require this step.
+pub const HARDEN_SOURCE: &str = include_str!(env!("IBEX2_HARDEN_SOURCE_PATH"));
+/// Filesystem path to the same source for build systems that accept inputs by path.
+pub const HARDEN_SOURCE_PATH: &str = env!("IBEX2_HARDEN_SOURCE_PATH");
+/// Filesystem path to hardening bytecode compiled by the matching `hermesc`.
+pub const HARDEN_BYTECODE_PATH: &str = env!("IBEX2_HARDEN_BYTECODE_PATH");
+/// Hardening bytecode compiled from [`HARDEN_SOURCE`].
+pub const HARDEN_BYTECODE: &[u8] = include_bytes!(env!("IBEX2_HARDEN_BYTECODE_PATH"));
+/// Digest and HBC version inherited from the one `hermes-lean-sys` resolution.
+pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
+pub const BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_BYTECODE_VERSION");
 pub const SQLITE_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/sqlite.js");
 pub const TYPESCRIPT: &str = include_str!("bindings/storage.d.ts");
 
@@ -221,6 +231,15 @@ impl std::error::Error for GroupError {}
 /// belonging to the engine that owns its JSI runtime.
 pub type Script = (&'static str, &'static str);
 
+/// One binding script compiled by the `hermesc` selected by
+/// `hermes-lean-sys`. The runtime and external embedders can feed these bytes
+/// to the engine from the same resolution without linking a VM through this
+/// crate.
+pub struct CompiledBinding {
+    pub name: &'static str,
+    pub bytes: &'static [u8],
+}
+
 /// JavaScript shapes needed by `groups`, in deterministic installation order.
 /// Runtime-only files (`esm.js`, `harden.js`, and `testharness.js`) are not
 /// bindings and therefore are deliberately absent.
@@ -311,6 +330,49 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
         push("structured_clone");
     }
     Ok(result)
+}
+
+/// Precompiled form of [`scripts`], in the identical checked order.
+pub fn compiled_scripts(groups: Groups) -> Result<Vec<CompiledBinding>, GroupError> {
+    scripts(groups).map(|scripts| {
+        scripts
+            .into_iter()
+            .map(|(name, _)| CompiledBinding {
+                name,
+                bytes: compiled_script(name),
+            })
+            .collect()
+    })
+}
+
+fn compiled_script(name: &str) -> &'static [u8] {
+    match name {
+        "headers" => include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc")),
+        "timers" => include_bytes!(concat!(env!("OUT_DIR"), "/timers.hbc")),
+        "url" => include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc")),
+        "domexception" => include_bytes!(concat!(env!("OUT_DIR"), "/domexception.hbc")),
+        "crypto" => include_bytes!(concat!(env!("OUT_DIR"), "/crypto.hbc")),
+        "events" => include_bytes!(concat!(env!("OUT_DIR"), "/events.hbc")),
+        "abort" => include_bytes!(concat!(env!("OUT_DIR"), "/abort.hbc")),
+        "websocket" => include_bytes!(concat!(env!("OUT_DIR"), "/websocket.hbc")),
+        "blob" => include_bytes!(concat!(env!("OUT_DIR"), "/blob.hbc")),
+        "structured_clone" => {
+            include_bytes!(concat!(env!("OUT_DIR"), "/structured_clone.hbc"))
+        }
+        "fetch" => include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
+        "sqlite" => include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
+        #[cfg(target_os = "linux")]
+        "intl_number_format" => {
+            include_bytes!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))
+        }
+        #[cfg(target_os = "linux")]
+        "intl_case" => include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
+        #[cfg(target_os = "linux")]
+        "intl_datetime" => {
+            include_bytes!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"))
+        }
+        _ => unreachable!("scripts returned an unknown binding"),
+    }
 }
 
 /// Rust resources borrowed by one JSI adapter. Create after first pixel,
