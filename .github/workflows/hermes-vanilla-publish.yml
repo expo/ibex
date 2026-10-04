@@ -369,20 +369,146 @@ jobs:
           (root / "SHA256SUMS").write_text("".join(lines), encoding="ascii")
           PY
 
-      - name: Create immutable prerelease
+      - name: Publish verified draft as immutable prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DIR: ${{ runner.temp }}/hermes-vanilla-release
+          DRAFT_MARKER: "<!-- ibex-hermes-vanilla-publisher:v1 -->"
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::release $RELEASE_TAG already exists; immutable releases are never edited"
-            exit 1
-          fi
           test "$(find "$RELEASE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 15
-          gh release create "$RELEASE_TAG" "$RELEASE_DIR"/* \
+
+          require_absent_tag() {
+            local response status
+            set +e
+            response="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>&1)"
+            status=$?
+            set -e
+            if [[ "$status" == 0 ]]; then
+              echo "::error::tag refs/tags/$RELEASE_TAG already exists; refusing publication"
+              exit 1
+            fi
+            if [[ "$response" != *"HTTP 404"* ]]; then
+              echo "::error::cannot prove refs/tags/$RELEASE_TAG is absent: $response"
+              exit 1
+            fi
+          }
+
+          require_absent_tag
+          releases_file="$RUNNER_TEMP/hermes-vanilla-existing-releases.json"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"
+          existing_text="$(python3 - <<'PY'
+          import json
+          import os
+          with open(os.environ["RUNNER_TEMP"] + "/hermes-vanilla-existing-releases.json", encoding="utf-8") as source:
+              pages = json.load(source)
+          matches = [release for page in pages for release in page if release["tag_name"] == os.environ["RELEASE_TAG"]]
+          if len(matches) > 1:
+              raise SystemExit("multiple releases use the requested tag")
+          if not matches:
+              print("")
+              print("false")
+              print("false")
+          else:
+              release = matches[0]
+              print(release["id"])
+              print(str(release["draft"]).lower())
+              print(str(os.environ["DRAFT_MARKER"] in (release.get("body") or "")).lower())
+          PY
+          )"
+          mapfile -t existing <<< "$existing_text"
+          existing_id="${existing[0]:-}"
+          existing_draft="${existing[1]:-false}"
+          existing_owned="${existing[2]:-false}"
+          if [[ -n "$existing_id" ]]; then
+            if [[ "$existing_draft" != true ]]; then
+              echo "::error::published release $RELEASE_TAG already exists; it will never be touched"
+              exit 1
+            fi
+            if [[ "$existing_owned" != true ]]; then
+              echo "::error::unrecognized draft release $RELEASE_TAG already exists; refusing to delete it"
+              exit 1
+            fi
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$existing_id"
+          fi
+
+          # Close the recovery/check race before creating any new release.
+          require_absent_tag
+          release_notes="$DRAFT_MARKER
+
+          Pinned vanilla Hermes $HERMES_COMMIT lean target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
+          gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$SOURCE_SHA" \
-            --prerelease \
+            --draft \
             --title "$RELEASE_TAG" \
-            --notes "Pinned vanilla Hermes $HERMES_COMMIT lean target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and published retained Sigstore bundles plus SHA256SUMS."
+            --notes "$release_notes"
+
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"
+          release_id="$(python3 - <<'PY'
+          import json
+          import os
+          with open(os.environ["RUNNER_TEMP"] + "/hermes-vanilla-existing-releases.json", encoding="utf-8") as source:
+              pages = json.load(source)
+          matches = [release for page in pages for release in page
+                     if release["tag_name"] == os.environ["RELEASE_TAG"]
+                     and release["draft"]
+                     and os.environ["DRAFT_MARKER"] in (release.get("body") or "")]
+          if len(matches) != 1:
+              raise SystemExit("created draft release is not unique and marker-owned")
+          print(matches[0]["id"])
+          PY
+          )"
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+
+          gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/* \
+            --repo "$GITHUB_REPOSITORY"
+          remote_assets="$RUNNER_TEMP/hermes-vanilla-remote-assets.json"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
+            > "$remote_assets"
+          REMOTE_ASSETS="$remote_assets" python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+
+          root = pathlib.Path(os.environ["RELEASE_DIR"])
+          local = {}
+          for path in root.iterdir():
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"unsafe local release entry: {path.name}")
+              hasher = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      hasher.update(chunk)
+              local[path.name] = (path.stat().st_size, f"sha256:{hasher.hexdigest()}")
+          if len(local) != 15:
+              raise SystemExit("local release set is not exactly 15 files")
+          with open(os.environ["REMOTE_ASSETS"], encoding="utf-8") as source:
+              pages = json.load(source)
+          remote = [asset for page in pages for asset in page]
+          if len(remote) != len(local) or {asset["name"] for asset in remote} != set(local):
+              raise SystemExit("remote release asset names are not the exact local set")
+          if len({asset["name"] for asset in remote}) != len(remote):
+              raise SystemExit("remote release contains duplicate asset names")
+          for asset in remote:
+              expected_size, expected_digest = local[asset["name"]]
+              if asset.get("state") != "uploaded":
+                  raise SystemExit(f"remote asset is not uploaded: {asset['name']}")
+              if asset.get("size") != expected_size:
+                  raise SystemExit(f"remote asset size mismatch: {asset['name']}")
+              if not re.fullmatch(r"sha256:[0-9a-f]{64}", asset.get("digest", "")):
+                  raise SystemExit(f"remote asset has no valid SHA-256: {asset['name']}")
+              if asset["digest"] != expected_digest:
+                  raise SystemExit(f"remote asset digest mismatch: {asset['name']}")
+          PY
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --prerelease \
+            --latest=false

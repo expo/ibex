@@ -45,7 +45,11 @@ no production date.
    whose branch is `main` and whose source commit still equals the `main` head
    fetched through the API. It downloads the exact triggering run's handoffs
    by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
-   and publishes them.
+   them. Before creating a release it refuses any pre-existing tag ref. It
+   creates a marker-owned draft, uploads all 15 assets, fetches the remote
+   asset list, and requires the exact names, sizes, and SHA-256 digests before
+   publishing the draft as a prerelease. A published release is never edited
+   or deleted.
 
    ```sh
    git push -u origin l1c-release
@@ -81,6 +85,21 @@ no production date.
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
    gh release view hermes-vanilla-d412d3bd8512-v1 --repo "$repo"
    ```
+
+## Recover a stuck draft
+
+If the publisher stops after creating its draft but before publishing it,
+leave the draft and tag namespace alone. After the underlying failure is
+fixed, dispatch the builder again from the unchanged current `main`. The
+publisher recognizes its own draft only by the
+`<!-- ibex-hermes-vanilla-publisher:v1 -->` body marker, deletes that draft,
+and restarts from an empty release. It will not reuse partially uploaded
+assets.
+
+The recovery path refuses an unmarked draft, any published release, and any
+existing `refs/tags/hermes-vanilla-*` ref. Investigate those cases rather than
+deleting them through the workflow; if the intended bytes or authority have
+changed, increment the immutable release suffix (`-v2`, `-v3`, and so on).
 
 ## Verify a published release
 

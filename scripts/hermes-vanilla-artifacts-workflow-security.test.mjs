@@ -143,6 +143,17 @@ test("read-only builders are separated from the default-branch publisher", () =>
 
   assert.match(publisher, /gh release create "\$RELEASE_TAG"/);
   assert.match(publisher, /--target "\$SOURCE_SHA"/);
+  assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$RELEASE_TAG"/);
+  assert.match(publisher, /--draft \\/);
+  assert.match(publisher, /gh release upload "\$RELEASE_TAG" "\$RELEASE_DIR"\/\*/);
+  assert.match(publisher, /releases\/\$release_id\/assets\?per_page=100/);
+  assert.match(publisher, /remote release asset names are not the exact local set/);
+  assert.match(publisher, /remote asset digest mismatch/);
+  assert.match(publisher, /gh release edit "\$RELEASE_TAG"/);
+  assert.match(publisher, /--draft=false \\/);
+  assert.match(publisher, /--prerelease \\/);
+  assert.match(publisher, /gh api --method DELETE "repos\/\$GITHUB_REPOSITORY\/releases\/\$existing_id"/);
+  assert.doesNotMatch(publisher, /gh release delete|--clobber|git\/refs\/tags.*--method DELETE/);
 });
 
 test("every action reference is an approved full commit SHA", () => {
