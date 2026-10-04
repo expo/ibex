@@ -49,9 +49,15 @@ no production date.
    workflow=hermes-vanilla-artifacts.yml
    source_revision="$(gh api "repos/$repo/commits/$ref" --jq .sha)"
    gh workflow run "$workflow" --repo "$repo" --ref "$ref"
-   run_id="$(gh run list --repo "$repo" --workflow "$workflow" \
-     --branch "$ref" --commit "$source_revision" --event workflow_dispatch \
-     --limit 1 --json databaseId --jq '.[0].databaseId')"
+   run_id=
+   attempts=0
+   while test -z "$run_id" && test "$attempts" -lt 30; do
+     run_id="$(gh run list --repo "$repo" --workflow "$workflow" \
+       --branch "$ref" --commit "$source_revision" --event workflow_dispatch \
+       --limit 1 --json databaseId --jq '.[0].databaseId')"
+     attempts=$((attempts + 1))
+     test -n "$run_id" || sleep 2
+   done
    test -n "$run_id"
    gh run watch "$run_id" --repo "$repo" --exit-status
    gh release view hermes-vanilla-d412d3bd8512-v1 --repo "$repo"
