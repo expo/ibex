@@ -7,7 +7,7 @@
  *   node scripts/metrics.mjs --json      one JSON object
  *   node scripts/metrics.mjs --record    also append the JSON line to metrics/ibex2-speed.jsonl
  *
- * The in-process numbers come from crates/ibex2/examples/speed.rs; this adds
+ * The in-process numbers come from crates/ibex2-runtime/examples/speed.rs; this adds
  * what only a process can show — cold start, RSS — and what "tighter" means
  * in bytes and lines. Budgets are read from rules/RULES.md so they cannot
  * drift from the prose.
@@ -47,7 +47,7 @@ const SPEED = resolve(ROOT, 'target/release/examples/speed');
 
 // 1. The build. A no-op on a warm cache; its time is reported, not counted as speed.
 step('build', () => {
-  const r = run('cargo', ['build', '-q', '--release', '-p', 'ibex2', '--features', 'hermes', '--bin', 'ibex2', '--example', 'speed']);
+  const r = run('cargo', ['build', '-q', '--release', '-p', 'ibex2-runtime', '--bin', 'ibex2', '--example', 'speed']);
   if (r.status !== 0) fail('cargo build', r);
 });
 
@@ -94,7 +94,7 @@ step('process', () => {
 //    sets do not evict each other; warm, that is a relink.
 step('size', () => {
   out.binary_bytes = statSync(BIN).size;
-  const runOnly = run('cargo', ['build', '-q', '--release', '--no-default-features', '--features', 'hermes', '-p', 'ibex2', '--bin', 'ibex2', '--target-dir', 'target/run-only']);
+  const runOnly = run('cargo', ['build', '-q', '--release', '--no-default-features', '-p', 'ibex2-runtime', '--bin', 'ibex2', '--target-dir', 'target/run-only']);
   if (runOnly.status === 0) out.binary_run_only_bytes = statSync(resolve(ROOT, 'target/run-only/release/ibex2')).size;
   const bindingsDir = resolve(ROOT, 'crates/ibex2/src/bindings');
   out.bindings_js_bytes = readdirSync(bindingsDir)
