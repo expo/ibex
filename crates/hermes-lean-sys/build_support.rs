@@ -78,6 +78,7 @@ struct InstallLayout {
     lib_root: PathBuf,
     vm_archive: PathBuf,
     origin: InstallOrigin,
+    requires_receipt: bool,
 }
 
 #[derive(Debug)]
@@ -291,6 +292,7 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
         vm_archive: lib_root.join(archive),
         lib_root,
         origin,
+        requires_receipt: bundle_layout,
     }
 }
 
@@ -372,7 +374,7 @@ fn validate_receipt(
 ) -> Result<(), String> {
     let receipt_path = layout.root.join("hermes-input-receipt.json");
     if !receipt_path.is_file() {
-        if layout.origin == InstallOrigin::Bundle {
+        if layout.requires_receipt {
             return Err(format!(
                 "pinned Hermes bundle is missing {}",
                 receipt_path.display()
@@ -384,7 +386,7 @@ fn validate_receipt(
         .map_err(|error| format!("cannot read {}: {error}", receipt_path.display()))?;
     let receipt: Receipt = serde_json::from_slice(&bytes)
         .map_err(|error| format!("cannot parse {}: {error}", receipt_path.display()))?;
-    if layout.origin == InstallOrigin::Bundle
+    if layout.requires_receipt
         && receipt.schema.as_deref() != Some("ibex/hermes-upstream-pinned-receipt/2")
     {
         return Err(format!(
@@ -748,6 +750,24 @@ fn validate_archive_entries(archive_path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod internal_tests {
     use super::*;
+
+    #[test]
+    fn published_layout_requires_a_v2_receipt_even_for_an_override() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+        fs::create_dir_all(root.join("include")).expect("include directory");
+        fs::create_dir_all(root.join("lib")).expect("lib directory");
+        fs::write(root.join("lib/libhermesvm_a.a"), b"engine").expect("engine archive");
+        let layout = install_layout(
+            root.to_path_buf(),
+            "aarch64-apple-darwin",
+            InstallOrigin::Override,
+        );
+
+        let error = validate_receipt(&layout, &root.join("bin/hermesc"), "sha256-unused", "96")
+            .expect_err("published layout without a receipt must fail");
+        assert!(error.contains("missing"), "{error}");
+    }
 
     #[test]
     fn receipt_refuses_a_different_selected_compiler() {
