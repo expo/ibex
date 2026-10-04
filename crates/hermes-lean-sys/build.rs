@@ -1,44 +1,49 @@
-//! Resolve and link the repository's local vanilla-Hermes lean install.
+//! Resolve, verify, cache, and link the pinned unmodified Hermes engine.
 
-use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+mod build_support;
+
+use build_support::{digest_file, hermesc_bytecode_version, resolve_engine_directory};
+use std::path::Path;
 
 const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
 const LINUX_ICU_DATA: &str = "icudata";
 
-struct EngineInstall {
-    root: PathBuf,
-    include_dir: PathBuf,
-    lib_root: PathBuf,
-    vm_archive: PathBuf,
-    hermesc: PathBuf,
-}
-
 fn main() {
-    println!("cargo:rerun-if-env-changed=HERMES_LEAN_SYS_DIR");
+    for name in [
+        "HERMES_LEAN_SYS_DIR",
+        "HERMES_LEAN_SYS_MIRROR",
+        "HERMES_LEAN_SYS_OFFLINE",
+        "CARGO_NET_OFFLINE",
+        "CARGO_HOME",
+        "HOME",
+        "USERPROFILE",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .ancestors()
         .nth(2)
         .expect("crate lives two levels below the repository root");
+    let target = std::env::var("TARGET").expect("Cargo supplies TARGET");
+    let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
-    let target_arch = cargo_arch("CARGO_CFG_TARGET_ARCH");
-    let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let links_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
     let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
 
-    let install =
-        resolve_engine_directory(repo_root, &target_os, &target_vendor, target_arch, &host);
-    validate_install(&install);
+    let install = resolve_engine_directory(repo_root, &target, &host)
+        .unwrap_or_else(|error| panic!("Hermes engine resolution failed: {error}"));
 
     println!("cargo:rerun-if-changed={}", install.vm_archive.display());
     println!("cargo:rerun-if-changed={}", install.hermesc.display());
 
-    let engine_digest = digest_file(&install.vm_archive);
-    let bytecode_version = hermesc_bytecode_version(&install.hermesc);
+    let engine_digest = digest_file(&install.vm_archive)
+        .unwrap_or_else(|error| panic!("cannot hash selected Hermes engine: {error}"));
+    let bytecode_version = hermesc_bytecode_version(&install.hermesc)
+        .unwrap_or_else(|error| panic!("cannot inspect selected Hermes compiler: {error}"));
     metadata("include_dir", &install.include_dir.display().to_string());
     metadata("hermesc_path", &install.hermesc.display().to_string());
     metadata("lib_root", &install.lib_root.display().to_string());
@@ -64,151 +69,6 @@ fn main() {
     if links_icu && target_os == "linux" {
         emit_linux_icu_link_lines(&install.lib_root);
     }
-}
-
-/// The single local-engine resolution seam. L1c replaces the fallback side
-/// with verified pinned-release acquisition while preserving the override.
-// TODO(L1c): resolve a verified cached/downloaded bundle when no local install is supplied.
-fn resolve_engine_directory(
-    repo_root: &Path,
-    target_os: &str,
-    target_vendor: &str,
-    target_arch: &str,
-    host: &str,
-) -> EngineInstall {
-    let overridden = std::env::var_os("HERMES_LEAN_SYS_DIR").map(PathBuf::from);
-    let root = overridden.clone().unwrap_or_else(|| {
-        if target_vendor == "apple" {
-            repo_root.join("ios/Frameworks-vanilla")
-        } else if target_os == "windows" {
-            repo_root.join(format!("tools/hermes-vanilla/windows-{target_arch}"))
-        } else if target_os == "linux" {
-            repo_root.join("linux/Frameworks-vanilla")
-        } else {
-            panic!("unsupported Hermes target OS: {target_os}");
-        }
-    });
-    let include_dir = root.join("hermes-headers");
-    let lib_root = root.join(if target_vendor == "apple" {
-        "macos-static"
-    } else if target_os == "windows" {
-        "windows-static"
-    } else {
-        "linux-static"
-    });
-    // This repository's owning runtime evaluates source at its host entrance,
-    // so every feature context names the full VM archive. In particular,
-    // resolver-v2 build and normal dependencies must export one identity even
-    // when only the latter enables link-line emission.
-    let vm_archive = lib_root.join(if target_os == "windows" {
-        "hermesvm_a.lib"
-    } else {
-        "libhermesvm_a.a"
-    });
-    let hermesc = if overridden.is_some() {
-        find_first(&[
-            root.join(executable("hermesc", target_os)),
-            root.join("bin").join(executable("hermesc", target_os)),
-        ])
-        .unwrap_or_else(|| root.join(executable("hermesc", target_os)))
-    } else {
-        let (host_os, host_arch) = host_platform(host);
-        repo_root.join("tools/hermes-vanilla").join(format!(
-            "hermesc-{host_os}-{host_arch}{}",
-            if host_os == "windows" { ".exe" } else { "" }
-        ))
-    };
-    EngineInstall {
-        root,
-        include_dir,
-        lib_root,
-        vm_archive,
-        hermesc,
-    }
-}
-
-fn cargo_arch(name: &str) -> &'static str {
-    match std::env::var(name).as_deref() {
-        Ok("aarch64") => "arm64",
-        Ok("x86_64") => "x64",
-        other => panic!("unsupported Hermes architecture: {other:?}"),
-    }
-}
-
-fn host_platform(host: &str) -> (&'static str, &'static str) {
-    let os = if host.contains("apple-darwin") {
-        "macos"
-    } else if host.contains("windows") {
-        "windows"
-    } else if host.contains("linux") {
-        "linux"
-    } else {
-        panic!("unsupported Hermes compiler host: {host}");
-    };
-    let arch = if host.starts_with("aarch64-") {
-        "arm64"
-    } else if host.starts_with("x86_64-") {
-        "x64"
-    } else {
-        panic!("unsupported Hermes compiler host architecture: {host}");
-    };
-    (os, arch)
-}
-
-fn executable(name: &str, target_os: &str) -> String {
-    format!("{name}{}", if target_os == "windows" { ".exe" } else { "" })
-}
-
-fn find_first(paths: &[PathBuf]) -> Option<PathBuf> {
-    paths.iter().find(|path| path.is_file()).cloned()
-}
-
-fn validate_install(install: &EngineInstall) {
-    for (label, path) in [
-        ("Hermes headers", &install.include_dir),
-        ("Hermes library directory", &install.lib_root),
-        ("Hermes VM archive", &install.vm_archive),
-        ("hermesc", &install.hermesc),
-    ] {
-        assert!(
-            path.exists(),
-            "{label} not found at {}\nset HERMES_LEAN_SYS_DIR to a complete local install or build the repository's vanilla Hermes artifacts",
-            path.display()
-        );
-    }
-}
-
-fn digest_file(path: &Path) -> String {
-    let bytes = std::fs::read(path)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
-    let digest = Sha256::digest(bytes);
-    format!("sha256-{digest:x}")
-}
-
-fn hermesc_bytecode_version(hermesc: &Path) -> String {
-    let output = std::process::Command::new(hermesc)
-        .arg("-version")
-        .output()
-        .unwrap_or_else(|error| panic!("cannot run {}: {error}", hermesc.display()));
-    assert!(
-        output.status.success(),
-        "{} -version failed with {}",
-        hermesc.display(),
-        output.status
-    );
-    let text = String::from_utf8_lossy(&output.stdout).to_string()
-        + &String::from_utf8_lossy(&output.stderr);
-    text.lines()
-        .find_map(|line| line.trim().strip_prefix("HBC bytecode version:"))
-        .map(str::trim)
-        .filter(|version| !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit()))
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            panic!(
-                "{} did not report an HBC bytecode version",
-                hermesc.display()
-            )
-        })
 }
 
 fn metadata(key: &str, value: &str) {
