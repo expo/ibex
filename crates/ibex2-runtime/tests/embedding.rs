@@ -66,77 +66,43 @@ extern "C" {
 }
 
 fn compiled_script(name: &str) -> CompiledScript {
-    let (name, bytes): (&'static [u8], &'static [u8]) = match name {
-        "headers" => (
-            b"headers\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc")),
-        ),
-        "timers" => (
-            b"timers\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/timers.hbc")),
-        ),
-        "url" => (
-            b"url\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/url.hbc")),
-        ),
-        "domexception" => (
-            b"domexception\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/domexception.hbc")),
-        ),
-        "crypto" => (
-            b"crypto\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/crypto.hbc")),
-        ),
-        "events" => (
-            b"events\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/events.hbc")),
-        ),
-        "abort" => (
-            b"abort\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/abort.hbc")),
-        ),
-        "websocket" => (
-            b"websocket\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/websocket.hbc")),
-        ),
-        "blob" => (
-            b"blob\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/blob.hbc")),
-        ),
-        "structured_clone" => (
-            b"structured_clone\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/structured_clone.hbc")),
-        ),
-        "fetch" => (
-            b"fetch\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
-        ),
-        "sqlite" => (
-            b"sqlite\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
-        ),
+    let name: &'static [u8] = match name {
+        "headers" => b"headers\0",
+        "timers" => b"timers\0",
+        "url" => b"url\0",
+        "domexception" => b"domexception\0",
+        "crypto" => b"crypto\0",
+        "events" => b"events\0",
+        "abort" => b"abort\0",
+        "websocket" => b"websocket\0",
+        "blob" => b"blob\0",
+        "structured_clone" => b"structured_clone\0",
+        "fetch" => b"fetch\0",
+        "sqlite" => b"sqlite\0",
         #[cfg(target_os = "linux")]
-        "intl_number_format" => (
-            b"intl_number_format\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc")),
-        ),
+        "intl_number_format" => b"intl_number_format\0",
         #[cfg(target_os = "linux")]
-        "intl_case" => (
-            b"intl_case\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
-        ),
+        "intl_case" => b"intl_case\0",
         #[cfg(target_os = "linux")]
-        "intl_datetime" => (
-            b"intl_datetime\0",
-            include_bytes!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc")),
-        ),
+        "intl_datetime" => b"intl_datetime\0",
         _ => unreachable!(),
     };
+    let script_name = std::str::from_utf8(&name[..name.len() - 1]).unwrap();
+    let bytes = compiled_bytes(script_name);
     CompiledScript {
         name: name.as_ptr().cast(),
         bytes: bytes.as_ptr(),
         len: bytes.len(),
     }
+}
+
+fn compiled_bytes(name: &str) -> &'static [u8] {
+    ibex2::bindings::compiled_scripts(Groups::ALL)
+        .expect("ALL is a valid binding selection")
+        .into_iter()
+        .find(|script| script.name == name)
+        .unwrap_or_else(|| panic!("{name} is part of Groups::ALL"))
+        .bytes
 }
 
 struct BareConsumer {
@@ -277,8 +243,8 @@ impl Consumer {
         context.set_wake(Arc::new(move || {
             observed.fetch_add(1, Ordering::SeqCst);
         }));
-        let factory = include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc"));
-        let harden = include_bytes!(concat!(env!("OUT_DIR"), "/harden.hbc"));
+        let factory = compiled_bytes("sqlite");
+        let harden = ibex2::bindings::HARDEN_BYTECODE;
         let mut error = std::ptr::null_mut();
         let handle = unsafe {
             storage_consumer_create(
@@ -1061,7 +1027,7 @@ fn assert_failed_install_is_terminal(
 #[test]
 fn truncated_binding_bytecode_is_refused_and_spends_the_adapter() {
     let context = Context::new(GrantSet::none());
-    let mut bytes = include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc")).to_vec();
+    let mut bytes = compiled_bytes("headers").to_vec();
     bytes.truncate(bytes.len() - 1);
     let name = b"headers\0";
     let mut scripts: Vec<_> = ibex2::bindings::scripts(Groups::PURE)
@@ -1080,7 +1046,7 @@ fn truncated_binding_bytecode_is_refused_and_spends_the_adapter() {
 #[test]
 fn spoofed_binding_header_is_refused_in_preflight_and_spends_the_adapter() {
     let context = Context::new(GrantSet::none());
-    let valid = include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc"));
+    let valid = compiled_bytes("headers");
     let mut bytes = [0; 36];
     bytes[..12].copy_from_slice(&valid[..12]);
     bytes[32..36].copy_from_slice(&36u32.to_le_bytes());
@@ -1106,7 +1072,7 @@ fn spoofed_binding_header_is_refused_in_preflight_and_spends_the_adapter() {
 #[test]
 fn wrong_binding_version_is_refused_and_spends_a_versioned_adapter() {
     let context = Context::new(GrantSet::none());
-    let mut bytes = include_bytes!(concat!(env!("OUT_DIR"), "/headers.hbc")).to_vec();
+    let mut bytes = compiled_bytes("headers").to_vec();
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     bytes[8..12].copy_from_slice(&version.wrapping_add(1).to_le_bytes());
     let name = b"headers\0";
@@ -1208,7 +1174,7 @@ fn freezing_modified_intrinsics_does_not_satisfy_the_installation_contract() {
     let c = Consumer::configured("sqlite.open app:/data/db", false);
     c.eval("WeakMap.prototype.get = function () { return undefined; };")
         .unwrap();
-    c.eval(include_str!("../src/bindings/harden.js")).unwrap();
+    c.eval(ibex2::bindings::HARDEN_SOURCE).unwrap();
     let error = c.eval("storage.sqlite.open('app:/data/db')").unwrap_err();
     assert!(error.contains("harden"), "{error}");
     assert!(!c.directory.join("data/db").exists());
@@ -1223,7 +1189,7 @@ fn rejection_tracker_replacements_are_part_of_the_integrity_baseline() {
         "function|function"
     );
     consumer.eval("Promise._B = function () {}; Promise._C = function () {};");
-    consumer.eval(include_str!("../src/bindings/harden.js"));
+    consumer.eval(ibex2::bindings::HARDEN_SOURCE);
 
     let error = consumer
         .eval_result("sqlite.open('app:/data/db')")

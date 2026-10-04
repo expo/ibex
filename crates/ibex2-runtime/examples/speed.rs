@@ -326,9 +326,16 @@ fn main() {
     );
     put(
         "blob_bytecode_bytes",
-        include_bytes!(concat!(env!("OUT_DIR"), "/blob.hbc"))
-            .len()
-            .to_string(),
+        ibex2::bindings::compiled_scripts(
+            ibex2::bindings::Groups::BLOB | ibex2::bindings::Groups::PURE,
+        )
+        .expect("BLOB with PURE is valid")
+        .into_iter()
+        .find(|script| script.name == "blob")
+        .expect("BLOB publishes blob bytecode")
+        .bytes
+        .len()
+        .to_string(),
     );
 
     // A 100-module graph from source: the cost bytecode exists to remove.

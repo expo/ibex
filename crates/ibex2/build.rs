@@ -70,11 +70,9 @@ fn main() {
         );
     }
 
-    // Hardening is runtime bootstrap, but Decision C makes the same source
-    // and bytecode part of the borrowed-runtime contract. Its source remains
-    // physically with ibex2-runtime and its compiled artifact is exported here.
-    let harden_source =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ibex2-runtime/src/bindings/harden.js");
+    // Decision C makes hardening part of the bindings contract: every
+    // embedder, including ibex2-runtime, consumes these exact source/bytes.
+    let harden_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/bindings/harden.js");
     println!("cargo:rerun-if-changed={}", harden_source.display());
     let harden_bytecode = out_dir.join("harden.hbc");
     compile_javascript(&hermesc, &harden_source, &harden_bytecode);

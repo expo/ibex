@@ -4,7 +4,6 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_shim.cc");
     println!("cargo:rerun-if-changed=tests/embedding.cc");
     println!("cargo:rerun-if-changed=src/bindings/esm.js");
-    println!("cargo:rerun-if-changed=src/bindings/harden.js");
 
     let headers = required_path("DEP_HERMES_LEAN_INCLUDE_DIR");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -28,33 +27,6 @@ fn main() {
     let hermesc = required_path("DEP_HERMES_LEAN_HERMESC_PATH");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     compile_javascript(&hermesc, "src/bindings/esm.js", &out_dir.join("esm.hbc"));
-    compile_javascript(
-        &hermesc,
-        "src/bindings/harden.js",
-        &out_dir.join("harden.hbc"),
-    );
-    let mut bindings = vec![
-        "headers",
-        "timers",
-        "url",
-        "domexception",
-        "crypto",
-        "events",
-        "abort",
-        "websocket",
-        "blob",
-        "fetch",
-        "sqlite",
-    ];
-    if target_os == "linux" {
-        bindings.extend(["intl_number_format", "intl_case", "intl_datetime"]);
-    }
-    bindings.push("structured_clone");
-    for name in bindings {
-        let source = format!("../ibex2/src/bindings/{name}.js");
-        println!("cargo:rerun-if-changed={source}");
-        compile_javascript(&hermesc, &source, &out_dir.join(format!("{name}.hbc")));
-    }
 
     let engine_digest = required("DEP_HERMES_LEAN_ENGINE_DIGEST");
     let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");

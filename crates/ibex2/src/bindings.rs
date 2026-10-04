@@ -241,8 +241,8 @@ pub struct CompiledBinding {
 }
 
 /// JavaScript shapes needed by `groups`, in deterministic installation order.
-/// Runtime-only files (`esm.js`, `harden.js`, and `testharness.js`) are not
-/// bindings and therefore are deliberately absent.
+/// Runtime-only files (`esm.js` and `testharness.js`) and the separate
+/// post-install hardening step are deliberately absent.
 pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
     groups.validate()?;
     let mut result = Vec::new();

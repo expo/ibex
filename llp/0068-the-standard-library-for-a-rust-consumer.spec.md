@@ -140,8 +140,9 @@ selection on the caller's behalf. The groups are:
 `bindings::scripts(groups)` returns the ordered `(name, source_path)` inputs;
 `bindings::compiled_scripts(groups)` returns the same order compiled with the
 `hermesc` selected by `hermes-lean-sys`. Both exclude runtime-only `esm.js`,
-`harden.js`, and the test harness. The order preserves the shipping runtime's
-established bootstrap order while filtering out unselected groups.
+the separate post-install `harden.js` step, and the test harness. The order
+preserves the shipping runtime's established bootstrap order while filtering
+out unselected groups.
 
 **Decision C (Charlie, 2026-10-04): the bindings door requires hardening
 before app code.** An embedder that installs bindings must then evaluate
