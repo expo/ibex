@@ -40,6 +40,9 @@ fn main() {
         installer.flag("-stdlib=libc++");
     }
     installer.compile("ibex2_bindings_install");
+    if target_os == "linux" {
+        emit_linux_icu_link_lines();
+    }
 
     let hermesc = required_path("DEP_HERMES_LEAN_HERMESC_PATH");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
@@ -139,6 +142,20 @@ fn compile_javascript(hermesc: &Path, source: &Path, output: &Path) {
         .status()
         .unwrap_or_else(|error| panic!("cannot run {}: {error}", hermesc.display()));
     assert!(status.success(), "hermesc failed on {}", source.display());
+}
+
+fn emit_linux_icu_link_lines() {
+    println!(
+        "cargo:rustc-link-search=native={}",
+        required_path("DEP_HERMES_LEAN_ICU_LIB_DIR").display()
+    );
+    for name in [
+        "DEP_HERMES_LEAN_ICU_I18N",
+        "DEP_HERMES_LEAN_ICU_UC",
+        "DEP_HERMES_LEAN_ICU_DATA",
+    ] {
+        println!("cargo:rustc-link-lib=static={}", required(name));
+    }
 }
 
 fn required(name: &str) -> String {

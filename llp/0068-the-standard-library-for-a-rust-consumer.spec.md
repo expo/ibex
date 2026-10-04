@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-04 (§3/OQ2: Linux bindings link their direct ICU dependency from `hermes-lean-sys` metadata without linking the VM)
 **Revised:** 2026-10-04 (§3: the engine-free default, empty, bindings-only, and crypto-only feature combinations are explicit compile gates)
 **Revised:** 2026-10-04 (§1/§3/OQ1: L1b split the library/bindings, owning runtime, and lean-engine resolver; Decision C requires hardening before application code)
 **Revised:** 2026-10-04 (§3: `WEBSOCKET` is default-on and is a grant-bound module constructor in the secure runtime; borrowed runtimes retain the installer-endowed global)
@@ -140,7 +141,7 @@ selection on the caller's behalf. The groups are:
 | `ENV` | endowed `process.env` snapshot | grant-selected environment snapshot | — | core |
 | `SECRETS` | no JSI projection yet; named for the existing Rust binding | `secret.keep` library operations | — | core/platform backend |
 | `KV` | no JSI projection yet; named for the existing Rust binding | `storage.kv` library operations | — | core/platform backend |
-| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `bindings` on Linux; the caller's engine supplies ICU link lines |
+| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `bindings` on Linux; ICU archive names and directory come from `hermes-lean-sys`, and `ibex2` emits their link lines |
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
@@ -688,8 +689,12 @@ performs a granted HTTPS request using native roots. The Linux installation
 carries the vanilla Hermes/JSI/Boost/ICU/tinfo inputs as static archives and
 requires no undeclared shared transport or TLS library; the qualified binary's
 observed floor is glibc 2.39 / `GLIBCXX_3.4.30`, not musl or an older
-distribution. Pinned Hermes's non-Apple Intl stubs remain unchanged, but the
-engine-facing Ibex tier now replaces the selected consumer-visible operations
+distribution. Because the bindings' Intl C++ calls ICU directly, `ibex2`
+links those ICU archives whenever `bindings` is enabled on Linux; it obtains
+their directory and names from `hermes-lean-sys` metadata without enabling
+that crate's VM link lines. Pinned Hermes's non-Apple Intl stubs remain
+unchanged, but the engine-facing Ibex tier now replaces the selected
+consumer-visible operations
 for Number/BigInt formatting, locale String case mapping, and Date/DateTime
 formatting with Rust-owned state and ICU computation. That implementation is
 not part of `Host` and does not alter the no-engine Rust surface this document

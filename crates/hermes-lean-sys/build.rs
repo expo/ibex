@@ -3,6 +3,10 @@
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+const LINUX_ICU_I18N: &str = "icui18n";
+const LINUX_ICU_UC: &str = "icuuc";
+const LINUX_ICU_DATA: &str = "icudata";
+
 struct EngineInstall {
     root: PathBuf,
     include_dir: PathBuf,
@@ -41,6 +45,12 @@ fn main() {
     metadata("engine_digest", &engine_digest);
     metadata("bytecode_version", &bytecode_version);
     metadata("engine_dir", &install.root.display().to_string());
+    if target_os == "linux" {
+        metadata("icu_lib_dir", &install.lib_root.display().to_string());
+        metadata("icu_i18n", LINUX_ICU_I18N);
+        metadata("icu_uc", LINUX_ICU_UC);
+        metadata("icu_data", LINUX_ICU_DATA);
+    }
     println!("cargo:rustc-env=HERMES_LEAN_ENGINE_DIGEST={engine_digest}");
     println!(
         "cargo:rustc-env=HERMES_LEAN_ARCHIVE={}",
@@ -229,9 +239,9 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_arc
         println!("cargo:rustc-link-lib=psapi");
         println!("cargo:rustc-link-lib=winmm");
     } else {
-        println!("cargo:rustc-link-lib=static=icui18n");
-        println!("cargo:rustc-link-lib=static=icuuc");
-        println!("cargo:rustc-link-lib=static=icudata");
+        println!("cargo:rustc-link-lib=static={LINUX_ICU_I18N}");
+        println!("cargo:rustc-link-lib=static={LINUX_ICU_UC}");
+        println!("cargo:rustc-link-lib=static={LINUX_ICU_DATA}");
         println!("cargo:rustc-link-lib=static=tinfo");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=dl");
