@@ -297,11 +297,52 @@ release tag. Separately, the receipt check binds the archive contents to the
 pinned upstream Hermes commit, an empty patch set, and the closed v2
 archive/header/link manifests.
 
+## Consuming the bundles
+
+`hermes-lean-sys` is the supported consumer. It resolves a complete
+`HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
+and the release bundle pinned for Cargo's exact target triple otherwise. Both
+the legacy repository layout (`hermes-headers` plus the platform static-library
+directory) and the published layout (`include/`, `lib/`, and `bin/hermesc`) are
+accepted for local installs. Unsupported triples are refused with instructions
+to provide `HERMES_LEAN_SYS_DIR`; `aarch64-apple-ios-sim` and
+`x86_64-apple-ios` both select the universal iOS Simulator archive.
+
+The downloader uses rustls with WebPKI roots and always verifies the pinned
+archive SHA-256 before inspecting or extracting the tarball. Extraction
+preflights the complete archive and accepts only relative regular-file and
+directory entries: absolute paths, parent traversal, links, and special files
+are refused. Completed installs are atomically renamed into
+`$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/`, with Cargo home defaulting
+to `$HOME/.cargo` (or the platform home equivalent). A cache entry is reused
+only when its recorded archive digest equals the pin.
+
+`CARGO_NET_OFFLINE=true` and `HERMES_LEAN_SYS_OFFLINE=1` both prohibit a
+download. In offline mode a valid warm cache entry or local override is
+required. `HERMES_LEAN_SYS_MIRROR` replaces
+`https://github.com/expo/ibex/releases/download` as the base URL and must serve
+`<tag>/<asset>` beneath that base; mirrors do not replace digest verification.
+
+For cross compilation, `hermesc` comes from the pinned host bundle while the
+headers and archives come from the target bundle. Its reported HBC bytecode
+version must match the target receipt. For every published bundle, and every
+local install carrying a receipt, the receipt's engine path and digest must
+name the archive `hermes-lean-sys` selected. A recorded compiler digest must
+likewise equal the selected `hermesc`, preventing a receipt from describing a
+different compiler than the one that produced binding bytecode.
+
 ## Bump consumer pins
 
-`hermes-lean-sys` pins the release URL, each selected archive SHA-256, and its
-receipt SHA-256. Download the verified release, record those digests in the
-target selector, and exercise cold-cache, warm-cache, offline-cache, and local
-directory override cases before landing consumer updates. Never replace an
-asset: a changed build or packaging authority receives a new release revision
-suffix (`-v2`, `-v3`, and so on) and new consumer digests.
+Only after completing every `gh attestation verify` command in the preceding
+section, update the target table from that same downloaded checksum file:
+
+```sh
+node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS"
+```
+
+The script requires all seven archive checksums and rewrites the duplicate
+universal-simulator mappings consistently. Review the resulting source diff,
+then exercise cold-cache, warm-cache, offline-cache, mirror, and local-directory
+override cases before landing consumer updates. Never replace an asset: a
+changed build or packaging authority receives a new release revision suffix
+(`-v2`, `-v3`, and so on) and new consumer digests.

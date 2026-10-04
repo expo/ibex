@@ -31,12 +31,24 @@ cargo test -p ibex2 --no-default-features --features bindings
 cargo test -p ibex2-runtime --all-features --no-fail-fast
 ```
 
-This first `hermes-lean-sys` version resolves only local artifacts. It uses the
-repository platform layouts (`ios/Frameworks-vanilla`,
-`linux/Frameworks-vanilla`, or `tools/hermes-vanilla`) unless
-`HERMES_LEAN_SYS_DIR` selects another complete install. The selected install
-provides both the VM and compiler, so binding bytecode cannot silently drift
-from the linked engine. Verified pinned-bundle downloads belong to L1c.
+`hermes-lean-sys` resolves vanilla Hermes in this order: a complete local
+install selected by `HERMES_LEAN_SYS_DIR`; this checkout's platform layout
+(`ios/Frameworks-vanilla`, `linux/Frameworks-vanilla`, or
+`tools/hermes-vanilla`) when present; then the SHA-256-pinned
+`hermes-vanilla-d412d3bd8512-v1` release bundle for the Cargo target. The
+release fallback needs no consumer configuration once the publication
+placeholders in the pin table have been filled.
+
+Downloaded bundles are cached at
+`$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/` (`$HOME/.cargo` when
+`CARGO_HOME` is unset). Set `CARGO_NET_OFFLINE=true` or
+`HERMES_LEAN_SYS_OFFLINE=1` to forbid network access; an already verified
+cache entry or `HERMES_LEAN_SYS_DIR` is then required. Mirrors can set
+`HERMES_LEAN_SYS_MIRROR` to a base URL that serves `<tag>/<asset>`. The pinned
+digest is enforced for every origin. Cross builds select `hermesc` for the
+host, require its HBC version to match the target receipt, and require every
+available receipt to describe the exact engine archive and compiler selected
+by the build.
 
 An embedder using `ibex2[bindings]` must evaluate
 `ibex2::bindings::HARDEN_SOURCE` or its matching precompiled bytecode before
