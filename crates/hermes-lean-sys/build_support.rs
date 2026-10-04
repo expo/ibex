@@ -199,21 +199,7 @@ pub(crate) fn resolve_engine_directory(
     };
 
     validate_layout(&target_layout)?;
-    let hermesc = if target_layout.origin == InstallOrigin::Repository {
-        repository_hermesc(repo_root, host)?
-    } else if target == host {
-        let local = compiler_in_bundle_or_install(&target_layout.root, host);
-        if local.is_file() || target_layout.origin != InstallOrigin::Override {
-            local
-        } else if repository_install_root(repo_root, target)
-            .as_deref()
-            .is_some_and(|repository_root| same_location(repository_root, &target_layout.root))
-        {
-            repository_hermesc(repo_root, host)?
-        } else {
-            local
-        }
-    } else {
+    let hermesc = if target != host {
         let host_pin = pin_for_target(host).map_err(|_| {
             format!(
                 "unsupported Hermes compiler host {host}; set HERMES_LEAN_SYS_DIR cannot replace the required pinned host compiler bundle for cross compilation"
@@ -226,6 +212,20 @@ pub(crate) fn resolve_engine_directory(
         let compiler = compiler_in_bundle_or_install(&host_layout.root, host);
         validate_compiler_bundle(&host_layout, &compiler)?;
         compiler
+    } else if target_layout.origin == InstallOrigin::Repository {
+        repository_hermesc(repo_root, host)?
+    } else {
+        let local = compiler_in_bundle_or_install(&target_layout.root, host);
+        if local.is_file() || target_layout.origin != InstallOrigin::Override {
+            local
+        } else if repository_install_root(repo_root, target)
+            .as_deref()
+            .is_some_and(|repository_root| same_location(repository_root, &target_layout.root))
+        {
+            repository_hermesc(repo_root, host)?
+        } else {
+            local
+        }
     };
 
     if !hermesc.is_file() {
