@@ -375,10 +375,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DIR: ${{ runner.temp }}/hermes-vanilla-release
-          DRAFT_MARKER: "<!-- ibex-hermes-vanilla-publisher:v1 -->"
+          DRAFT_MARKER_PREFIX: "<!-- ibex-hermes-vanilla-publisher:v1"
         run: |
           set -euo pipefail
           test "$(find "$RELEASE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 15
+          export DRAFT_MARKER="$DRAFT_MARKER_PREFIX source-sha=$SOURCE_SHA -->"
 
           require_absent_tag() {
             local response status
@@ -396,13 +397,13 @@ jobs:
             fi
           }
 
-          require_absent_tag
           releases_file="$RUNNER_TEMP/hermes-vanilla-existing-releases.json"
           gh api --paginate --slurp \
             "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"
           existing_text="$(python3 - <<'PY'
           import json
           import os
+          import re
           with open(os.environ["RUNNER_TEMP"] + "/hermes-vanilla-existing-releases.json", encoding="utf-8") as source:
               pages = json.load(source)
           matches = [release for page in pages for release in page if release["tag_name"] == os.environ["RELEASE_TAG"]]
@@ -412,44 +413,114 @@ jobs:
               print("")
               print("false")
               print("false")
+              print("")
           else:
               release = matches[0]
+              markers = re.findall(
+                  r"<!-- ibex-hermes-vanilla-publisher:v1 source-sha=([0-9a-f]{40}) -->",
+                  release.get("body") or "",
+              )
               print(release["id"])
               print(str(release["draft"]).lower())
-              print(str(os.environ["DRAFT_MARKER"] in (release.get("body") or "")).lower())
+              print(str(len(markers) == 1).lower())
+              print(markers[0] if len(markers) == 1 else "")
           PY
           )"
           mapfile -t existing <<< "$existing_text"
           existing_id="${existing[0]:-}"
           existing_draft="${existing[1]:-false}"
           existing_owned="${existing[2]:-false}"
+          existing_source_sha="${existing[3]:-}"
+          remote_assets="$RUNNER_TEMP/hermes-vanilla-remote-assets.json"
           if [[ -n "$existing_id" ]]; then
+            [[ "$existing_id" =~ ^[1-9][0-9]*$ ]]
             if [[ "$existing_draft" != true ]]; then
               echo "::error::published release $RELEASE_TAG already exists; it will never be touched"
               exit 1
             fi
             if [[ "$existing_owned" != true ]]; then
-              echo "::error::unrecognized draft release $RELEASE_TAG already exists; refusing to delete it"
+              echo "::error::unrecognized draft release $RELEASE_TAG already exists; it will never be touched"
               exit 1
             fi
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$existing_id"
-          fi
+            if [[ ! "$existing_source_sha" =~ ^[0-9a-f]{40}$ || "$existing_source_sha" != "$SOURCE_SHA" ]]; then
+              echo "::error::owned draft target $existing_source_sha does not equal expected commit $SOURCE_SHA"
+              exit 1
+            fi
 
-          # Close the recovery/check race before creating any new release.
-          require_absent_tag
-          release_notes="$DRAFT_MARKER
+            tag_ref="$RUNNER_TEMP/hermes-vanilla-tag-ref.json"
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > "$tag_ref"
+            tag_text="$(TAG_REF="$tag_ref" python3 - <<'PY'
+          import json
+          import os
+          import re
+          with open(os.environ["TAG_REF"], encoding="utf-8") as source:
+              tag = json.load(source).get("object", {})
+          tag_type = tag.get("type", "")
+          tag_sha = tag.get("sha", "")
+          if tag_type != "commit" or not re.fullmatch(r"[0-9a-f]{40}", tag_sha):
+              raise SystemExit("release tag does not directly name a commit")
+          print(tag_type, tag_sha)
+          PY
+            )"
+            read -r tag_type tag_sha <<< "$tag_text"
+            if [[ "$tag_type" != commit || "$tag_sha" != "$existing_source_sha" ]]; then
+              echo "::error::tag refs/tags/$RELEASE_TAG does not point at owned draft commit $existing_source_sha"
+              exit 1
+            fi
+
+            gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases/$existing_id/assets?per_page=100" \
+              > "$remote_assets"
+            asset_ids_file="$RUNNER_TEMP/hermes-vanilla-existing-asset-ids.txt"
+            REMOTE_ASSETS="$remote_assets" python3 - <<'PY' > "$asset_ids_file"
+          import json
+          import os
+          with open(os.environ["REMOTE_ASSETS"], encoding="utf-8") as source:
+              pages = json.load(source)
+          assets = [asset for page in pages for asset in page]
+          ids = [asset.get("id") for asset in assets]
+          if any(not isinstance(asset_id, int) or asset_id <= 0 for asset_id in ids):
+              raise SystemExit("draft contains an asset without a valid id")
+          if len(set(ids)) != len(ids):
+              raise SystemExit("draft contains duplicate asset ids")
+          if ids:
+              print("\n".join(str(asset_id) for asset_id in ids))
+          PY
+            mapfile -t asset_ids < "$asset_ids_file"
+            for asset_id in "${asset_ids[@]}"; do
+              [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
+              gh api --method DELETE \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done
+            gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases/$existing_id/assets?per_page=100" \
+              > "$remote_assets"
+            REMOTE_ASSETS="$remote_assets" python3 - <<'PY'
+          import json
+          import os
+          with open(os.environ["REMOTE_ASSETS"], encoding="utf-8") as source:
+              pages = json.load(source)
+          if any(page for page in pages):
+              raise SystemExit("owned draft assets were not completely deleted")
+          PY
+            release_id="$existing_id"
+          else:
+            # No release owns this name, so prove the tag is absent immediately
+            # before creating the commit-bound draft and its tag.
+            require_absent_tag
+            release_notes="$DRAFT_MARKER
 
           Pinned vanilla Hermes $HERMES_COMMIT lean target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
-          gh release create "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$SOURCE_SHA" \
-            --draft \
-            --title "$RELEASE_TAG" \
-            --notes "$release_notes"
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --draft \
+              --title "$RELEASE_TAG" \
+              --notes "$release_notes"
 
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"
-          release_id="$(python3 - <<'PY'
+            gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$releases_file"
+            release_id="$(python3 - <<'PY'
           import json
           import os
           with open(os.environ["RUNNER_TEMP"] + "/hermes-vanilla-existing-releases.json", encoding="utf-8") as source:
@@ -462,12 +533,12 @@ jobs:
               raise SystemExit("created draft release is not unique and marker-owned")
           print(matches[0]["id"])
           PY
-          )"
+            )"
+          fi
           [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
 
           gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/* \
             --repo "$GITHUB_REPOSITORY"
-          remote_assets="$RUNNER_TEMP/hermes-vanilla-remote-assets.json"
           gh api --paginate --slurp \
             "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
             > "$remote_assets"

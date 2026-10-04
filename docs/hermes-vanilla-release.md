@@ -210,11 +210,11 @@ gh api -H "X-GitHub-Api-Version: $api_version" \
    whose branch is `main` and whose source commit still equals the `main` head
    fetched through the API. It downloads the exact triggering run's handoffs
    by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
-   them. Before creating a release it refuses any pre-existing tag ref. It
-   creates a marker-owned draft, uploads all 15 assets, fetches the remote
-   asset list, and requires the exact names, sizes, and SHA-256 digests before
-   publishing the draft as a prerelease. A published release is never edited
-   or deleted.
+   them. It first looks for a release using the requested tag. With no release,
+   it refuses any pre-existing tag ref and creates a commit-bound marker-owned
+   draft. It uploads all 15 assets, fetches the remote asset list, and requires
+   the exact names, sizes, and SHA-256 digests before publishing the draft as a
+   prerelease. A published release is never edited or deleted.
 
    ```sh
    git push -u origin l1c-release
@@ -257,14 +257,20 @@ If the publisher stops after creating its draft but before publishing it,
 leave the draft and tag namespace alone. After the underlying failure is
 fixed, dispatch the builder again from the unchanged current `main`. The
 publisher recognizes its own draft only by the
-`<!-- ibex-hermes-vanilla-publisher:v1 -->` body marker, deletes that draft,
-and restarts from an empty release. It will not reuse partially uploaded
-assets.
+`<!-- ibex-hermes-vanilla-publisher:v1 source-sha=<commit> -->` body marker.
+It requires that recorded commit to equal the newly authorized builder source
+and requires the existing tag ref to point directly and exactly at that commit.
+It then deletes only the draft's assets, confirms the asset set is empty,
+uploads the complete 15-file set again, and repeats the exact remote name,
+size, and SHA-256 verification before publishing. It never deletes or recreates
+the draft or tag.
 
 The recovery path refuses an unmarked draft, any published release, and any
-existing `refs/tags/hermes-vanilla-*` ref. Investigate those cases rather than
-deleting them through the workflow; if the intended bytes or authority have
-changed, increment the immutable release suffix (`-v2`, `-v3`, and so on).
+draft whose recorded commit, current authorized source, and tag target do not
+all agree. When no release exists, any existing `refs/tags/hermes-vanilla-*`
+ref is also refused. Investigate those cases rather than deleting them through
+the workflow; if the intended bytes or authority have changed, increment the
+immutable release suffix (`-v2`, `-v3`, and so on).
 
 ## Verify a published release
 
