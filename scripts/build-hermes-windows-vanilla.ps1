@@ -84,7 +84,37 @@ try {
     Copy-Item -LiteralPath (Join-Path $buildDir "bin\$name.exe") -Destination (Join-Path $toolsDir "$name-windows-$Arch.exe") -Force
   }
   Write-Host "Installed vanilla Windows Hermes at $installDir ($Ref)"
-  Write-Host ('Write its receipt with: node "{0}" "{1}"' -f (Join-Path $PSScriptRoot 'hermes-input-receipt.mjs'), $installDir)
+  # The v2 receipt binds the exact full-VM archive this layout links, as
+  # build-hermes.sh and build-hermes-linux.sh do for their local installs.
+  $receiptArgs = @(
+    (Join-Path $PSScriptRoot 'hermes-input-receipt.mjs'),
+    $installDir,
+    '--target=x86_64-pc-windows-msvc',
+    '--profile=release-debugger',
+    "--commit=$Ref",
+    "--compiler=$(Join-Path $toolsDir "hermesc-windows-$Arch.exe")",
+    '--engine-archive=windows-static/hermesvm_a.lib',
+    '--build-flag=-DCMAKE_BUILD_TYPE=Release',
+    '--build-flag=-DHERMES_ENABLE_DEBUGGER=ON',
+    '--build-flag=-DHERMES_ENABLE_INTL=OFF',
+    '--build-flag=-DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON',
+    '--build-flag=-DHERMES_BUILD_APPLE_FRAMEWORK=OFF',
+    '--build-flag=-DHERMES_BUILD_SHARED_JSI=OFF',
+    '--build-flag=-DHERMES_ENABLE_TEST_SUITE=OFF',
+    '--build-flag=-DHERMES_MSVC_MP=OFF',
+    '--link-directive=rustc-link-search=native=windows-static',
+    '--link-directive=rustc-link-lib=static=hermesvm_a',
+    '--link-directive=rustc-link-lib=static=jsi',
+    '--link-directive=rustc-link-lib=static=boost_context',
+    '--link-directive=rustc-link-lib=icuuc',
+    '--link-directive=rustc-link-lib=icuin',
+    '--link-directive=rustc-link-lib=dbghelp',
+    '--link-directive=rustc-link-lib=version',
+    '--link-directive=rustc-link-lib=psapi',
+    '--link-directive=rustc-link-lib=winmm'
+  )
+  & node @receiptArgs
+  if ($LASTEXITCODE -ne 0) { throw "Windows receipt generation failed" }
 } finally {
   $lock.Dispose()
 }

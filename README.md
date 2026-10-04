@@ -51,20 +51,20 @@ rustup selects it from this directory. Run the following from the repository
 root in an **x64 Visual Studio Developer PowerShell**, with `cl`, `dumpbin`,
 `cmake`, `ninja`, `python`, `node`, and Windows `tar` available on PATH.
 
-Build the pinned, unmodified Hermes source and then generate its receipt:
+Build the pinned, unmodified Hermes source; the builder also writes its v2
+receipt:
 
 ```powershell
 ./scripts/build-hermes-windows-vanilla.ps1
-node ./scripts/hermes-input-receipt.mjs ./tools/hermes-vanilla/windows-x64
 cargo build --locked --release -p ibex2-runtime --bin ibex2
 ```
 
 The builder downloads the source if it is not cached. It installs headers and
 static libraries under `tools/hermes-vanilla/windows-x64`, and the matching
-compiler at `tools/hermes-vanilla/hermesc-windows-x64.exe`. The separate receipt
-command checks the installed engine's symbols and records its engine/compiler
-hashes. `ibex2 build` requires that receipt; building the executable alone does
-not produce it. No custom Hermes INCLUDE or LIB environment settings are needed.
+compiler at `tools/hermes-vanilla/hermesc-windows-x64.exe`. The receipt step
+checks the installed engine's symbols and records its engine/compiler hashes.
+`ibex2 build` requires that receipt; building the executable alone does not
+produce it. No custom Hermes INCLUDE or LIB environment settings are needed.
 The build cache lives under `%LOCALAPPDATA%/Exact/hermes2-windows-vanilla`;
 keep that path short, because some MSVC tools still limit generated path lengths.
 
