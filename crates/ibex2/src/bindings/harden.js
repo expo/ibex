@@ -20,6 +20,10 @@
 // an application adds is state, not authority.
 (function () {
   "use strict";
+  // A descriptor is classified by its OWN value field. An `in` test also
+  // sees Object.prototype, where a planted value would make an accessor look
+  // like data and leave its getter and setter unfrozen.
+  const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
   const seen = new Set();
   const queue = [];
 
@@ -34,11 +38,11 @@
         Object.defineProperty(
           globalThis,
           globals[i],
-          "value" in d ? { writable: false, configurable: false } : { configurable: false }
+          hasOwn(d, "value") ? { writable: false, configurable: false } : { configurable: false }
         );
       } catch (e) {}
     }
-    if ("value" in d) queue.push(d.value);
+    if (hasOwn(d, "value")) queue.push(d.value);
     else { queue.push(d.get); queue.push(d.set); }
   }
   try { queue.push(Object.getPrototypeOf(globalThis)); } catch (e) {}
@@ -57,7 +61,7 @@
       let d;
       try { d = Object.getOwnPropertyDescriptor(obj, keys[i]); } catch (e) { continue; }
       if (!d) continue;
-      if ("value" in d) queue.push(d.value);
+      if (hasOwn(d, "value")) queue.push(d.value);
       else { queue.push(d.get); queue.push(d.set); }
     }
     try { queue.push(Object.getPrototypeOf(obj)); } catch (e) {}

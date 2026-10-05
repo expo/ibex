@@ -449,6 +449,34 @@ fn run_probe(runtime: &mut Hermes, argument: &str) -> Value {
 }
 
 #[test]
+fn an_inherited_value_field_cannot_hide_an_accessor_alias() {
+    // Bootstrap hides a member as a getter, then plants a `value` on
+    // Object.prototype. Descriptor records are classified by their own fields, so the
+    // getter is still found, and an inherited `value` accessor never runs.
+    for planted in [
+        "Object.defineProperty(Object.prototype, 'value', { value: 0, configurable: true });",
+        "Object.defineProperty(Object.prototype, 'value', { get: function () { globalThis.__plantedRan = true; return 0; }, configurable: true });",
+    ] {
+        let mut runtime = install_with_primitives(GrantSet::none());
+        runtime
+            .eval(&format!(
+                "(function (p) {{ delete globalThis.{PRIMITIVES_GLOBAL}; Object.defineProperty(globalThis, 'leak', {{ get: p.fetch, configurable: true }}); {planted} }})(globalThis.{PRIMITIVES_GLOBAL});"
+            ))
+            .expect("bootstrap hides an accessor alias");
+        let error = runtime.harden().unwrap_err().to_string();
+        assert!(
+            error.contains("fetch primitives member fetch is still reachable"),
+            "{planted}: {error}"
+        );
+        assert_eq!(
+            runtime.eval("String(globalThis.__plantedRan)").unwrap(),
+            "undefined",
+            "{planted}"
+        );
+    }
+}
+
+#[test]
 fn harden_refuses_any_alias_of_the_object_or_a_member() {
     for (alias, reachable) in [
         ("globalThis.alias = p;", "the fetch primitives object"),

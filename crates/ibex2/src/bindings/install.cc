@@ -1135,11 +1135,23 @@ void require_unreachable(
           auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
           if (!raw.isObject()) continue;
           auto descriptor = raw.getObject(rt);
-          if (descriptor.hasProperty(rt, "value")) {
-            pending.push_back(descriptor.getProperty(rt, "value"));
+          // Classify by the descriptor record's OWN fields, read with the
+          // captured getOwnPropertyDescriptor. `hasProperty`/`getProperty`
+          // would consult Object.prototype, where bootstrap can plant a
+          // `value` that hides an accessor's getter (or runs a getter).
+          auto own = [&](const char* field) {
+            return walk.descriptor.call(
+                rt, descriptor, jsi::String::createFromAscii(rt, field));
+          };
+          auto value = own("value");
+          if (value.isObject()) {
+            pending.push_back(value.getObject(rt).getProperty(rt, "value"));
           } else {
-            pending.push_back(descriptor.getProperty(rt, "get"));
-            pending.push_back(descriptor.getProperty(rt, "set"));
+            for (const char* field : {"get", "set"}) {
+              auto accessor = own(field);
+              if (accessor.isObject())
+                pending.push_back(accessor.getObject(rt).getProperty(rt, "value"));
+            }
           }
         }
       }
