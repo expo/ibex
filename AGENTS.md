@@ -33,3 +33,11 @@ generated entries under `skills/` directly. The adopted `caps.mjs`,
 - Ibex 2 links only vanilla Hermes. The platform build scripts install into
   `Frameworks-vanilla` or `tools/hermes-vanilla` paths.
 - Run focused tests, workspace clippy, and `./ref-check` before landing.
+- Workspace clippy is `cargo clippy --workspace --all-targets --all-features
+  --exclude hermes-lean-sys -- -D warnings` plus `cargo clippy -p hermes-lean-sys
+  --all-targets --features link -- -D warnings`. hermes-lean-sys's `link` and
+  `link-lean` are mutually exclusive, so `--all-features` can't apply to it. The
+  lean-VM proof is `crates/ibex2-lean-embedding` (its own workspace). `link-lean`
+  needs a receipted install, so a receipt-free repository layout refuses it: use
+  the pinned bundle (remove the repository layout) or a receipted
+  `HERMES_LEAN_SYS_DIR`.
