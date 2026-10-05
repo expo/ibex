@@ -33,12 +33,18 @@ pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
 /// install has a receipt, its archive manifest is always checked before this
 /// identity is exported; an unbound lean archive fails the build.
 pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_ENGINE_DIGEST");
-/// Linux ICU data archive expected by this bindings feature context: trimmed
-/// by default, or full when `intl` is enabled.
+/// Receipt-bound trimmed root+en ICU data archive available on Linux.
+///
+/// This is not a selected or linked identity: bindings link no ICU data. A
+/// process must use the linking `hermes-lean-sys` instance's
+/// `LINKED_ICU_DATA_ARCHIVE` to learn what it actually links.
 pub const ICU_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_DATA_ARCHIVE");
-/// Digest of [`ICU_DATA_ARCHIVE`]. This lets a resolver-v2 build compare the
-/// bindings context with the owning runtime's independently linked context.
+/// Digest of the available [`ICU_DATA_ARCHIVE`].
 pub const ICU_DATA_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_DATA_DIGEST");
+/// Receipt-bound full ICU data archive available on Linux.
+pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_FULL_DATA_ARCHIVE");
+/// Digest of the available [`ICU_FULL_DATA_ARCHIVE`].
+pub const ICU_FULL_DATA_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_FULL_DATA_DIGEST");
 /// HBC version for the full VM selected to compile binding bytecode.
 pub const BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_BYTECODE_VERSION");
 /// HBC version for the lean VM, or `None` when the selected install has no

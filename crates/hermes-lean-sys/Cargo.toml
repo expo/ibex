@@ -19,9 +19,10 @@ link-lean = ["icu"]
 # root+en data archive required by Hermes's platform_unicode backend. The JSI
 # Intl shims also enable it when they are used without a VM in this graph.
 icu = []
-# @ref LLP 0057.000#l1--the-bindings-door — D5 keeps full locale data behind
-# the existing Intl opt-in while every linked Linux VM retains correct basic
-# Unicode behavior. This swaps data archives; ICU code archives are shared.
+# @ref LLP 0057.000#l1--the-bindings-door — D5 keeps Ibex's Intl shims behind
+# their existing opt-in, while a Hermes embedder may independently select full
+# data for the basic-Unicode backend. This swaps data archives; ICU code
+# archives are shared.
 icu-full-data = ["icu"]
 
 [build-dependencies]

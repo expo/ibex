@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-05 (§3/OQ2 fix round 1: bindings export both available ICU-data identities but no selected one; the linking instance alone exports `LINKED_ICU_DATA_*`; full data without Ibex Intl remains a supported Hermes configuration)
 **Revised:** 2026-10-05 (§3/OQ2 round 2: Linux VM links require pinned ICU 74.2 with trimmed root+en data; `intl` selects full data through `icu-full-data`; basic Unicode behavior and the separate linked data identity are recorded)
 **Revised:** 2026-10-05 (§3/OQ2: Linux Intl is an off-by-default Cargo feature and install group; VM link features no longer imply ICU; absent-group Linux and Apple engine behavior and D5 size evidence are recorded)
 **Revised:** 2026-10-05 (§3 "Opt-in fetch primitives protocol": normative member protocol; ASCII-identifier names; harden refuses while the object or any member is reachable from the frozen graph; `Adapter::harden` brings the same guard to the bindings door; numeric arguments validated before conversion)
@@ -1140,6 +1141,12 @@ historical full-ICU baseline 42,346,424 (that baseline was ICU 72.1). The
 corresponding embeddings were 5,908,144, 9,119,576, and 40,314,704 bytes. Full
 data exceeds D5's 150 KiB default-on ceiling decisively; trimmed data is
 default engine support because Unicode-lite breaks required basic JavaScript.
+Direct consumers may select `hermes-lean-sys/icu-full-data` without selecting
+`ibex2/intl`; this supplies full data to the same basic-Unicode backend without
+adding Ibex's Intl shims. The bindings feature context links no data and exports
+both available archive/digest pairs. Only the normal dependency that emits ICU
+link lines exports `LINKED_ICU_DATA_*`, so Cargo's resolver-v2 separation cannot
+make the reported selection disagree with the linked bytes.
 
 The Linux VM is therefore built with `HERMES_ENABLE_INTL=false` and
 `HERMES_UNICODE_LITE=false`, using pinned static ICU 74.2. Before `INTL` is installed, JavaScript sees

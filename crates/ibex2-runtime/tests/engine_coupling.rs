@@ -27,25 +27,50 @@ fn bindings_sys_and_linked_archive_have_one_digest() {
     assert_eq!(actual, ibex2_runtime::LINKED_ENGINE_DIGEST);
 
     if cfg!(target_os = "linux") {
+        assert_eq!(
+            ibex2::bindings::ICU_DATA_ARCHIVE,
+            hermes_lean_sys::ICU_DATA_ARCHIVE,
+            "bindings export the available trimmed data without selecting it"
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_DATA_DIGEST,
+            hermes_lean_sys::ICU_DATA_DIGEST
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_FULL_DATA_ARCHIVE,
+            hermes_lean_sys::ICU_FULL_DATA_ARCHIVE,
+            "bindings export the available full data without selecting it"
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_FULL_DATA_DIGEST,
+            hermes_lean_sys::ICU_FULL_DATA_DIGEST
+        );
         let linked_archive = ibex2_runtime::LINKED_ICU_DATA_ARCHIVE
             .expect("Linux runtime links one ICU data variant");
         let linked_digest = ibex2_runtime::LINKED_ICU_DATA_DIGEST
             .expect("Linux runtime exports its ICU data identity");
         assert_eq!(
-            ibex2::bindings::ICU_DATA_ARCHIVE,
-            Some(linked_archive),
-            "bindings and runtime resolver-v2 contexts select one ICU data archive"
-        );
-        assert_eq!(ibex2::bindings::ICU_DATA_DIGEST, Some(linked_digest));
-        assert_eq!(
             hermes_lean_sys::LINKED_ICU_DATA_ARCHIVE,
             Some(linked_archive)
         );
         assert_eq!(hermes_lean_sys::LINKED_ICU_DATA_DIGEST, Some(linked_digest));
+        let expected_archive = if cfg!(feature = "intl") {
+            hermes_lean_sys::ICU_FULL_DATA_ARCHIVE
+        } else {
+            hermes_lean_sys::ICU_DATA_ARCHIVE
+        };
+        let expected_digest = if cfg!(feature = "intl") {
+            hermes_lean_sys::ICU_FULL_DATA_DIGEST
+        } else {
+            hermes_lean_sys::ICU_DATA_DIGEST
+        };
+        assert_eq!(Some(linked_archive), expected_archive);
+        assert_eq!(Some(linked_digest), expected_digest);
         let data = std::fs::read(linked_archive).expect("read linked ICU data archive");
         assert_eq!(format!("sha256-{:x}", Sha256::digest(data)), linked_digest);
     } else {
         assert_eq!(ibex2::bindings::ICU_DATA_ARCHIVE, None);
+        assert_eq!(ibex2::bindings::ICU_FULL_DATA_ARCHIVE, None);
         assert_eq!(ibex2_runtime::LINKED_ICU_DATA_ARCHIVE, None);
         assert_eq!(hermes_lean_sys::LINKED_ICU_DATA_ARCHIVE, None);
     }

@@ -363,6 +363,8 @@ The `link` feature emits the full VM's link line; `link-lean` emits the lean
 VM's link line, and the two features are mutually exclusive. On Linux either
 one also selects `icu`, whose default data archive is trimmed root+en;
 `icu-full-data` swaps to the full archive and is enabled by `ibex2/intl`.
+Selecting it directly without `ibex2/intl` is also supported: the engine's
+basic-Unicode backend then uses full data while Ibex's Intl shims remain absent.
 Resolution
 exports lean metadata only when the lean archive exists. If a receipt is
 present, its archive manifest must authenticate that archive in every feature
@@ -376,8 +378,11 @@ lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCH
 Linux additionally exports `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST`; this separate identity names exactly
 the trimmed or full data variant while shared ICU code stays archive-manifest
-bound. This is R-e: a process never reports full while linking lean, or reports
-trimmed data while linking full data. Legacy local layouts may omit lean; they export no lean path, digest, or
+bound. Bindings-only contexts export both available identities and no selected
+identity; only the normal dependency that emits the link lines exports these
+`LINKED_ICU_DATA_*` values. This is R-e: a process never reports full while
+linking lean, or reports trimmed data while linking full data. Legacy local
+layouts may omit lean; they export no lean path, digest, or
 HBC version and fail only if `link-lean` is requested. Published v3 bundles
 must carry and manifest both. Repository discovery uses the Apple layout only
 for macOS targets; iOS cross builds fall through to their pinned target bundle

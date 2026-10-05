@@ -137,7 +137,9 @@ for the full VM or `link-lean` for lean. Enabling both is a compile-time error.
 On Linux both VM features imply the independent `icu` feature, which is the
 one owner of ICU link lines and selects trimmed root+en data. `ibex2/intl`
 enables `icu-full-data`, swapping in `libicudata-full.a` while reusing the ICU
-code archives.
+code archives. A Hermes embedder may also select `icu-full-data` directly
+without Ibex's Intl shims; full data remains valid for the engine's basic
+Unicode backend.
 The full identity remains `DEP_HERMES_LEAN_ARCHIVE` /
 `DEP_HERMES_LEAN_ENGINE_DIGEST`; lean is
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` / `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST`.
@@ -147,7 +149,9 @@ On Linux `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST` name the exact selected data variant;
 this is the data-variant half of R-e and is deliberately separate from the VM
 digest. Both available data identities are exported in every resolver-v2
-context, and ibex2 checks its bindings context against the owning runtime.
+context. The bindings door exposes them as `ICU_DATA_*` and
+`ICU_FULL_DATA_*`, but exposes no selected identity because it links neither.
+Only the linking instance's `LINKED_ICU_DATA_*` says what the process links.
 The Rust constants are `ARCHIVE`, `ENGINE_DIGEST`, `LEAN_ARCHIVE`,
 `LEAN_ENGINE_DIGEST`, `LINKED_ARCHIVE`, and `LINKED_ENGINE_DIGEST`.
 

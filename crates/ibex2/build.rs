@@ -102,19 +102,26 @@ fn main() {
         required("DEP_HERMES_LEAN_ENGINE_DIGEST")
     );
     if target_os == "linux" {
-        let prefix = if has_intl {
-            "DEP_HERMES_LEAN_ICU_FULL_DATA"
-        } else {
-            "DEP_HERMES_LEAN_ICU_DATA"
-        };
-        println!(
-            "cargo:rustc-env=IBEX2_BINDINGS_ICU_DATA_ARCHIVE={}",
-            required(&format!("{prefix}_ARCHIVE"))
-        );
-        println!(
-            "cargo:rustc-env=IBEX2_BINDINGS_ICU_DATA_DIGEST={}",
-            required(&format!("{prefix}_DIGEST"))
-        );
+        // @ref LLP 0057.000#l1--the-bindings-door — this build-dependency
+        // context links no VM or ICU data, so it exports both receipt-bound
+        // available identities and never invents a selected one from `intl`.
+        // Only the normal dependency that emits link lines exports LINKED_*.
+        for (source, destination) in [
+            ("DEP_HERMES_LEAN_ICU_DATA", "IBEX2_BINDINGS_ICU_DATA"),
+            (
+                "DEP_HERMES_LEAN_ICU_FULL_DATA",
+                "IBEX2_BINDINGS_ICU_FULL_DATA",
+            ),
+        ] {
+            println!(
+                "cargo:rustc-env={destination}_ARCHIVE={}",
+                required(&format!("{source}_ARCHIVE"))
+            );
+            println!(
+                "cargo:rustc-env={destination}_DIGEST={}",
+                required(&format!("{source}_DIGEST"))
+            );
+        }
     }
     if let Ok(digest) = std::env::var("DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST") {
         println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_ENGINE_DIGEST={digest}");

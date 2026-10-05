@@ -92,8 +92,13 @@ fn pure_bindings_and_precompiled_app_run_on_lean_while_source_is_impossible() {
         );
         assert_eq!(
             ibex2::bindings::ICU_DATA_DIGEST,
-            hermes_lean_sys::LINKED_ICU_DATA_DIGEST,
-            "bindings and linked lean contexts agree on ICU data"
+            hermes_lean_sys::ICU_DATA_DIGEST,
+            "bindings expose the available trimmed ICU data"
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_FULL_DATA_DIGEST,
+            hermes_lean_sys::ICU_FULL_DATA_DIGEST,
+            "bindings also expose the available full ICU data"
         );
     }
     assert_eq!(
