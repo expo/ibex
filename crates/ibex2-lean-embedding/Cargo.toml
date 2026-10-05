@@ -1,0 +1,23 @@
+[package]
+name = "ibex2-lean-embedding"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# This proof must remain a separate feature graph: the main workspace's owning
+# runtime selects `link`, while this crate selects the mutually exclusive
+# `link-lean` feature.
+[workspace]
+resolver = "2"
+
+[dependencies]
+ibex2 = { path = "../ibex2", default-features = false, features = ["bindings"] }
+hermes-lean-sys = { path = "../hermes-lean-sys", default-features = false, features = ["link-lean"] }
+
+[build-dependencies]
+cc = "1"
+hermes-lean-sys = { path = "../hermes-lean-sys", default-features = false }
+
+[patch.crates-io]
+ring = { path = "../../vendor/ring" }
