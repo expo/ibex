@@ -40,6 +40,10 @@ using InstallWithMethod = void (ibex2::jsi_adapter::Adapter::*)(
     const ibex2::jsi_adapter::InstallOptions&);
 static_assert(std::is_same_v<decltype(&ibex2::jsi_adapter::Adapter::install_with),
                              InstallWithMethod>);
+using HardenMethod = void (ibex2::jsi_adapter::Adapter::*)(
+    const ibex2::jsi_adapter::CompiledScript&);
+static_assert(std::is_same_v<decltype(&ibex2::jsi_adapter::Adapter::harden),
+                             HardenMethod>);
 static_assert(!std::is_convertible_v<const void*, const Ibex2Bindings*>);
 
 extern "C" {
@@ -104,6 +108,18 @@ int bindings_consumer_install_with_fetch_primitives(
     ibex2::jsi_adapter::InstallOptions options;
     options.fetch_primitives = fetch_primitives;
     c->adapter->install_with(groups, bindings, scripts, script_count, options);
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+int bindings_consumer_harden(void *handle, const uint8_t *bytes, size_t len,
+                             char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr) return 0;
+    c->adapter->harden(ibex2::jsi_adapter::CompiledScript{"harden", bytes, len});
     return 1;
   } catch (const std::exception &e) {
     if (error != nullptr) *error = copy(e.what());

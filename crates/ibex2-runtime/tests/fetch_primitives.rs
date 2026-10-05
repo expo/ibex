@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "loader")]
+mod common;
+
 const PRIMITIVES_GLOBAL: &str = "__snapback_ibex2_fetch_primitives";
 const SNAPBACK_FETCH: &str = include_str!("fixtures/snapback_fetch.js");
 const SNAPBACK_BOUND: &str = include_str!("fixtures/snapback_bound.js");
@@ -374,4 +377,520 @@ fn snapback_fetch_and_bound_preludes_use_the_opt_in_object() {
     assert_eq!(result["evidence"]["requests"], 1);
     assert_eq!(result["evidence"]["origins"][0], logical_origin);
     assert_eq!(server.hits.load(Ordering::SeqCst), 1);
+}
+
+/// Answers each accepted connection, in order, with the next canned response.
+/// `build` receives the server's own origin so a response can name it.
+fn canned_server(build: impl FnOnce(&str) -> Vec<String>) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind canned server");
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let responses = build(&origin);
+    let thread = std::thread::spawn(move || {
+        for response in responses {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            read_request(&mut stream);
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        }
+    });
+    (origin, thread)
+}
+
+fn ok_response(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+/// Classifies how a synchronous call ended, for JSON assertions.
+const KIND: &str = r#"
+  function kind(call) {
+    try { call(); return "accepted"; }
+    catch (error) {
+      if (error instanceof RangeError) return "RangeError";
+      if (error instanceof TypeError) return "TypeError";
+      return String(error);
+    }
+  }
+"#;
+
+/// Trusted bootstrap: capture the object in a closure, delete the global, and
+/// publish only a wrapper. `body` is the wrapper function's body and may use
+/// `p`, `kind`, and the wrapper's single argument `arg`.
+fn bootstrap_probe(runtime: &mut Hermes, body: &str) {
+    runtime
+        .eval(&format!(
+            r#"
+            globalThis.__probe = (function (p) {{
+              delete globalThis.{PRIMITIVES_GLOBAL};
+              {KIND}
+              return function (arg) {{ {body} }};
+            }})(globalThis.{PRIMITIVES_GLOBAL});
+            "#
+        ))
+        .expect("bootstrap captures the primitives");
+}
+
+fn run_probe(runtime: &mut Hermes, argument: &str) -> Value {
+    runtime
+        .eval(&format!(
+            r#"
+            globalThis.__probeResult = "pending";
+            Promise.resolve(__probe({argument})).then(
+              function (value) {{ __probeResult = JSON.stringify(value); }},
+              function (error) {{ __probeResult = JSON.stringify({{ error: String(error && error.stack || error) }}); }});
+            "#
+        ))
+        .unwrap();
+    runtime.run_to_quiescence(Duration::from_secs(10));
+    let text = runtime.eval("__probeResult").unwrap();
+    serde_json::from_str(&text).unwrap_or_else(|_| panic!("probe result: {text}"))
+}
+
+#[test]
+fn harden_refuses_any_alias_of_the_object_or_a_member() {
+    for (alias, reachable) in [
+        ("globalThis.alias = p;", "the fetch primitives object"),
+        (
+            "Object.defineProperty(Object.prototype, 'leak', { value: p });",
+            "the fetch primitives object",
+        ),
+        ("globalThis.f = p.fetch;", "fetch primitives member fetch"),
+        (
+            "Array.prototype.nested = { deep: [p.responseRead] };",
+            "fetch primitives member responseRead",
+        ),
+        (
+            "globalThis[Symbol.for('ibex2.leak')] = p.headersFree;",
+            "fetch primitives member headersFree",
+        ),
+        (
+            "Object.defineProperty(globalThis, 'g', { get: p.textDecode, configurable: true });",
+            "fetch primitives member textDecode",
+        ),
+        (
+            "Object.setPrototypeOf(Function.prototype.call, { hidden: p.fetchControl });",
+            "fetch primitives member fetchControl",
+        ),
+    ] {
+        let mut runtime = install_with_primitives(GrantSet::none());
+        runtime
+            .eval(&format!(
+                "(function (p) {{ delete globalThis.{PRIMITIVES_GLOBAL}; {alias} }})(globalThis.{PRIMITIVES_GLOBAL});"
+            ))
+            .expect("bootstrap leaves an alias");
+        let error = runtime.harden().unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("{reachable} is still reachable")),
+            "{alias}: {error}"
+        );
+        // A refusal freezes nothing.
+        assert_eq!(
+            runtime
+                .eval("String(Object.isFrozen(Array.prototype))")
+                .unwrap(),
+            "false",
+            "{alias}"
+        );
+    }
+
+    // Removing the alias closes the leak; a closure capture is outside the
+    // walk by design, and the walk never invokes a getter it passes.
+    let mut runtime = install_with_primitives(GrantSet::none());
+    runtime
+        .eval(&format!(
+            r#"
+            globalThis.__wrapped = (function (p) {{
+              delete globalThis.{PRIMITIVES_GLOBAL};
+              globalThis.alias = p;
+              return function () {{ return typeof p.fetch; }};
+            }})(globalThis.{PRIMITIVES_GLOBAL});
+            Object.defineProperty(globalThis, "trap", {{
+              get: function () {{ globalThis.__getterRan = true; return 1; }},
+              configurable: true
+            }});
+            "#
+        ))
+        .unwrap();
+    assert!(runtime.harden().is_err());
+    runtime.eval("delete globalThis.alias").unwrap();
+    runtime
+        .harden()
+        .expect("only a closure holds the primitives");
+    assert_eq!(runtime.eval("__wrapped()").unwrap(), "function");
+    assert_eq!(
+        runtime.eval("String(globalThis.__getterRan)").unwrap(),
+        "undefined"
+    );
+    assert_eq!(
+        runtime
+            .eval("String(Object.isFrozen(Array.prototype))")
+            .unwrap(),
+        "true"
+    );
+}
+
+#[test]
+fn install_runtime_with_publishes_the_same_guarded_object() {
+    let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+    let context = Context::new(GrantSet::none());
+    runtime
+        .install_runtime_with(
+            Groups::DEFAULT,
+            &context,
+            InstallOptions {
+                fetch_primitives: Some(PRIMITIVES_GLOBAL),
+            },
+        )
+        .expect("runtime bootstrap with primitives");
+    assert_eq!(
+        runtime
+            .eval(&format!(
+                "var p = globalThis.{PRIMITIVES_GLOBAL}; \
+                 [Object.isFrozen(p), Object.keys(p).join(), typeof __ibex2_default].join('|')"
+            ))
+            .unwrap(),
+        "true|fetch,responseField,responseRead,fetchControl,textEncode,textDecode,textEncodeInto,headersFree|function"
+    );
+    let error = runtime.harden().unwrap_err().to_string();
+    assert!(
+        error.contains("refusing to harden while fetch primitives global"),
+        "{error}"
+    );
+    // `var p` above is itself a global alias.
+    runtime
+        .eval(&format!("delete globalThis.{PRIMITIVES_GLOBAL}"))
+        .unwrap();
+    let error = runtime.harden().unwrap_err().to_string();
+    assert!(
+        error.contains("the fetch primitives object is still reachable"),
+        "{error}"
+    );
+    runtime.eval("p = undefined").unwrap();
+    runtime.harden().expect("no path to the primitives remains");
+}
+
+#[test]
+fn fetch_primitive_names_are_unused_ascii_identifiers() {
+    let context = Context::new(GrantSet::none());
+    for name in [
+        "1abc",
+        "has space",
+        "a-b",
+        "na\u{ef}ve",
+        "\u{441}ount",
+        "zero\u{200b}width",
+        "nul\0byte",
+        "x.y",
+    ] {
+        for runtime_path in [false, true] {
+            let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+            let options = InstallOptions {
+                fetch_primitives: Some(name),
+            };
+            let error = if runtime_path {
+                runtime.install_runtime_with(FETCH_GROUPS, &context, options)
+            } else {
+                runtime.install_with(FETCH_GROUPS, &context, options)
+            }
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("must be an ASCII JavaScript identifier"),
+                "{name:?}: {error}"
+            );
+            // Refused before anything was prepared or installed: the same
+            // runtime still accepts a valid installation.
+            assert_eq!(runtime.eval("typeof __ibex2_default").unwrap(), "undefined");
+            runtime
+                .install_with(
+                    FETCH_GROUPS,
+                    &context,
+                    InstallOptions {
+                        fetch_primitives: Some("$valid_Name1"),
+                    },
+                )
+                .expect("a valid name still installs");
+        }
+    }
+    let error = Hermes::new(DynamicCode::Closed)
+        .unwrap()
+        .install_with(
+            FETCH_GROUPS,
+            &context,
+            InstallOptions {
+                fetch_primitives: Some(""),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "fetch primitives require a non-empty global name");
+
+    for (name, expected) in [
+        ("Object", "fetch primitives global already exists"),
+        ("globalThis", "fetch primitives global already exists"),
+        ("toString", "fetch primitives global already exists"),
+        ("__proto__", "fetch primitives global already exists"),
+        (
+            "Headers",
+            "fetch primitives global collides with an installed binding",
+        ),
+    ] {
+        let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+        let error = runtime
+            .install_with(
+                FETCH_GROUPS,
+                &context,
+                InstallOptions {
+                    fetch_primitives: Some(name),
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{name}: {error}");
+    }
+}
+
+#[test]
+fn numeric_arguments_are_validated_before_conversion() {
+    let (origin, server) = canned_server(|_| vec![ok_response("x")]);
+    let grants = GrantSet::parse(&format!("net.fetch {origin}\n")).unwrap();
+    let mut runtime = install_with_primitives(grants);
+    bootstrap_probe(
+        &mut runtime,
+        r#"
+        var bad = [NaN, Infinity, -Infinity, -1, 0, 0.5, 1.5, 9007199254740992, Math.pow(2, 64)];
+        function each(values, call) {
+          return values.map(function (value) { return kind(function () { return call(value); }); });
+        }
+        var handles = {
+          responseField: each(bad, function (v) { return p.responseField(v, 0); }),
+          responseRead: each(bad, function (v) { return p.responseRead(v); }),
+          headersFree: each(bad, function (v) { return p.headersFree(v); }),
+          abort: each(bad, function (v) { return p.fetchControl(1, v); }),
+          release: each(bad, function (v) { return p.fetchControl(2, v); }),
+          fetchHeaders: each(bad, function (v) { return p.fetch(arg, "GET", undefined, "manual", v); }),
+          fetchToken: each(bad, function (v) { return p.fetch(arg, "GET", undefined, "manual", undefined, v); })
+        };
+        var nonNumbers = each(["1", null, true, {}], function (v) { return p.responseRead(v); })
+          .concat(each(["1", null], function (v) { return p.headersFree(v); }))
+          .concat(each(["0", null], function (v) { return p.fetchControl(v); }));
+        var actions = each([NaN, Infinity, -1, 0.5, 3, 9007199254740992], function (v) {
+          return p.fetchControl(v, 1);
+        });
+        var token = p.fetchControl(0);
+        return p.fetch(arg, "GET", undefined, "manual", undefined, token).then(function (h) {
+          var fields = each([NaN, Infinity, -1, 1.5, 4294967296, 9007199254740992, 4, 6, 9], function (v) {
+            return p.responseField(h, v);
+          });
+          var fieldTypes = [
+            kind(function () { return p.responseField(h, "0"); }),
+            kind(function () { return p.responseField(h, 3); }),
+            kind(function () { return p.responseField(h, 3, 42); })
+          ];
+          var stillLive = p.responseField(h, 0);
+          p.responseField(h, 8);
+          p.fetchControl(2, token);
+          return {
+            handles: handles, nonNumbers: nonNumbers, actions: actions,
+            fields: fields, fieldTypes: fieldTypes, stillLive: stillLive,
+            stale: kind(function () { return p.responseField(h, 0); })
+          };
+        });
+        "#,
+    );
+    runtime.harden().unwrap();
+    let result = run_probe(&mut runtime, &format!("{:?}", format!("{origin}/x")));
+    for (name, kinds) in result["handles"].as_object().expect("handle results") {
+        assert_eq!(
+            kinds,
+            &serde_json::json!(vec!["RangeError"; 9]),
+            "{name}: {result}"
+        );
+    }
+    assert_eq!(
+        result["nonNumbers"],
+        serde_json::json!(vec!["TypeError"; 8]),
+        "{result}"
+    );
+    assert_eq!(
+        result["actions"],
+        serde_json::json!(vec!["RangeError"; 6]),
+        "{result}"
+    );
+    assert_eq!(
+        result["fields"],
+        serde_json::json!(vec!["RangeError"; 9]),
+        "{result}"
+    );
+    assert_eq!(
+        result["fieldTypes"],
+        serde_json::json!(["TypeError", "TypeError", "TypeError"]),
+        "{result}"
+    );
+    assert_eq!(result["stillLive"], 200, "{result}");
+    assert_eq!(result["stale"], "TypeError", "{result}");
+    server.join().unwrap();
+}
+
+#[test]
+fn follow_redirects_check_every_hop_against_the_grants() {
+    // Every response redirects to an origin the grant does not name.
+    let redirect = "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/ungranted\r\n\
+                    Content-Length: 0\r\nConnection: close\r\n\r\n"
+        .to_string();
+    let (origin, server) = canned_server(|_| vec![redirect; 4]);
+    let grants = GrantSet::parse(&format!("net.fetch {origin}\n")).unwrap();
+    let mut runtime = install_with_primitives(grants);
+    bootstrap_probe(
+        &mut runtime,
+        r#"
+        function attempt(mode) {
+          return p.fetch(arg, "GET", undefined, mode).then(function (h) {
+            var status = p.responseField(h, 0);
+            p.responseField(h, 8);
+            return "status " + status;
+          }, function (error) { return String(error.message || error); });
+        }
+        // Sequential, so each request meets the server in order.
+        var out = {};
+        return attempt("follow").then(function (v) { out.follow = v; return attempt(undefined); })
+          .then(function (v) { out.omitted = v; return attempt("manual"); })
+          .then(function (v) { out.manual = v; return attempt("error"); })
+          .then(function (v) { out.error = v; return out; });
+        "#,
+    );
+    runtime.harden().unwrap();
+    let result = run_probe(&mut runtime, &format!("{:?}", format!("{origin}/redirect")));
+    assert_eq!(result["follow"], "denied: net.fetch", "{result}");
+    assert_eq!(result["omitted"], "denied: net.fetch", "{result}");
+    assert_eq!(result["manual"], "status 302", "{result}");
+    assert!(
+        result["error"]
+            .as_str()
+            .unwrap()
+            .contains("redirect not allowed"),
+        "{result}"
+    );
+    server.join().unwrap();
+}
+
+#[cfg(feature = "loader")]
+#[test]
+fn released_and_foreign_handles_are_refused_on_the_runtime_path() {
+    use ibex2_runtime::loader::{ModuleGrants, Root};
+
+    let (origin, server) =
+        canned_server(|_| vec![ok_response("ordinary"), ok_response("primitive")]);
+    let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+    let context = Context::new(GrantSet::parse(&format!("net.fetch {origin}\n")).unwrap());
+    runtime
+        .install_runtime_with(
+            Groups::DEFAULT,
+            &context,
+            InstallOptions {
+                fetch_primitives: Some(PRIMITIVES_GLOBAL),
+            },
+        )
+        .unwrap();
+    bootstrap_probe(
+        &mut runtime,
+        r#"
+        // The module's ordinary fetch response is live (its body unread), and
+        // every id below the first one this object allocates belongs to that
+        // ordinary fetch or to the runtime -- never to these primitives.
+        var marker = p.fetchControl(0);
+        var foreign = [];
+        for (var id = 1; id < marker; id++) {
+          foreign.push([
+            kind(function () { return p.responseRead(id); }),
+            kind(function () { return p.responseField(id, 0); }),
+            kind(function () { return p.headersFree(id); }),
+            kind(function () { return p.fetchControl(1, id); })
+          ].join("/"));
+        }
+        p.fetchControl(2, marker);
+        var appHeaders = new Headers();
+        var foreignHeaders = kind(function () { return p.headersFree(appHeaders._handle); });
+        var headers = new Headers();
+        var token = p.fetchControl(0);
+        return p.fetch(arg + "/primitive", "GET", undefined, "manual", headers._handle, token)
+          .then(function (h) {
+            var firstFree = kind(function () { return p.headersFree(headers._handle); });
+            var secondFree = kind(function () { return p.headersFree(headers._handle); });
+            p.fetchControl(2, token);
+            var tokenAfterRelease = kind(function () { return p.fetchControl(1, token); });
+            var chunks = [];
+            function drain() {
+              return p.responseRead(h).then(function (bytes) {
+                if (bytes === null) return;
+                chunks.push(p.textDecode(bytes));
+                return drain();
+              });
+            }
+            return drain().then(function () {
+              return {
+                foreign: foreign, foreignHeaders: foreignHeaders,
+                firstFree: firstFree, secondFree: secondFree,
+                tokenAfterRelease: tokenAfterRelease, body: chunks.join(""),
+                readAfterEof: kind(function () { return p.responseRead(h); }),
+                fieldAfterEof: kind(function () { return p.responseField(h, 0); })
+              };
+            });
+          });
+        "#,
+    );
+    let project = common::Project::new("fetch-primitives-foreign");
+    project.file(
+        "index.js",
+        &format!(
+            r#"
+            globalThis.__moduleResult = "pending";
+            fetch({origin:?} + "/ordinary").then(function (response) {{
+              return __probe({origin:?}).then(function (result) {{
+                return response.text().then(function (body) {{
+                  result.ordinaryBody = body;
+                  __moduleResult = JSON.stringify(result);
+                }});
+              }});
+            }}).catch(function (error) {{
+              __moduleResult = JSON.stringify({{ error: String(error && error.stack || error) }});
+            }});
+            "#
+        ),
+    );
+    runtime
+        .set_loader(
+            Root::Declared(project.0.clone()),
+            ModuleGrants::parse(&format!("[*]\nnet.fetch {origin}\n")).unwrap(),
+        )
+        .unwrap();
+    runtime
+        .harden()
+        .expect("only the closure holds the primitives");
+    runtime.run_entry("./index.js").unwrap();
+    runtime.run_to_quiescence(Duration::from_secs(10));
+    let text = runtime.eval("__moduleResult").unwrap();
+    let result: Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{text}"));
+    let foreign = result["foreign"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{result}"));
+    assert!(foreign.len() >= 3, "{result}");
+    assert!(
+        foreign
+            .iter()
+            .all(|entry| entry == "TypeError/TypeError/TypeError/TypeError"),
+        "{result}"
+    );
+    assert_eq!(result["foreignHeaders"], "TypeError", "{result}");
+    assert_eq!(result["firstFree"], "accepted", "{result}");
+    assert_eq!(result["secondFree"], "TypeError", "{result}");
+    assert_eq!(result["tokenAfterRelease"], "TypeError", "{result}");
+    assert_eq!(result["body"], "primitive", "{result}");
+    assert_eq!(result["readAfterEof"], "TypeError", "{result}");
+    assert_eq!(result["fieldAfterEof"], "TypeError", "{result}");
+    // The ordinary response stayed live and readable throughout.
+    assert_eq!(result["ordinaryBody"], "ordinary", "{result}");
+    server.join().unwrap();
 }

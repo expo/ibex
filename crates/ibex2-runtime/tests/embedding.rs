@@ -44,6 +44,12 @@ extern "C" {
         fetch_primitives: *const c_char,
         error: *mut *mut c_char,
     ) -> i32;
+    fn bindings_consumer_harden(
+        handle: *mut c_void,
+        bytes: *const u8,
+        len: usize,
+        error: *mut *mut c_char,
+    ) -> i32;
     fn bindings_consumer_create(
         queue: *const c_void,
         bindings: *const ibex2::bindings::Ibex2Bindings,
@@ -212,6 +218,19 @@ impl BareConsumer {
 
     fn eval(&self, source: &str) -> String {
         self.eval_result(source).unwrap()
+    }
+
+    /// `Adapter::harden` with the given bytecode.
+    fn harden(&self, bytecode: &[u8]) -> Result<(), String> {
+        let mut error = std::ptr::null_mut();
+        let hardened = unsafe {
+            bindings_consumer_harden(self.handle, bytecode.as_ptr(), bytecode.len(), &mut error)
+        };
+        if hardened == 1 {
+            Ok(())
+        } else {
+            Err(take(error))
+        }
     }
 
     fn detach_and_drop_context(&mut self) {
@@ -632,6 +651,96 @@ fn fetch_primitives_refuse_an_ordinary_response_and_stale_or_forged_handles() {
         })
     );
     server.join().unwrap();
+}
+
+#[test]
+fn adapter_harden_refuses_until_fetch_primitives_are_unreachable() {
+    const NAME: &str = "__borrowed_fetch_primitives";
+    ibex2_runtime::ensure_linked();
+    let consumer = BareConsumer::from_context_with_primitives(
+        Groups::PURE | Groups::ABORT | Groups::FETCH,
+        Context::new(GrantSet::none()),
+        Some(NAME),
+    );
+    let error = consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .unwrap_err();
+    assert!(
+        error.contains(&format!(
+            "refusing to harden while fetch primitives global \"{NAME}\" is present"
+        )),
+        "{error}"
+    );
+    assert_eq!(
+        consumer.eval(&format!(
+            "globalThis.alias = globalThis.{NAME}; delete globalThis.{NAME}; 'moved'"
+        )),
+        "moved"
+    );
+    let error = consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .unwrap_err();
+    assert!(
+        error.contains("the fetch primitives object is still reachable"),
+        "{error}"
+    );
+    assert_eq!(
+        consumer.eval("String(Object.isFrozen(Array.prototype))"),
+        "false"
+    );
+    let error = consumer.harden(b"not bytecode").unwrap_err();
+    assert!(
+        error.contains("truncated Hermes bytecode header"),
+        "{error}"
+    );
+    assert_eq!(consumer.eval("delete globalThis.alias; 'gone'"), "gone");
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("no path to the primitives remains");
+    assert_eq!(
+        consumer.eval("String(Object.isFrozen(Array.prototype))"),
+        "true"
+    );
+}
+
+#[test]
+fn adapter_install_with_refuses_non_identifier_and_colliding_names() {
+    ibex2_runtime::ensure_linked();
+    let groups = Groups::PURE | Groups::ABORT | Groups::FETCH;
+    for (name, expected) in [
+        ("na\u{ef}ve", "must be an ASCII JavaScript identifier"),
+        ("1abc", "must be an ASCII JavaScript identifier"),
+        ("a-b", "must be an ASCII JavaScript identifier"),
+        ("", "require a non-empty global name"),
+        ("toString", "fetch primitives global already exists"),
+        ("Object", "fetch primitives global already exists"),
+    ] {
+        let context = Context::new(GrantSet::none());
+        let scripts: Vec<_> = ibex2::bindings::scripts(groups)
+            .unwrap()
+            .into_iter()
+            .map(|(script, _)| compiled_script(script))
+            .collect();
+        let handle = unsafe { bindings_consumer_create_uninstalled(context.state_ptr()) };
+        assert!(!handle.is_null(), "uninstalled borrowed runtime");
+        let c_name = CString::new(name).unwrap();
+        let mut error = std::ptr::null_mut();
+        let installed = unsafe {
+            bindings_consumer_install_with_fetch_primitives(
+                handle,
+                context.bindings_ptr(),
+                groups.bits(),
+                scripts.as_ptr(),
+                scripts.len(),
+                c_name.as_ptr(),
+                &mut error,
+            )
+        };
+        let error = take(error);
+        unsafe { storage_consumer_destroy(handle) };
+        assert_eq!(installed, 0, "{name:?} was accepted");
+        assert!(error.contains(expected), "{name:?}: {error}");
+    }
 }
 
 #[test]
