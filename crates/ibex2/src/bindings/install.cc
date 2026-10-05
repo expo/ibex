@@ -6,7 +6,9 @@
 #define IBEX2_HAS_HERMES_BYTECODE_FILE_FORMAT 1
 #endif
 #include <cstring>
+#include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 #include <stdexcept>
 
 extern "C" int ibex2_host_call(const void*, uint32_t, const Ibex2AbiValue*, size_t, Ibex2AbiValue*);
@@ -566,6 +568,43 @@ struct CryptoKeyOwner final : jsi::NativeState {
   ~CryptoKeyOwner() override { ibex2_crypto_key_owner_destroy(owner); }
 };
 
+// Each opt-in fetch-primitives object is its own handle domain. The Rust
+// registries remain runtime-wide, so these sets are the native, unforgeable
+// proof that a handle crossed this exact bootstrap object. Handles are never
+// recycled by RuntimeState, and terminal/released entries are removed here.
+struct FetchPrimitiveHandles {
+  std::unordered_set<uint64_t> responses;
+  std::unordered_set<uint64_t> controls;
+  std::unordered_set<uint64_t> headers;
+};
+
+[[noreturn]] void throw_primitive_type_error(jsi::Runtime& rt,
+                                             const std::string& message) {
+  auto error = rt.global().getPropertyAsFunction(rt, "TypeError")
+      .callAsConstructor(rt, message);
+  throw jsi::JSError(rt, std::move(error));
+}
+
+uint64_t primitive_handle(jsi::Runtime& rt, const jsi::Value& value,
+                          const char* kind) {
+  if (!value.isNumber())
+    throw_primitive_type_error(rt, kind);
+  const double number = value.getNumber();
+  if (!std::isfinite(number) || std::floor(number) != number ||
+      number < 1.0 || number > 9007199254740991.0)
+    throw_primitive_type_error(rt, kind);
+  return static_cast<uint64_t>(number);
+}
+
+uint64_t require_primitive_handle(
+    jsi::Runtime& rt, const jsi::Value& value,
+    const std::unordered_set<uint64_t>& owned, const char* kind) {
+  const uint64_t handle = primitive_handle(rt, value, kind);
+  if (owned.find(handle) == owned.end())
+    throw_primitive_type_error(rt, kind);
+  return handle;
+}
+
 jsi::Function make_group_binding(jsi::Runtime& rt, const char* name,
                                  uint32_t op,
                                  std::shared_ptr<Lifetime> lifetime) {
@@ -699,14 +738,22 @@ void install_blob(jsi::Runtime& rt,
 }
 
 jsi::Function make_response_field(
-    jsi::Runtime& rt, const std::shared_ptr<Lifetime>& lifetime) {
+    jsi::Runtime& rt, const std::shared_ptr<Lifetime>& lifetime,
+    std::shared_ptr<FetchPrimitiveHandles> primitive_handles = nullptr) {
   return jsi::Function::createFromHostFunction(
       rt, jsi::PropNameID::forAscii(rt, "__ibex2_response_field"), 3,
-      [lifetime](jsi::Runtime& r, const jsi::Value&,
-                 const jsi::Value* args, size_t count) -> jsi::Value {
+      [lifetime, primitive_handles = std::move(primitive_handles)](
+          jsi::Runtime& r, const jsi::Value&, const jsi::Value* args,
+          size_t count) -> jsi::Value {
         const void* queue = lifetime->require(r);
         if (count < 2)
           throw jsi::JSError(r, "response field needs a handle and a field id");
+        uint64_t primitive_response = 0;
+        if (primitive_handles != nullptr) {
+          primitive_response = require_primitive_handle(
+              r, args[0], primitive_handles->responses,
+              "response handle does not belong to these fetch primitives");
+        }
         std::vector<std::string> owned;
         Ibex2AbiValue name{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
         if (count >= 3) name = to_abi(r, args[2], owned);
@@ -719,9 +766,15 @@ jsi::Function make_response_field(
           ~Release() { ibex2_host_release(&value); }
         } release{out};
         auto result = from_abi(r, out);
-        if (status != 0)
+        if (status != 0) {
+          if (primitive_handles != nullptr)
+            primitive_handles->responses.erase(primitive_response);
           throw jsi::JSError(r, result.isString()
               ? result.getString(r).utf8(r) : std::string("response read failed"));
+        }
+        if (primitive_handles != nullptr && args[1].isNumber() &&
+            args[1].getNumber() == 8.0)
+          primitive_handles->responses.erase(primitive_response);
         return result;
       });
 }
@@ -756,23 +809,145 @@ void install_fetch(jsi::Runtime& rt, Adapter& adapter,
 jsi::Object make_fetch_primitives(
     jsi::Runtime& rt, Adapter& adapter,
     const std::shared_ptr<Lifetime>& lifetime, const void* grants) {
+  auto handles = std::make_shared<FetchPrimitiveHandles>();
   jsi::Object primitives(rt);
-  primitives.setProperty(rt, "fetch",
+  auto raw_fetch = std::make_shared<jsi::Function>(
       adapter.async_binding("fetch", 101, grants));
+  primitives.setProperty(
+      rt, "fetch",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "fetch"), 6,
+          [lifetime, handles, raw_fetch](
+              jsi::Runtime& r, const jsi::Value&, const jsi::Value* args,
+              size_t count) -> jsi::Value {
+            lifetime->require(r);
+            if (count >= 5 && !args[4].isUndefined()) {
+              const uint64_t header = primitive_handle(
+                  r, args[4], "invalid fetch headers handle");
+              try {
+                call_host(r, lifetime->require(r), 46, &args[4], 1);
+              } catch (const jsi::JSError&) {
+                throw_primitive_type_error(r, "unknown fetch headers handle");
+              }
+              handles->headers.insert(header);
+            }
+            if (count >= 6 && !args[5].isUndefined()) {
+              require_primitive_handle(
+                  r, args[5], handles->controls,
+                  "fetch control does not belong to these fetch primitives");
+            }
+            auto promise = raw_fetch->call(r, args, count).getObject(r);
+            auto own_response = jsi::Function::createFromHostFunction(
+                r, jsi::PropNameID::forAscii(r, "ownFetchResponse"), 1,
+                [lifetime, handles](
+                    jsi::Runtime& r, const jsi::Value&,
+                    const jsi::Value* args, size_t count) -> jsi::Value {
+                  lifetime->require(r);
+                  if (count != 1)
+                    throw_primitive_type_error(r, "fetch returned no response handle");
+                  const uint64_t response = primitive_handle(
+                      r, args[0], "fetch returned an invalid response handle");
+                  handles->responses.insert(response);
+                  return jsi::Value(r, args[0]);
+                });
+            return promise.getPropertyAsFunction(r, "then").callWithThis(
+                r, promise, std::move(own_response));
+          }));
   primitives.setProperty(rt, "responseField",
-      make_response_field(rt, lifetime));
-  primitives.setProperty(rt, "responseRead",
+      make_response_field(rt, lifetime, handles));
+  auto raw_read = std::make_shared<jsi::Function>(
       adapter.async_binding("responseRead", 102, nullptr));
-  primitives.setProperty(rt, "fetchControl",
-      make_group_binding(rt, "fetchControl", 72, lifetime));
+  primitives.setProperty(
+      rt, "responseRead",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "responseRead"), 1,
+          [lifetime, handles, raw_read](
+              jsi::Runtime& r, const jsi::Value&, const jsi::Value* args,
+              size_t count) -> jsi::Value {
+            lifetime->require(r);
+            if (count < 1)
+              throw_primitive_type_error(r, "response handle is required");
+            const uint64_t response = require_primitive_handle(
+                r, args[0], handles->responses,
+                "response handle does not belong to these fetch primitives");
+            auto promise = raw_read->call(r, args, count).getObject(r);
+            auto complete = jsi::Function::createFromHostFunction(
+                r, jsi::PropNameID::forAscii(r, "completeResponseRead"), 1,
+                [lifetime, handles, response](
+                    jsi::Runtime& r, const jsi::Value&,
+                    const jsi::Value* values, size_t value_count) -> jsi::Value {
+                  lifetime->require(r);
+                  if (value_count != 1)
+                    throw_primitive_type_error(r, "response read returned no value");
+                  if (values[0].isNull()) handles->responses.erase(response);
+                  return jsi::Value(r, values[0]);
+                });
+            auto fail = jsi::Function::createFromHostFunction(
+                r, jsi::PropNameID::forAscii(r, "failResponseRead"), 1,
+                [lifetime, handles, response](
+                    jsi::Runtime& r, const jsi::Value&,
+                    const jsi::Value* values, size_t value_count) -> jsi::Value {
+                  lifetime->require(r);
+                  handles->responses.erase(response);
+                  if (value_count == 1)
+                    throw jsi::JSError(r, jsi::Value(r, values[0]));
+                  throw jsi::JSError(r, "response read failed");
+                });
+            return promise.getPropertyAsFunction(r, "then").callWithThis(
+                r, promise, std::move(complete), std::move(fail));
+          }));
+  primitives.setProperty(
+      rt, "fetchControl",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "fetchControl"), 2,
+          [lifetime, handles](
+              jsi::Runtime& r, const jsi::Value&, const jsi::Value* args,
+              size_t count) -> jsi::Value {
+            const void* state = lifetime->require(r);
+            if (count < 1 || !args[0].isNumber())
+              throw_primitive_type_error(r, "fetch control action is required");
+            const double action = args[0].getNumber();
+            if (action == 0.0) {
+              auto result = call_host(r, state, 72, args, count);
+              handles->controls.insert(primitive_handle(
+                  r, result, "fetch control returned an invalid token"));
+              return result;
+            }
+            if (action == 1.0 || action == 2.0) {
+              if (count < 2)
+                throw_primitive_type_error(r, "fetch control token is required");
+              const uint64_t token = require_primitive_handle(
+                  r, args[1], handles->controls,
+                  "fetch control does not belong to these fetch primitives");
+              auto result = call_host(r, state, 72, args, count);
+              if (action == 2.0) handles->controls.erase(token);
+              return result;
+            }
+            return call_host(r, state, 72, args, count);
+          }));
   primitives.setProperty(rt, "textEncode",
       make_group_binding(rt, "textEncode", 20, lifetime));
   primitives.setProperty(rt, "textDecode",
       make_group_binding(rt, "textDecode", 21, lifetime));
   primitives.setProperty(rt, "textEncodeInto",
       make_group_binding(rt, "textEncodeInto", 22, lifetime));
-  primitives.setProperty(rt, "headersFree",
-      make_group_binding(rt, "headersFree", 51, lifetime));
+  primitives.setProperty(
+      rt, "headersFree",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "headersFree"), 1,
+          [lifetime, handles](
+              jsi::Runtime& r, const jsi::Value&, const jsi::Value* args,
+              size_t count) -> jsi::Value {
+            const void* state = lifetime->require(r);
+            if (count < 1)
+              throw_primitive_type_error(r, "headers handle is required");
+            const uint64_t header = require_primitive_handle(
+                r, args[0], handles->headers,
+                "headers handle does not belong to these fetch primitives");
+            auto result = call_host(r, state, 51, args, count);
+            handles->headers.erase(header);
+            return result;
+          }));
   freeze(rt, primitives);
   return primitives;
 }

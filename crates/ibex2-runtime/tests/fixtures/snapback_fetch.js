@@ -108,6 +108,10 @@
           length += chunk.byteLength;
           return next();
         }
+        // EOF removes the native response row. The primitive owner forgets
+        // the handle at the same point, so the wrapper must not issue the
+        // explicit cancel/drop operation afterward.
+        r.released = true;
         var joined = new Uint8Array(length);
         var offset = 0;
         for (var i = 0; i < chunks.length; i++) {
@@ -120,7 +124,12 @@
     r.track(1);
     return next().then(
       function (bytes) { r.track(-1); release(r); return bytes; },
-      function (error) { r.track(-1); release(r); throw error; }
+      function (error) {
+        // A terminal read error also drops the native row.
+        r.released = true;
+        r.track(-1);
+        throw error;
+      }
     );
   }
   Response.prototype.arrayBuffer = function () { return consume(this); };

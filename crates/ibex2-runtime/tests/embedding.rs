@@ -6,6 +6,8 @@ use ibex2::{
 };
 use std::{
     ffi::{c_char, c_void, CStr, CString},
+    io::{Read, Write},
+    net::TcpListener,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -527,6 +529,109 @@ fn raw_fetch_primitive_and_global_fetch_share_the_context_grant() {
         serde_json::from_str::<serde_json::Value>(&consumer.finish()).unwrap(),
         serde_json::json!(["denied: net.fetch", "denied: net.fetch"])
     );
+}
+
+#[test]
+fn fetch_primitives_refuse_an_ordinary_response_and_stale_or_forged_handles() {
+    const NAME: &str = "__borrowed_fetch_primitives";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..count]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx")
+                .unwrap();
+        }
+    });
+    let context = Context::new(GrantSet::parse(&format!("net.fetch {origin}\n")).unwrap());
+    let consumer = BareConsumer::from_context_with_primitives(
+        Groups::PURE | Groups::ABORT | Groups::FETCH,
+        context,
+        Some(NAME),
+    );
+    consumer.eval(&format!(
+        r#"
+        globalThis.runHandleBoundary = (function (p) {{
+          delete globalThis.{NAME};
+          function typeError(call) {{
+            try {{ call(); return "accepted"; }}
+            catch (error) {{ return error instanceof TypeError ? "TypeError" : String(error); }}
+          }}
+          function raw(url) {{
+            var headers = new Headers();
+            var token = p.fetchControl(0);
+            return p.fetch(url, "GET", undefined, "manual", headers._handle, token).then(
+              function (handle) {{
+                p.headersFree(headers._handle);
+                p.fetchControl(2, token);
+                return handle;
+              }},
+              function (error) {{
+                p.headersFree(headers._handle);
+                p.fetchControl(2, token);
+                throw error;
+              }}
+            );
+          }}
+          return function (url) {{
+            return fetch(url).then(function () {{
+              // Ordinary fetch allocated request headers, a control token, a
+              // response, and response headers. The next monotonic token lets
+              // the test address the still-live ordinary response without
+              // receiving that handle from the primitives object.
+              var marker = p.fetchControl(0);
+              var ordinaryResponse = marker - 2;
+              var foreign = typeError(function () {{
+                return p.responseField(ordinaryResponse, 0);
+              }});
+              var foreignHeaders = new Headers();
+              var foreignHeader = typeError(function () {{
+                return p.headersFree(foreignHeaders._handle);
+              }});
+              var forgedControl = typeError(function () {{
+                return p.fetchControl(1, 9007199254740991);
+              }});
+              p.fetchControl(2, marker);
+              return raw(url).then(function (handle) {{
+                p.responseField(handle, 8);
+                return {{
+                  foreign: foreign,
+                  foreignHeader: foreignHeader,
+                  forgedControl: forgedControl,
+                  stale: typeError(function () {{ return p.responseField(handle, 0); }}),
+                  forged: typeError(function () {{ return p.responseField(9007199254740991, 0); }})
+                }};
+              }});
+            }});
+          }};
+        }})(globalThis.{NAME});
+        globalThis.result = "";
+        runHandleBoundary({origin:?}).then(function (value) {{
+          result = JSON.stringify(value);
+        }});
+        "#
+    ));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&consumer.finish()).unwrap(),
+        serde_json::json!({
+            "foreign": "TypeError",
+            "foreignHeader": "TypeError",
+            "forgedControl": "TypeError",
+            "stale": "TypeError",
+            "forged": "TypeError",
+        })
+    );
+    server.join().unwrap();
 }
 
 #[test]
