@@ -353,7 +353,9 @@ rustls with WebPKI roots and verifies the compiled-in archive SHA-256 before
 inspecting or extracting the tarball. Extraction preflights the complete
 archive and accepts only relative regular-file and directory entries:
 absolute paths, parent traversal, links, and special files are refused.
-Completed installs are atomically renamed into
+Downloads remain in a private staging directory through canonical receipt,
+compiler authentication, and host/target HBC pairing checks. Only a completely
+validated install is atomically renamed into
 `$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/`, with Cargo home defaulting
 to `$HOME/.cargo` (or the platform home equivalent). The verified tarball is
 retained in the cache entry. Every admission rehashes it against the source
@@ -362,8 +364,9 @@ with the extracted tree, including refusal of missing, changed, extra, linked,
 or special entries. Admission also validates the canonical receipt's exact
 target, pinned upstream commit, empty patch set, engine path and digest,
 compiler digest, positive HBC version, and non-empty archive, header, and
-ordered link manifests. The installer finishes only after the cache entry
-passes those same checks.
+ordered link manifests. The installer and build resolver use that same staged
+admission boundary, so a failed full validation never publishes the final
+cache entry.
 
 `CARGO_NET_OFFLINE=true` and `HERMES_LEAN_SYS_OFFLINE=1` both prohibit a
 download. In offline mode a valid warm cache entry or local override is

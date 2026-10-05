@@ -1,6 +1,7 @@
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -103,6 +104,7 @@ pub(crate) struct EngineInstall {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub(crate) struct ValidatedHostBundle {
+    pub root: PathBuf,
     pub hermesc: PathBuf,
     pub bytecode_version: String,
 }
@@ -266,6 +268,8 @@ pub(crate) fn resolve_engine_directory(
     host: &str,
     require_lean: bool,
 ) -> Result<EngineInstall, String> {
+    let manifest_dir = repo_root.join("crates").join("hermes-lean-sys");
+    let mut validated_bundle_compiler = None;
     let target_layout = if let Some(overridden) = env::var_os("HERMES_LEAN_SYS_DIR") {
         install_layout(PathBuf::from(overridden), target, InstallOrigin::Override)
     } else {
@@ -273,27 +277,45 @@ pub(crate) fn resolve_engine_directory(
         if let Some(root) = repository_install_root(repo_root, target) {
             install_layout(root, target, InstallOrigin::Repository)
         } else {
-            let options =
-                download_options_from_env(&repo_root.join("crates").join("hermes-lean-sys"))?;
-            let root = acquire_bundle(pin, &options)?;
+            let options = download_options_from_env(&manifest_dir)?;
+            let root = if target == host {
+                let bundle = acquire_validated_host_bundle(pin, &options, target, require_lean)?;
+                let root = bundle.root.clone();
+                validated_bundle_compiler = Some(bundle);
+                root
+            } else {
+                let host_pin = pin_for_target(host).map_err(|_| {
+                    format!(
+                        "unsupported Hermes compiler host {host}; set HERMES_LEAN_SYS_DIR cannot replace the required pinned host compiler bundle for cross compilation"
+                    )
+                })?;
+                let host_bundle = acquire_validated_host_bundle(host_pin, &options, host, false)?;
+                let root = acquire_validated_target_bundle(
+                    pin,
+                    &options,
+                    target,
+                    &host_bundle,
+                    require_lean,
+                )?;
+                validated_bundle_compiler = Some(host_bundle);
+                root
+            };
             install_layout(root, target, InstallOrigin::Bundle)
         }
     };
 
     validate_layout(&target_layout, require_lean)?;
-    let (hermesc, bytecode_version) = if target != host {
+    let (hermesc, bytecode_version) = if let Some(bundle) = validated_bundle_compiler {
+        (bundle.hermesc, bundle.bytecode_version)
+    } else if target != host {
         let host_pin = pin_for_target(host).map_err(|_| {
             format!(
                 "unsupported Hermes compiler host {host}; set HERMES_LEAN_SYS_DIR cannot replace the required pinned host compiler bundle for cross compilation"
             )
         })?;
-        let options = download_options_from_env(&repo_root.join("crates").join("hermes-lean-sys"))?;
-        let host_root = acquire_bundle(host_pin, &options)?;
-        let host_layout = install_layout(host_root, host, InstallOrigin::Bundle);
-        validate_layout(&host_layout, false)?;
-        let compiler = compiler_in_bundle_or_install(&host_layout.root, host);
-        let version = validate_compiler_bundle(&host_layout, &compiler)?;
-        (compiler, version)
+        let options = download_options_from_env(&manifest_dir)?;
+        let bundle = acquire_validated_host_bundle(host_pin, &options, host, false)?;
+        (bundle.hermesc, bundle.bytecode_version)
     } else if target_layout.origin == InstallOrigin::Repository {
         let compiler = repository_hermesc(repo_root, host)?;
         let version = validate_compiler_bundle(&target_layout, &compiler)?;
@@ -475,18 +497,20 @@ fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<S
 
 /// Apply the same layout, compiler, receipt, and archive checks that the build
 /// resolver applies to a native bundle, without consulting repository layouts.
-/// The explicit installer uses this after `acquire_bundle` has admitted the
-/// retained archive and extracted tree into the cache.
+/// Both the build resolver and explicit installer use this while a downloaded
+/// bundle is still staged, before `acquire_bundle` publishes its cache entry.
 #[allow(dead_code)]
 pub(crate) fn validate_host_bundle(
     root: PathBuf,
     target: &str,
+    require_lean: bool,
 ) -> Result<ValidatedHostBundle, String> {
     let layout = install_layout(root, target, InstallOrigin::Bundle);
-    validate_layout(&layout, false)?;
+    validate_layout(&layout, require_lean)?;
     let hermesc = compiler_in_bundle_or_install(&layout.root, target);
     let bytecode_version = validate_compiler_bundle(&layout, &hermesc)?;
     Ok(ValidatedHostBundle {
+        root: layout.root,
         hermesc,
         bytecode_version,
     })
@@ -501,9 +525,10 @@ pub(crate) fn validate_target_bundle(
     root: PathBuf,
     target: &str,
     host: &ValidatedHostBundle,
+    require_lean: bool,
 ) -> Result<(), String> {
     let layout = install_layout(root, target, InstallOrigin::Bundle);
-    validate_layout(&layout, false)?;
+    validate_layout(&layout, require_lean)?;
     let engine_digest = digest_file(&layout.vm_archive)?;
     validate_receipt(
         &layout,
@@ -512,6 +537,42 @@ pub(crate) fn validate_target_bundle(
         &engine_digest,
         &host.bytecode_version,
     )
+}
+
+pub(crate) fn acquire_validated_host_bundle(
+    pin: &BundlePin,
+    options: &DownloadOptions,
+    target: &str,
+    require_lean: bool,
+) -> Result<ValidatedHostBundle, String> {
+    let bytecode_version = RefCell::new(None);
+    let root = acquire_bundle(pin, options, |candidate| {
+        let bundle = validate_host_bundle(candidate.to_path_buf(), target, require_lean)?;
+        *bytecode_version.borrow_mut() = Some(bundle.bytecode_version);
+        Ok(())
+    })?;
+    let bytecode_version = bytecode_version
+        .into_inner()
+        .expect("successful admission ran the host bundle validator");
+    let layout = install_layout(root, target, InstallOrigin::Bundle);
+    let hermesc = compiler_in_bundle_or_install(&layout.root, target);
+    Ok(ValidatedHostBundle {
+        root: layout.root,
+        hermesc,
+        bytecode_version,
+    })
+}
+
+pub(crate) fn acquire_validated_target_bundle(
+    pin: &BundlePin,
+    options: &DownloadOptions,
+    target: &str,
+    host: &ValidatedHostBundle,
+    require_lean: bool,
+) -> Result<PathBuf, String> {
+    acquire_bundle(pin, options, |candidate| {
+        validate_target_bundle(candidate.to_path_buf(), target, host, require_lean)
+    })
 }
 
 fn authenticate_compiler(layout: &InstallLayout, compiler: &Path) -> Result<(), String> {
@@ -918,10 +979,16 @@ pub(crate) fn hermesc_bytecode_version(hermesc: &Path) -> Result<String, String>
         })
 }
 
-pub(crate) fn acquire_bundle(
+/// Acquire a pinned bundle and publish it only after both archive/tree checks
+/// and the caller's complete receipt/compiler/pairing validator succeed.
+pub(crate) fn acquire_bundle<F>(
     pin: &BundlePin,
     options: &DownloadOptions,
-) -> Result<PathBuf, String> {
+    validate_bundle: F,
+) -> Result<PathBuf, String>
+where
+    F: Fn(&Path) -> Result<(), String>,
+{
     let expected_digest = parse_pin_sha256(pin.sha256)?;
     let recovery = format!(
         "Ibex revision {IBEX_PIN_REVISION} pins {RELEASE_TAG}/{} at sha256-{expected_digest}; while online run `{} --target {}`",
@@ -931,7 +998,8 @@ pub(crate) fn acquire_bundle(
     );
     let entry = options.cache_root.join(RELEASE_TAG).join(&expected_digest);
     if fs::symlink_metadata(&entry).is_ok() {
-        match validate_cache_entry(&entry, &expected_digest) {
+        match validate_cache_entry(&entry, &expected_digest).and_then(|()| validate_bundle(&entry))
+        {
             Ok(()) => return Ok(entry),
             Err(error) if options.offline => {
                 return Err(format!(
@@ -977,11 +1045,14 @@ pub(crate) fn acquire_bundle(
         )
     })?;
     validate_cache_entry(&extracted, &expected_digest)?;
+    validate_bundle(&extracted)?;
 
     match fs::rename(&extracted, &entry) {
         Ok(()) => Ok(entry),
         Err(error) if fs::symlink_metadata(&entry).is_ok() => {
-            match validate_cache_entry(&entry, &expected_digest) {
+            match validate_cache_entry(&entry, &expected_digest)
+                .and_then(|()| validate_bundle(&entry))
+            {
                 Ok(()) => Ok(entry),
                 Err(cache_error) => {
                     remove_cache_entry(&entry)?;
@@ -991,6 +1062,7 @@ pub(crate) fn acquire_bundle(
                         )
                     })?;
                     validate_cache_entry(&entry, &expected_digest)?;
+                    validate_bundle(&entry)?;
                     Ok(entry)
                 }
             }

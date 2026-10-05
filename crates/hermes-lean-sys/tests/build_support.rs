@@ -257,7 +257,7 @@ fn offline_empty_cache_fails_with_recovery_instructions() {
             .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
-    let error = acquire_bundle(&pin, &options).expect_err("empty offline cache");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("empty offline cache");
     assert!(error.contains("offline mode is enabled"), "{error}");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
     assert!(
@@ -304,20 +304,20 @@ fn warm_cache_is_reverified_against_its_retained_archive() {
             .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
-    let reused = acquire_bundle(&pin, &options).expect("matching cache entry");
+    let reused = acquire_bundle(&pin, &options, |_| Ok(())).expect("matching cache entry");
     assert_eq!(reused, entry);
     fs::write(reused.join("sentinel"), b"poisoned").expect("poison extracted file");
-    let error = acquire_bundle(&pin, &options).expect_err("changed extracted file");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("changed extracted file");
     assert!(error.contains("archive digest"), "{error}");
 
     fs::write(reused.join("sentinel"), b"warm").expect("restore extracted file");
     fs::write(reused.join("extra"), b"poisoned").expect("add extra file");
-    let error = acquire_bundle(&pin, &options).expect_err("extra extracted file");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("extra extracted file");
     assert!(error.contains("extra file"), "{error}");
 
     fs::remove_file(reused.join("extra")).expect("remove extra file");
     fs::write(reused.join(CACHE_ARCHIVE), b"poisoned archive").expect("poison archive");
-    let error = acquire_bundle(&pin, &options).expect_err("changed retained archive");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("changed retained archive");
     assert!(error.contains("not pinned"), "{error}");
 }
 
@@ -354,11 +354,11 @@ fn warm_cache_with_a_non_executable_compiler_is_stale() {
             .expect("crates directory")
             .join("hermes-lean-sys-installer/Cargo.toml"),
     };
-    acquire_bundle(&pin, &options).expect("executable compiler admitted");
+    acquire_bundle(&pin, &options, |_| Ok(())).expect("executable compiler admitted");
 
     let compiler = entry.join("bin/hermesc");
     fs::set_permissions(&compiler, fs::Permissions::from_mode(0o644)).expect("chmod -x");
-    let error = acquire_bundle(&pin, &options).expect_err("non-executable compiler");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("non-executable compiler");
     assert!(error.contains("bin/hermesc"), "{error}");
 }
 
@@ -449,7 +449,7 @@ fn local_http_mirror_bundle_is_verified_and_cached() {
     let partial = options.cache_root.join(RELEASE_TAG).join(&digest);
     fs::create_dir_all(&partial).expect("partial cache entry");
     fs::write(partial.join("partial"), b"incomplete").expect("partial cache file");
-    let installed = acquire_bundle(&pin, &options).expect("downloaded bundle");
+    let installed = acquire_bundle(&pin, &options, |_| Ok(())).expect("downloaded bundle");
     server.join().expect("mirror server");
 
     assert_eq!(
@@ -499,7 +499,7 @@ fn symlinked_cache_entry_is_rejected_before_use() {
             .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
-    let error = acquire_bundle(&pin, &options).expect_err("symlinked cache entry");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("symlinked cache entry");
     assert!(error.contains("symlink"), "{error}");
 }
 
@@ -529,7 +529,7 @@ fn non_directory_cache_entry_is_rejected_before_use() {
             .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
-    let error = acquire_bundle(&pin, &options).expect_err("non-directory cache entry");
+    let error = acquire_bundle(&pin, &options, |_| Ok(())).expect_err("non-directory cache entry");
     assert!(error.contains("not a directory"), "{error}");
 }
 

@@ -18,6 +18,7 @@ use std::time::Duration;
 
 const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
 const IBEX_PIN_REVISION: &str = "14ab3b2676a426c188654e0780c502bb6c2e5a3e";
+const HERMES_SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465";
 
 #[test]
 fn install_once_then_build_offline_and_report_an_actionable_miss() {
@@ -131,6 +132,45 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
     );
 }
 
+#[test]
+fn invalid_receipt_is_refused_before_the_cache_entry_is_published() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cargo_home = temporary.path().join("cargo-home");
+    fs::create_dir(&cargo_home).expect("Cargo home");
+    let host = rustc_host();
+    let asset = format!("hermes-vanilla-invalid-{host}.tar.gz");
+    let archive = temporary.path().join(&asset);
+    write_test_bundle_with_source_commit(&archive, &host, &"0".repeat(40));
+    let archive_bytes = fs::read(&archive).expect("invalid test bundle");
+    let archive_digest = sha256(&archive_bytes);
+    let (mirror, mirror_server) = serve_once(asset.clone(), archive_bytes);
+
+    let install = Command::new(env!("CARGO_BIN_EXE_hermes-lean-sys-installer"))
+        .args(["--test-pin", &host, &asset, &archive_digest])
+        .current_dir(temporary.path())
+        .env("CARGO_HOME", &cargo_home)
+        .env("HERMES_LEAN_SYS_MIRROR", &mirror)
+        .env_remove("CARGO_NET_OFFLINE")
+        .env_remove("HERMES_LEAN_SYS_OFFLINE")
+        .output()
+        .expect("run installer against invalid receipt");
+    mirror_server.join().expect("mirror server");
+
+    assert!(!install.status.success(), "invalid receipt must fail");
+    let output = output_text(&install);
+    assert!(output.contains("invalid canonical receipt"), "{output}");
+    assert!(output.contains("sourceCommit"), "{output}");
+    let entry = cargo_home
+        .join("hermes-lean-sys")
+        .join(RELEASE_TAG)
+        .join(archive_digest);
+    assert!(
+        !entry.exists(),
+        "invalid receipt became visible at {}",
+        entry.display()
+    );
+}
+
 fn seed_cargo_registry(cargo_home: &Path) {
     fs::create_dir(cargo_home).expect("fresh Cargo home");
     let source_home = env::var_os("CARGO_HOME")
@@ -164,6 +204,10 @@ fn rustc_host() -> String {
 }
 
 fn write_test_bundle(path: &Path, target: &str) {
+    write_test_bundle_with_source_commit(path, target, HERMES_SOURCE_COMMIT);
+}
+
+fn write_test_bundle_with_source_commit(path: &Path, target: &str, source_commit: &str) {
     let compiler = b"#!/bin/sh\necho 'HBC bytecode version: 99'\n";
     let full = b"test full VM archive";
     let lean = b"test lean VM archive";
@@ -173,7 +217,7 @@ fn write_test_bundle(path: &Path, target: &str) {
         "schema": "ibex/hermes-upstream-pinned-receipt/2",
         "upstream": {
             "artifact": "facebook/hermes",
-            "sourceCommit": "d412d3bd851278712c20cca25d094e32641a0465",
+            "sourceCommit": source_commit,
             "sourceRef": "hermes-v260318099.0.4",
             "sourceVersion": "260318099.0.4"
         },
@@ -343,9 +387,11 @@ fn main() {{
     let options = download_options_from_env(std::path::Path::new({hermes_manifest_dir:?}))
         .expect("download options");
     assert!(options.offline, "fixture must force hermes-lean-sys offline mode");
-    let root = acquire_bundle(&pin, &options)
+    let root = acquire_bundle(&pin, &options, |candidate| {{
+        validate_host_bundle(candidate.to_path_buf(), target, false).map(drop)
+    }})
         .unwrap_or_else(|error| panic!("Hermes engine resolution failed: {{error}}"));
-    validate_host_bundle(root, target)
+    validate_host_bundle(root, target, false)
         .unwrap_or_else(|error| panic!("Hermes engine validation failed: {{error}}"));
 }}
 

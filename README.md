@@ -68,7 +68,9 @@ SHA-256 before extraction, reject unsafe tar entries, retain the archive,
 compare its per-file manifest with the extracted tree, and validate the
 canonical receipt, selected VM, compiler digest, and HBC version. The
 installer always includes the host bundle because a cross build uses its
-authenticated `hermesc`.
+authenticated `hermesc`. A downloaded bundle remains in a private staging
+directory until every applicable check, including host/target HBC pairing,
+succeeds; only then is it atomically made visible as a cache entry.
 
 Bundles are cached at
 `$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/` (`$HOME/.cargo` when

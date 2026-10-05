@@ -5,8 +5,8 @@ mod build_support;
 // @ref LLP 0057.000#l1--the-bindings-door — L1h keeps acquisition outside
 // offline consumer builds while sharing the resolver's trust implementation.
 use build_support::{
-    acquire_bundle, download_options_from_env, installer_command, pin_for_target,
-    validate_host_bundle, validate_target_bundle, BundlePin, IBEX_PIN_REVISION,
+    acquire_validated_host_bundle, acquire_validated_target_bundle, download_options_from_env,
+    installer_command, pin_for_target, BundlePin, IBEX_PIN_REVISION,
 };
 use std::collections::BTreeSet;
 use std::env;
@@ -51,15 +51,13 @@ fn run(arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
 
     println!("Installing pinned Hermes bundle for host {host}");
     let host_pin = selected_pin(&host, test_pin.as_ref())?;
-    let host_root = acquire_bundle(host_pin, &options)?;
-    let validated_host = validate_host_bundle(host_root.clone(), &host)?;
-    println!("Installed {host} at {}", host_root.display());
+    let validated_host = acquire_validated_host_bundle(host_pin, &options, &host, false)?;
+    println!("Installed {host} at {}", validated_host.root.display());
 
     for target in targets.into_iter().filter(|target| target != &host) {
         println!("Installing pinned Hermes bundle for target {target}");
         let pin = selected_pin(&target, test_pin.as_ref())?;
-        let root = acquire_bundle(pin, &options)?;
-        validate_target_bundle(root.clone(), &target, &validated_host)?;
+        let root = acquire_validated_target_bundle(pin, &options, &target, &validated_host, false)?;
         println!("Installed {target} at {}", root.display());
     }
 
