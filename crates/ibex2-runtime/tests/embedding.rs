@@ -5,7 +5,7 @@ use ibex2::{
     grant::GrantSet,
 };
 use std::{
-    ffi::{c_char, c_void, CStr},
+    ffi::{c_char, c_void, CStr, CString},
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -31,6 +31,15 @@ extern "C" {
         groups: u16,
         scripts: *const CompiledScript,
         script_count: usize,
+        error: *mut *mut c_char,
+    ) -> i32;
+    fn bindings_consumer_install_with_fetch_primitives(
+        handle: *mut c_void,
+        bindings: *const ibex2::bindings::Ibex2Bindings,
+        groups: u16,
+        scripts: *const CompiledScript,
+        script_count: usize,
+        fetch_primitives: *const c_char,
         error: *mut *mut c_char,
     ) -> i32;
     fn bindings_consumer_create(
@@ -117,6 +126,13 @@ impl BareConsumer {
         Self::from_context(groups, Context::new(GrantSet::none()))
     }
     fn from_context(groups: Groups, context: Context) -> Self {
+        Self::from_context_with_primitives(groups, context, None)
+    }
+    fn from_context_with_primitives(
+        groups: Groups,
+        context: Context,
+        fetch_primitives: Option<&str>,
+    ) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "ibex2-groups-{}-{}",
@@ -130,15 +146,35 @@ impl BareConsumer {
             .map(|(name, _)| compiled_script(name))
             .collect();
         let mut error = std::ptr::null_mut();
-        let handle = unsafe {
-            bindings_consumer_create(
-                context.state_ptr(),
-                context.bindings_ptr(),
-                groups.bits(),
-                scripts.as_ptr(),
-                scripts.len(),
-                &mut error,
-            )
+        let fetch_primitives = fetch_primitives
+            .map(|name| CString::new(name).expect("primitive name contains no NUL"));
+        let handle = if let Some(name) = &fetch_primitives {
+            let handle = unsafe { bindings_consumer_create_uninstalled(context.state_ptr()) };
+            assert!(!handle.is_null(), "uninstalled borrowed runtime");
+            let installed = unsafe {
+                bindings_consumer_install_with_fetch_primitives(
+                    handle,
+                    context.bindings_ptr(),
+                    groups.bits(),
+                    scripts.as_ptr(),
+                    scripts.len(),
+                    name.as_ptr(),
+                    &mut error,
+                )
+            };
+            assert_eq!(installed, 1, "{}", take(error));
+            handle
+        } else {
+            unsafe {
+                bindings_consumer_create(
+                    context.state_ptr(),
+                    context.bindings_ptr(),
+                    groups.bits(),
+                    scripts.as_ptr(),
+                    scripts.len(),
+                    &mut error,
+                )
+            }
         };
         assert!(!handle.is_null(), "{}", take(error));
         Self {
@@ -186,6 +222,23 @@ impl BareConsumer {
         let result = unsafe { storage_consumer_step(self.handle, deliver, &mut out) };
         assert!(result >= 0, "{}", take(out));
         result
+    }
+
+    fn finish(&self) -> String {
+        let end = Instant::now() + Duration::from_secs(10);
+        loop {
+            self.step(false);
+            let result = self.eval("globalThis.result || ''");
+            if !result.is_empty() {
+                return result;
+            }
+            assert!(Instant::now() < end, "application did not settle");
+            self.context
+                .as_ref()
+                .expect("live borrowed context")
+                .wait(Duration::from_millis(50));
+            self.step(true);
+        }
     }
 }
 
@@ -433,6 +486,47 @@ fn fetch_group_does_not_install_timers_or_crypto() {
     .filter(|name| !baseline.contains(name))
     .collect();
     assert_eq!(added, expected);
+}
+
+#[test]
+fn raw_fetch_primitive_and_global_fetch_share_the_context_grant() {
+    const NAME: &str = "__borrowed_fetch_primitives";
+    let context = Context::new(GrantSet::none());
+    let consumer = BareConsumer::from_context_with_primitives(
+        Groups::PURE | Groups::ABORT | Groups::FETCH,
+        context,
+        Some(NAME),
+    );
+    consumer.eval(&format!(
+        r#"
+        globalThis.result = "";
+        var p = globalThis.{NAME};
+        var headers = new Headers();
+        var token = p.fetchControl(0);
+        var ordinary = fetch("https://denied.example/").then(
+          function () {{ return "unexpected success"; }},
+          function (error) {{ return String(error.message || error); }}
+        );
+        var raw = p.fetch(
+          "https://denied.example/", "GET", undefined, "manual", headers._handle, token
+        ).then(function () {{
+          p.headersFree(headers._handle);
+          p.fetchControl(2, token);
+          return "unexpected success";
+        }}, function (error) {{
+          p.headersFree(headers._handle);
+          p.fetchControl(2, token);
+          return String(error.message || error);
+        }});
+        Promise.all([ordinary, raw]).then(function (values) {{
+          result = JSON.stringify(values);
+        }});
+        "#
+    ));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&consumer.finish()).unwrap(),
+        serde_json::json!(["denied: net.fetch", "denied: net.fetch"])
+    );
 }
 
 #[test]

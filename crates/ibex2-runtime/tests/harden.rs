@@ -162,6 +162,24 @@ fn the_global_object_carries_exactly_the_allowed_names() {
     .map(|s| s.to_string())
     .filter(|name| !baseline.contains(name))
     .collect();
+    // L1e is opt-in: neither its conventional handoff name nor any member of
+    // the handoff object may appear as a new default global. The exact-set
+    // comparison below also catches an implementation choosing another name.
+    for primitive in [
+        "__snapback_ibex2_fetch_primitives",
+        "responseField",
+        "responseRead",
+        "fetchControl",
+        "textEncode",
+        "textDecode",
+        "textEncodeInto",
+        "headersFree",
+    ] {
+        assert!(
+            !added.contains(primitive),
+            "default install leaked {primitive}"
+        );
+    }
     assert_eq!(
         added, allowed,
         "left: on the global object; right: ALLOWED_GLOBALS minus the engine's own"

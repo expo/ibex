@@ -34,6 +34,12 @@ using InstallMethod = void (ibex2::jsi_adapter::Adapter::*)(
     const ibex2::jsi_adapter::CompiledScript*, size_t);
 static_assert(std::is_same_v<decltype(&ibex2::jsi_adapter::Adapter::install),
                              InstallMethod>);
+using InstallWithMethod = void (ibex2::jsi_adapter::Adapter::*)(
+    ibex2::jsi_adapter::Groups, const Ibex2Bindings*,
+    const ibex2::jsi_adapter::CompiledScript*, size_t,
+    const ibex2::jsi_adapter::InstallOptions&);
+static_assert(std::is_same_v<decltype(&ibex2::jsi_adapter::Adapter::install_with),
+                             InstallWithMethod>);
 static_assert(!std::is_convertible_v<const void*, const Ibex2Bindings*>);
 
 extern "C" {
@@ -82,6 +88,22 @@ int bindings_consumer_install(
     auto *c = static_cast<Consumer *>(handle);
     if (c == nullptr || c->adapter == nullptr) return 0;
     c->adapter->install(groups, bindings, scripts, script_count);
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+int bindings_consumer_install_with_fetch_primitives(
+    void *handle, const Ibex2Bindings *bindings, uint16_t groups,
+    const ibex2::jsi_adapter::CompiledScript *scripts, size_t script_count,
+    const char *fetch_primitives, char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr) return 0;
+    ibex2::jsi_adapter::InstallOptions options;
+    options.fetch_primitives = fetch_primitives;
+    c->adapter->install_with(groups, bindings, scripts, script_count, options);
     return 1;
   } catch (const std::exception &e) {
     if (error != nullptr) *error = copy(e.what());
