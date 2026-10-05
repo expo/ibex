@@ -3,7 +3,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 
@@ -584,6 +584,118 @@ fn safe_relative_path(root: &Path, relative: &Path) -> Result<PathBuf, String> {
     Ok(root.join(relative))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ArchiveEntryKind {
+    Directory,
+    File,
+}
+
+#[derive(Default)]
+struct ArchivePathValidator {
+    entries: BTreeMap<String, ArchiveEntryKind>,
+    folded_namespace: BTreeMap<String, String>,
+}
+
+impl ArchivePathValidator {
+    fn admit(&mut self, raw: &[u8], kind: ArchiveEntryKind) -> Result<PathBuf, String> {
+        let normalized = normalize_archive_path(raw, kind)?;
+        if self.entries.contains_key(&normalized) {
+            return Err(format!("duplicate normalized tar path {normalized:?}"));
+        }
+
+        let components: Vec<&str> = normalized.split('/').collect();
+        for index in 1..=components.len() {
+            let prefix = components[..index].join("/");
+            let folded = prefix.to_lowercase();
+            if let Some(existing) = self.folded_namespace.get(&folded) {
+                if existing != &prefix {
+                    return Err(format!(
+                        "case-folded tar path collision between {existing:?} and {prefix:?}"
+                    ));
+                }
+            } else {
+                self.folded_namespace.insert(folded, prefix);
+            }
+        }
+
+        for index in 1..components.len() {
+            let ancestor = components[..index].join("/").to_lowercase();
+            if self.entries.iter().any(|(path, entry_kind)| {
+                path.to_lowercase() == ancestor && *entry_kind == ArchiveEntryKind::File
+            }) {
+                return Err(format!(
+                    "tar path {normalized:?} has a file ancestor {}",
+                    components[..index].join("/")
+                ));
+            }
+        }
+        if kind == ArchiveEntryKind::File {
+            let descendant_prefix = format!("{}/", normalized.to_lowercase());
+            if let Some(descendant) = self
+                .entries
+                .keys()
+                .find(|path| path.to_lowercase().starts_with(&descendant_prefix))
+            {
+                return Err(format!(
+                    "tar file path {normalized:?} conflicts with descendant {descendant:?}"
+                ));
+            }
+        }
+
+        self.entries.insert(normalized.clone(), kind);
+        Ok(PathBuf::from(normalized))
+    }
+}
+
+fn normalize_archive_path(raw: &[u8], kind: ArchiveEntryKind) -> Result<String, String> {
+    let original = std::str::from_utf8(raw).map_err(|_| "tar path is not UTF-8".to_string())?;
+    let path = if kind == ArchiveEntryKind::Directory {
+        original.strip_suffix('/').unwrap_or(original)
+    } else {
+        original
+    };
+    if path.is_empty() || path.starts_with('/') || path.contains('\\') {
+        return Err(format!(
+            "unsafe absolute, empty, or backslash tar path {path:?}"
+        ));
+    }
+    let mut normalized = Vec::new();
+    for component in path.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            return Err(format!("unsafe tar path component in {path:?}"));
+        }
+        if component.ends_with('.') || component.ends_with(' ') {
+            return Err(format!(
+                "Windows-aliased trailing dot or space in tar path {path:?}"
+            ));
+        }
+        if component
+            .bytes()
+            .any(|byte| matches!(byte, b'<' | b'>' | b':' | b'"' | b'|' | b'?' | b'*' | 0))
+        {
+            return Err(format!(
+                "Windows prefix or forbidden character in tar path {path:?}"
+            ));
+        }
+        let stem = component
+            .split_once('.')
+            .map_or(component, |(stem, _)| stem)
+            .to_ascii_uppercase();
+        let reserved = matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
+        ) || stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|number| number.len() == 1 && matches!(number.as_bytes()[0], b'1'..=b'9'));
+        if reserved {
+            return Err(format!("Windows reserved name in tar path {path:?}"));
+        }
+        normalized.push(component);
+    }
+    Ok(normalized.join("/"))
+}
+
 pub(crate) fn digest_file(path: &Path) -> Result<String, String> {
     let mut file =
         File::open(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
@@ -847,6 +959,7 @@ fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTre
         files: BTreeMap::new(),
         directories: BTreeSet::new(),
     };
+    let mut paths = ArchivePathValidator::default();
     {
         let entries = archive
             .entries()
@@ -858,15 +971,25 @@ fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTre
                     archive_path.display()
                 )
             })?;
-            let path = entry
-                .path()
+            let entry_type = entry.header().entry_type();
+            let kind = if entry_type.is_dir() {
+                ArchiveEntryKind::Directory
+            } else if entry_type.is_file() {
+                ArchiveEntryKind::File
+            } else {
+                return Err(format!(
+                    "refusing non-file tar entry {:?}; links and special files are forbidden",
+                    entry_type
+                ));
+            };
+            let path = paths
+                .admit(entry.path_bytes().as_ref(), kind)
                 .map_err(|error| {
-                    format!("invalid tar path in {}: {error}", archive_path.display())
-                })?
-                .into_owned();
-            safe_relative_path(Path::new("."), &path).map_err(|error| {
-                format!("refusing unsafe tar entry {}: {error}", path.display())
-            })?;
+                    format!(
+                        "refusing unsafe entry in {}: {error}",
+                        archive_path.display()
+                    )
+                })?;
             if path == Path::new(CACHE_ARCHIVE) {
                 return Err(format!(
                     "archive entry {} collides with cache metadata",
@@ -874,7 +997,6 @@ fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTre
                 ));
             }
             add_parent_directories(&mut tree.directories, &path);
-            let entry_type = entry.header().entry_type();
             if entry_type.is_dir() {
                 tree.directories.insert(path);
             } else if entry_type.is_file() {
@@ -888,12 +1010,6 @@ fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTre
                 })?;
                 tree.files
                     .insert(path, format!("sha256-{:x}", digest.finalize()));
-            } else {
-                return Err(format!(
-                    "refusing non-file tar entry {} (type {:?}); links and special files are forbidden",
-                    path.display(),
-                    entry_type
-                ));
             }
         }
     }
@@ -1028,15 +1144,32 @@ pub(crate) fn verify_and_extract_archive(
 
 fn extract_archive_safely(archive_path: &Path, destination: &Path) -> Result<(), String> {
     validate_archive_entries(archive_path)?;
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => {
+            return Err(format!(
+                "archive destination {} is not a directory",
+                destination.display()
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(destination)
+            .map_err(|error| format!("cannot create {}: {error}", destination.display()))?,
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect archive destination {}: {error}",
+                destination.display()
+            ));
+        }
+    }
     let file = File::open(archive_path)
         .map_err(|error| format!("cannot open {}: {error}", archive_path.display()))?;
     let decoder = GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    archive.set_preserve_permissions(false);
-    archive.set_unpack_xattrs(false);
     let entries = archive
         .entries()
         .map_err(|error| format!("cannot read {}: {error}", archive_path.display()))?;
+    let mut paths = ArchivePathValidator::default();
+    let mut created_directories = BTreeSet::new();
     for entry in entries {
         let mut entry = entry.map_err(|error| {
             format!(
@@ -1044,39 +1177,103 @@ fn extract_archive_safely(archive_path: &Path, destination: &Path) -> Result<(),
                 archive_path.display()
             )
         })?;
-        let path = entry
-            .path()
-            .map_err(|error| format!("invalid tar path in {}: {error}", archive_path.display()))?
-            .into_owned();
-        let output_path = safe_relative_path(destination, &path)
-            .expect("archive paths were validated before extraction");
         let entry_type = entry.header().entry_type();
-        if entry_type.is_dir() {
-            fs::create_dir_all(&output_path).map_err(|error| {
-                format!(
-                    "cannot create extracted directory {}: {error}",
-                    output_path.display()
-                )
-            })?;
+        let kind = if entry_type.is_dir() {
+            ArchiveEntryKind::Directory
         } else if entry_type.is_file() {
-            if let Some(parent) = output_path.parent() {
-                fs::create_dir_all(parent).map_err(|error| {
+            ArchiveEntryKind::File
+        } else {
+            unreachable!("archive entry types were validated before extraction");
+        };
+        let path = paths
+            .admit(entry.path_bytes().as_ref(), kind)
+            .expect("archive paths were validated before extraction");
+        let output_path = destination.join(&path);
+        if entry_type.is_dir() {
+            create_extracted_directories(destination, &path, &mut created_directories)?;
+        } else if entry_type.is_file() {
+            if let Some(parent) = path.parent() {
+                create_extracted_directories(destination, parent, &mut created_directories)?;
+            }
+            let mode = entry.header().mode().unwrap_or(0o644) & 0o777;
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output_path)
+                .map_err(|error| {
                     format!(
-                        "cannot create extracted directory {}: {error}",
-                        parent.display()
+                        "refusing to overwrite extracted path {}: {error}",
+                        output_path.display()
                     )
                 })?;
-            }
-            entry.unpack(&output_path).map_err(|error| {
-                format!(
+            if let Err(error) = io::copy(&mut entry, &mut output) {
+                drop(output);
+                let _ = fs::remove_file(&output_path);
+                return Err(format!(
                     "cannot extract regular file {}: {error}",
                     output_path.display()
-                )
-            })?;
+                ));
+            }
+            set_extracted_permissions(&output_path, mode)?;
         } else {
             unreachable!("archive entry types were validated before extraction");
         }
     }
+    Ok(())
+}
+
+fn create_extracted_directories(
+    destination: &Path,
+    relative: &Path,
+    created: &mut BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    let mut current_relative = PathBuf::new();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            unreachable!("normalized archive path has only normal components");
+        };
+        current_relative.push(component);
+        if created.contains(&current_relative) {
+            continue;
+        }
+        let path = destination.join(&current_relative);
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&path).map_err(|error| {
+                    format!(
+                        "cannot create extracted directory {}: {error}",
+                        path.display()
+                    )
+                })?;
+                created.insert(current_relative.clone());
+            }
+            Ok(_) => {
+                return Err(format!(
+                    "refusing to overwrite extracted path {}",
+                    path.display()
+                ));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect extracted path {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_extracted_permissions(path: &Path, mode: u32) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|error| format!("cannot set permissions on {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_extracted_permissions(_path: &Path, _mode: u32) -> Result<(), String> {
     Ok(())
 }
 
@@ -1088,6 +1285,7 @@ fn validate_archive_entries(archive_path: &Path) -> Result<(), String> {
     let entries = archive
         .entries()
         .map_err(|error| format!("cannot read {}: {error}", archive_path.display()))?;
+    let mut paths = ArchivePathValidator::default();
     for entry in entries {
         let entry = entry.map_err(|error| {
             format!(
@@ -1095,20 +1293,25 @@ fn validate_archive_entries(archive_path: &Path) -> Result<(), String> {
                 archive_path.display()
             )
         })?;
-        let path = entry
-            .path()
-            .map_err(|error| format!("invalid tar path in {}: {error}", archive_path.display()))?
-            .into_owned();
-        safe_relative_path(Path::new("."), &path)
-            .map_err(|error| format!("refusing unsafe tar entry {}: {error}", path.display()))?;
         let entry_type = entry.header().entry_type();
-        if !entry_type.is_dir() && !entry_type.is_file() {
+        let kind = if entry_type.is_dir() {
+            ArchiveEntryKind::Directory
+        } else if entry_type.is_file() {
+            ArchiveEntryKind::File
+        } else {
             return Err(format!(
-                "refusing non-file tar entry {} (type {:?}); links and special files are forbidden",
-                path.display(),
+                "refusing non-file tar entry type {:?}; links and special files are forbidden",
                 entry_type
             ));
-        }
+        };
+        paths
+            .admit(entry.path_bytes().as_ref(), kind)
+            .map_err(|error| {
+                format!(
+                    "refusing unsafe entry in {}: {error}",
+                    archive_path.display()
+                )
+            })?;
     }
     Ok(())
 }

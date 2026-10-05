@@ -152,6 +152,91 @@ fn traversal_and_link_entries_are_refused() {
 }
 
 #[test]
+fn host_independent_tar_names_and_collisions_are_refused() {
+    fn refuses(entries: &[ArchiveEntry<'_>], expected: &str) {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let archive = temporary.path().join("fixture.tar.gz");
+        write_archive(&archive, entries);
+        let digest = sha256_file(&archive);
+        let error = verify_and_extract_archive(&archive, &digest, &temporary.path().join("out"))
+            .expect_err("unsafe archive must fail");
+        assert!(
+            error.contains(expected),
+            "expected {expected:?} in {error:?}"
+        );
+    }
+
+    refuses(&[ArchiveEntry::File(r"dir\file", b"no")], "backslash");
+    refuses(&[ArchiveEntry::File("C:/file", b"no")], "forbidden");
+    refuses(&[ArchiveEntry::File(r"\\?\C:\file", b"no")], "backslash");
+    refuses(
+        &[ArchiveEntry::File(r"\\server\share\file", b"no")],
+        "backslash",
+    );
+    refuses(&[ArchiveEntry::File("dir/CON.txt", b"no")], "reserved");
+    refuses(
+        &[
+            ArchiveEntry::File("same", b"first"),
+            ArchiveEntry::File("same", b"second"),
+        ],
+        "duplicate normalized",
+    );
+    refuses(
+        &[
+            ArchiveEntry::File("Dir/one", b"first"),
+            ArchiveEntry::File("dir/two", b"second"),
+        ],
+        "case-folded",
+    );
+    refuses(
+        &[
+            ArchiveEntry::File("parent", b"file"),
+            ArchiveEntry::File("parent/child", b"child"),
+        ],
+        "file ancestor",
+    );
+}
+
+#[test]
+fn extraction_never_overwrites_an_existing_path() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let archive = temporary.path().join("bundle.tar.gz");
+    write_archive(&archive, &[ArchiveEntry::File("sentinel", b"replacement")]);
+    let digest = sha256_file(&archive);
+    let destination = temporary.path().join("out");
+    fs::create_dir(&destination).expect("destination");
+    fs::write(destination.join("sentinel"), b"original").expect("existing file");
+
+    let error = verify_and_extract_archive(&archive, &digest, &destination)
+        .expect_err("overwrite must fail");
+    assert!(error.contains("overwrite"), "{error}");
+    assert_eq!(
+        fs::read(destination.join("sentinel")).expect("existing file"),
+        b"original"
+    );
+}
+
+#[test]
+fn canonical_directory_entries_extract_with_normalized_names() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let archive = temporary.path().join("bundle.tar.gz");
+    write_archive(
+        &archive,
+        &[
+            ArchiveEntry::Dir("include/"),
+            ArchiveEntry::File("include/header.h", b"header"),
+        ],
+    );
+    let digest = sha256_file(&archive);
+    let destination = temporary.path().join("out");
+    verify_and_extract_archive(&archive, &digest, &destination).expect("safe extraction");
+    assert_eq!(
+        fs::read(destination.join("include/header.h")).expect("header"),
+        b"header"
+    );
+}
+
+#[test]
 fn offline_empty_cache_fails_with_recovery_instructions() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let digest = leak("1".repeat(64));
@@ -332,6 +417,7 @@ fn non_directory_cache_entry_is_rejected_before_use() {
 }
 
 enum ArchiveEntry<'a> {
+    Dir(&'a str),
     File(&'a str, &'a [u8]),
     Symlink(&'a str, &'a str),
 }
@@ -342,6 +428,16 @@ fn write_archive(path: &Path, entries: &[ArchiveEntry<'_>]) {
     let mut archive = tar::Builder::new(encoder);
     for entry in entries {
         match entry {
+            ArchiveEntry::Dir(name) => {
+                let mut header = tar::Header::new_gnu();
+                header.set_entry_type(tar::EntryType::Directory);
+                header.set_mode(0o755);
+                header.set_size(0);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, name, &[][..])
+                    .expect("directory entry");
+            }
             ArchiveEntry::File(name, contents) => {
                 let mut header = tar::Header::new_gnu();
                 header.set_mode(0o644);
