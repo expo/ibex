@@ -1,14 +1,15 @@
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 
 pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v1";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
-const CACHE_DIGEST_RECORD: &str = ".hermes-lean-sys-archive-sha256";
+const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BundlePin {
@@ -592,8 +593,17 @@ pub(crate) fn acquire_bundle(
 ) -> Result<PathBuf, String> {
     let expected_digest = parse_pin_sha256(pin.sha256)?;
     let entry = options.cache_root.join(RELEASE_TAG).join(&expected_digest);
-    if entry.exists() {
-        return validate_cache_record(&entry, &expected_digest).map(|()| entry);
+    if fs::symlink_metadata(&entry).is_ok() {
+        match validate_cache_entry(&entry, &expected_digest) {
+            Ok(()) => return Ok(entry),
+            Err(error) if options.offline => {
+                return Err(format!(
+                    "cached Hermes bundle {} is invalid and offline mode is enabled: {error}; reconnect to rebuild the cache or set HERMES_LEAN_SYS_DIR to a complete local install",
+                    entry.display()
+                ));
+            }
+            Err(_) => remove_cache_entry(&entry)?,
+        }
     }
     if options.offline {
         return Err(format!(
@@ -610,7 +620,7 @@ pub(crate) fn acquire_bundle(
         .prefix(".download-")
         .tempdir_in(&tag_dir)
         .map_err(|error| format!("cannot create a Hermes cache staging directory: {error}"))?;
-    let archive_path = staging.path().join(pin.asset);
+    let archive_path = staging.path().join(CACHE_ARCHIVE);
     let url = format!(
         "{}/{}/{}",
         options.release_base_url.trim_end_matches('/'),
@@ -623,21 +633,31 @@ pub(crate) fn acquire_bundle(
     fs::create_dir(&extracted)
         .map_err(|error| format!("cannot create {}: {error}", extracted.display()))?;
     extract_archive_safely(&archive_path, &extracted)?;
-    fs::write(
-        extracted.join(CACHE_DIGEST_RECORD),
-        format!("{expected_digest}\n"),
-    )
-    .map_err(|error| format!("cannot record the cached Hermes digest: {error}"))?;
+    fs::rename(&archive_path, extracted.join(CACHE_ARCHIVE)).map_err(|error| {
+        format!(
+            "cannot retain the verified Hermes archive in {}: {error}",
+            extracted.display()
+        )
+    })?;
+    validate_cache_entry(&extracted, &expected_digest)?;
 
     match fs::rename(&extracted, &entry) {
         Ok(()) => Ok(entry),
-        Err(error) if entry.exists() => validate_cache_record(&entry, &expected_digest)
-            .map(|()| entry)
-            .map_err(|cache_error| {
-                format!(
-                    "parallel Hermes cache install lost a race ({error}), and the winning entry is invalid: {cache_error}"
-                )
-            }),
+        Err(error) if fs::symlink_metadata(&entry).is_ok() => {
+            match validate_cache_entry(&entry, &expected_digest) {
+                Ok(()) => Ok(entry),
+                Err(cache_error) => {
+                    remove_cache_entry(&entry)?;
+                    fs::rename(&extracted, &entry).map_err(|retry_error| {
+                        format!(
+                            "parallel Hermes cache install lost a race ({error}); the winning entry was invalid ({cache_error}) and replacing it failed: {retry_error}"
+                        )
+                    })?;
+                    validate_cache_entry(&entry, &expected_digest)?;
+                    Ok(entry)
+                }
+            }
+        }
         Err(error) => Err(format!(
             "cannot atomically install Hermes bundle into {}: {error}",
             entry.display()
@@ -645,24 +665,264 @@ pub(crate) fn acquire_bundle(
     }
 }
 
-fn validate_cache_record(entry: &Path, expected_digest: &str) -> Result<(), String> {
-    let record = entry.join(CACHE_DIGEST_RECORD);
-    let recorded = fs::read_to_string(&record).map_err(|error| {
+fn remove_cache_entry(entry: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(entry).map_err(|error| {
         format!(
-            "refusing cached Hermes bundle {} because its digest record {} cannot be read: {error}",
-            entry.display(),
-            record.display()
+            "cannot inspect invalid cache entry {}: {error}",
+            entry.display()
         )
     })?;
-    if recorded.trim() != expected_digest {
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+        fs::remove_file(entry).map_err(|error| {
+            format!(
+                "cannot remove invalid cache entry {}: {error}",
+                entry.display()
+            )
+        })
+    } else {
+        fs::remove_dir_all(entry).map_err(|error| {
+            format!(
+                "cannot remove invalid cache entry {}: {error}",
+                entry.display()
+            )
+        })
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ArchiveTree {
+    files: BTreeMap<PathBuf, String>,
+    directories: BTreeSet<PathBuf>,
+}
+
+fn validate_cache_entry(entry: &Path, expected_digest: &str) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(entry)
+        .map_err(|error| format!("cannot inspect cache entry {}: {error}", entry.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!("cache entry {} is a symlink", entry.display()));
+    }
+    if !metadata.file_type().is_dir() {
         return Err(format!(
-            "refusing cached Hermes bundle {}: recorded archive digest {:?} does not match pinned digest {}",
-            entry.display(),
-            recorded.trim(),
+            "cache entry {} is not a directory",
+            entry.display()
+        ));
+    }
+
+    let archive_path = entry.join(CACHE_ARCHIVE);
+    let archive_metadata = fs::symlink_metadata(&archive_path).map_err(|error| {
+        format!(
+            "cached archive {} is missing or unreadable: {error}",
+            archive_path.display()
+        )
+    })?;
+    if !archive_metadata.file_type().is_file() {
+        return Err(format!(
+            "cached archive {} is not a regular file",
+            archive_path.display()
+        ));
+    }
+    let expected = archive_tree(&archive_path, expected_digest)?;
+    let actual = extracted_tree(entry)?;
+    if expected == actual {
+        return Ok(());
+    }
+    for (path, digest) in &expected.files {
+        match actual.files.get(path) {
+            None => {
+                return Err(format!(
+                    "cached extraction is missing file {}",
+                    path.display()
+                ))
+            }
+            Some(actual_digest) if actual_digest != digest => {
+                return Err(format!(
+                    "cached extraction file {} has {}, not archive digest {}",
+                    path.display(),
+                    actual_digest,
+                    digest
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    if let Some(path) = actual
+        .files
+        .keys()
+        .find(|path| !expected.files.contains_key(*path))
+    {
+        return Err(format!(
+            "cached extraction contains extra file {}",
+            path.display()
+        ));
+    }
+    if let Some(path) = expected
+        .directories
+        .iter()
+        .find(|path| !actual.directories.contains(*path))
+    {
+        return Err(format!(
+            "cached extraction is missing directory {}",
+            path.display()
+        ));
+    }
+    if let Some(path) = actual
+        .directories
+        .iter()
+        .find(|path| !expected.directories.contains(*path))
+    {
+        return Err(format!(
+            "cached extraction contains extra directory {}",
+            path.display()
+        ));
+    }
+    Err("cached extraction does not match its retained archive".to_string())
+}
+
+fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTree, String> {
+    let mut file = File::open(archive_path)
+        .map_err(|error| format!("cannot open {}: {error}", archive_path.display()))?;
+    let mut digest = Sha256::new();
+    io::copy(&mut file, &mut DigestWriter(&mut digest))
+        .map_err(|error| format!("cannot hash {}: {error}", archive_path.display()))?;
+    let actual_digest = format!("{:x}", digest.finalize());
+    if actual_digest != expected_digest {
+        return Err(format!(
+            "cached archive {} has sha256-{}, not pinned sha256-{}",
+            archive_path.display(),
+            actual_digest,
             expected_digest
         ));
     }
-    Ok(())
+    file.rewind()
+        .map_err(|error| format!("cannot rewind {}: {error}", archive_path.display()))?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    let mut tree = ArchiveTree {
+        files: BTreeMap::new(),
+        directories: BTreeSet::new(),
+    };
+    {
+        let entries = archive
+            .entries()
+            .map_err(|error| format!("cannot read {}: {error}", archive_path.display()))?;
+        for entry in entries {
+            let mut entry = entry.map_err(|error| {
+                format!(
+                    "cannot read an entry from {}: {error}",
+                    archive_path.display()
+                )
+            })?;
+            let path = entry
+                .path()
+                .map_err(|error| {
+                    format!("invalid tar path in {}: {error}", archive_path.display())
+                })?
+                .into_owned();
+            safe_relative_path(Path::new("."), &path).map_err(|error| {
+                format!("refusing unsafe tar entry {}: {error}", path.display())
+            })?;
+            if path == Path::new(CACHE_ARCHIVE) {
+                return Err(format!(
+                    "archive entry {} collides with cache metadata",
+                    path.display()
+                ));
+            }
+            add_parent_directories(&mut tree.directories, &path);
+            let entry_type = entry.header().entry_type();
+            if entry_type.is_dir() {
+                tree.directories.insert(path);
+            } else if entry_type.is_file() {
+                let mut digest = Sha256::new();
+                io::copy(&mut entry, &mut DigestWriter(&mut digest)).map_err(|error| {
+                    format!(
+                        "cannot hash archive member {} from {}: {error}",
+                        path.display(),
+                        archive_path.display()
+                    )
+                })?;
+                tree.files
+                    .insert(path, format!("sha256-{:x}", digest.finalize()));
+            } else {
+                return Err(format!(
+                    "refusing non-file tar entry {} (type {:?}); links and special files are forbidden",
+                    path.display(),
+                    entry_type
+                ));
+            }
+        }
+    }
+    Ok(tree)
+}
+
+fn add_parent_directories(directories: &mut BTreeSet<PathBuf>, path: &Path) {
+    let mut parent = path.parent();
+    while let Some(directory) = parent {
+        if directory.as_os_str().is_empty() {
+            break;
+        }
+        directories.insert(directory.to_path_buf());
+        parent = directory.parent();
+    }
+}
+
+fn extracted_tree(root: &Path) -> Result<ArchiveTree, String> {
+    fn visit(root: &Path, directory: &Path, tree: &mut ArchiveTree) -> Result<(), String> {
+        let entries = fs::read_dir(directory).map_err(|error| {
+            format!(
+                "cannot read cache directory {}: {error}",
+                directory.display()
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "cannot read an entry under {}: {error}",
+                    directory.display()
+                )
+            })?;
+            let path = entry.path();
+            let relative = path.strip_prefix(root).map_err(|error| {
+                format!("cannot make {} cache-relative: {error}", path.display())
+            })?;
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+            if relative == Path::new(CACHE_ARCHIVE) {
+                if !metadata.file_type().is_file() {
+                    return Err(format!(
+                        "cached archive {} is not a regular file",
+                        path.display()
+                    ));
+                }
+                continue;
+            }
+            if metadata.file_type().is_symlink() {
+                return Err(format!(
+                    "cached extraction contains symlink {}",
+                    path.display()
+                ));
+            }
+            if metadata.file_type().is_dir() {
+                tree.directories.insert(relative.to_path_buf());
+                visit(root, &path, tree)?;
+            } else if metadata.file_type().is_file() {
+                tree.files
+                    .insert(relative.to_path_buf(), digest_file(&path)?);
+            } else {
+                return Err(format!(
+                    "cached extraction contains special file {}",
+                    path.display()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    let mut tree = ArchiveTree {
+        files: BTreeMap::new(),
+        directories: BTreeSet::new(),
+    };
+    visit(root, root, &mut tree)?;
+    Ok(tree)
 }
 
 fn download_archive(url: &str, destination: &Path, expected_digest: &str) -> Result<(), String> {

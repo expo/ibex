@@ -17,7 +17,7 @@ use std::path::Path;
 use std::thread;
 
 const ASSET: &str = "hermes-vanilla-test-target.tar.gz";
-const CACHE_RECORD: &str = ".hermes-lean-sys-archive-sha256";
+const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
 #[test]
 fn target_to_asset_mapping_includes_ios_simulator_aliases() {
@@ -134,17 +134,19 @@ fn offline_empty_cache_fails_with_recovery_instructions() {
 }
 
 #[test]
-fn cache_is_reused_only_with_a_matching_digest_record() {
+fn warm_cache_is_reverified_against_its_retained_archive() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let digest = "2".repeat(64);
+    let archive = temporary.path().join(ASSET);
+    write_archive(&archive, &[ArchiveEntry::File("sentinel", b"warm")]);
+    let digest = sha256_file(&archive);
     let entry = temporary
         .path()
         .join("cache")
         .join(RELEASE_TAG)
         .join(&digest);
     fs::create_dir_all(&entry).expect("cache entry");
-    fs::write(entry.join("sentinel"), b"warm").expect("sentinel");
-    fs::write(entry.join(CACHE_RECORD), format!("{digest}\n")).expect("digest record");
+    verify_and_extract_archive(&archive, &digest, &entry).expect("verified extraction");
+    fs::copy(&archive, entry.join(CACHE_ARCHIVE)).expect("retained archive");
     let pin = BundlePin {
         target: "test-target",
         asset: ASSET,
@@ -158,9 +160,19 @@ fn cache_is_reused_only_with_a_matching_digest_record() {
 
     let reused = acquire_bundle(&pin, &options).expect("matching cache entry");
     assert_eq!(reused, entry);
-    fs::write(reused.join(CACHE_RECORD), format!("{}\n", "3".repeat(64))).expect("replace record");
-    let error = acquire_bundle(&pin, &options).expect_err("mismatched cache record");
-    assert!(error.contains("does not match pinned digest"), "{error}");
+    fs::write(reused.join("sentinel"), b"poisoned").expect("poison extracted file");
+    let error = acquire_bundle(&pin, &options).expect_err("changed extracted file");
+    assert!(error.contains("archive digest"), "{error}");
+
+    fs::write(reused.join("sentinel"), b"warm").expect("restore extracted file");
+    fs::write(reused.join("extra"), b"poisoned").expect("add extra file");
+    let error = acquire_bundle(&pin, &options).expect_err("extra extracted file");
+    assert!(error.contains("extra file"), "{error}");
+
+    fs::remove_file(reused.join("extra")).expect("remove extra file");
+    fs::write(reused.join(CACHE_ARCHIVE), b"poisoned archive").expect("poison archive");
+    let error = acquire_bundle(&pin, &options).expect_err("changed retained archive");
+    assert!(error.contains("not pinned"), "{error}");
 }
 
 #[test]
@@ -206,6 +218,9 @@ fn local_http_mirror_bundle_is_verified_and_cached() {
         asset: ASSET,
         sha256: leak(digest.clone()),
     };
+    let partial = options.cache_root.join(RELEASE_TAG).join(&digest);
+    fs::create_dir_all(&partial).expect("partial cache entry");
+    fs::write(partial.join("partial"), b"incomplete").expect("partial cache file");
     let installed = acquire_bundle(&pin, &options).expect("downloaded bundle");
     server.join().expect("mirror server");
 
@@ -214,11 +229,68 @@ fn local_http_mirror_bundle_is_verified_and_cached() {
         b"engine"
     );
     assert_eq!(
-        fs::read_to_string(installed.join(CACHE_RECORD))
-            .expect("digest record")
-            .trim(),
-        digest
+        sha256_file(&installed.join(CACHE_ARCHIVE)),
+        digest,
+        "the verified archive is retained in the cache entry"
     );
+    assert!(!installed.join("partial").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_cache_entry_is_rejected_before_use() {
+    use std::os::unix::fs::symlink;
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let digest = "4".repeat(64);
+    let entry = temporary
+        .path()
+        .join("cache")
+        .join(RELEASE_TAG)
+        .join(&digest);
+    fs::create_dir_all(entry.parent().expect("tag directory")).expect("tag directory");
+    let attacker = temporary.path().join("attacker");
+    fs::create_dir(&attacker).expect("attacker directory");
+    symlink(&attacker, &entry).expect("cache symlink");
+    let pin = BundlePin {
+        target: "test-target",
+        asset: ASSET,
+        sha256: leak(digest),
+    };
+    let options = DownloadOptions {
+        cache_root: temporary.path().join("cache"),
+        release_base_url: "http://127.0.0.1:1".to_owned(),
+        offline: true,
+    };
+
+    let error = acquire_bundle(&pin, &options).expect_err("symlinked cache entry");
+    assert!(error.contains("symlink"), "{error}");
+}
+
+#[test]
+fn non_directory_cache_entry_is_rejected_before_use() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let digest = "5".repeat(64);
+    let entry = temporary
+        .path()
+        .join("cache")
+        .join(RELEASE_TAG)
+        .join(&digest);
+    fs::create_dir_all(entry.parent().expect("tag directory")).expect("tag directory");
+    fs::write(&entry, b"not a cache directory").expect("cache file");
+    let pin = BundlePin {
+        target: "test-target",
+        asset: ASSET,
+        sha256: leak(digest),
+    };
+    let options = DownloadOptions {
+        cache_root: temporary.path().join("cache"),
+        release_base_url: "http://127.0.0.1:1".to_owned(),
+        offline: true,
+    };
+
+    let error = acquire_bundle(&pin, &options).expect_err("non-directory cache entry");
+    assert!(error.contains("not a directory"), "{error}");
 }
 
 enum ArchiveEntry<'a> {
