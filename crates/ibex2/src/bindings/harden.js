@@ -20,50 +20,69 @@
 // an application adds is state, not authority.
 (function () {
   "use strict";
-  // A descriptor is classified by its OWN value field. An `in` test also
-  // sees Object.prototype, where a planted value would make an accessor look
-  // like data and leave its getter and setter unfrozen.
-  const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
+  // Everything the walk calls is captured here, and every descriptor it builds
+  // or reads is classified by OWN fields only. Bootstrap code may pollute
+  // Object.prototype (a planted `value` would make an accessor look like data,
+  // and would leak into an attributes literal as a value to write) or delete
+  // globals such as Function and Reflect, as Snapback 2 effects do.
+  const O = Object;
+  const getOwn = O.getOwnPropertyDescriptor;
+  const names = O.getOwnPropertyNames;
+  const symbols = O.getOwnPropertySymbols;
+  const define = O.defineProperty;
+  const freeze = O.freeze;
+  const protoOf = O.getPrototypeOf;
+  const hasOwn = function (d, key) { return getOwn(d, key) !== undefined; };
+  const keysOf = function (o) {
+    const out = names(o);
+    const syms = symbols(o);
+    for (let i = 0; i < syms.length; i++) out[out.length] = syms[i];
+    return out;
+  };
   const seen = new Set();
   const queue = [];
 
   seen.add(globalThis);
-  const globals = Object.getOwnPropertyNames(globalThis).concat(Object.getOwnPropertySymbols(globalThis));
+  const globals = keysOf(globalThis);
   for (let i = 0; i < globals.length; i++) {
     let d;
-    try { d = Object.getOwnPropertyDescriptor(globalThis, globals[i]); } catch (e) { continue; }
+    try { d = getOwn(globalThis, globals[i]); } catch (e) { continue; }
     if (!d) continue;
+    const data = hasOwn(d, "value");
     if (d.configurable) {
       try {
-        Object.defineProperty(
+        define(
           globalThis,
           globals[i],
-          hasOwn(d, "value") ? { writable: false, configurable: false } : { configurable: false }
+          data
+            ? { __proto__: null, writable: false, configurable: false }
+            : { __proto__: null, configurable: false }
         );
       } catch (e) {}
     }
-    if (hasOwn(d, "value")) queue.push(d.value);
-    else { queue.push(d.get); queue.push(d.set); }
+    if (data) queue[queue.length] = d.value;
+    else { queue[queue.length] = d.get; queue[queue.length] = d.set; }
   }
-  try { queue.push(Object.getPrototypeOf(globalThis)); } catch (e) {}
+  try { queue[queue.length] = protoOf(globalThis); } catch (e) {}
 
   while (queue.length) {
     const obj = queue.pop();
     if (obj === null || (typeof obj !== "object" && typeof obj !== "function")) continue;
     if (seen.has(obj)) continue;
     seen.add(obj);
-    try { Object.freeze(obj); } catch (e) {}
+    try { freeze(obj); } catch (e) {}
     // Names AND symbols: `Date.prototype[Symbol.toPrimitive]` and the RegExp
     // `Symbol.match`/`split`/... functions are reachable only by symbol, and a
     // walk by name left every one of them extensible.
-    const keys = Object.getOwnPropertyNames(obj).concat(Object.getOwnPropertySymbols(obj));
+    let keys;
+    try { keys = keysOf(obj); } catch (e) { continue; }
     for (let i = 0; i < keys.length; i++) {
       let d;
-      try { d = Object.getOwnPropertyDescriptor(obj, keys[i]); } catch (e) { continue; }
+      try { d = getOwn(obj, keys[i]); } catch (e) { continue; }
       if (!d) continue;
-      if (hasOwn(d, "value")) queue.push(d.value);
-      else { queue.push(d.get); queue.push(d.set); }
+      if (hasOwn(d, "value")) queue[queue.length] = d.value;
+      else { queue[queue.length] = d.get; queue[queue.length] = d.set; }
     }
-    try { queue.push(Object.getPrototypeOf(obj)); } catch (e) {}
+    try { queue[queue.length] = protoOf(obj); } catch (e) {}
   }
 })();

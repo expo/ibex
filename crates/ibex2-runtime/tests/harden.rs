@@ -235,3 +235,26 @@ fn every_object_reachable_from_the_global_bindings_is_frozen() {
     );
     assert_eq!(open, "", "reachable and not frozen: {open}");
 }
+
+#[test]
+fn the_freeze_needs_only_object_and_classifies_own_value_fields() {
+    // An embedder may delete Function, Reflect, and other globals before
+    // hardening, as Snapback 2 effects do. The freeze then still runs, and an
+    // accessor hidden behind an inherited `value` field is still frozen.
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    install_runtime(&mut rt);
+    eval(
+        &mut rt,
+        r#"globalThis.__getter = function () { return 1; };
+           Object.defineProperty(globalThis, "hidden", { get: globalThis.__getter, configurable: true });
+           Object.defineProperty(Object.prototype, "value", { value: 0, configurable: true });
+           delete globalThis.Function;
+           delete globalThis.Reflect;
+           "ok""#,
+    );
+    rt.harden().expect("harden without Function or Reflect");
+    assert_eq!(
+        eval(&mut rt, "String(Object.isFrozen(globalThis.__getter))"),
+        "true"
+    );
+}
