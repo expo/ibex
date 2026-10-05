@@ -264,12 +264,12 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   assert.ok(commit);
   for (const workflow of [builderWorkflow, publisherWorkflow]) {
     assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v1$`, "m"));
-    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v1`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v2$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v2`, "m"));
   }
 });
 
-test("receipt producers identify the exact full VM archive", () => {
+test("release receipts bind both VM archives and keep the full VM as engine.binary", () => {
   assert.match(receiptWriter, /const engineBinary = inside\(bundleDir, requestedEngineArchive/);
   assert.match(receiptWriter, /const symbols = exportedSymbols\(engineBinary\)/);
   assert.match(receiptWriter, /const enginePath = canonicalRelative\(bundleDir, engineBinary\)/);
@@ -284,8 +284,11 @@ test("receipt producers identify the exact full VM archive", () => {
     assert.ok(producer.includes(archive), `${name} producer does not name its full VM archive`);
     assert.match(producer, /link-directive=rustc-link-lib=static=hermesvm_a/);
   }
-  assert.doesNotMatch(releaseBuilder, /hermesvmlean_a/);
-  assert.doesNotMatch(windowsReleaseBuilder, /hermesvmlean_a/);
+  assert.match(releaseBuilder, /--target hermesvm_a hermesvmlean_a/);
+  assert.match(releaseBuilder, /--lean-engine-archive lib\/libhermesvmlean_a\.a/);
+  assert.match(windowsReleaseBuilder, /--target hermesvmlean_a/);
+  assert.match(windowsReleaseBuilder, /--lean-engine-archive=lib\/hermesvmlean_a\.lib/);
+  assert.match(receiptWriter, /lean engine archive is not present in the archive manifest/);
 });
 
 const validator = blockScalar(publisherWorkflow, "HANDOFF_VALIDATOR");

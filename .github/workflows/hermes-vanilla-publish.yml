@@ -8,14 +8,14 @@ on:
     types: [completed]
 
 concurrency:
-  group: hermes-vanilla-d412d3bd8512-v1-publish
+  group: hermes-vanilla-d412d3bd8512-v2-publish
   cancel-in-progress: false
 
 permissions: {}
 
 env:
   HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
-  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v1
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v2
 
 jobs:
   publish:
@@ -105,7 +105,7 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PUBLISHER_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$HERMES_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$RELEASE_TAG" == "hermes-vanilla-${HERMES_COMMIT:0:12}-v1" ]]
+          [[ "$RELEASE_TAG" == "hermes-vanilla-${HERMES_COMMIT:0:12}-v2" ]]
           main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           if [[ "$SOURCE_SHA" != "$main_sha" || "$PUBLISHER_SHA" != "$main_sha" ]]; then
             echo "::error::trigger, publisher, and current main must name the same commit"

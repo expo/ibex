@@ -12,6 +12,7 @@
  *   node scripts/hermes-input-receipt.mjs <bundle-dir> \
  *     --target aarch64-apple-darwin --profile release \
  *     --engine-archive lib/libhermesvm_a.a \
+ *     --lean-engine-archive lib/libhermesvmlean_a.a \
  *     --build-flag=-DHERMES_ENABLE_DEBUGGER=false \
  *     --link-directive=rustc-link-lib=static=hermesvm_a
  */
@@ -74,7 +75,8 @@ function parseArguments(argv) {
   }
   const known = new Set([
     '--archive', '--build-flag', '--bytecode-version', '--commit', '--compiler',
-    '--engine-archive', '--headers', '--link-directive', '--out', '--profile', '--target',
+    '--engine-archive', '--headers', '--lean-engine-archive', '--link-directive', '--out',
+    '--profile', '--target',
   ]);
   for (const name of options.keys()) {
     if (!known.has(name)) die(`unknown option ${name}`);
@@ -203,6 +205,7 @@ if (!target || !/^[A-Za-z0-9_.-]+$/.test(target)) die('--target must name one re
 if (!/^[A-Za-z0-9_.-]+$/.test(profile)) die('--profile contains unsupported characters');
 const requestedEngineArchive = one('--engine-archive');
 if (!requestedEngineArchive) die('--engine-archive must name the full VM archive linked for this target');
+const requestedLeanEngineArchive = one('--lean-engine-archive');
 const linkDirectives = many('--link-directive');
 if (linkDirectives.length === 0 || linkDirectives.some((item) => !item.trim() || /[\r\n]/.test(item))) {
   die('at least one non-empty --link-directive is required');
@@ -255,10 +258,29 @@ if (!archivePaths.includes(engineBinary)) {
   die('engine archive is not present in the archive manifest');
 }
 
+let leanEngineBinary;
+if (requestedLeanEngineArchive) {
+  leanEngineBinary = inside(bundleDir, requestedLeanEngineArchive, 'lean engine archive');
+  const expectedLeanEngineName = target.endsWith('-pc-windows-msvc')
+    ? 'hermesvmlean_a.lib'
+    : 'libhermesvmlean_a.a';
+  if (basename(leanEngineBinary) !== expectedLeanEngineName) {
+    die(`lean engine archive must be the target's lean VM archive ${expectedLeanEngineName}`);
+  }
+  if (!isFile(leanEngineBinary)) {
+    die(`lean engine archive is not a regular file: ${leanEngineBinary}`);
+  }
+  if (!archivePaths.includes(leanEngineBinary)) {
+    die('lean engine archive is not present in the archive manifest');
+  }
+}
+
 const symbols = exportedSymbols(engineBinary);
-const foundPatched = PATCHED_SYMBOLS.filter((patched) =>
-  symbols.some((symbol) => symbol === patched || symbol === `_${patched}`)
-);
+const inspectedSymbols = [symbols];
+if (leanEngineBinary) inspectedSymbols.push(exportedSymbols(leanEngineBinary));
+const foundPatched = PATCHED_SYMBOLS.filter((patched) => inspectedSymbols.some((archiveSymbols) =>
+  archiveSymbols.some((symbol) => symbol === patched || symbol === `_${patched}`)
+));
 if (foundPatched.length > 0) {
   die(`refusing an empty-patch-set receipt for a patched engine; it exports ${foundPatched.join(', ')}`);
 }

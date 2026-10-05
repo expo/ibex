@@ -21,6 +21,9 @@ $cacheDir = [IO.Path]::GetFullPath((Join-Path $cacheRoot "$commit-x64"))
 $buildDir = Join-Path $cacheDir "build"
 $bundleDir = Join-Path $cacheDir "release-bundle"
 
+cmake --build $buildDir --target hermesvmlean_a --parallel 8
+if ($LASTEXITCODE -ne 0) { throw "Lean Windows Hermes VM build failed" }
+
 if (Test-Path -LiteralPath $bundleDir) {
   Remove-Item -LiteralPath $bundleDir -Recurse -Force
 }
@@ -35,7 +38,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot "tools\hermes-vanilla\hermesc-window
 Copy-Item -Path (Join-Path $installDir "hermes-headers\*") -Destination $includeDir -Recurse
 Copy-Item -LiteralPath (Join-Path $cacheDir "source\LICENSE") -Destination (Join-Path $bundleDir "LICENSE.hermes")
 
-foreach ($name in @("hermesvm_a.lib", "jsi.lib", "boost_context.lib")) {
+foreach ($name in @("hermesvm_a.lib", "hermesvmlean_a.lib", "jsi.lib", "boost_context.lib")) {
   $found = @(Get-ChildItem -LiteralPath $buildDir -Recurse -File -Filter $name)
   if ($found.Count -ne 1) { throw "Expected exactly one $name, found $($found.Count)" }
   Copy-Item -LiteralPath $found[0].FullName -Destination (Join-Path $libDir $name)
@@ -47,6 +50,7 @@ $receiptArgs = @(
   "--target=$target",
   "--profile=release-debugger",
   "--engine-archive=lib/hermesvm_a.lib",
+  "--lean-engine-archive=lib/hermesvmlean_a.lib",
   "--build-flag=-DCMAKE_BUILD_TYPE=Release",
   "--build-flag=-DHERMES_ENABLE_DEBUGGER=ON",
   "--build-flag=-DHERMES_ENABLE_INTL=OFF",

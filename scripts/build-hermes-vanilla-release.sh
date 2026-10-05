@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# Build and deterministically package one Apple or Linux full-VM Hermes release
-# bundle. The Windows builder has a PowerShell counterpart.
+# Build and deterministically package one Apple or Linux Hermes release bundle
+# containing both the full and lean VM archives. The Windows builder has a
+# PowerShell counterpart.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -138,7 +139,7 @@ if [[ "$host_os" == Darwin ]]; then
     -DCMAKE_C_FLAGS='-Wno-unguarded-availability -Wno-unguarded-availability-new -Wno-availability' \
     -DCMAKE_CXX_FLAGS='-Wno-unguarded-availability -Wno-unguarded-availability-new -Wno-availability'
   cmake --build "$build_dir" --target ExtensionsBytecodeInclude -j 1
-  cmake --build "$build_dir" --target hermesvm_a jsi boost_context -j "$jobs"
+  cmake --build "$build_dir" --target hermesvm_a hermesvmlean_a jsi boost_context -j "$jobs"
   compiler="$host_build/bin/hermesc"
 else
   build_flags+=(
@@ -147,12 +148,14 @@ else
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   )
   cmake -S "$source_dir" -B "$build_dir" "${generator[@]}" "${build_flags[@]}"
-  cmake --build "$build_dir" --target hermesvm_a jsi boost_context hermesc -j "$jobs"
+  cmake --build "$build_dir" --target hermesvm_a hermesvmlean_a jsi boost_context hermesc -j "$jobs"
   compiler="$build_dir/bin/hermesc"
 fi
 
 [[ -f "$build_dir/lib/libhermesvm_a.a" ]] \
   || { echo "full Hermes VM archive was not built" >&2; exit 1; }
+[[ -f "$build_dir/lib/libhermesvmlean_a.a" ]] \
+  || { echo "lean Hermes VM archive was not built" >&2; exit 1; }
 [[ -f "$build_dir/jsi/libjsi.a" ]] || { echo "JSI archive was not built" >&2; exit 1; }
 boost_archive="$(find "$build_dir/external/boost" -type f -name libboost_context.a -print -quit)"
 [[ -n "$boost_archive" ]] || { echo "Boost.Context archive was not built" >&2; exit 1; }
@@ -163,6 +166,7 @@ boost_archive="$(find "$build_dir/external/boost" -type f -name libboost_context
 rm -rf "$bundle_dir"
 mkdir -p "$bundle_dir/bin" "$bundle_dir/include/hermes" "$bundle_dir/include/jsi" "$bundle_dir/lib"
 cp "$build_dir/lib/libhermesvm_a.a" "$bundle_dir/lib/"
+cp "$build_dir/lib/libhermesvmlean_a.a" "$bundle_dir/lib/"
 cp "$build_dir/jsi/libjsi.a" "$bundle_dir/lib/"
 cp "$boost_archive" "$bundle_dir/lib/libboost_context.a"
 cp "$compiler" "$bundle_dir/bin/hermesc"
@@ -214,6 +218,7 @@ receipt_args=(
   --target "$target"
   --profile "$profile"
   --engine-archive lib/libhermesvm_a.a
+  --lean-engine-archive lib/libhermesvmlean_a.a
 )
 for flag in "${build_flags[@]}"; do receipt_args+=(--build-flag="$flag"); done
 receipt_args+=(

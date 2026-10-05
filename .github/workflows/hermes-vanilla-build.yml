@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: hermes-vanilla-d412d3bd8512-v1
+  group: hermes-vanilla-d412d3bd8512-v2
   cancel-in-progress: false
 
 permissions: {}
 
 env:
   HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
-  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v1
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v2
 
 jobs:
   macos_arm64:
