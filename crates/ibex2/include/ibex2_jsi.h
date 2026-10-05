@@ -111,7 +111,8 @@ void set_binding(jsi::Runtime&, jsi::Object&, const char*, uint32_t, const void*
 // The runtime and borrowed Rust queue must outlive detach. One adapter owns the
 // queue's task-id namespace. The caller owns checkpoints, scheduling and timers.
 // Construct before application code, then run the precompiled HARDEN_SOURCE
-// before application code uses storage. SQLite refuses mutable or replaced
+// (preferably through Adapter::harden, which is required after install_with
+// published fetch primitives) before application code uses storage. SQLite refuses mutable or replaced
 // intrinsics, including methods changed before a later freeze.
 // Retained JavaScript bindings fail closed after detach; they never dereference
 // a destroyed adapter. Detach clears all JSI roots before the runtime is destroyed.
@@ -143,6 +144,8 @@ public:
                const CompiledScript* scripts, size_t script_count);
   // The same one-shot, atomic installation with explicitly requested trusted-
   // bootstrap outputs. Existing install() is exactly the empty-options case.
+  // A caller that sets InstallOptions::fetch_primitives must harden through
+  // Adapter::harden() so the fetch-primitives guard runs before the freeze.
   // @ref LLP 0057.000#l1--the-bindings-door — L1e keeps fetch ownership with embedders without creating a second authority path
   void install_with(Groups groups, const Ibex2Bindings* bindings,
                     const CompiledScript* scripts, size_t script_count,
@@ -157,6 +160,17 @@ public:
   // native state, collection entries, or behind concealing Proxy traps are
   // not visible to this walk, exactly as they are not visible to the freeze.
   void verify_fetch_primitives_unreachable();
+  // The post-install hardening step through the adapter: validates `script`
+  // as this runtime's Hermes bytecode (the header checks install() applies),
+  // runs verify_fetch_primitives_unreachable(), and only then evaluates it.
+  // `script` is HARDEN_SOURCE compiled by this engine's hermesc -- in Rust,
+  // ibex2::bindings::HARDEN_BYTECODE (path: HARDEN_BYTECODE_PATH). A caller
+  // that requested fetch primitives through install_with MUST harden with
+  // this method rather than evaluating HARDEN_SOURCE itself; evaluating it
+  // directly skips the guard. For a plain install() it is equivalent to
+  // evaluating the bytecode. Throws, and freezes nothing, on refusal.
+  // @ref LLP 0068#caller-owned-javascript-runtimes — the bindings door gets the same harden guard as the owning runtime
+  void harden(const CompiledScript& script);
   jsi::Function async_binding(const char* name, uint32_t op, const void* grants);
   // Endowed values built from the factories retained by install().
   jsi::Function fetch(const void* grants);

@@ -587,6 +587,23 @@ uint32_t bytecode_declared_length(const CompiledScript& script) {
       (static_cast<uint32_t>(script.bytes[35]) << 24);
 }
 
+// Header checks shared by install() and harden(): only precompiled Hermes
+// bytecode of this runtime's version is ever evaluated by the adapter.
+void validate_bytecode(const CompiledScript& script, uint32_t expected_version) {
+  if (script.len < kHermesBytecodeHeaderSize)
+    throw std::invalid_argument(
+        "Ibex2 binding payload has a truncated Hermes bytecode header");
+  if (std::memcmp(script.bytes, kHermesBytecodeMagic,
+                  sizeof(kHermesBytecodeMagic)) != 0)
+    throw std::invalid_argument("Ibex2 binding payload is not Hermes bytecode");
+  if (bytecode_declared_length(script) != script.len)
+    throw std::invalid_argument(
+        "Ibex2 binding bytecode declared length does not match its buffer");
+  if (expected_version != 0 && bytecode_version(script) != expected_version)
+    throw std::invalid_argument(
+        "Ibex2 binding bytecode version does not match the runtime");
+}
+
 struct ResponseOwner final : jsi::NativeState {
   void* owner;
   explicit ResponseOwner(void* value) : owner(value) {}
@@ -1396,19 +1413,7 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       if (scripts[i].name == nullptr || scripts[i].bytes == nullptr ||
           std::strcmp(scripts[i].name, expected[i]) != 0)
         throw std::invalid_argument("Ibex2 binding bytecode is not in scripts() order");
-      if (scripts[i].len < kHermesBytecodeHeaderSize)
-        throw std::invalid_argument(
-            "Ibex2 binding payload has a truncated Hermes bytecode header");
-      if (std::memcmp(scripts[i].bytes, kHermesBytecodeMagic,
-                      sizeof(kHermesBytecodeMagic)) != 0)
-        throw std::invalid_argument("Ibex2 binding payload is not Hermes bytecode");
-      if (bytecode_declared_length(scripts[i]) != scripts[i].len)
-        throw std::invalid_argument(
-            "Ibex2 binding bytecode declared length does not match its buffer");
-      if (state_->bytecode_version != 0 &&
-          bytecode_version(scripts[i]) != state_->bytecode_version)
-        throw std::invalid_argument(
-            "Ibex2 binding bytecode version does not match the runtime");
+      validate_bytecode(scripts[i], state_->bytecode_version);
     }
 
     // Validation above is deliberately complete before the first host function
@@ -1634,6 +1639,18 @@ void Adapter::verify_fetch_primitives_unreachable() {
         "\" is present");
   require_unreachable(rt, *state_->reachability,
                       state_->fetch_primitive_identities);
+}
+
+void Adapter::harden(const CompiledScript& script) {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  state_->require(rt);
+  if (script.bytes == nullptr)
+    throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
+  validate_bytecode(script, state_->bytecode_version);
+  verify_fetch_primitives_unreachable();
+  rt.evaluateJavaScript(std::make_shared<CompiledBytes>(script.bytes, script.len),
+                        "harden.js");
 }
 
 static jsi::Value filesystem_promise(jsi::Runtime& r, jsi::Value value, uint32_t op) {
