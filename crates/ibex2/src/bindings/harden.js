@@ -32,7 +32,14 @@
   const define = O.defineProperty;
   const freeze = O.freeze;
   const protoOf = O.getPrototypeOf;
-  const hasOwn = function (d, key) { return getOwn(d, key) !== undefined; };
+  // Descriptor records inherit from Object.prototype. Only when bootstrap has
+  // planted a `value` there does an `in` test lie; decide that once, since no
+  // other code runs during the walk, and pay for the own-field lookup only then.
+  const isData = ("value" in {})
+    ? function (d) { return getOwn(d, "value") !== undefined; }
+    : function (d) { return "value" in d; };
+  const DATA_LOCK = { __proto__: null, writable: false, configurable: false };
+  const ACCESSOR_LOCK = { __proto__: null, configurable: false };
   const keysOf = function (o) {
     const out = names(o);
     const syms = symbols(o);
@@ -48,17 +55,9 @@
     let d;
     try { d = getOwn(globalThis, globals[i]); } catch (e) { continue; }
     if (!d) continue;
-    const data = hasOwn(d, "value");
+    const data = isData(d);
     if (d.configurable) {
-      try {
-        define(
-          globalThis,
-          globals[i],
-          data
-            ? { __proto__: null, writable: false, configurable: false }
-            : { __proto__: null, configurable: false }
-        );
-      } catch (e) {}
+      try { define(globalThis, globals[i], data ? DATA_LOCK : ACCESSOR_LOCK); } catch (e) {}
     }
     if (data) queue[queue.length] = d.value;
     else { queue[queue.length] = d.get; queue[queue.length] = d.set; }
@@ -80,7 +79,7 @@
       let d;
       try { d = getOwn(obj, keys[i]); } catch (e) { continue; }
       if (!d) continue;
-      if (hasOwn(d, "value")) queue[queue.length] = d.value;
+      if (isData(d)) queue[queue.length] = d.value;
       else { queue[queue.length] = d.get; queue[queue.length] = d.set; }
     }
     try { queue[queue.length] = protoOf(obj); } catch (e) {}
