@@ -4,7 +4,8 @@ mod build_support;
 
 use build_support::{
     acquire_bundle, download_options_from_env, parse_pin_sha256, pin_for_target,
-    verify_and_extract_archive, BundlePin, DownloadOptions, RELEASE_TAG,
+    verify_and_extract_archive, watched_inputs, BundlePin, DownloadOptions, EngineInstall,
+    RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -35,6 +36,43 @@ fn target_to_asset_mapping_includes_ios_simulator_aliases() {
     );
     let error = pin_for_target("riscv64-unknown-linux-gnu").expect_err("unsupported target");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
+}
+
+#[test]
+fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
+    let root = Path::new("/cache/entry");
+    let install = EngineInstall {
+        root: root.to_path_buf(),
+        include_dir: root.join("include"),
+        lib_root: root.join("lib"),
+        vm_archive: root.join("lib/libhermesvm_a.a"),
+        hermesc: root.join("bin/hermesc"),
+    };
+    let paths = watched_inputs(&install, "x86_64-unknown-linux-gnu");
+    for expected in [
+        root.to_path_buf(),
+        root.join("include"),
+        root.join("hermes-input-receipt.json"),
+        root.join(CACHE_ARCHIVE),
+        root.join("bin/hermesc"),
+        root.join("lib/libhermesvm_a.a"),
+        root.join("lib/libjsi.a"),
+        root.join("lib/libboost_context.a"),
+        root.join("lib/libicui18n.a"),
+        root.join("lib/libicuuc.a"),
+        root.join("lib/libicudata.a"),
+        root.join("lib/libtinfo.a"),
+    ] {
+        assert!(
+            paths.contains(&expected),
+            "missing watch for {}",
+            expected.display()
+        );
+    }
+
+    let windows = watched_inputs(&install, "x86_64-pc-windows-msvc");
+    assert!(windows.contains(&root.join("lib/jsi.lib")));
+    assert!(windows.contains(&root.join("lib/boost_context.lib")));
 }
 
 #[test]

@@ -12,7 +12,7 @@ mod receipt_schema;
 
 pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v1";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
-const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
+pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BundlePin {
@@ -93,6 +93,31 @@ pub(crate) struct EngineInstall {
     pub lib_root: PathBuf,
     pub vm_archive: PathBuf,
     pub hermesc: PathBuf,
+}
+
+pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathBuf> {
+    let windows = target.ends_with("-pc-windows-msvc");
+    let mut paths = BTreeSet::from([
+        install.root.clone(),
+        install.include_dir.clone(),
+        install.vm_archive.clone(),
+        install.hermesc.clone(),
+        install.root.join("hermes-input-receipt.json"),
+        install.root.join(CACHE_ARCHIVE),
+    ]);
+    for archive in if windows {
+        ["jsi.lib", "boost_context.lib"]
+    } else {
+        ["libjsi.a", "libboost_context.a"]
+    } {
+        paths.insert(install.lib_root.join(archive));
+    }
+    if target.ends_with("-unknown-linux-gnu") {
+        for archive in ["libicui18n.a", "libicuuc.a", "libicudata.a", "libtinfo.a"] {
+            paths.insert(install.lib_root.join(archive));
+        }
+    }
+    paths.into_iter().collect()
 }
 
 #[derive(Debug)]

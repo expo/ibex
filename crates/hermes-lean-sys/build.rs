@@ -2,7 +2,9 @@
 
 mod build_support;
 
-use build_support::{digest_file, hermesc_bytecode_version, resolve_engine_directory};
+use build_support::{
+    digest_file, hermesc_bytecode_version, resolve_engine_directory, watched_inputs,
+};
 use std::path::Path;
 
 const LINUX_ICU_I18N: &str = "icui18n";
@@ -37,8 +39,9 @@ fn main() {
     let install = resolve_engine_directory(repo_root, &target, &host)
         .unwrap_or_else(|error| panic!("Hermes engine resolution failed: {error}"));
 
-    println!("cargo:rerun-if-changed={}", install.vm_archive.display());
-    println!("cargo:rerun-if-changed={}", install.hermesc.display());
+    for path in watched_inputs(&install, &target) {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 
     let engine_digest = digest_file(&install.vm_archive)
         .unwrap_or_else(|error| panic!("cannot hash selected Hermes engine: {error}"));
