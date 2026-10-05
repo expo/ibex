@@ -9,15 +9,20 @@ publish = false
 [features]
 default = []
 # Archive selection is invariant across feature contexts. `link` controls only
-# whether this crate emits the selected full VM's native link lines.
+# whether this crate emits the selected full VM's native link lines. Every
+# Linux VM needs ICU's code and trimmed root+en data for basic JavaScript.
 link = ["icu"]
 # Link the precompiled-bytecode-only VM instead of the full source-capable VM.
 # This is mutually exclusive with `link`.
 link-lean = ["icu"]
-# Linux ICU link lines only. The JSI bindings' Intl shims call ICU directly
-# without linking a VM, so `ibex2[bindings]` enables this alone; both VM link
-# features imply it, so ICU is emitted by exactly one crate in any graph.
+# The sole owner of Linux ICU link lines. By default this selects the trimmed
+# root+en data archive required by Hermes's platform_unicode backend. The JSI
+# Intl shims also enable it when they are used without a VM in this graph.
 icu = []
+# @ref LLP 0057.000#l1--the-bindings-door — D5 keeps full locale data behind
+# the existing Intl opt-in while every linked Linux VM retains correct basic
+# Unicode behavior. This swaps data archives; ICU code archives are shared.
+icu-full-data = ["icu"]
 
 [build-dependencies]
 flate2 = "1"

@@ -343,22 +343,27 @@ rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. On the `l1g-a` pipeline branch its
-release table deliberately remains on the independently verified immutable v2
-asset digests; the `l1g` consumer follow-up moves the table to v3 with rejecting
-sentinels until publication. It resolves a complete
+`hermes-lean-sys` is the supported consumer. The `l1g-a` pipeline branch stays
+on independently verified immutable v2 asset digests; this `l1g` consumer
+branch names v3 and rejects every `TODO_L1G_SHA256_*` pin until publication.
+It resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
 directory) and the published layout (`include/`, `lib/`, and `bin/hermesc`) are
 accepted for local installs. A published-layout override is complete only with
-its v2 receipt; a legacy repository-layout install may omit one. Unsupported
+its receipt. A legacy Apple or Windows repository-layout install may omit one;
+a Linux install must carry a canonical receipt because its ICU code, both data
+variants, and the pinned filter are build inputs. Unsupported
 triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
 `aarch64-apple-ios-sim` and
 `x86_64-apple-ios` both select the universal iOS Simulator archive.
 
 The `link` feature emits the full VM's link line; `link-lean` emits the lean
-VM's link line, and the two features are mutually exclusive. Resolution
+VM's link line, and the two features are mutually exclusive. On Linux either
+one also selects `icu`, whose default data archive is trimmed root+en;
+`icu-full-data` swaps to the full archive and is enabled by `ibex2/intl`.
+Resolution
 exports lean metadata only when the lean archive exists. If a receipt is
 present, its archive manifest must authenticate that archive in every feature
 context, even one that does not enable `link-lean`; a receipt that omits or
@@ -367,9 +372,12 @@ mismatches the lean entry is refused. Downstream build scripts receive
 `DEP_HERMES_LEAN_ENGINE_DIGEST` for full, plus
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` and `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST` for
 lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
-`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what that process links. This
-is the R-e identity: a process never reports the full digest while linking
-lean. Legacy local layouts may omit lean; they export no lean path, digest, or
+`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what VM that process links.
+Linux additionally exports `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
+`DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST`; this separate identity names exactly
+the trimmed or full data variant while shared ICU code stays archive-manifest
+bound. This is R-e: a process never reports full while linking lean, or reports
+trimmed data while linking full data. Legacy local layouts may omit lean; they export no lean path, digest, or
 HBC version and fail only if `link-lean` is requested. Published v3 bundles
 must carry and manifest both. Repository discovery uses the Apple layout only
 for macOS targets; iOS cross builds fall through to their pinned target bundle

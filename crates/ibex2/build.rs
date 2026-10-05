@@ -6,6 +6,7 @@ fn main() {
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let is_apple = target_vendor == "apple";
+    let has_intl = std::env::var_os("CARGO_FEATURE_INTL").is_some();
 
     build_platform_backends(is_apple);
     if std::env::var_os("CARGO_FEATURE_BINDINGS").is_none() {
@@ -24,7 +25,9 @@ fn main() {
     if target_os == "windows" {
         installer.flag("/EHsc").define("NOMINMAX", None);
     }
-    if target_os == "linux" {
+    // @ref LLP 0057.000#51-included-gated-or-a-crate — D5/D6 require this
+    // over-budget family to be absent unless the consumer opts in.
+    if target_os == "linux" && has_intl {
         for source in [
             "src/bindings/intl_number_format.cc",
             "src/bindings/intl_icu.cc",
@@ -39,8 +42,8 @@ fn main() {
     if is_apple {
         installer.flag("-stdlib=libc++");
     }
-    // ICU for the Linux Intl shims is linked by hermes-lean-sys's `icu`
-    // feature, never here, so a runtime graph carries it exactly once.
+    // ICU for the Linux Intl shims is linked by hermes-lean-sys's ICU
+    // features, never here, so a runtime graph carries it exactly once.
     installer.compile("ibex2_bindings_install");
 
     let hermesc = required_path("DEP_HERMES_LEAN_HERMESC_PATH");
@@ -58,7 +61,7 @@ fn main() {
         "fetch",
         "sqlite",
     ];
-    if target_os == "linux" {
+    if target_os == "linux" && has_intl {
         scripts.extend(["intl_number_format", "intl_case", "intl_datetime"]);
     }
     scripts.push("structured_clone");
@@ -98,6 +101,21 @@ fn main() {
         "cargo:rustc-env=IBEX2_BINDINGS_ENGINE_DIGEST={}",
         required("DEP_HERMES_LEAN_ENGINE_DIGEST")
     );
+    if target_os == "linux" {
+        let prefix = if has_intl {
+            "DEP_HERMES_LEAN_ICU_FULL_DATA"
+        } else {
+            "DEP_HERMES_LEAN_ICU_DATA"
+        };
+        println!(
+            "cargo:rustc-env=IBEX2_BINDINGS_ICU_DATA_ARCHIVE={}",
+            required(&format!("{prefix}_ARCHIVE"))
+        );
+        println!(
+            "cargo:rustc-env=IBEX2_BINDINGS_ICU_DATA_DIGEST={}",
+            required(&format!("{prefix}_DIGEST"))
+        );
+    }
     if let Ok(digest) = std::env::var("DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST") {
         println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_ENGINE_DIGEST={digest}");
     }

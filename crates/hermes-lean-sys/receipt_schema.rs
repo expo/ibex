@@ -26,13 +26,14 @@ pub(crate) struct CanonicalReceipt {
     pub(crate) engine_digest: String,
     pub(crate) compiler_digest: String,
     pub(crate) bytecode_version: u64,
-    #[allow(dead_code)] // l1g-a writer support precedes l1g's consumer selection.
+    #[allow(dead_code)] // The runtime's shared parser consumes only engine claims.
     pub(crate) icu: Option<CanonicalIcuReceipt>,
     archive_digests: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct CanonicalIcuReceipt {
+    pub(crate) code_archives: Vec<String>,
     pub(crate) trimmed_data_archive: String,
     pub(crate) full_data_archive: String,
     pub(crate) trimmed_filter_path: String,
@@ -310,6 +311,7 @@ fn validate_icu(
     }
 
     Ok(CanonicalIcuReceipt {
+        code_archives,
         trimmed_data_archive,
         full_data_archive,
         trimmed_filter_path,

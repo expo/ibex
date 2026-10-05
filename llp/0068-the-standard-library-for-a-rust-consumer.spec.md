@@ -5,6 +5,8 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-05 (§3/OQ2 round 2: Linux VM links require pinned ICU 74.2 with trimmed root+en data; `intl` selects full data through `icu-full-data`; basic Unicode behavior and the separate linked data identity are recorded)
+**Revised:** 2026-10-05 (§3/OQ2: Linux Intl is an off-by-default Cargo feature and install group; VM link features no longer imply ICU; absent-group Linux and Apple engine behavior and D5 size evidence are recorded)
 **Revised:** 2026-10-05 (§3 "Opt-in fetch primitives protocol": normative member protocol; ASCII-identifier names; harden refuses while the object or any member is reachable from the frozen graph; `Adapter::harden` brings the same guard to the bindings door; numeric arguments validated before conversion)
 **Revised:** 2026-10-04 (§3: opt-in `InstallOptions::fetch_primitives` publishes one same-endowment bootstrap object for embedders that own fetch; `Hermes::harden` refuses until its chosen global is deleted)
 **Revised:** 2026-10-05 (§3: full and lean Hermes identities, mutually exclusive link features, common HBC version, and the lean bindings-door proof)
@@ -127,9 +129,11 @@ gates, so either door remains independently buildable.
 `bindings::Groups` is the install-time surface selection. It is a dependency-
 free bitset, separate from cargo features: features choose what family code is
 linked, groups choose what one runtime receives. `Groups::DEFAULT` and
-`Groups::ALL` reproduce Ibex's current runtime profile (including `INTL` only
-on Linux). An omitted dependency is an error; installation never widens the
-selection on the caller's behalf. The groups are:
+`Groups::ALL` reproduce the code available to the build. `INTL` is included in
+`Groups::DEFAULT` and `Groups::ALL` only when a Linux consumer has explicitly
+selected the `intl` Cargo feature. An omitted dependency or unavailable group
+is an error; installation never widens the selection on the caller's behalf.
+The groups are:
 
 | group | JavaScript globals or module bindings | host operations / native work | requires | linked by |
 |---|---|---|---|---|
@@ -144,7 +148,7 @@ selection on the caller's behalf. The groups are:
 | `ENV` | endowed `process.env` snapshot | grant-selected environment snapshot | — | core |
 | `SECRETS` | no JSI projection yet; named for the existing Rust binding | `secret.keep` library operations | — | core/platform backend |
 | `KV` | no JSI projection yet; named for the existing Rust binding | `storage.kv` library operations | — | core/platform backend |
-| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `bindings` on Linux, via `hermes-lean-sys`'s `icu` feature (which either VM link feature implies), so ICU is linked once per graph |
+| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | off-by-default `intl` Cargo feature; it implies `bindings` and selects `hermes-lean-sys/icu-full-data`; VM link features already select `icu` with trimmed root+en data for basic Unicode |
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
@@ -1125,12 +1129,28 @@ performs a granted HTTPS request using native roots. The Linux installation
 carries the vanilla Hermes/JSI/Boost/ICU/tinfo inputs as static archives and
 requires no undeclared shared transport or TLS library; the qualified binary's
 observed floor is glibc 2.39 / `GLIBCXX_3.4.30`, not musl or an older
-distribution. Because the bindings' Intl C++ calls ICU directly, `ibex2`
-enables `hermes-lean-sys`'s `icu` feature whenever `bindings` is on; that
-feature emits only the Linux ICU link lines, not the VM's. Both `link` and
-`link-lean` imply `icu`, so `hermes-lean-sys` is ICU's single owner and a
-runtime graph carries the archives in one rlib. Pinned Hermes's non-Apple Intl stubs remain
-unchanged, but the engine-facing Ibex tier now replaces the selected
+distribution. Because Hermes's non-lite PlatformUnicode backend and the
+bindings' Intl C++ both call ICU, `hermes-lean-sys` remains the single owner of
+Linux ICU link lines. `link` and `link-lean` select `icu`, shared ICU 74.2 code,
+and the 1,109,808-byte root+en data symbol. The off-by-default `ibex2/intl`
+feature selects `icu-full-data`, which swaps in full locale data without
+duplicating the code archives. The historical Unicode-lite/no-ICU arm64
+runtime measured 7,743,240 bytes, the root+en profile 10,954,672, and the
+historical full-ICU baseline 42,346,424 (that baseline was ICU 72.1). The
+corresponding embeddings were 5,908,144, 9,119,576, and 40,314,704 bytes. Full
+data exceeds D5's 150 KiB default-on ceiling decisively; trimmed data is
+default engine support because Unicode-lite breaks required basic JavaScript.
+
+The Linux VM is therefore built with `HERMES_ENABLE_INTL=false` and
+`HERMES_UNICODE_LITE=false`, using pinned static ICU 74.2. Before `INTL` is installed, JavaScript sees
+`typeof Intl === "undefined"` and
+`(1234.5).toLocaleString("de-DE") === "1234.5"`, while non-ASCII uppercasing,
+NFC normalization, collation, and English epoch-date formatting remain
+correct. The linked VM identity has a separate ICU-data archive/digest so the
+default and `intl` resolver-v2 contexts name exactly the trimmed or full bytes
+they link. Requesting `Groups::INTL`
+without the feature is rejected during group validation. With the feature and
+group selected, the engine-facing Ibex tier supplies the selected
 consumer-visible operations
 for Number/BigInt formatting, locale String case mapping, and Date/DateTime
 formatting with Rust-owned state and ICU computation. That implementation is
@@ -1141,6 +1161,13 @@ witness and packaged artifact separately passed for the published Snapback2
 `issues/closed/20260911-linux-hermes-intl-numberformat-stub.md`. Broader Intl
 behavior remains tracked in open issue
 `20260911-selected-intl-conformance-followups.md`.
+
+Apple's engine remains built with native OS-backed Intl. Omitting Ibex's
+Linux-only group there leaves `typeof Intl === "object"` and the same number
+probe produces `"1.234,5"`; the stripped arm64 minimal embedding delta between
+Intl and no-Intl engine archives is 118,400 bytes for the full VM and 101,888
+bytes for the lean VM. Published bundle selection is intentionally left to the
+release orchestrator.
 
 **OQ3 — Async.** *Resolved 2026-10-04 by L3:* a watch returns a
 `std::sync::mpsc::Receiver` together with a `Subscription` whose sole operation

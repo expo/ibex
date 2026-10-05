@@ -8,8 +8,6 @@
   var brand = global.__ibex2_brand || function (value) { return value; };
   delete global.__ibex2_intl_number_format;
 
-  var IntlObject = global.Intl;
-  var canonicalLocales = IntlObject.getCanonicalLocales;
   var reflectApply = Reflect.apply;
   var objectCreate = Object.create;
   var objectDefineProperty = Object.defineProperty;
@@ -20,6 +18,56 @@
   var stringConcat = String.prototype.concat;
   var floor = Math.floor;
   var boundFormats = new WeakMap();
+
+  // The no-Intl Linux engine deliberately has no stub object to inherit from.
+  // Own the small ECMA-402 base that the selected Ibex formatters share.
+  var IntlObject = global.Intl;
+  if (IntlObject === undefined) {
+    IntlObject = {};
+    objectDefineProperty(IntlObject, Symbol.toStringTag, {
+      value: "Intl", configurable: true
+    });
+    objectDefineProperty(global, "Intl", {
+      value: IntlObject, writable: true, configurable: true
+    });
+  }
+  var canonicalLocales = IntlObject.getCanonicalLocales;
+  if (canonicalLocales === undefined) {
+    canonicalLocales = function getCanonicalLocales(locales) {
+      if (locales === undefined) return [];
+      var list;
+      if (typeof locales === "string") list = [locales];
+      else {
+        if (locales === null) throw new TypeError("locales must not be null");
+        list = Object(locales);
+      }
+      var length = Number(list.length);
+      if (length !== length || length <= 0) length = 0;
+      else if (length === Infinity) length = 9007199254740991;
+      else length = Math.min(floor(length), 9007199254740991);
+      var seen = objectCreate(null);
+      var result = [];
+      for (var i = 0; i < length; i++) {
+        if (!(i in list)) continue;
+        var value = list[i];
+        var kind = typeof value;
+        if (kind !== "string" &&
+            (value === null || (kind !== "object" && kind !== "function"))) {
+          throw new TypeError("locale list elements must be strings or objects");
+        }
+        var tag = reflectApply(stringConcat, "", [value]);
+        var canonical = raw.canonicalLocale(tag);
+        if (seen[canonical] !== true) {
+          seen[canonical] = true;
+          result.push(canonical);
+        }
+      }
+      return result;
+    };
+    objectDefineProperty(IntlObject, "getCanonicalLocales", {
+      value: canonicalLocales, writable: true, configurable: true
+    });
+  }
 
   var simpleUnits = Object.create(null);
   var unitNames = [

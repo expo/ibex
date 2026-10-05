@@ -185,14 +185,15 @@ fn group_partition_covers_the_installable_global_snapshot_exactly() {
         coverage.iter().all(|count| *count == 1),
         "each snapshot name must belong to exactly one partition: {coverage:?}"
     );
-    assert_eq!(
-        allowed_globals(crate::bindings::Groups::ALL),
-        DEFAULT_ADDED_GLOBALS
-    );
-    assert_eq!(
-        allowed_globals(crate::bindings::Groups::DEFAULT),
-        DEFAULT_ADDED_GLOBALS
-    );
+    let available: Vec<_> = DEFAULT_ADDED_GLOBALS
+        .iter()
+        .copied()
+        .filter(|name| {
+            *name != "Intl" || crate::bindings::Groups::ALL.contains(crate::bindings::Groups::INTL)
+        })
+        .collect();
+    assert_eq!(allowed_globals(crate::bindings::Groups::ALL), available);
+    assert_eq!(allowed_globals(crate::bindings::Groups::DEFAULT), available);
 }
 
 #[test]

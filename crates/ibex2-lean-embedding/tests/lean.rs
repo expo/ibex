@@ -80,6 +80,22 @@ fn pure_bindings_and_precompiled_app_run_on_lean_while_source_is_impossible() {
     );
     assert_eq!(ibex2::bindings::LEAN_ENGINE_DIGEST, Some(lean_digest));
     assert_ne!(lean_digest, hermes_lean_sys::ENGINE_DIGEST);
+    if cfg!(target_os = "linux") {
+        assert_eq!(
+            hermes_lean_sys::LINKED_ICU_DATA_ARCHIVE,
+            hermes_lean_sys::ICU_DATA_ARCHIVE,
+            "lean embedding links the trimmed ICU data variant"
+        );
+        assert_eq!(
+            hermes_lean_sys::LINKED_ICU_DATA_DIGEST,
+            hermes_lean_sys::ICU_DATA_DIGEST
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_DATA_DIGEST,
+            hermes_lean_sys::LINKED_ICU_DATA_DIGEST,
+            "bindings and linked lean contexts agree on ICU data"
+        );
+    }
     assert_eq!(
         Some(ibex2::bindings::BYTECODE_VERSION),
         ibex2::bindings::LEAN_BYTECODE_VERSION

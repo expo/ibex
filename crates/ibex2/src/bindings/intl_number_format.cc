@@ -38,6 +38,7 @@ constexpr uint32_t kPartValue = 94;
 constexpr uint32_t kResolved = 95;
 constexpr uint32_t kSupportedLocales = 96;
 constexpr uint32_t kCurrencyDigits = 98;
+constexpr uint32_t kCanonicalLocale = 99;
 
 struct Owner final : jsi::NativeState {
   void *value;
@@ -153,6 +154,17 @@ void install(jsi::Runtime &rt, std::shared_ptr<Lifetime> lifetime) {
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 1) throw jsi::JSError(r, "currency code expected");
             return call_checked(r, lifetime, kCurrencyDigits, args, count);
+          }));
+
+  raw.setProperty(
+      rt, "canonicalLocale",
+      host_function(
+          rt, "canonicalLocale", 1, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
+                  const jsi::Value *args, size_t count) -> jsi::Value {
+            if (count != 1 || !args[0].isString())
+              throw jsi::JSError(r, "language tag expected");
+            return call_checked(r, lifetime, kCanonicalLocale, args, count);
           }));
 
   raw.setProperty(

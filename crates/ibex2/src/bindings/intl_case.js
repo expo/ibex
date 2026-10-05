@@ -13,10 +13,8 @@
   var apply = Reflect.apply;
   var concat = String.prototype.concat;
   var canonicalize = Intl.getCanonicalLocales;
-  var Collator = Intl.Collator;
-  var resolvedOptions = Collator.prototype.resolvedOptions;
   var defineProperty = Object.defineProperty;
-  var defaultLocale = apply(resolvedOptions, new Collator(), []).locale;
+  var defaultLocale = new Intl.NumberFormat().resolvedOptions().locale;
 
   function toString(value) {
     return apply(concat, "", [value]);

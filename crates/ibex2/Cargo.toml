@@ -16,10 +16,9 @@ sha2 = "0.10"
 ring = { version = "0.17", optional = true }
 url = "2.5"
 serde_json = "1"
-# `icu` on the normal dependency only: the bindings' Linux Intl shims need ICU
-# at link time, and hermes-lean-sys is its single owner (both VM link features
-# imply it).
-hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false, features = ["icu"] }
+# The normal dependency owns native link lines selected by binding-family
+# features. The build dependency below supplies headers and hermesc only.
+hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
 
 [dev-dependencies]
 ibex2-sqlite = { path = "../ibex2-sqlite" }
@@ -66,6 +65,10 @@ webpki-roots = { version = "1", optional = true }
 [features]
 default = ["crypto", "websocket"]
 bindings = ["dep:hermes-lean-sys"]
+# Linux's JSI Intl shims and full locale data exceed LLP 0057.000 D5's
+# default-on budget. Selecting Intl also selects the bindings door; ICU link
+# lines and the trimmed/full data swap still come from hermes-lean-sys alone.
+intl = ["bindings", "hermes-lean-sys/icu-full-data"]
 # Symmetric WebCrypto algorithms backed by the workspace's unmodified,
 # vendored ring. Randomness remains available without this feature.
 crypto = ["dep:ring"]

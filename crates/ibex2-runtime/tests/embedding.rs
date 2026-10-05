@@ -96,11 +96,11 @@ fn compiled_script(name: &str) -> CompiledScript {
         "structured_clone" => b"structured_clone\0",
         "fetch" => b"fetch\0",
         "sqlite" => b"sqlite\0",
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_number_format" => b"intl_number_format\0",
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_case" => b"intl_case\0",
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_datetime" => b"intl_datetime\0",
         _ => unreachable!(),
     };
@@ -865,7 +865,7 @@ fn rust_and_cpp_group_validation_tables_agree() {
     if !error.is_null() {
         let _ = take(error);
     }
-    assert_eq!(cpp_intl, cfg!(target_os = "linux"));
+    assert_eq!(cpp_intl, cfg!(all(target_os = "linux", feature = "intl")));
 }
 
 #[test]

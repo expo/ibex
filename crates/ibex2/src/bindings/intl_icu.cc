@@ -7,7 +7,6 @@
 // @ref LLP 0057#3-the-boundary — Rust owns semantics; native libraries are computation backends
 
 #include <unicode/ucurr.h>
-#include <unicode/uformattednumber.h>
 #include <unicode/uformattedvalue.h>
 #include <unicode/uloc.h>
 #include <unicode/unumberformatter.h>
@@ -173,6 +172,16 @@ char *ibex2_icu_default_locale() {
   return protect<char *>(nullptr, [] {
     const std::string tag = locale_to_tag(uloc_getDefault());
     return tag.empty() ? nullptr : copy_string(tag);
+  });
+}
+
+char *ibex2_icu_canonical_locale(const char *tag) {
+  return protect<char *>(nullptr, [tag] {
+    if (tag == nullptr) return static_cast<char *>(nullptr);
+    const std::string locale = tag_to_locale(tag);
+    if (locale.empty()) return static_cast<char *>(nullptr);
+    const std::string canonical = locale_to_tag(locale.c_str());
+    return canonical.empty() ? nullptr : copy_string(canonical);
   });
 }
 

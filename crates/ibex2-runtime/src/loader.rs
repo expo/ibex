@@ -958,9 +958,10 @@ fn js_string_literal(text: &str) -> String {
     out
 }
 
-/// The explicit snapshot of names the ordinary runtime adds to the engine.
+/// The explicit snapshot of names the available install groups can add.
 /// Capability-bearing names are deliberately absent: they arrive as module
-/// parameters. Keep this as the one inventory; per-group views partition it.
+/// parameters. Keep this as the one inventory; per-group views partition and
+/// filter it for the build's selected groups.
 pub const DEFAULT_ADDED_GLOBALS: &[&str] = &[
     "__ibex2_default",
     "__ibex2_dynamic_import",
@@ -1003,6 +1004,7 @@ pub const DEFAULT_ADDED_GLOBALS: &[&str] = &[
     "Blob",
     "File",
     "FormData",
+    "Intl",
     "Request",
     "Response",
     "structuredClone",
@@ -1017,7 +1019,7 @@ const GLOBAL_PARTITION: &[(Option<crate::bindings::Groups>, &[usize])] = &[
     (Some(crate::bindings::Groups::CONSOLE), &[4]),
     (
         Some(crate::bindings::Groups::PURE),
-        &[11, 12, 13, 20, 21, 43],
+        &[11, 12, 13, 20, 21, 44],
     ),
     (Some(crate::bindings::Groups::CRYPTO), &[14, 15, 16, 19]),
     (Some(crate::bindings::Groups::ABORT), &[17, 18]),
@@ -1030,8 +1032,9 @@ const GLOBAL_PARTITION: &[(Option<crate::bindings::Groups>, &[usize])] = &[
     (Some(crate::bindings::Groups::BLOB), &[38, 39, 40]),
     (
         Some(crate::bindings::Groups::BLOB.union(crate::bindings::Groups::FETCH)),
-        &[41, 42],
+        &[42, 43],
     ),
+    (Some(crate::bindings::Groups::INTL), &[41]),
 ];
 
 /// The global names a module may see for one installed group set. Anything

@@ -41,6 +41,26 @@ pub const LINKED_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_LINKED_ARCHIVE
 /// Digest of [`LINKED_ARCHIVE`], naming the archive this feature context links.
 pub const LINKED_ENGINE_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LINKED_ENGINE_DIGEST");
 
+/// Receipt-bound trimmed root+en ICU data archive available on Linux.
+pub const ICU_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_DATA_ARCHIVE");
+
+/// Digest of [`ICU_DATA_ARCHIVE`].
+pub const ICU_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_DATA_DIGEST");
+
+/// Receipt-bound full ICU data archive available on Linux.
+pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_FULL_DATA_ARCHIVE");
+
+/// Digest of [`ICU_FULL_DATA_ARCHIVE`].
+pub const ICU_FULL_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_FULL_DATA_DIGEST");
+
+/// ICU data archive selected by `icu` or `icu-full-data` on Linux.
+pub const LINKED_ICU_DATA_ARCHIVE: Option<&str> =
+    option_env!("HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE");
+
+/// Digest of [`LINKED_ICU_DATA_ARCHIVE`], kept separate from the VM digest so
+/// the linked identity names the exact locale-data variant.
+pub const LINKED_ICU_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LINKED_ICU_DATA_DIGEST");
+
 /// Keep this native-link dependency in binaries that call into Hermes through
 /// a sibling C++ shim rather than through Rust FFI declared in this crate.
 #[inline(never)]

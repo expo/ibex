@@ -9,8 +9,8 @@
 
 use crate::boundary::{HostArg, HostError, HostValue};
 use crate::host_opcodes::intl_number::{
-    CREATE, CURRENCY_DIGITS, FORMAT, FORMAT_PARTS, PART_TYPE, PART_VALUE, RESOLVED,
-    SUPPORTED_LOCALES,
+    CANONICAL_LOCALE, CREATE, CURRENCY_DIGITS, FORMAT, FORMAT_PARTS, PART_TYPE, PART_VALUE,
+    RESOLVED, SUPPORTED_LOCALES,
 };
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
@@ -32,6 +32,7 @@ const COMPACT_FIELD: i32 = 12;
 
 extern "C" {
     fn ibex2_icu_default_locale() -> *mut c_char;
+    fn ibex2_icu_canonical_locale(tag: *const c_char) -> *mut c_char;
     fn ibex2_icu_best_available_locale(tag: *const c_char) -> *mut c_char;
     fn ibex2_icu_default_numbering_system(locale: *const c_char) -> *mut c_char;
     fn ibex2_icu_numbering_system_supported(name: *const c_char) -> c_int;
@@ -240,7 +241,10 @@ pub(crate) fn dispatch(
     args: &[HostArg<'_>],
     state: Option<&crate::task::RuntimeState>,
 ) -> Option<Result<HostValue, HostError>> {
-    if !(CREATE..=SUPPORTED_LOCALES).contains(&op) && op != CURRENCY_DIGITS {
+    if !(CREATE..=SUPPORTED_LOCALES).contains(&op)
+        && op != CURRENCY_DIGITS
+        && op != CANONICAL_LOCALE
+    {
         return None;
     }
     Some(dispatch_inner(op, args, state))
@@ -260,6 +264,9 @@ fn dispatch_inner(
             return range("currency is not a well-formed currency code");
         }
         return Ok(HostValue::Number(currency_digits(currency) as f64));
+    }
+    if op == CANONICAL_LOCALE {
+        return canonical_locale(required_str(args, 0, "locale")?).map(HostValue::Str);
     }
     let state = state.ok_or_else(|| HostError::Failed("no runtime state".into()))?;
     if op == CREATE {
@@ -895,6 +902,13 @@ fn best_available_locale(tag: &str) -> Result<Option<String>, HostError> {
     Ok(owned_icu_string(unsafe {
         ibex2_icu_best_available_locale(tag.as_ptr())
     }))
+}
+
+fn canonical_locale(tag: &str) -> Result<String, HostError> {
+    let tag =
+        CString::new(tag).map_err(|_| HostError::InvalidArgument("locale contains NUL".into()))?;
+    owned_icu_string(unsafe { ibex2_icu_canonical_locale(tag.as_ptr()) })
+        .ok_or_else(|| HostError::Failed("RangeError: invalid language tag".into()))
 }
 
 fn default_numbering_system(locale: &str) -> Result<String, HostError> {

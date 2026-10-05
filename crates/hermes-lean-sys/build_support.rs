@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 #[path = "receipt_schema.rs"]
 mod receipt_schema;
 
-pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
+pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v3";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
@@ -24,50 +24,50 @@ pub(crate) struct BundlePin {
 
 // @ref LLP 0057.000#l1--the-bindings-door — this table is the trust root for
 // the compiler/VM identity shared by the bindings and the owning runtime.
-// The v2 release is not published yet, so every digest is a deliberately
-// rejecting sentinel. They MUST be replaced with the v2 asset digests only
+// The v3 release is not published yet, so every digest is a deliberately
+// rejecting sentinel. They MUST be replaced with the v3 asset digests only
 // after the immutable release and its Sigstore attestations are verified; see
 // scripts/update-hermes-lean-sys-pins.mjs.
 pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
         asset: "hermes-vanilla-aarch64-apple-darwin.tar.gz",
-        sha256: "7c31ef1a182783c9eb28fe030553ec7a1391831c674b7175634e65b8776dd6c4",
+        sha256: "TODO_L1G_SHA256_AARCH64_APPLE_DARWIN",
     },
     BundlePin {
         target: "x86_64-apple-darwin",
         asset: "hermes-vanilla-x86_64-apple-darwin.tar.gz",
-        sha256: "cca5ff516d7f72f85b8db809a29636085c42e5e2c5cc340985b04c2fb4dab4d2",
+        sha256: "TODO_L1G_SHA256_X86_64_APPLE_DARWIN",
     },
     BundlePin {
         target: "aarch64-apple-ios",
         asset: "hermes-vanilla-aarch64-apple-ios.tar.gz",
-        sha256: "d6f0958c76a0b770391910b83ca1f90564759ee20a0519b789fe7bea383ba31b",
+        sha256: "TODO_L1G_SHA256_AARCH64_APPLE_IOS",
     },
     BundlePin {
         target: "aarch64-apple-ios-sim",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "9c653b840497465f25e36b23c50b128f12c02ab34e1a90fbd5f96828921a7fb4",
+        sha256: "TODO_L1G_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
     },
     BundlePin {
         target: "x86_64-apple-ios",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "9c653b840497465f25e36b23c50b128f12c02ab34e1a90fbd5f96828921a7fb4",
+        sha256: "TODO_L1G_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
     },
     BundlePin {
         target: "x86_64-unknown-linux-gnu",
         asset: "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
-        sha256: "72b6be4ccf147379872fc11aa7cd5b41b6ea873ad1ba08106d8baf5b394aa9eb",
+        sha256: "TODO_L1G_SHA256_X86_64_UNKNOWN_LINUX_GNU",
     },
     BundlePin {
         target: "aarch64-unknown-linux-gnu",
         asset: "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
-        sha256: "1d2902fa27dd3f6a4a057f4b0c55c7a9137b4afa7b3ad53e67ec11d600c593d2",
+        sha256: "TODO_L1G_SHA256_AARCH64_UNKNOWN_LINUX_GNU",
     },
     BundlePin {
         target: "x86_64-pc-windows-msvc",
         asset: "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz",
-        sha256: "93d034570d2afe346d349c4e024208ca739606c533293b7a012dcaed6c2e9257",
+        sha256: "TODO_L1G_SHA256_X86_64_PC_WINDOWS_MSVC",
     },
 ];
 
@@ -85,6 +85,11 @@ struct InstallLayout {
     lib_root: PathBuf,
     vm_archive: PathBuf,
     lean_vm_archive: PathBuf,
+    icu_i18n_archive: Option<PathBuf>,
+    icu_uc_archive: Option<PathBuf>,
+    icu_data_archive: Option<PathBuf>,
+    icu_full_data_archive: Option<PathBuf>,
+    icu_trimmed_filter: Option<PathBuf>,
     origin: InstallOrigin,
     requires_receipt: bool,
     target: String,
@@ -97,6 +102,11 @@ pub(crate) struct EngineInstall {
     pub lib_root: PathBuf,
     pub vm_archive: PathBuf,
     pub lean_vm_archive: Option<PathBuf>,
+    pub icu_i18n_archive: Option<PathBuf>,
+    pub icu_uc_archive: Option<PathBuf>,
+    pub icu_data_archive: Option<PathBuf>,
+    pub icu_full_data_archive: Option<PathBuf>,
+    pub icu_trimmed_filter: Option<PathBuf>,
     pub hermesc: PathBuf,
 }
 
@@ -128,10 +138,20 @@ pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathB
     } {
         paths.insert(install.lib_root.join(archive));
     }
+    for path in [
+        &install.icu_i18n_archive,
+        &install.icu_uc_archive,
+        &install.icu_data_archive,
+        &install.icu_full_data_archive,
+        &install.icu_trimmed_filter,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        paths.insert(path.clone());
+    }
     if target.ends_with("-unknown-linux-gnu") {
-        for archive in ["libicui18n.a", "libicuuc.a", "libicudata.a", "libtinfo.a"] {
-            paths.insert(install.lib_root.join(archive));
-        }
+        paths.insert(install.lib_root.join("libtinfo.a"));
     }
     paths.into_iter().collect()
 }
@@ -189,6 +209,7 @@ struct ReceiptClaims {
     compiler_digest: Option<String>,
     bytecode_version: Option<String>,
     archive_digests: Option<BTreeMap<String, String>>,
+    icu: Option<receipt_schema::CanonicalIcuReceipt>,
 }
 
 pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String> {
@@ -203,7 +224,7 @@ pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String>
 }
 
 pub(crate) fn parse_pin_sha256(value: &str) -> Result<String, String> {
-    if value.starts_with("TODO_L1F_SHA256_") {
+    if value.starts_with("TODO_L1G_SHA256_") {
         return Err(format!(
             "the Hermes bundle digest pin {value} is awaiting publication; set HERMES_LEAN_SYS_DIR to a complete local install"
         ));
@@ -368,6 +389,11 @@ pub(crate) fn resolve_engine_directory(
         lib_root: target_layout.lib_root,
         vm_archive: target_layout.vm_archive,
         lean_vm_archive,
+        icu_i18n_archive: target_layout.icu_i18n_archive,
+        icu_uc_archive: target_layout.icu_uc_archive,
+        icu_data_archive: target_layout.icu_data_archive,
+        icu_full_data_archive: target_layout.icu_full_data_archive,
+        icu_trimmed_filter: target_layout.icu_trimmed_filter,
         hermesc,
     })
 }
@@ -411,7 +437,14 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
     } else {
         ("libhermesvm_a.a", "libhermesvmlean_a.a")
     };
+    let linux_icu = target.ends_with("-unknown-linux-gnu");
     InstallLayout {
+        icu_i18n_archive: linux_icu.then(|| lib_root.join("libicui18n.a")),
+        icu_uc_archive: linux_icu.then(|| lib_root.join("libicuuc.a")),
+        icu_data_archive: linux_icu.then(|| lib_root.join("libicudata.a")),
+        icu_full_data_archive: linux_icu.then(|| lib_root.join("libicudata-full.a")),
+        icu_trimmed_filter: linux_icu
+            .then(|| root.join("share").join("icu").join("filters-root-en.json")),
         root,
         include_dir,
         vm_archive: lib_root.join(archive),
@@ -471,6 +504,17 @@ fn validate_layout(layout: &InstallLayout, require_lean: bool) -> Result<(), Str
     ];
     if require_lean {
         required.push(("lean Hermes VM archive", &layout.lean_vm_archive, false));
+    }
+    for (label, path) in [
+        ("ICU i18n code archive", &layout.icu_i18n_archive),
+        ("ICU Unicode code archive", &layout.icu_uc_archive),
+        ("trimmed ICU data archive", &layout.icu_data_archive),
+        ("full ICU data archive", &layout.icu_full_data_archive),
+        ("trimmed ICU data filter", &layout.icu_trimmed_filter),
+    ] {
+        if let Some(path) = path {
+            required.push((label, path, false));
+        }
     }
     for (label, path, want_dir) in required {
         let exists = if want_dir {
@@ -629,8 +673,17 @@ fn validate_receipt(
 ) -> Result<(), String> {
     let receipt_path = layout.root.join("hermes-input-receipt.json");
     let Some(receipt) = read_receipt_claims(layout)? else {
+        if layout.target.ends_with("-unknown-linux-gnu") {
+            return Err(format!(
+                "Linux Hermes install {} has no canonical receipt binding its ICU code and trimmed/full data archives",
+                layout.root.display()
+            ));
+        }
         return Ok(());
     };
+    if layout.target.ends_with("-unknown-linux-gnu") {
+        validate_linux_icu_receipt(layout, &receipt, &receipt_path)?;
+    }
     let receipt_archive = safe_relative_path(&layout.root, Path::new(&receipt.engine_binary))?;
     let selected_archive = fs::canonicalize(&layout.vm_archive).map_err(|error| {
         format!(
@@ -729,6 +782,113 @@ fn validate_receipt(
     Ok(())
 }
 
+fn validate_linux_icu_receipt(
+    layout: &InstallLayout,
+    receipt: &ReceiptClaims,
+    receipt_path: &Path,
+) -> Result<(), String> {
+    let icu = receipt.icu.as_ref().ok_or_else(|| {
+        format!(
+            "{} has no pinned Linux ICU metadata",
+            receipt_path.display()
+        )
+    })?;
+    let manifest = receipt.archive_digests.as_ref().ok_or_else(|| {
+        format!(
+            "{} has no archive manifest for Linux ICU",
+            receipt_path.display()
+        )
+    })?;
+    let required = [
+        (
+            "ICU i18n code archive",
+            layout.icu_i18n_archive.as_ref(),
+            icu.code_archives.first(),
+        ),
+        (
+            "ICU Unicode code archive",
+            layout.icu_uc_archive.as_ref(),
+            icu.code_archives.get(1),
+        ),
+        (
+            "trimmed ICU data archive",
+            layout.icu_data_archive.as_ref(),
+            Some(&icu.trimmed_data_archive),
+        ),
+        (
+            "full ICU data archive",
+            layout.icu_full_data_archive.as_ref(),
+            Some(&icu.full_data_archive),
+        ),
+    ];
+    for (label, selected, claimed) in required {
+        let selected = selected.ok_or_else(|| format!("Linux layout has no {label}"))?;
+        let claimed =
+            claimed.ok_or_else(|| format!("{} has no {label}", receipt_path.display()))?;
+        let relative = relative_install_path(&layout.root, selected)?;
+        if &relative != claimed {
+            return Err(format!(
+                "{} records {label} {}, but hermes-lean-sys selected {}",
+                receipt_path.display(),
+                claimed,
+                relative
+            ));
+        }
+        let recorded = manifest.get(&relative).ok_or_else(|| {
+            format!(
+                "{} does not bind selected {label} {}",
+                receipt_path.display(),
+                relative
+            )
+        })?;
+        let actual = digest_file(selected)?;
+        if recorded != &actual {
+            return Err(format!(
+                "{} records {label} digest {}, but selected archive has {}",
+                receipt_path.display(),
+                recorded,
+                actual
+            ));
+        }
+    }
+
+    let filter = layout
+        .icu_trimmed_filter
+        .as_ref()
+        .ok_or("Linux layout has no trimmed ICU data filter")?;
+    let relative = relative_install_path(&layout.root, filter)?;
+    if relative != icu.trimmed_filter_path {
+        return Err(format!(
+            "{} records trimmed ICU filter {}, but hermes-lean-sys selected {}",
+            receipt_path.display(),
+            icu.trimmed_filter_path,
+            relative
+        ));
+    }
+    let actual = digest_file(filter)?;
+    if actual != icu.trimmed_filter_digest {
+        return Err(format!(
+            "{} records trimmed ICU filter digest {}, but selected filter has {}",
+            receipt_path.display(),
+            icu.trimmed_filter_digest,
+            actual
+        ));
+    }
+    Ok(())
+}
+
+fn relative_install_path(root: &Path, path: &Path) -> Result<String, String> {
+    path.strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .map_err(|_| {
+            format!(
+                "selected Hermes input {} is outside install root {}",
+                path.display(),
+                root.display()
+            )
+        })
+}
+
 fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, String> {
     let receipt_path = layout.root.join("hermes-input-receipt.json");
     if !receipt_path.is_file() {
@@ -777,6 +937,7 @@ fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, 
             compiler_digest: Some(receipt.compiler_digest),
             bytecode_version: Some(receipt.bytecode_version.to_string()),
             archive_digests: Some(archive_digests),
+            icu: receipt.icu,
         }));
     }
     if layout.requires_receipt {
@@ -806,6 +967,7 @@ fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, 
         compiler_digest: receipt.compiler.and_then(|compiler| compiler.digest),
         bytecode_version,
         archive_digests: None,
+        icu: None,
     }))
 }
 
@@ -1655,6 +1817,144 @@ mod internal_tests {
             serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
         )
         .expect("receipt");
+    }
+
+    fn write_linux_v3_fixture(root: &Path) -> (InstallLayout, String) {
+        for directory in ["include", "lib", "bin", "share/icu"] {
+            fs::create_dir_all(root.join(directory)).expect("fixture directory");
+        }
+        let files = [
+            ("lib/libhermesvm_a.a", b"engine".as_slice()),
+            ("lib/libicudata-full.a", b"full data".as_slice()),
+            ("lib/libicudata.a", b"trimmed data".as_slice()),
+            ("lib/libicui18n.a", b"i18n code".as_slice()),
+            ("lib/libicuuc.a", b"unicode code".as_slice()),
+            ("bin/hermesc", b"compiler".as_slice()),
+            ("include/sentinel.h", b"header".as_slice()),
+        ];
+        for (path, bytes) in files {
+            fs::write(root.join(path), bytes).expect("fixture file");
+        }
+        fs::write(
+            root.join("share/icu/filters-root-en.json"),
+            include_bytes!("../../scripts/icu74-filter-root-en.json"),
+        )
+        .expect("pinned filter");
+
+        let digest = |path: &str| digest_file(&root.join(path)).expect("fixture digest");
+        let engine_digest = digest("lib/libhermesvm_a.a");
+        let receipt = serde_json::json!({
+            "schema": receipt_schema::SCHEMA,
+            "upstream": {
+                "artifact": "facebook/hermes",
+                "sourceCommit": receipt_schema::SOURCE_COMMIT,
+                "sourceRef": "hermes-v260318099.0.4",
+                "sourceVersion": "260318099.0.4"
+            },
+            "patchSet": {
+                "digest": receipt_schema::EMPTY_PATCH_SET,
+                "applied": []
+            },
+            "target": "aarch64-unknown-linux-gnu",
+            "profile": "release",
+            "build": { "flags": [
+                "-DHERMES_ENABLE_INTL=false",
+                "-DHERMES_UNICODE_LITE=false"
+            ] },
+            "bytecode": { "version": 99 },
+            "compiler": {
+                "binary": "bin/hermesc",
+                "digest": digest("bin/hermesc")
+            },
+            "engine": {
+                "binary": "lib/libhermesvm_a.a",
+                "binaryDigest": engine_digest,
+                "variant": "release"
+            },
+            "archives": [
+                { "path": "lib/libhermesvm_a.a", "digest": digest("lib/libhermesvm_a.a") },
+                { "path": "lib/libicudata-full.a", "digest": digest("lib/libicudata-full.a") },
+                { "path": "lib/libicudata.a", "digest": digest("lib/libicudata.a") },
+                { "path": "lib/libicui18n.a", "digest": digest("lib/libicui18n.a") },
+                { "path": "lib/libicuuc.a", "digest": digest("lib/libicuuc.a") }
+            ],
+            "headers": [
+                { "path": "include/sentinel.h", "digest": digest("include/sentinel.h") }
+            ],
+            "icu": {
+                "upstream": {
+                    "artifact": "unicode-org/icu",
+                    "sourceCommit": receipt_schema::ICU_SOURCE_COMMIT,
+                    "sourceRef": "release-74-2",
+                    "sourceVersion": "74.2"
+                },
+                "codeArchives": ["lib/libicui18n.a", "lib/libicuuc.a"],
+                "data": {
+                    "trimmed": {
+                        "archive": "lib/libicudata.a",
+                        "filter": {
+                            "path": "share/icu/filters-root-en.json",
+                            "digest": receipt_schema::ICU_TRIMMED_FILTER_DIGEST
+                        }
+                    },
+                    "full": { "archive": "lib/libicudata-full.a" }
+                }
+            },
+            "linkDirectives": [
+                "rustc-link-search=native=lib",
+                "rustc-link-lib=static=hermesvm_a",
+                "rustc-link-lib=static=icui18n",
+                "rustc-link-lib=static=icuuc",
+                "rustc-link-lib=static=icudata"
+            ]
+        });
+        fs::write(
+            root.join("hermes-input-receipt.json"),
+            serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
+        )
+        .expect("receipt");
+        (
+            install_layout(
+                root.to_path_buf(),
+                "aarch64-unknown-linux-gnu",
+                InstallOrigin::Bundle,
+            ),
+            engine_digest,
+        )
+    }
+
+    #[test]
+    fn linux_layout_and_receipt_require_and_authenticate_both_icu_data_variants() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let (layout, engine_digest) = write_linux_v3_fixture(temporary.path());
+        validate_layout(&layout, false).expect("complete Linux layout");
+        validate_receipt(
+            &layout,
+            &temporary.path().join("bin/hermesc"),
+            true,
+            &engine_digest,
+            "99",
+        )
+        .expect("receipt authenticates both ICU data variants");
+
+        fs::write(
+            temporary.path().join("lib/libicudata-full.a"),
+            b"tampered full data",
+        )
+        .expect("tamper full data");
+        let error = validate_receipt(
+            &layout,
+            &temporary.path().join("bin/hermesc"),
+            true,
+            &engine_digest,
+            "99",
+        )
+        .expect_err("tampered full data is refused even when trimmed is selected");
+        assert!(error.contains("full ICU data archive digest"), "{error}");
+
+        fs::remove_file(temporary.path().join("lib/libicudata-full.a")).expect("remove full data");
+        let error = validate_layout(&layout, false).expect_err("both data variants are required");
+        assert!(error.contains("full ICU data archive"), "{error}");
     }
 
     #[test]

@@ -8,6 +8,7 @@ use std::path::Path;
 const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
 const LINUX_ICU_DATA: &str = "icudata";
+const LINUX_ICU_FULL_DATA: &str = "icudata-full";
 
 fn main() {
     for name in [
@@ -34,6 +35,7 @@ fn main() {
     let links_full_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
     let links_lean_runtime = std::env::var_os("CARGO_FEATURE_LINK_LEAN").is_some();
     let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
+    let links_full_icu_data = std::env::var_os("CARGO_FEATURE_ICU_FULL_DATA").is_some();
 
     // @ref LLP 0057.000#l1--the-bindings-door — R-e permits exactly one
     // linked archive identity in a process.
@@ -54,6 +56,14 @@ fn main() {
         digest_file(lean_vm_archive)
             .unwrap_or_else(|error| panic!("cannot hash selected lean Hermes engine: {error}"))
     });
+    let icu_data_digest = install.icu_data_archive.as_ref().map(|archive| {
+        digest_file(archive)
+            .unwrap_or_else(|error| panic!("cannot hash trimmed ICU data archive: {error}"))
+    });
+    let icu_full_data_digest = install.icu_full_data_archive.as_ref().map(|archive| {
+        digest_file(archive)
+            .unwrap_or_else(|error| panic!("cannot hash full ICU data archive: {error}"))
+    });
     let bytecode_version = hermesc_bytecode_version(&install.hermesc)
         .unwrap_or_else(|error| panic!("cannot inspect selected Hermes compiler: {error}"));
     metadata("include_dir", &install.include_dir.display().to_string());
@@ -70,6 +80,24 @@ fn main() {
     }
     metadata("bytecode_version", &bytecode_version);
     metadata("engine_dir", &install.root.display().to_string());
+    if let (Some(archive), Some(digest)) = (&install.icu_data_archive, &icu_data_digest) {
+        metadata("icu_data_archive", &archive.display().to_string());
+        metadata("icu_data_digest", digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_ICU_DATA_ARCHIVE={}",
+            archive.display()
+        );
+        println!("cargo:rustc-env=HERMES_LEAN_ICU_DATA_DIGEST={digest}");
+    }
+    if let (Some(archive), Some(digest)) = (&install.icu_full_data_archive, &icu_full_data_digest) {
+        metadata("icu_full_data_archive", &archive.display().to_string());
+        metadata("icu_full_data_digest", digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_ICU_FULL_DATA_ARCHIVE={}",
+            archive.display()
+        );
+        println!("cargo:rustc-env=HERMES_LEAN_ICU_FULL_DATA_DIGEST={digest}");
+    }
     println!("cargo:rustc-env=HERMES_LEAN_ENGINE_DIGEST={engine_digest}");
     println!(
         "cargo:rustc-env=HERMES_LEAN_ARCHIVE={}",
@@ -117,7 +145,40 @@ fn main() {
         emit_link_lines(&target_os, &target_vendor, &install.lib_root, archive);
     }
     if links_icu && target_os == "linux" {
-        emit_linux_icu_link_lines(&install.lib_root);
+        // @ref LLP 0057.000#l1--the-bindings-door — the ICU-data identity is
+        // separate from the VM identity so R-e names the exact selected data
+        // archive while the common ICU code remains receipt-bound.
+        let (archive, digest, library) = if links_full_icu_data {
+            (
+                install
+                    .icu_full_data_archive
+                    .as_ref()
+                    .expect("Linux install has full ICU data"),
+                icu_full_data_digest
+                    .as_deref()
+                    .expect("Linux install has a full ICU data digest"),
+                LINUX_ICU_FULL_DATA,
+            )
+        } else {
+            (
+                install
+                    .icu_data_archive
+                    .as_ref()
+                    .expect("Linux install has trimmed ICU data"),
+                icu_data_digest
+                    .as_deref()
+                    .expect("Linux install has a trimmed ICU data digest"),
+                LINUX_ICU_DATA,
+            )
+        };
+        metadata("linked_icu_data_archive", &archive.display().to_string());
+        metadata("linked_icu_data_digest", digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE={}",
+            archive.display()
+        );
+        println!("cargo:rustc-env=HERMES_LEAN_LINKED_ICU_DATA_DIGEST={digest}");
+        emit_linux_icu_link_lines(&install.lib_root, library);
     }
 }
 
@@ -147,7 +208,8 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_arc
         println!("cargo:rustc-link-lib=psapi");
         println!("cargo:rustc-link-lib=winmm");
     } else {
-        // ICU comes from the `icu` feature, which both VM link features imply.
+        // ICU comes from the `icu` feature selected by either Linux VM link
+        // feature. Full Intl support independently swaps the data archive.
         println!("cargo:rustc-link-lib=static=tinfo");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=dl");
@@ -156,9 +218,9 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_arc
     }
 }
 
-fn emit_linux_icu_link_lines(lib_root: &Path) {
+fn emit_linux_icu_link_lines(lib_root: &Path, data_library: &str) {
     println!("cargo:rustc-link-search=native={}", lib_root.display());
     println!("cargo:rustc-link-lib=static={LINUX_ICU_I18N}");
     println!("cargo:rustc-link-lib=static={LINUX_ICU_UC}");
-    println!("cargo:rustc-link-lib=static={LINUX_ICU_DATA}");
+    println!("cargo:rustc-link-lib=static={data_library}");
 }

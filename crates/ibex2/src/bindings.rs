@@ -33,6 +33,12 @@ pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
 /// install has a receipt, its archive manifest is always checked before this
 /// identity is exported; an unbound lean archive fails the build.
 pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_ENGINE_DIGEST");
+/// Linux ICU data archive expected by this bindings feature context: trimmed
+/// by default, or full when `intl` is enabled.
+pub const ICU_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_DATA_ARCHIVE");
+/// Digest of [`ICU_DATA_ARCHIVE`]. This lets a resolver-v2 build compare the
+/// bindings context with the owning runtime's independently linked context.
+pub const ICU_DATA_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_ICU_DATA_DIGEST");
 /// HBC version for the full VM selected to compile binding bytecode.
 pub const BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_BYTECODE_VERSION");
 /// HBC version for the lean VM, or `None` when the selected install has no
@@ -88,19 +94,20 @@ impl Groups {
             | Self::WEBSOCKET.0,
     );
 
-    /// The groups Ibex's runtime installs today.
-    #[cfg(target_os = "linux")]
+    /// Every group linked into this build. Linux Intl exists only when its
+    /// over-budget Cargo feature is selected.
+    #[cfg(all(target_os = "linux", feature = "intl"))]
     pub const ALL: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
-    /// The groups Ibex's runtime installs today.
-    #[cfg(not(target_os = "linux"))]
+    /// Every group linked into this build.
+    #[cfg(not(all(target_os = "linux", feature = "intl")))]
     pub const ALL: Self = Self::PORTABLE_ALL;
 
     /// The ordinary runtime profile. BLOB and WEBSOCKET stay within LLP
     /// 0057.000 D5's 150 KB / 150 µs budget and are installed by default.
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "intl"))]
     pub const DEFAULT: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
-    /// The ordinary runtime profile. See the Linux definition above.
-    #[cfg(not(target_os = "linux"))]
+    /// The ordinary runtime profile. Intl is opt-in under LLP 0057.000 D5/D6.
+    #[cfg(not(all(target_os = "linux", feature = "intl")))]
     pub const DEFAULT: Self = Self::PORTABLE_ALL;
 
     pub const fn empty() -> Self {
@@ -149,7 +156,7 @@ impl Groups {
                 });
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(all(target_os = "linux", feature = "intl")))]
         if self.contains(Self::INTL) {
             return Err(GroupError {
                 group: Self::INTL,
@@ -225,6 +232,12 @@ pub struct GroupError {
 
 impl fmt::Display for GroupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.group == Groups::INTL && self.missing == Groups::INTL {
+            return write!(
+                f,
+                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux"
+            );
+        }
         write!(
             f,
             "binding group {:?} requires missing group(s) {:?}",
@@ -275,18 +288,18 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
         "fetch" => concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/fetch.js"),
         "blob" => concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/blob.js"),
         "sqlite" => SQLITE_SOURCE,
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_number_format" => {
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/src/bindings/intl_number_format.js"
             )
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_case" => {
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/intl_case.js")
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_datetime" => {
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/intl_datetime.js")
         }
@@ -320,7 +333,7 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
     if groups.contains(Groups::WEBSOCKET) {
         push("websocket");
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "intl"))]
     if groups.contains(Groups::INTL) {
         push("intl_number_format");
         push("intl_case");
@@ -370,13 +383,13 @@ fn compiled_script(name: &str) -> &'static [u8] {
         }
         "fetch" => include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
         "sqlite" => include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_number_format" => {
             include_bytes!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_case" => include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         "intl_datetime" => {
             include_bytes!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"))
         }
@@ -650,9 +663,24 @@ mod tests {
             "blob",
             "websocket",
         ];
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "intl"))]
         expected.extend(["intl_number_format", "intl_case", "intl_datetime"]);
         expected.extend(["fetch", "sqlite", "structured_clone"]);
         assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn intl_group_tracks_the_cargo_feature() {
+        let available = cfg!(all(target_os = "linux", feature = "intl"));
+        assert_eq!(Groups::DEFAULT.contains(Groups::INTL), available);
+        assert_eq!(Groups::ALL.contains(Groups::INTL), available);
+        let result = Groups::INTL.validate();
+        assert_eq!(result.is_ok(), available);
+        if !available {
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux"
+            );
+        }
     }
 }

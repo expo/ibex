@@ -14,7 +14,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import {
-  appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
+  appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync,
+  writeFileSync,
 } from 'node:fs';
 import { cpus, hostname, loadavg, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -30,6 +31,17 @@ const budget = (label) =>
 const budgetMs = (label) => Number.parseFloat(budget(label));
 const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', ...opts });
 const fail = (what, r) => { console.error(`${what} failed:\n${r.stderr ?? ''}`); process.exit(1); };
+const strippedSize = (path) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ibex2-stripped-size-'));
+  const copy = join(dir, 'binary');
+  try {
+    copyFileSync(path, copy);
+    const stripped = run('strip', [copy]);
+    return stripped.status === 0 ? statSync(copy).size : undefined;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
 
 const out = {
   date: `${new Date().toISOString().slice(0, 19)}Z`,
@@ -98,6 +110,21 @@ step('size', () => {
   out.binary_bytes = statSync(BIN).size;
   const runOnly = run('cargo', ['build', '-q', '--release', '--no-default-features', '-p', 'ibex2-runtime', '--bin', 'ibex2', '--target-dir', 'target/run-only']);
   if (runOnly.status === 0) out.binary_run_only_bytes = statSync(resolve(ROOT, `target/run-only/release/ibex2${exe}`)).size;
+  if (process.platform === 'linux' && runOnly.status === 0) {
+    const runOnlyPath = resolve(ROOT, `target/run-only/release/ibex2${exe}`);
+    const runOnlyIntl = run('cargo', [
+      'build', '-q', '--release', '--no-default-features', '--features', 'intl',
+      '-p', 'ibex2-runtime', '--bin', 'ibex2', '--target-dir', 'target/run-only-intl',
+    ]);
+    if (runOnlyIntl.status === 0) {
+      const runOnlyIntlPath = resolve(ROOT, `target/run-only-intl/release/ibex2${exe}`);
+      out.binary_run_only_intl_bytes = statSync(runOnlyIntlPath).size;
+      out.binary_run_only_stripped_bytes = strippedSize(runOnlyPath);
+      out.binary_run_only_intl_stripped_bytes = strippedSize(runOnlyIntlPath);
+      out.intl_binary_delta_bytes =
+        out.binary_run_only_intl_stripped_bytes - out.binary_run_only_stripped_bytes;
+    }
+  }
   const bindingsDir = resolve(ROOT, 'crates/ibex2/src/bindings');
   out.bindings_js_bytes = readdirSync(bindingsDir)
     .filter((f) => f.endsWith('.js') && f !== 'testharness.js')
@@ -147,6 +174,10 @@ const rows = [
   ['BLOB install group', us(out.blob_floor_us),
     `floor delta · ${kib(out.blob_bytecode_bytes / 1024)} bytecode (budgets 50 µs / 150 KiB: ${out.blob_floor_us <= 50 && out.blob_bytecode_bytes <= 150 * 1024 ? 'ok' : 'OVER'})`],
   ['binary', kib(out.binary_bytes / 1024), `run-only ${kib(out.binary_run_only_bytes / 1024)} · runtime ${out.runtime_lines} lines · JS bindings ${kib(out.bindings_js_bytes / 1024)}`],
+  ...(process.platform === 'linux' ? [[
+    'Intl Cargo feature', kib(out.intl_binary_delta_bytes / 1024),
+    `stripped run-only delta · feature-on ${kib(out.binary_run_only_intl_stripped_bytes / 1024)} (budget 150 KiB: ${out.intl_binary_delta_bytes <= 150 * 1024 ? 'ok' : 'OVER'})`,
+  ]] : []),
 ];
 console.log(`ibex2 metrics — ${out.date}, ${out.commit}, warm build, medians (min where noise matters), load ${out.load1} on ${out.cores} cores${loaded ? ' — LOADED: do not read these as a trend' : ''}`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);

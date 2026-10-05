@@ -50,6 +50,7 @@ cc = "1"
 default = ["loader", "crypto", "websocket"]
 crypto = ["ibex2/crypto"]
 crypto-asymmetric = ["crypto", "ibex2/crypto-asymmetric"]
+intl = ["ibex2/intl"]
 loader = [
     "dep:oxc_allocator",
     "dep:oxc_ast",

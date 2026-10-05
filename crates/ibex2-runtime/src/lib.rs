@@ -24,6 +24,14 @@ pub const LINKED_ENGINE_DIGEST: &str = env!("IBEX2_LINKED_ENGINE_DIGEST");
 /// Archive whose link lines `hermes-lean-sys` emitted for this runtime.
 pub const LINKED_ENGINE_ARCHIVE: &str = env!("IBEX2_LINKED_ENGINE_ARCHIVE");
 
+/// Linux ICU data archive linked beside [`LINKED_ENGINE_ARCHIVE`]. This is
+/// trimmed root+en by default and full only under the `intl` feature.
+pub const LINKED_ICU_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_LINKED_ICU_DATA_ARCHIVE");
+
+/// Digest of [`LINKED_ICU_DATA_ARCHIVE`], the data-variant half of the linked
+/// engine identity on Linux.
+pub const LINKED_ICU_DATA_DIGEST: Option<&str> = option_env!("IBEX2_LINKED_ICU_DATA_DIGEST");
+
 /// HBC format shared by the selected target engine and supplying compiler.
 pub const LINKED_BYTECODE_VERSION: &str = env!("IBEX2_LINKED_BYTECODE_VERSION");
 
