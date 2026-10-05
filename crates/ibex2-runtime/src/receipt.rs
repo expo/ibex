@@ -36,6 +36,7 @@ pub struct HermesInput {
     pub patch_set_digest: String,
     pub patches_applied: usize,
     pub compiler_digest: Option<String>,
+    pub bytecode_version: Option<u64>,
 }
 
 impl HermesInput {
@@ -94,6 +95,11 @@ impl HermesInput {
                 "receipt compiler has no digest",
             )?),
         };
+        let bytecode_version = root
+            .get("bytecode")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|bytecode| bytecode.get("version"))
+            .and_then(serde_json::Value::as_u64);
 
         if schema == HERMES_INPUT_SCHEMA {
             validate_v2(
@@ -111,6 +117,7 @@ impl HermesInput {
             patch_set_digest,
             patches_applied: applied.len(),
             compiler_digest,
+            bytecode_version,
         })
     }
 
@@ -398,6 +405,7 @@ mod tests {
         assert_eq!(receipt.patches_applied, 0);
         assert!(receipt.is_vanilla());
         assert_eq!(receipt.compiler_digest.as_deref(), Some("sha256-def"));
+        assert_eq!(receipt.bytecode_version, Some(99));
     }
 
     #[test]
@@ -408,6 +416,7 @@ mod tests {
         assert_eq!(receipt.variant, "release");
         assert!(receipt.is_vanilla());
         assert_eq!(receipt.compiler_digest.as_deref(), Some("sha256-def"));
+        assert_eq!(receipt.bytecode_version, None);
     }
 
     #[test]
@@ -500,6 +509,7 @@ mod tests {
             patch_set_digest: CANONICAL_EMPTY_PATCH_SET.into(),
             patches_applied: 0,
             compiler_digest: Some("sha256-compiler".into()),
+            bytecode_version: Some(99),
         };
         receipt
             .verify_binary(&engine)

@@ -199,7 +199,7 @@ pub(crate) fn resolve_engine_directory(
     };
 
     validate_layout(&target_layout)?;
-    let hermesc = if target != host {
+    let (hermesc, bytecode_version) = if target != host {
         let host_pin = pin_for_target(host).map_err(|_| {
             format!(
                 "unsupported Hermes compiler host {host}; set HERMES_LEAN_SYS_DIR cannot replace the required pinned host compiler bundle for cross compilation"
@@ -210,13 +210,15 @@ pub(crate) fn resolve_engine_directory(
         let host_layout = install_layout(host_root, host, InstallOrigin::Bundle);
         validate_layout(&host_layout)?;
         let compiler = compiler_in_bundle_or_install(&host_layout.root, host);
-        validate_compiler_bundle(&host_layout, &compiler)?;
-        compiler
+        let version = validate_compiler_bundle(&host_layout, &compiler)?;
+        (compiler, version)
     } else if target_layout.origin == InstallOrigin::Repository {
-        repository_hermesc(repo_root, host)?
+        let compiler = repository_hermesc(repo_root, host)?;
+        let version = hermesc_bytecode_version(&compiler)?;
+        (compiler, version)
     } else {
         let local = compiler_in_bundle_or_install(&target_layout.root, host);
-        if local.is_file() || target_layout.origin != InstallOrigin::Override {
+        let compiler = if local.is_file() || target_layout.origin != InstallOrigin::Override {
             local
         } else if repository_install_root(repo_root, target)
             .as_deref()
@@ -225,7 +227,9 @@ pub(crate) fn resolve_engine_directory(
             repository_hermesc(repo_root, host)?
         } else {
             local
-        }
+        };
+        let version = hermesc_bytecode_version(&compiler)?;
+        (compiler, version)
     };
 
     if !hermesc.is_file() {
@@ -235,8 +239,13 @@ pub(crate) fn resolve_engine_directory(
         ));
     }
     let engine_digest = digest_file(&target_layout.vm_archive)?;
-    let bytecode_version = hermesc_bytecode_version(&hermesc)?;
-    validate_receipt(&target_layout, &hermesc, &engine_digest, &bytecode_version)?;
+    validate_receipt(
+        &target_layout,
+        &hermesc,
+        target == host,
+        &engine_digest,
+        &bytecode_version,
+    )?;
 
     Ok(EngineInstall {
         root: target_layout.root,
@@ -357,18 +366,20 @@ fn validate_layout(layout: &InstallLayout) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<(), String> {
+fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<String, String> {
     if !compiler.is_file() {
         return Err(format!("hermesc not found at {}", compiler.display()));
     }
     let engine_digest = digest_file(&layout.vm_archive)?;
     let bytecode_version = hermesc_bytecode_version(compiler)?;
-    validate_receipt(layout, compiler, &engine_digest, &bytecode_version)
+    validate_receipt(layout, compiler, true, &engine_digest, &bytecode_version)?;
+    Ok(bytecode_version)
 }
 
 fn validate_receipt(
     layout: &InstallLayout,
     compiler: &Path,
+    validate_compiler_digest: bool,
     engine_digest: &str,
     bytecode_version: &str,
 ) -> Result<(), String> {
@@ -423,16 +434,18 @@ fn validate_receipt(
             engine_digest
         ));
     }
-    if let Some(compiler_digest) = receipt.compiler.and_then(|compiler| compiler.digest) {
-        let selected_compiler_digest = digest_file(compiler)?;
-        if compiler_digest != selected_compiler_digest {
-            return Err(format!(
-                "{} records compiler digest {}, but selected hermesc {} has {}; the receipt describes a different compiler than this build uses",
-                receipt_path.display(),
-                compiler_digest,
-                compiler.display(),
-                selected_compiler_digest
-            ));
+    if validate_compiler_digest {
+        if let Some(compiler_digest) = receipt.compiler.and_then(|compiler| compiler.digest) {
+            let selected_compiler_digest = digest_file(compiler)?;
+            if compiler_digest != selected_compiler_digest {
+                return Err(format!(
+                    "{} records compiler digest {}, but selected hermesc {} has {}; the receipt describes a different compiler than this build uses",
+                    receipt_path.display(),
+                    compiler_digest,
+                    compiler.display(),
+                    selected_compiler_digest
+                ));
+            }
         }
     }
     if let Some(receipt_bytecode) = receipt.bytecode {
@@ -764,8 +777,14 @@ mod internal_tests {
             InstallOrigin::Override,
         );
 
-        let error = validate_receipt(&layout, &root.join("bin/hermesc"), "sha256-unused", "96")
-            .expect_err("published layout without a receipt must fail");
+        let error = validate_receipt(
+            &layout,
+            &root.join("bin/hermesc"),
+            true,
+            "sha256-unused",
+            "96",
+        )
+        .expect_err("published layout without a receipt must fail");
         assert!(error.contains("missing"), "{error}");
     }
 
@@ -793,8 +812,14 @@ mod internal_tests {
             InstallOrigin::Bundle,
         );
 
-        let error = validate_receipt(&layout, &root.join("bin/hermesc"), &engine_digest, "96")
-            .expect_err("compiler mismatch must fail");
+        let error = validate_receipt(
+            &layout,
+            &root.join("bin/hermesc"),
+            true,
+            &engine_digest,
+            "96",
+        )
+        .expect_err("compiler mismatch must fail");
         assert!(error.contains("different compiler"), "{error}");
     }
 
@@ -819,8 +844,95 @@ mod internal_tests {
             InstallOrigin::Bundle,
         );
 
-        let error = validate_receipt(&layout, &root.join("bin/hermesc"), &engine_digest, "96")
-            .expect_err("decoy archive must fail");
+        let error = validate_receipt(
+            &layout,
+            &root.join("bin/hermesc"),
+            true,
+            &engine_digest,
+            "96",
+        )
+        .expect_err("decoy archive must fail");
         assert!(error.contains("selected"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cross_bundle_pairing_uses_the_host_compiler_receipt_and_hbc_version() {
+        use std::os::unix::fs::PermissionsExt;
+
+        fn bundle(root: &Path, compiler: &[u8], version: u64) -> (InstallLayout, PathBuf) {
+            fs::create_dir_all(root.join("include")).expect("include directory");
+            fs::create_dir_all(root.join("lib")).expect("library directory");
+            fs::create_dir_all(root.join("bin")).expect("compiler directory");
+            fs::write(
+                root.join("lib/libhermesvm_a.a"),
+                root.as_os_str().as_encoded_bytes(),
+            )
+            .expect("engine archive");
+            let compiler_path = root.join("bin/hermesc");
+            fs::write(&compiler_path, compiler).expect("compiler");
+            let mut permissions = fs::metadata(&compiler_path)
+                .expect("metadata")
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&compiler_path, permissions).expect("executable compiler");
+            let engine_digest =
+                digest_file(&root.join("lib/libhermesvm_a.a")).expect("engine digest");
+            let compiler_digest = digest_file(&compiler_path).expect("compiler digest");
+            fs::write(
+                root.join("hermes-input-receipt.json"),
+                format!(
+                    r#"{{"schema":"ibex/hermes-upstream-pinned-receipt/2","engine":{{"binary":"lib/libhermesvm_a.a","binaryDigest":"{engine_digest}"}},"compiler":{{"digest":"{compiler_digest}"}},"bytecode":{{"version":{version}}}}}"#
+                ),
+            )
+            .expect("receipt");
+            (
+                install_layout(
+                    root.to_path_buf(),
+                    "aarch64-apple-darwin",
+                    InstallOrigin::Bundle,
+                ),
+                compiler_path,
+            )
+        }
+
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let target_script = b"#!/bin/sh\necho 'HBC bytecode version: 96'\n# target compiler\n";
+        let host_script =
+            b"#!/bin/sh\necho 'HBC bytecode version: 96'\n# different host compiler\n";
+        let (target, _) = bundle(&temporary.path().join("target"), target_script, 96);
+        let (host, host_compiler) = bundle(&temporary.path().join("host"), host_script, 96);
+
+        let host_version = validate_compiler_bundle(&host, &host_compiler)
+            .expect("host compiler is authenticated by the host receipt");
+        assert_ne!(
+            digest_file(&temporary.path().join("target/bin/hermesc")).unwrap(),
+            digest_file(&host_compiler).unwrap(),
+            "fixture compiler digests must differ"
+        );
+        let target_engine_digest = digest_file(&target.vm_archive).expect("target engine digest");
+        validate_receipt(
+            &target,
+            &host_compiler,
+            false,
+            &target_engine_digest,
+            &host_version,
+        )
+        .expect("matching HBC versions permit a cross-bundle pairing");
+
+        let mismatched = fs::read_to_string(target.root.join("hermes-input-receipt.json"))
+            .expect("target receipt")
+            .replace(r#""version":96"#, r#""version":97"#);
+        fs::write(target.root.join("hermes-input-receipt.json"), mismatched)
+            .expect("mismatched target receipt");
+        let error = validate_receipt(
+            &target,
+            &host_compiler,
+            false,
+            &target_engine_digest,
+            &host_version,
+        )
+        .expect_err("different HBC versions must fail");
+        assert!(error.contains("HBC bytecode version"), "{error}");
     }
 }
