@@ -5,8 +5,8 @@ mod build_support;
 // @ref LLP 0057.000#l1--the-bindings-door — L1h keeps acquisition outside
 // offline consumer builds while sharing the resolver's trust implementation.
 use build_support::{
-    acquire_bundle, download_options_from_env, pin_for_target, validate_host_bundle,
-    validate_target_bundle, BundlePin, INSTALL_COMMAND,
+    acquire_bundle, download_options_from_env, installer_command, pin_for_target,
+    validate_host_bundle, validate_target_bundle, BundlePin, IBEX_PIN_REVISION,
 };
 use std::collections::BTreeSet;
 use std::env;
@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::process::Command;
 
 const USAGE: &str = "Install the pinned Hermes release bundles into Cargo's verified cache.\n\n\
-Usage:\n  cargo run -p hermes-lean-sys-installer -- [--target <rust-triple>]...\n\n\
+Usage:\n  hermes-lean-sys-installer [--target <rust-triple>]...\n\n\
 The host bundle is always installed. Each --target adds a cross-compilation\n\
 target; its host bundle supplies the executable hermesc.";
 
@@ -40,10 +40,12 @@ fn run(arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
     let mut targets = BTreeSet::from([host.clone()]);
     targets.extend(requested);
 
-    let options = download_options_from_env()?;
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let options = download_options_from_env(manifest_dir)?;
     if options.offline {
         return Err(format!(
-            "offline mode is enabled; run `{INSTALL_COMMAND}` from an online environment so the explicit install step may download missing bundles"
+            "offline mode is enabled; this installer uses the Hermes pins from Ibex revision {IBEX_PIN_REVISION}; run `{}` from an online environment so the explicit install step may download missing bundles",
+            installer_command(&options),
         ));
     }
 

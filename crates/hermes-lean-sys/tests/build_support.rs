@@ -3,9 +3,9 @@
 mod build_support;
 
 use build_support::{
-    acquire_bundle, download_options_from_env, parse_pin_sha256, pin_for_target,
+    acquire_bundle, download_options_from_env, installer_command, parse_pin_sha256, pin_for_target,
     repository_install_root, rerun_paths, verify_and_extract_archive, watched_inputs, BundlePin,
-    DownloadOptions, EngineInstall, RELEASE_TAG,
+    DownloadOptions, EngineInstall, IBEX_PIN_REVISION, RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -251,13 +251,26 @@ fn offline_empty_cache_fails_with_recovery_instructions() {
         cache_root: temporary.path().join("cache"),
         release_base_url: "http://127.0.0.1:1".to_owned(),
         offline: true,
+        installer_manifest: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates directory")
+            .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
     let error = acquire_bundle(&pin, &options).expect_err("empty offline cache");
     assert!(error.contains("offline mode is enabled"), "{error}");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
     assert!(
-        error.contains("cargo run -p hermes-lean-sys-installer -- --target test-target"),
+        error.contains(&format!(
+            "Ibex revision {IBEX_PIN_REVISION} pins {RELEASE_TAG}/{ASSET} at sha256-{digest}"
+        )),
+        "{error}"
+    );
+    assert!(
+        error.contains(&format!(
+            "{} --target test-target",
+            installer_command(&options)
+        )),
         "{error}"
     );
 }
@@ -285,6 +298,10 @@ fn warm_cache_is_reverified_against_its_retained_archive() {
         cache_root: temporary.path().join("cache"),
         release_base_url: "http://127.0.0.1:1".to_owned(),
         offline: true,
+        installer_manifest: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates directory")
+            .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
     let reused = acquire_bundle(&pin, &options).expect("matching cache entry");
@@ -332,6 +349,10 @@ fn warm_cache_with_a_non_executable_compiler_is_stale() {
         cache_root: temporary.path().join("cache"),
         release_base_url: "http://127.0.0.1:1".to_owned(),
         offline: true,
+        installer_manifest: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates directory")
+            .join("hermes-lean-sys-installer/Cargo.toml"),
     };
     acquire_bundle(&pin, &options).expect("executable compiler admitted");
 
@@ -416,7 +437,8 @@ fn local_http_mirror_bundle_is_verified_and_cached() {
     });
 
     let _mirror = EnvGuard::set("HERMES_LEAN_SYS_MIRROR", &format!("http://{address}"));
-    let mut options = download_options_from_env().expect("environment options");
+    let mut options = download_options_from_env(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .expect("environment options");
     options.cache_root = temporary.path().join("cache");
     options.offline = false;
     let pin = BundlePin {
@@ -471,6 +493,10 @@ fn symlinked_cache_entry_is_rejected_before_use() {
         cache_root: temporary.path().join("cache"),
         release_base_url: "http://127.0.0.1:1".to_owned(),
         offline: true,
+        installer_manifest: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates directory")
+            .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
     let error = acquire_bundle(&pin, &options).expect_err("symlinked cache entry");
@@ -497,6 +523,10 @@ fn non_directory_cache_entry_is_rejected_before_use() {
         cache_root: temporary.path().join("cache"),
         release_base_url: "http://127.0.0.1:1".to_owned(),
         offline: true,
+        installer_manifest: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates directory")
+            .join("hermes-lean-sys-installer/Cargo.toml"),
     };
 
     let error = acquire_bundle(&pin, &options).expect_err("non-directory cache entry");

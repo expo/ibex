@@ -324,14 +324,21 @@ Two consumption modes are supported:
    release bundle is downloaded, verified, and cached by
    `hermes-lean-sys`'s build script.
 2. **Install once, then build offline.** Run the explicit installer while
-   online, then make network access a refusing build invariant:
+   online, then make network access a refusing build invariant. Use the
+   installer manifest from the same Ibex source revision as
+   `hermes-lean-sys`. The build's recovery error prints its absolute path, so
+   this works from a consumer repository whether Ibex is a Cargo Git checkout
+   or a vendored/path dependency. The current pin set is identified by Ibex
+   revision `14ab3b2676a426c188654e0780c502bb6c2e5a3e`:
 
    ```sh
    # Installs the host bundle.
-   cargo run -p hermes-lean-sys-installer --
+   cargo run --manifest-path \
+     ../ibex/crates/hermes-lean-sys-installer/Cargo.toml --
 
    # Installs the host bundle plus every named cross target.
-   cargo run -p hermes-lean-sys-installer -- \
+   cargo run --manifest-path \
+     ../ibex/crates/hermes-lean-sys-installer/Cargo.toml -- \
      --target aarch64-apple-ios \
      --target aarch64-apple-ios-sim
 
@@ -367,7 +374,9 @@ The installer uses the same variable, for example:
 
 ```sh
 HERMES_LEAN_SYS_MIRROR=https://mirror.example/hermes \
-  cargo run -p hermes-lean-sys-installer -- --target aarch64-apple-ios
+  cargo run --manifest-path \
+    ../ibex/crates/hermes-lean-sys-installer/Cargo.toml -- \
+    --target aarch64-apple-ios
 ```
 
 For exact2 and other consumers whose policy forbids build-script downloads,
@@ -379,13 +388,24 @@ install the bundles first and check this into the consumer's
 HERMES_LEAN_SYS_OFFLINE = { value = "1", force = true }
 ```
 
+Before enabling that entry, run the exact manifest-path command from an
+offline cache-miss error while online. It points into the Cargo Git checkout or
+vendored Ibex copy that supplied `hermes-lean-sys` and reports the compiled-in
+Ibex pin-set revision, release tag, asset, and SHA-256. For example, a vendored
+copy at `../vendor/ibex` is installed from any consumer directory with:
+
+```sh
+cargo run --manifest-path \
+  ../vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- \
+  --target aarch64-apple-ios
+```
+
 This `[env]` entry is the recommended `hermes-lean-sys` control: it reaches
 the build script and cannot be silently overridden by a caller's ambient
 environment. Cargo's separate `[net] offline = true` setting controls registry
 and Git dependency access but does not itself promise to export
 `CARGO_NET_OFFLINE` to build scripts. A repository that wants both guarantees
-should configure both. Run the installer from an online Ibex checkout before
-enabling the consumer's forced offline environment.
+should configure both.
 
 For cross compilation, `hermesc` comes from the pinned host bundle while the
 headers and archives come from the target bundle. Its reported HBC bytecode

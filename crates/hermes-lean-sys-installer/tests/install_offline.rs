@@ -17,6 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
+const IBEX_PIN_REVISION: &str = "14ab3b2676a426c188654e0780c502bb6c2e5a3e";
 
 #[test]
 fn install_once_then_build_offline_and_report_an_actionable_miss() {
@@ -36,21 +37,15 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
         .ancestors()
         .nth(2)
         .expect("installer lives below the repository root");
+    let installer_manifest = repository.join("crates/hermes-lean-sys-installer/Cargo.toml");
+    let outside_workspace = temporary.path().join("consumer");
+    fs::create_dir(&outside_workspace).expect("consumer directory");
     let tool_target = temporary.path().join("tool-target");
     let install = Command::new(cargo())
-        .args([
-            "run",
-            "--offline",
-            "--locked",
-            "-p",
-            "hermes-lean-sys-installer",
-            "--",
-            "--test-pin",
-            &host,
-            &asset,
-            &archive_digest,
-        ])
-        .current_dir(repository)
+        .args(["run", "--offline", "--locked", "--manifest-path"])
+        .arg(&installer_manifest)
+        .args(["--", "--test-pin", &host, &asset, &archive_digest])
+        .current_dir(&outside_workspace)
         .env("CARGO_HOME", &cargo_home)
         .env("CARGO_TARGET_DIR", &tool_target)
         .env("HERMES_LEAN_SYS_MIRROR", &mirror)
@@ -60,6 +55,20 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
         .expect("run installer through Cargo");
     mirror_server.join().expect("mirror server");
     assert_success("installer", &install);
+
+    let printed_command = format!(
+        "cargo run --manifest-path {:?} -- --help",
+        installer_manifest
+    );
+    let help = Command::new("sh")
+        .args(["-c", &printed_command])
+        .current_dir(&outside_workspace)
+        .env("CARGO_HOME", &cargo_home)
+        .env("CARGO_TARGET_DIR", &tool_target)
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .expect("run the printed command outside the Ibex workspace");
+    assert_success("printed manifest-path command", &help);
 
     let entry = cargo_home
         .join("hermes-lean-sys")
@@ -96,9 +105,17 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
     );
     assert!(!missing.status.success(), "empty offline cache must fail");
     let missing_output = output_text(&missing);
+    let recovery_command = format!(
+        "cargo run --manifest-path {:?} -- --target",
+        installer_manifest
+    );
     assert!(
-        missing_output.contains("cargo run -p hermes-lean-sys-installer -- --target"),
+        missing_output.contains(&recovery_command),
         "missing install command in:\n{missing_output}"
+    );
+    assert!(
+        missing_output.contains(IBEX_PIN_REVISION),
+        "missing Ibex pin revision in:\n{missing_output}"
     );
     assert!(
         missing_output.contains("offline mode is enabled"),
@@ -306,6 +323,7 @@ ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
     )
     .expect("fixture Cargo config");
     let support = repository.join("crates/hermes-lean-sys/build_support.rs");
+    let hermes_manifest_dir = repository.join("crates/hermes-lean-sys");
     fs::write(
         root.join("build.rs"),
         format!(
@@ -322,7 +340,8 @@ fn main() {{
     let asset = leak(std::env::var("TEST_HERMES_ASSET").expect("test asset"));
     let sha256 = leak(std::env::var("TEST_HERMES_SHA256").expect("test digest"));
     let pin = BundlePin {{ target, asset, sha256 }};
-    let options = download_options_from_env().expect("download options");
+    let options = download_options_from_env(std::path::Path::new({hermes_manifest_dir:?}))
+        .expect("download options");
     assert!(options.offline, "fixture must force hermes-lean-sys offline mode");
     let root = acquire_bundle(&pin, &options)
         .unwrap_or_else(|error| panic!("Hermes engine resolution failed: {{error}}"));
@@ -334,7 +353,8 @@ fn leak(value: String) -> &'static str {{
     Box::leak(value.into_boxed_str())
 }}
 "#,
-            support = support
+            support = support,
+            hermes_manifest_dir = hermes_manifest_dir,
         ),
     )
     .expect("fixture build script");

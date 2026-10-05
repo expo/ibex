@@ -11,9 +11,9 @@ use std::path::{Component, Path, PathBuf};
 mod receipt_schema;
 
 pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
+pub(crate) const IBEX_PIN_REVISION: &str = "14ab3b2676a426c188654e0780c502bb6c2e5a3e";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
-pub(crate) const INSTALL_COMMAND: &str = "cargo run -p hermes-lean-sys-installer --";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BundlePin {
@@ -152,6 +152,7 @@ pub(crate) struct DownloadOptions {
     pub cache_root: PathBuf,
     pub release_base_url: String,
     pub offline: bool,
+    pub installer_manifest: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -214,17 +215,33 @@ pub(crate) fn parse_pin_sha256(value: &str) -> Result<String, String> {
     Ok(value.to_ascii_lowercase())
 }
 
-pub(crate) fn download_options_from_env() -> Result<DownloadOptions, String> {
+pub(crate) fn download_options_from_env(manifest_dir: &Path) -> Result<DownloadOptions, String> {
     let cargo_home = match env::var_os("CARGO_HOME") {
         Some(path) if !path.is_empty() => PathBuf::from(path),
         _ => default_cargo_home()?,
     };
+    let crates_dir = manifest_dir.parent().ok_or_else(|| {
+        format!(
+            "cannot locate the Ibex crates directory above {}",
+            manifest_dir.display()
+        )
+    })?;
     Ok(DownloadOptions {
         cache_root: cargo_home.join("hermes-lean-sys"),
         release_base_url: env::var("HERMES_LEAN_SYS_MIRROR")
             .unwrap_or_else(|_| DEFAULT_RELEASE_BASE_URL.to_owned()),
         offline: env_truthy("CARGO_NET_OFFLINE") || env_truthy("HERMES_LEAN_SYS_OFFLINE"),
+        installer_manifest: crates_dir
+            .join("hermes-lean-sys-installer")
+            .join("Cargo.toml"),
     })
+}
+
+pub(crate) fn installer_command(options: &DownloadOptions) -> String {
+    format!(
+        "cargo run --manifest-path {:?} --",
+        options.installer_manifest
+    )
 }
 
 fn default_cargo_home() -> Result<PathBuf, String> {
@@ -256,7 +273,8 @@ pub(crate) fn resolve_engine_directory(
         if let Some(root) = repository_install_root(repo_root, target) {
             install_layout(root, target, InstallOrigin::Repository)
         } else {
-            let options = download_options_from_env()?;
+            let options =
+                download_options_from_env(&repo_root.join("crates").join("hermes-lean-sys"))?;
             let root = acquire_bundle(pin, &options)?;
             install_layout(root, target, InstallOrigin::Bundle)
         }
@@ -269,7 +287,7 @@ pub(crate) fn resolve_engine_directory(
                 "unsupported Hermes compiler host {host}; set HERMES_LEAN_SYS_DIR cannot replace the required pinned host compiler bundle for cross compilation"
             )
         })?;
-        let options = download_options_from_env()?;
+        let options = download_options_from_env(&repo_root.join("crates").join("hermes-lean-sys"))?;
         let host_root = acquire_bundle(host_pin, &options)?;
         let host_layout = install_layout(host_root, host, InstallOrigin::Bundle);
         validate_layout(&host_layout, false)?;
@@ -905,15 +923,20 @@ pub(crate) fn acquire_bundle(
     options: &DownloadOptions,
 ) -> Result<PathBuf, String> {
     let expected_digest = parse_pin_sha256(pin.sha256)?;
+    let recovery = format!(
+        "Ibex revision {IBEX_PIN_REVISION} pins {RELEASE_TAG}/{} at sha256-{expected_digest}; while online run `{} --target {}`",
+        pin.asset,
+        installer_command(options),
+        pin.target,
+    );
     let entry = options.cache_root.join(RELEASE_TAG).join(&expected_digest);
     if fs::symlink_metadata(&entry).is_ok() {
         match validate_cache_entry(&entry, &expected_digest) {
             Ok(()) => return Ok(entry),
             Err(error) if options.offline => {
                 return Err(format!(
-                    "cached Hermes bundle {} is invalid and offline mode is enabled: {error}; while online run `{INSTALL_COMMAND} --target {}` to replace it, or set HERMES_LEAN_SYS_DIR to a complete local install",
+                    "cached Hermes bundle {} is invalid and offline mode is enabled: {error}; {recovery} to replace it, or set HERMES_LEAN_SYS_DIR to a complete local install",
                     entry.display(),
-                    pin.target,
                 ));
             }
             Err(_) => remove_cache_entry(&entry)?,
@@ -921,10 +944,9 @@ pub(crate) fn acquire_bundle(
     }
     if options.offline {
         return Err(format!(
-            "Hermes bundle {} is not cached at {} and offline mode is enabled; while online run `{INSTALL_COMMAND} --target {}` to install it, or set HERMES_LEAN_SYS_DIR to a complete local install",
+            "Hermes bundle {} is not cached at {} and offline mode is enabled; {recovery} to install it, or set HERMES_LEAN_SYS_DIR to a complete local install",
             pin.asset,
             entry.display(),
-            pin.target,
         ));
     }
 

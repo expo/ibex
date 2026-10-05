@@ -43,14 +43,20 @@ it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
 There are two supported release-bundle modes. In the default automatic mode,
 a Cargo build downloads a missing pinned bundle and caches it. For a build
 that must never access the network, install the host bundle and any cross
-targets once, before enabling offline mode:
+targets once, before enabling offline mode. Use the installer from the same
+Ibex source revision as `hermes-lean-sys`; the build error prints its absolute
+manifest path, so the command works from a consumer directory for both Cargo
+Git checkouts and vendored/path copies. The current pin set is identified by
+Ibex revision `14ab3b2676a426c188654e0780c502bb6c2e5a3e`:
 
 ```sh
 # Host only.
-cargo run -p hermes-lean-sys-installer --
+cargo run --manifest-path \
+  ../ibex/crates/hermes-lean-sys-installer/Cargo.toml --
 
 # Host, plus one or more cross targets.
-cargo run -p hermes-lean-sys-installer -- \
+cargo run --manifest-path \
+  ../ibex/crates/hermes-lean-sys-installer/Cargo.toml -- \
   --target aarch64-apple-ios \
   --target aarch64-apple-ios-sim
 
@@ -85,9 +91,11 @@ variable:
 HERMES_LEAN_SYS_OFFLINE = { value = "1", force = true }
 ```
 
-Run the installer first from an online Ibex checkout. Configure Cargo's
-separate `[net]` `offline = true` setting if Rust dependencies must also be
-resolved without the network.
+Run the manifest-path command printed by an offline cache miss before enabling
+this setting. It names the exact release tag, asset digest, and Ibex pin-set
+revision compiled into the dependency. Configure Cargo's separate `[net]`
+`offline = true` setting if Rust dependencies must also be resolved without
+the network.
 
 Each v2 bundle contains both source-capable `hermesvm_a` and bytecode-only
 `hermesvmlean_a`. Enable exactly one `hermes-lean-sys` link feature: `link`
