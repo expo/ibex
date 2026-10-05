@@ -47,7 +47,9 @@ targets once, before enabling offline mode. Use the installer from the same
 Ibex source revision as `hermes-lean-sys`; the build error prints its absolute
 manifest path, so the command works from a consumer directory for both Cargo
 Git checkouts and vendored/path copies. The pins are identified by the release
-tag and the SHA-256 the build error prints:
+tag and the SHA-256 the build error prints.
+The installer is the explicit online step, so it ignores `HERMES_LEAN_SYS_OFFLINE`: a consumer that forces offline mode in `.cargo/config.toml` `[env]` can still run it. A vendored copy must include `crates/hermes-lean-sys-installer` beside `hermes-lean-sys` (same Ibex revision); without it, the build error says so instead of printing a command.
+Install with:
 
 ```sh
 # Host only.

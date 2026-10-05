@@ -329,7 +329,9 @@ Two consumption modes are supported:
    `hermes-lean-sys`. The build's recovery error prints its absolute path, so
    this works from a consumer repository whether Ibex is a Cargo Git checkout
    or a vendored/path dependency. The pins are identified by the release tag
-   and the SHA-256 the build error prints:
+   and the SHA-256 the build error prints.
+   The installer is the explicit online step, so it ignores `HERMES_LEAN_SYS_OFFLINE`: a consumer that forces offline mode in `.cargo/config.toml` `[env]` can still run it. A vendored copy must include `crates/hermes-lean-sys-installer` beside `hermes-lean-sys` (same Ibex revision); without it, the build error says so instead of printing a command.
+   Install with:
 
    ```sh
    # Installs the host bundle.

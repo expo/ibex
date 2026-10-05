@@ -643,3 +643,33 @@ impl Drop for EnvGuard {
         }
     }
 }
+
+#[test]
+fn a_vendored_copy_without_the_installer_says_how_to_get_it() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let options = DownloadOptions {
+        cache_root: temporary.path().join("cache"),
+        release_base_url: "http://127.0.0.1:1".to_owned(),
+        offline: true,
+        installer_manifest: temporary
+            .path()
+            .join("vendor/hermes-lean-sys-installer/Cargo.toml"),
+    };
+    let command = installer_command(&options);
+    assert!(!command.starts_with("cargo run"), "{command}");
+    assert!(
+        command.contains("vendor crates/hermes-lean-sys-installer"),
+        "{command}"
+    );
+
+    let manifest = temporary
+        .path()
+        .join("ibex/crates/hermes-lean-sys-installer/Cargo.toml");
+    std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+    std::fs::write(&manifest, "[package]\n").unwrap();
+    let present = DownloadOptions {
+        installer_manifest: manifest,
+        ..options
+    };
+    assert!(installer_command(&present).starts_with("cargo run --manifest-path"));
+}

@@ -50,7 +50,9 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
         .env("CARGO_TARGET_DIR", &tool_target)
         .env("HERMES_LEAN_SYS_MIRROR", &mirror)
         .env_remove("CARGO_NET_OFFLINE")
-        .env_remove("HERMES_LEAN_SYS_OFFLINE")
+        // A consumer's forced [env] offline switch reaches the installer too;
+        // the explicit install step must still download.
+        .env("HERMES_LEAN_SYS_OFFLINE", "1")
         .output()
         .expect("run installer through Cargo");
     mirror_server.join().expect("mirror server");

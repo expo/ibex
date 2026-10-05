@@ -239,10 +239,20 @@ pub(crate) fn download_options_from_env(manifest_dir: &Path) -> Result<DownloadO
 }
 
 pub(crate) fn installer_command(options: &DownloadOptions) -> String {
-    format!(
-        "cargo run --manifest-path {:?} --",
-        options.installer_manifest
-    )
+    if options.installer_manifest.is_file() {
+        format!(
+            "cargo run --manifest-path {:?} --",
+            options.installer_manifest
+        )
+    } else {
+        // A vendored copy of hermes-lean-sys alone has no sibling installer.
+        format!(
+            "hermes-lean-sys-installer (not found at {:?}; vendor crates/hermes-lean-sys-installer \
+             beside hermes-lean-sys from the same Ibex revision, or run it from an Ibex checkout \
+             whose hermes-lean-sys pins the same release tag and digest)",
+            options.installer_manifest
+        )
+    }
 }
 
 fn default_cargo_home() -> Result<PathBuf, String> {

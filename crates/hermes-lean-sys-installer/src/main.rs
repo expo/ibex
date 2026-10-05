@@ -41,13 +41,15 @@ fn run(arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
     targets.extend(requested);
 
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let options = download_options_from_env(manifest_dir)?;
-    if options.offline {
-        return Err(format!(
-            "offline mode is enabled; this installer installs the Hermes pins compiled into this checkout ({RELEASE_TAG}); run `{}` from an online environment so the explicit install step may download missing bundles",
-            installer_command(&options),
-        ));
-    }
+    let mut options = download_options_from_env(manifest_dir)?;
+    // The installer IS the explicit online step. A consumer that forces
+    // HERMES_LEAN_SYS_OFFLINE in its .cargo/config.toml [env] passes that value
+    // to `cargo run` too, so the build's offline switch must not apply here.
+    options.offline = false;
+    println!(
+        "Installing Hermes pins {RELEASE_TAG} with {}",
+        installer_command(&options)
+    );
 
     println!("Installing pinned Hermes bundle for host {host}");
     let host_pin = selected_pin(&host, test_pin.as_ref())?;
