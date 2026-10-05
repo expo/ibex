@@ -75,8 +75,9 @@ function parseArguments(argv) {
   }
   const known = new Set([
     '--archive', '--build-flag', '--bytecode-version', '--commit', '--compiler',
-    '--engine-archive', '--headers', '--lean-engine-archive', '--link-directive', '--out',
-    '--profile', '--target',
+    '--engine-archive', '--headers', '--icu-full-data-archive',
+    '--icu-trimmed-data-archive', '--icu-trimmed-filter',
+    '--lean-engine-archive', '--link-directive', '--out', '--profile', '--target',
   ]);
   for (const name of options.keys()) {
     if (!known.has(name)) die(`unknown option ${name}`);
@@ -150,6 +151,27 @@ function sourceIdentity(repoRoot, commitOverride) {
   return { sourceCommit, sourceRef, sourceVersion };
 }
 
+function icuSourceIdentity(repoRoot) {
+  try {
+    const pin = execFileSync('bash', [
+      '-c',
+      'source "$1" && printf "%s\\t%s\\t%s\\t%s" "$IBEX_ICU_SOURCE_COMMIT" "$IBEX_ICU_SOURCE_REF" "$IBEX_ICU_VERSION" "$IBEX_ICU_TRIMMED_FILTER_SHA256"',
+      'hermes-input-receipt',
+      join(repoRoot, 'scripts/icu-version.sh').replaceAll('\\', '/'),
+    ], { encoding: 'utf8' }).trim();
+    const [sourceCommit, sourceRef, sourceVersion, trimmedFilterSha256] = pin.split('\t');
+    if (!/^[0-9a-f]{40}$/.test(sourceCommit ?? '')) {
+      die(`ICU pin is not a 40-hex commit: ${sourceCommit}`);
+    }
+    if (!sourceRef || !sourceVersion || !/^[0-9a-f]{64}$/.test(trimmedFilterSha256 ?? '')) {
+      die('ICU source ref/version or trimmed-filter digest pin is absent');
+    }
+    return { sourceCommit, sourceRef, sourceVersion, trimmedFilterSha256 };
+  } catch (error) {
+    die(`cannot read ICU pin: ${error.message}`);
+  }
+}
+
 function exportedSymbols(engineBinary) {
   let output;
   try {
@@ -212,6 +234,18 @@ if (linkDirectives.length === 0 || linkDirectives.some((item) => !item.trim() ||
 }
 const buildFlags = many('--build-flag');
 if (buildFlags.some((item) => !item.trim() || /[\r\n]/.test(item))) die('build flags must be non-empty single lines');
+
+const requestedIcuTrimmedDataArchive = one('--icu-trimmed-data-archive');
+const requestedIcuFullDataArchive = one('--icu-full-data-archive');
+const requestedIcuTrimmedFilter = one('--icu-trimmed-filter');
+const icuArgumentCount = [
+  requestedIcuTrimmedDataArchive,
+  requestedIcuFullDataArchive,
+  requestedIcuTrimmedFilter,
+].filter(Boolean).length;
+if (icuArgumentCount !== 0 && icuArgumentCount !== 3) {
+  die('Linux ICU receipts require --icu-trimmed-data-archive, --icu-full-data-archive, and --icu-trimmed-filter together');
+}
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const { sourceCommit, sourceRef, sourceVersion } = sourceIdentity(repoRoot, one('--commit'));
@@ -310,6 +344,66 @@ const compilerPath = relative(bundleDir, compiler);
 const compilerName = compilerPath !== '..' && !compilerPath.startsWith(`..${sep}`) && !isAbsolute(compilerPath)
   ? canonicalRelative(bundleDir, compiler)
   : basename(compiler);
+let icu;
+if (icuArgumentCount === 3) {
+  if (!target.endsWith('-unknown-linux-gnu')) {
+    die('ICU data variants are supported only for Linux receipts');
+  }
+  const trimmedDataArchive = inside(
+    bundleDir,
+    requestedIcuTrimmedDataArchive,
+    'trimmed ICU data archive',
+  );
+  const fullDataArchive = inside(bundleDir, requestedIcuFullDataArchive, 'full ICU data archive');
+  const trimmedFilter = inside(bundleDir, requestedIcuTrimmedFilter, 'trimmed ICU data filter');
+  for (const [label, path] of [
+    ['trimmed ICU data archive', trimmedDataArchive],
+    ['full ICU data archive', fullDataArchive],
+    ['trimmed ICU data filter', trimmedFilter],
+  ]) {
+    if (!isFile(path)) die(`${label} is not a regular file: ${path}`);
+  }
+  if (basename(trimmedDataArchive) !== 'libicudata.a') {
+    die('trimmed ICU data archive must be named libicudata.a');
+  }
+  if (basename(fullDataArchive) !== 'libicudata-full.a') {
+    die('full ICU data archive must be named libicudata-full.a');
+  }
+  if (!archivePaths.includes(trimmedDataArchive) || !archivePaths.includes(fullDataArchive)) {
+    die('both ICU data variants must be present in the archive manifest');
+  }
+  const codeArchives = ['libicui18n.a', 'libicuuc.a'].map((name) => {
+    const matches = archivePaths.filter((path) => basename(path) === name);
+    if (matches.length !== 1) die(`archive manifest must contain exactly one ${name}`);
+    return canonicalRelative(bundleDir, matches[0]);
+  });
+  const source = icuSourceIdentity(repoRoot);
+  const actualFilterDigest = sha256File(trimmedFilter);
+  if (actualFilterDigest !== source.trimmedFilterSha256) {
+    die(`trimmed ICU data filter digest is ${actualFilterDigest}, expected ${source.trimmedFilterSha256}`);
+  }
+  icu = {
+    upstream: {
+      artifact: 'unicode-org/icu',
+      sourceCommit: source.sourceCommit,
+      sourceRef: source.sourceRef,
+      sourceVersion: source.sourceVersion,
+    },
+    codeArchives,
+    data: {
+      trimmed: {
+        archive: canonicalRelative(bundleDir, trimmedDataArchive),
+        filter: {
+          path: canonicalRelative(bundleDir, trimmedFilter),
+          digest: `sha256-${actualFilterDigest}`,
+        },
+      },
+      full: {
+        archive: canonicalRelative(bundleDir, fullDataArchive),
+      },
+    },
+  };
+}
 const receipt = {
   schema: SCHEMA,
   upstream: {
@@ -344,6 +438,7 @@ const receipt = {
     digest: `sha256-${sha256File(path)}`,
   })),
   linkDirectives,
+  ...(icu ? { icu } : {}),
 };
 
 writeFileSync(outPath, `${JSON.stringify(receipt, null, 2)}\n`);

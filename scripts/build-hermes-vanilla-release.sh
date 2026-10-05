@@ -8,6 +8,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(dirname "$script_dir")"
 source "$script_dir/hermes-version.sh"
+source "$script_dir/icu-version.sh"
 
 usage() {
   printf '%s\n' \
@@ -73,15 +74,23 @@ if [[ "$host_os" == Darwin ]]; then
       || { echo "$command_name is required" >&2; exit 1; }
   done
 else
-  command -v pkg-config >/dev/null 2>&1 || { echo "pkg-config is required" >&2; exit 1; }
+  for command_name in make ninja nm pkg-config; do
+    command -v "$command_name" >/dev/null 2>&1 \
+      || { echo "$command_name is required" >&2; exit 1; }
+  done
 fi
 
 cache_root="${IBEX_HERMES_RELEASE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ibex/hermes-vanilla-release}"
 cache_dir="$cache_root/$commit/$target"
 source_dir="$cache_root/upstream"
+icu_source_dir="$cache_root/icu-upstream"
 build_dir="$cache_dir/build"
 host_build="$cache_dir/build-host"
 bundle_dir="$cache_dir/bundle"
+icu_trimmed_build="$cache_dir/build-icu-trimmed"
+icu_trimmed_install="$cache_dir/install-icu-trimmed"
+icu_full_build="$cache_dir/build-icu-full"
+icu_full_install="$cache_dir/install-icu-full"
 
 ibex_acquire_hermes_source_build_lock "$(basename "$0")"
 trap 'ibex_release_hermes_source_build_lock' EXIT
@@ -105,15 +114,21 @@ jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null |
 (( jobs <= 16 )) || jobs=16
 generator=(-G 'Unix Makefiles')
 command -v ninja >/dev/null 2>&1 && generator=(-G Ninja)
+if [[ "$host_os" == Linux ]]; then
+  (( jobs <= 4 )) || jobs=4
+  generator=(-G Ninja)
+fi
 
 build_flags=(
   -DHERMES_ENABLE_DEBUGGER=false
-  -DHERMES_ENABLE_INTL=true
   -DHERMES_BUILD_SHARED_JSI=false
   -DHERMES_ENABLE_TEST_SUITE=false
 )
 
 if [[ "$host_os" == Darwin ]]; then
+  build_flags+=(
+    -DHERMES_ENABLE_INTL=true
+  )
   cmake -S "$source_dir" -B "$host_build" "${generator[@]}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_OSX_SYSROOT=macosx \
@@ -142,12 +157,35 @@ if [[ "$host_os" == Darwin ]]; then
   cmake --build "$build_dir" --target hermesvm_a hermesvmlean_a jsi boost_context -j "$jobs"
   compiler="$host_build/bin/hermesc"
 else
+  icu_filter="$repo_root/scripts/icu74-filter-root-en.json"
+  ibex_verify_icu_trimmed_filter "$icu_filter"
+  ibex_checkout_icu_source "$icu_source_dir"
+  (
+    cd "$icu_source_dir/icu4c/source"
+    PYTHONPATH=python python3 -m icutools.databuilder \
+      --mode=gnumake --src_dir=data --filter_file="$icu_filter" >/dev/null
+  )
+  ibex_build_icu_linux \
+    "$icu_source_dir" "$icu_trimmed_build" "$icu_trimmed_install" "$icu_filter"
+  ibex_build_icu_linux \
+    "$icu_source_dir" "$icu_full_build" "$icu_full_install"
+  ibex_verify_icu_data_variants \
+    "$icu_trimmed_install/lib/libicudata.a" \
+    "$icu_full_install/lib/libicudata.a"
   build_flags+=(
+    -DHERMES_ENABLE_INTL=false
+    -DHERMES_UNICODE_LITE=false
+    -DHERMES_USE_STATIC_ICU=true
     -DCMAKE_BUILD_TYPE=Release
     -DHERMES_BUILD_APPLE_FRAMEWORK=false
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   )
-  cmake -S "$source_dir" -B "$build_dir" "${generator[@]}" "${build_flags[@]}"
+  cmake -S "$source_dir" -B "$build_dir" "${generator[@]}" \
+    "${build_flags[@]}" \
+    -DCMAKE_PREFIX_PATH="$icu_trimmed_install" \
+    -DICU_ROOT="$icu_trimmed_install" \
+    -DCMAKE_JOB_POOLS=link_pool=2 \
+    -DCMAKE_JOB_POOL_LINK=link_pool
   cmake --build "$build_dir" --target hermesvm_a hermesvmlean_a jsi boost_context hermesc -j "$jobs"
   compiler="$build_dir/bin/hermesc"
 fi
@@ -201,13 +239,21 @@ if [[ "$host_os" == Darwin ]]; then
   }
   for archive in "$bundle_dir/lib/"*.a; do normalize_archive "$archive"; done
 else
-  icu_lib_dir="$(pkg-config --variable=libdir icu-i18n)"
   tinfo_lib_dir="$(pkg-config --variable=libdir tinfo)"
   for archive in libicui18n.a libicuuc.a libicudata.a; do
-    [[ -f "$icu_lib_dir/$archive" ]] \
-      || { echo "static ICU archive is missing: $icu_lib_dir/$archive" >&2; exit 1; }
-    cp "$icu_lib_dir/$archive" "$bundle_dir/lib/"
+    [[ -f "$icu_trimmed_install/lib/$archive" ]] \
+      || { echo "static ICU archive is missing: $icu_trimmed_install/lib/$archive" >&2; exit 1; }
+    cp "$icu_trimmed_install/lib/$archive" "$bundle_dir/lib/"
   done
+  [[ -f "$icu_full_install/lib/libicudata.a" ]] \
+    || { echo "full ICU data archive is missing: $icu_full_install/lib/libicudata.a" >&2; exit 1; }
+  cp "$icu_full_install/lib/libicudata.a" "$bundle_dir/lib/libicudata-full.a"
+  [[ -d "$icu_trimmed_install/include/unicode" ]] \
+    || { echo "ICU headers are missing: $icu_trimmed_install/include/unicode" >&2; exit 1; }
+  cp -R "$icu_trimmed_install/include/unicode" "$bundle_dir/include/"
+  mkdir -p "$bundle_dir/share/icu"
+  cp "$icu_filter" "$bundle_dir/share/icu/filters-root-en.json"
+  cp "$icu_source_dir/LICENSE" "$bundle_dir/LICENSE.icu"
   [[ -f "$tinfo_lib_dir/libtinfo.a" ]] \
     || { echo "static terminfo archive is missing: $tinfo_lib_dir/libtinfo.a" >&2; exit 1; }
   cp "$tinfo_lib_dir/libtinfo.a" "$bundle_dir/lib/"
@@ -235,6 +281,9 @@ if [[ "$host_os" == Darwin ]]; then
   )
 else
   receipt_args+=(
+    --icu-trimmed-data-archive=lib/libicudata.a
+    --icu-full-data-archive=lib/libicudata-full.a
+    --icu-trimmed-filter=share/icu/filters-root-en.json
     --link-directive=rustc-link-lib=static=icui18n
     --link-directive=rustc-link-lib=static=icuuc
     --link-directive=rustc-link-lib=static=icudata

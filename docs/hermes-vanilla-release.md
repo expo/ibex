@@ -1,12 +1,13 @@
 # Vanilla Hermes release bundles
 
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
-The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v2`. It contains
+The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v3`. It contains
 seven deterministic archives, `SHA256SUMS`, and one retained Sigstore bundle
-beside each archive. The immutable v1 release contains only the full VM and
-cannot gain the lean archive, which is why this uses a new release namespace.
+beside each archive. The immutable v1 release contains only the full VM; v2
+added the lean VM but cannot gain the new Linux ICU profile, so v3 uses a new
+release namespace.
 
-Each v2 archive contains both the full `hermesvm_a` and lean
+Each v3 archive contains both the full `hermesvm_a` and lean
 `hermesvmlean_a` target archives under `lib/`, the rest of their target link
 closure, host `hermesc` under `bin/`, public headers under `include/`, the
 upstream license, and a canonical `hermes-input-receipt.json`. Receipt v2 binds
@@ -16,6 +17,30 @@ full VM for compatibility; the lean VM is bound by the same archive manifest.
 Receipt generation scans both VM archives for patched exports whenever lean is
 present, and lean selection verifies its distinct manifest digest. The receipt
 deliberately has no production date.
+
+Linux v3 bundles build ICU 74.2 from tag `release-74-2`, verified at commit
+`2d029329c82c7792b985024b2bdab5fc7278fbc8`. They carry shared
+`libicui18n.a` and `libicuuc.a` code archives, `libicudata.a` as the default
+root+en trimmed data, and `libicudata-full.a` as the opt-in full locale data.
+The canonical filter is `scripts/icu74-filter-root-en.json`, SHA-256
+`c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702`;
+it is copied into each Linux bundle as `share/icu/filters-root-en.json`.
+Receipt `icu` metadata binds the ICU tag, commit, version, both data paths,
+the shared code paths, and that filter digest. Both data archives are also in
+the ordinary sorted archive manifest, so they receive the same digest and
+cache-tree verification as every other static archive.
+
+The Linux jobs run in `rust:1.97-bookworm`, matching the filtering spike.
+ICU uses two make jobs; Hermes uses at most four Ninja jobs and a two-slot
+link pool. Hermes is configured with `HERMES_ENABLE_INTL=false`,
+`HERMES_UNICODE_LITE=false`, and `HERMES_USE_STATIC_ICU=true`. Apple is
+unchanged and keeps `HERMES_ENABLE_INTL=true`. Windows is also unchanged:
+the receipt records `HERMES_ENABLE_WIN10_ICU_FALLBACK=ON` plus the `icuuc` and
+`icuin` import-library link directives, while pinned Hermes's CMake source
+selects its `USE_WIN10_ICU` declarations (marked `dllimport`) and reports
+"Using Windows 10 built-in ICU" when no separately installed ICU is found.
+Thus the Windows build continues to use the OS ICU DLL for its Unicode
+backend; v3 adds no packaged Windows ICU archive.
 
 ## Required repository settings
 
@@ -187,7 +212,7 @@ non-fast-forward updates (force-pushes).
    done
    test -n "$publisher_run_id"
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
-   gh release view hermes-vanilla-d412d3bd8512-v2 --repo "$repo"
+   gh release view hermes-vanilla-d412d3bd8512-v3 --repo "$repo"
    ```
 
 ### First publication (2026-10-04)
@@ -227,7 +252,7 @@ If a run stops after creating its draft but before publishing it:
    unchanged current `main`.
 
 If the tag already exists, or a published release exists, don't delete either:
-increment the immutable release suffix (`-v3`, `-v4`, and so on).
+increment the immutable release suffix (`-v4`, `-v5`, and so on).
 
 After publication the workflow re-reads the release. It requires it to be a
 non-draft, immutable prerelease with the exact 15-asset set and digests, and
@@ -246,7 +271,7 @@ repository from satisfying this check.
 
 ```sh
 repo=expo/ibex
-tag=hermes-vanilla-d412d3bd8512-v2
+tag=hermes-vanilla-d412d3bd8512-v3
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
@@ -273,7 +298,19 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
       .path == "lib/hermesvmlean_a.lib")) and
     (.archives | length > 0) and
     (.headers | length > 0) and
-    (.linkDirectives | length > 0)'
+    (.linkDirectives | length > 0) and
+    (if (.target | endswith("-unknown-linux-gnu")) then
+      .icu.upstream.sourceCommit == "2d029329c82c7792b985024b2bdab5fc7278fbc8" and
+      .icu.upstream.sourceRef == "release-74-2" and
+      .icu.upstream.sourceVersion == "74.2" and
+      .icu.codeArchives == ["lib/libicui18n.a", "lib/libicuuc.a"] and
+      .icu.data.trimmed.archive == "lib/libicudata.a" and
+      .icu.data.full.archive == "lib/libicudata-full.a" and
+      .icu.data.trimmed.filter.path == "share/icu/filters-root-en.json" and
+      .icu.data.trimmed.filter.digest == "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702" and
+      any(.archives[]; .path == "lib/libicudata.a") and
+      any(.archives[]; .path == "lib/libicudata-full.a")
+    else (.icu | not) end)'
 done
 ```
 
@@ -282,14 +319,16 @@ Sigstore bundle for each archive; and uses the certificate identity to bind
 the publisher workflow path specifically to `refs/heads/main`. The source and
 signer digests must both equal the Ibex commit named by the release tag.
 Separately, the receipt check binds the archive contents to the pinned upstream
-Hermes commit, an empty patch set, and the closed v2 archive/header/link
+Hermes commit, an empty patch set, and the closed receipt-v2 archive/header/link
 manifests. Do not combine `--cert-identity` with `--signer-workflow`: `gh`
 rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. Its release table pins the
-independently verified immutable v2 asset digests. It resolves a complete
+`hermes-lean-sys` is the supported consumer. On the `l1g-a` pipeline branch its
+release table deliberately remains on the independently verified immutable v2
+asset digests; the `l1g` consumer follow-up moves the table to v3 with rejecting
+sentinels until publication. It resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
@@ -313,7 +352,7 @@ lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCH
 `DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what that process links. This
 is the R-e identity: a process never reports the full digest while linking
 lean. Legacy local layouts may omit lean; they export no lean path, digest, or
-HBC version and fail only if `link-lean` is requested. Published v2 bundles
+HBC version and fail only if `link-lean` is requested. Published v3 bundles
 must carry and manifest both. Repository discovery uses the Apple layout only
 for macOS targets; iOS cross builds fall through to their pinned target bundle
 or an explicit complete `HERMES_LEAN_SYS_DIR`.
@@ -439,7 +478,7 @@ then exercise cold-cache, warm-cache, offline-cache, mirror, and local-directory
 override cases on the follow-up lean-selection branch before landing consumer
 updates. Never replace an asset: a
 changed build or packaging authority receives a new release revision suffix
-(`-v3`, `-v4`, and so on) and new consumer digests.
+(`-v4`, `-v5`, and so on) and new consumer digests.
 Before a future release revision is published and all attestations pass, its
 pins must remain rejecting `TODO_*` sentinels. The resolver refuses those
 sentinels before any download, so neither a mirror nor a pre-populated cache

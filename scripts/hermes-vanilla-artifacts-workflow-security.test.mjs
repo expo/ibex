@@ -28,6 +28,8 @@ const publisherWorkflow = readFileSync(
   "utf8",
 ).replaceAll("\r\n", "\n");
 const receiptWriter = readFileSync(join(repoRoot, "scripts/hermes-input-receipt.mjs"), "utf8");
+const icuVersion = readFileSync(join(repoRoot, "scripts/icu-version.sh"), "utf8");
+const icuFilter = readFileSync(join(repoRoot, "scripts/icu74-filter-root-en.json"));
 const localAppleBuilder = readFileSync(join(repoRoot, "scripts/build-hermes.sh"), "utf8");
 const localLinuxBuilder = readFileSync(join(repoRoot, "scripts/build-hermes-linux.sh"), "utf8");
 const localWindowsBuilder = readFileSync(
@@ -36,6 +38,14 @@ const localWindowsBuilder = readFileSync(
 );
 const releaseBuilder = readFileSync(
   join(repoRoot, "scripts/build-hermes-vanilla-release.sh"),
+  "utf8",
+);
+const linuxContainerBuilder = readFileSync(
+  join(repoRoot, "scripts/build-hermes-vanilla-linux-container.sh"),
+  "utf8",
+);
+const linuxContainerBody = readFileSync(
+  join(repoRoot, "scripts/build-hermes-vanilla-linux-in-container.sh"),
   "utf8",
 );
 const windowsReleaseBuilder = readFileSync(
@@ -52,6 +62,42 @@ const builders = [
   "linux_arm64",
   "windows_x64",
 ];
+
+test("Linux VM artifacts use pinned ICU 74 with trimmed and full data", () => {
+  assert.match(localLinuxBuilder, /-DHERMES_ENABLE_INTL=false/);
+  assert.match(localLinuxBuilder, /-DHERMES_UNICODE_LITE=false/);
+  assert.match(localLinuxBuilder, /-DHERMES_USE_STATIC_ICU=true/);
+  assert.doesNotMatch(localLinuxBuilder, /-DHERMES_ENABLE_INTL=true/);
+  assert.match(releaseBuilder, /else\n  icu_filter=/);
+  assert.match(releaseBuilder, /-DHERMES_ENABLE_INTL=false\n    -DHERMES_UNICODE_LITE=false\n    -DHERMES_USE_STATIC_ICU=true/);
+  assert.match(releaseBuilder, /if \[\[ "\$host_os" == Darwin \]\]; then\n  build_flags\+=\(\n    -DHERMES_ENABLE_INTL=true/);
+  for (const producer of [localLinuxBuilder, releaseBuilder]) {
+    assert.match(producer, /libicudata-full\.a/);
+    assert.match(producer, /icu74-filter-root-en\.json/);
+    assert.match(producer, /--icu-trimmed-data-archive=/);
+    assert.match(producer, /--icu-full-data-archive=/);
+    assert.match(producer, /--icu-trimmed-filter=/);
+    assert.match(producer, /ibex_verify_icu_data_variants/);
+  }
+  assert.match(linuxContainerBuilder, /rust:1\.97-bookworm/);
+  assert.match(linuxContainerBuilder, /--platform "\$platform"/);
+  assert.match(linuxContainerBody, /build-hermes-vanilla-release\.sh/);
+  assert.doesNotMatch(linuxContainerBody, /libicu-dev/);
+  assert.match(releaseBuilder, /\(\( jobs <= 4 \)\) \|\| jobs=4/);
+  assert.match(releaseBuilder, /-DCMAKE_JOB_POOLS=link_pool=2/);
+  assert.match(localLinuxBuilder, /\(\( jobs <= 4 \)\) \|\| jobs=4/);
+  assert.match(localLinuxBuilder, /-DCMAKE_JOB_POOLS=link_pool=2/);
+  assert.equal(
+    createHash("sha256").update(icuFilter).digest("hex"),
+    icuVersion.match(/IBEX_ICU_TRIMMED_FILTER_SHA256="\$\{IBEX_ICU_TRIMMED_FILTER_SHA256:-([0-9a-f]{64})\}"/)?.[1],
+  );
+  assert.match(icuVersion, /IBEX_ICU_SOURCE_REF="\$\{IBEX_ICU_SOURCE_REF:-release-74-2\}"/);
+  assert.match(icuVersion, /IBEX_ICU_SOURCE_COMMIT="\$\{IBEX_ICU_SOURCE_COMMIT:-2d029329c82c7792b985024b2bdab5fc7278fbc8\}"/);
+  for (const job of ["linux_x86_64", "linux_arm64"].map((name) => jobBlocks(builderWorkflow).get(name))) {
+    assert.match(job, /build-hermes-vanilla-linux-container\.sh/);
+    assert.doesNotMatch(job, /libicu-dev/);
+  }
+});
 
 function jobBlocks(workflow) {
   const jobsStart = workflow.indexOf("\njobs:\n");
@@ -269,8 +315,8 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   assert.ok(commit);
   for (const workflow of [builderWorkflow, publisherWorkflow]) {
     assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v2$`, "m"));
-    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v2`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v3$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v3`, "m"));
   }
 });
 
@@ -295,6 +341,11 @@ test("release receipts bind both VM archives and keep the full VM as engine.bina
   assert.match(releaseBuilder, /--lean-engine-archive lib\/libhermesvmlean_a\.a/);
   assert.match(windowsReleaseBuilder, /--target hermesvmlean_a/);
   assert.match(windowsReleaseBuilder, /--lean-engine-archive=lib\/hermesvmlean_a\.lib/);
+  for (const producer of [localWindowsBuilder, windowsReleaseBuilder]) {
+    assert.match(producer, /-DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON/);
+    assert.match(producer, /link-directive=rustc-link-lib=icuuc/);
+    assert.match(producer, /link-directive=rustc-link-lib=icuin/);
+  }
   assert.match(receiptWriter, /manifestedLeanEngineArchives/);
   assert.match(receiptWriter, /exportedSymbols\(leanEngineBinary\)/);
 });
@@ -339,6 +390,67 @@ esac
     assert.notEqual(result.status, 0, result.stdout);
     assert.match(result.stderr, /refusing an empty-patch-set receipt for a patched engine/);
     assert.match(result.stderr, /ex_hermes_vm_disable_eval/);
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("Linux receipt binds both ICU data archives and the pinned filter", (t) => {
+  if (process.platform === "win32") {
+    t.skip("the fixture supplies a POSIX fake nm; Windows release coverage is structural");
+    return;
+  }
+  const temporary = mkdtempSync(join(tmpdir(), "hermes-receipt-icu-data-"));
+  const bundle = join(temporary, "bundle");
+  const fakeBin = join(temporary, "bin");
+  mkdirSync(join(bundle, "lib"), { recursive: true });
+  mkdirSync(join(bundle, "include", "hermes"), { recursive: true });
+  mkdirSync(join(bundle, "share", "icu"), { recursive: true });
+  mkdirSync(join(bundle, "bin"), { recursive: true });
+  mkdirSync(fakeBin);
+  for (const name of [
+    "libhermesvm_a.a",
+    "libhermesvmlean_a.a",
+    "libicui18n.a",
+    "libicuuc.a",
+    "libicudata.a",
+    "libicudata-full.a",
+  ]) writeFileSync(join(bundle, "lib", name), name);
+  writeFileSync(join(bundle, "include", "hermes", "Hermes.h"), "// header\n");
+  writeFileSync(join(bundle, "bin", "hermesc"), "compiler");
+  writeFileSync(join(bundle, "share", "icu", "filters-root-en.json"), icuFilter);
+  const fakeNm = join(fakeBin, "nm");
+  writeFileSync(fakeNm, "#!/bin/sh\nprintf '00000000 T ordinary_vanilla_symbol\\n'\n");
+  chmodSync(fakeNm, 0o755);
+  try {
+    const result = spawnSync(process.execPath, [
+      join(repoRoot, "scripts/hermes-input-receipt.mjs"),
+      bundle,
+      "--target=aarch64-unknown-linux-gnu",
+      "--profile=release",
+      "--engine-archive=lib/libhermesvm_a.a",
+      "--lean-engine-archive=lib/libhermesvmlean_a.a",
+      "--icu-trimmed-data-archive=lib/libicudata.a",
+      "--icu-full-data-archive=lib/libicudata-full.a",
+      "--icu-trimmed-filter=share/icu/filters-root-en.json",
+      "--bytecode-version=99",
+      "--link-directive=rustc-link-lib=static=hermesvm_a",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const receipt = JSON.parse(readFileSync(join(bundle, "hermes-input-receipt.json"), "utf8"));
+    const archives = new Set(receipt.archives.map((archive) => archive.path));
+    assert.ok(archives.has("lib/libicudata.a"));
+    assert.ok(archives.has("lib/libicudata-full.a"));
+    assert.equal(receipt.icu.data.trimmed.archive, "lib/libicudata.a");
+    assert.equal(receipt.icu.data.full.archive, "lib/libicudata-full.a");
+    assert.equal(
+      receipt.icu.data.trimmed.filter.digest,
+      `sha256-${createHash("sha256").update(icuFilter).digest("hex")}`,
+    );
+    assert.equal(receipt.icu.upstream.sourceCommit, "2d029329c82c7792b985024b2bdab5fc7278fbc8");
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

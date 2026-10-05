@@ -3,6 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const SCHEMA: &str = "ibex/hermes-upstream-pinned-receipt/2";
 pub(crate) const SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465";
+pub(crate) const ICU_SOURCE_COMMIT: &str = "2d029329c82c7792b985024b2bdab5fc7278fbc8";
+pub(crate) const ICU_TRIMMED_FILTER_DIGEST: &str =
+    "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702";
 pub(crate) const EMPTY_PATCH_SET: &str =
     "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -23,7 +26,17 @@ pub(crate) struct CanonicalReceipt {
     pub(crate) engine_digest: String,
     pub(crate) compiler_digest: String,
     pub(crate) bytecode_version: u64,
+    #[allow(dead_code)] // l1g-a writer support precedes l1g's consumer selection.
+    pub(crate) icu: Option<CanonicalIcuReceipt>,
     archive_digests: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct CanonicalIcuReceipt {
+    pub(crate) trimmed_data_archive: String,
+    pub(crate) full_data_archive: String,
+    pub(crate) trimmed_filter_path: String,
+    pub(crate) trimmed_filter_digest: String,
 }
 
 impl CanonicalReceipt {
@@ -152,6 +165,10 @@ pub(crate) fn validate(
         ));
     }
     manifest(root.get("headers"), "headers")?;
+    let icu = match root.get("icu") {
+        Some(value) => Some(validate_icu(value, &target, &archives)?),
+        None => None,
+    };
 
     let links = root
         .get("linkDirectives")
@@ -171,7 +188,132 @@ pub(crate) fn validate(
         engine_digest,
         compiler_digest,
         bytecode_version,
+        icu,
         archive_digests: archives.into_iter().collect(),
+    })
+}
+
+fn validate_icu(
+    value: &Value,
+    target: &str,
+    archives: &[(String, String)],
+) -> Result<CanonicalIcuReceipt, String> {
+    if !target.ends_with("-unknown-linux-gnu") {
+        return Err("v2 receipt carries Linux ICU metadata for a non-Linux target".into());
+    }
+    let icu = object(Some(value), "v2 receipt ICU metadata is not an object")?;
+    let upstream = object(
+        icu.get("upstream"),
+        "v2 receipt ICU metadata has no upstream",
+    )?;
+    if string(
+        upstream.get("artifact"),
+        "v2 receipt ICU upstream has no artifact",
+    )? != "unicode-org/icu"
+    {
+        return Err("v2 receipt ICU upstream is not unicode-org/icu".into());
+    }
+    if string(
+        upstream.get("sourceCommit"),
+        "v2 receipt ICU upstream has no sourceCommit",
+    )? != ICU_SOURCE_COMMIT
+    {
+        return Err(format!(
+            "v2 receipt ICU sourceCommit is not pinned commit {ICU_SOURCE_COMMIT}"
+        ));
+    }
+    if string(
+        upstream.get("sourceRef"),
+        "v2 receipt ICU upstream has no sourceRef",
+    )? != "release-74-2"
+        || string(
+            upstream.get("sourceVersion"),
+            "v2 receipt ICU upstream has no sourceVersion",
+        )? != "74.2"
+    {
+        return Err("v2 receipt ICU upstream is not release-74-2 / 74.2".into());
+    }
+
+    let code_archives = icu
+        .get("codeArchives")
+        .and_then(Value::as_array)
+        .ok_or("v2 receipt ICU metadata has no codeArchives")?;
+    let code_archives = code_archives
+        .iter()
+        .map(|value| string(Some(value), "v2 receipt ICU code archive is not a string"))
+        .collect::<Result<Vec<_>, _>>()?;
+    if code_archives.len() != 2
+        || code_archives[0].rsplit('/').next() != Some("libicui18n.a")
+        || code_archives[1].rsplit('/').next() != Some("libicuuc.a")
+    {
+        return Err(
+            "v2 receipt ICU codeArchives must name libicui18n.a and libicuuc.a once".into(),
+        );
+    }
+
+    let data = object(
+        icu.get("data"),
+        "v2 receipt ICU metadata has no data object",
+    )?;
+    let trimmed = object(
+        data.get("trimmed"),
+        "v2 receipt ICU metadata has no trimmed data object",
+    )?;
+    let full = object(
+        data.get("full"),
+        "v2 receipt ICU metadata has no full data object",
+    )?;
+    let trimmed_data_archive = string(
+        trimmed.get("archive"),
+        "v2 receipt ICU trimmed data has no archive",
+    )?;
+    let full_data_archive = string(
+        full.get("archive"),
+        "v2 receipt ICU full data has no archive",
+    )?;
+    if trimmed_data_archive.rsplit('/').next() != Some("libicudata.a")
+        || full_data_archive.rsplit('/').next() != Some("libicudata-full.a")
+    {
+        return Err(
+            "v2 receipt ICU data variants must name libicudata.a and libicudata-full.a".into(),
+        );
+    }
+    for archive in code_archives
+        .iter()
+        .chain([&trimmed_data_archive, &full_data_archive])
+    {
+        validate_path(archive)?;
+        if !archives.iter().any(|(path, _)| path == archive) {
+            return Err(format!(
+                "v2 receipt ICU archive {archive} is not bound by the archive manifest"
+            ));
+        }
+    }
+
+    let filter = object(
+        trimmed.get("filter"),
+        "v2 receipt ICU trimmed data has no filter object",
+    )?;
+    let trimmed_filter_path = string(
+        filter.get("path"),
+        "v2 receipt ICU trimmed data filter has no path",
+    )?;
+    validate_path(&trimmed_filter_path)?;
+    let trimmed_filter_digest = digest(
+        filter.get("digest"),
+        "v2 receipt ICU trimmed data filter has no digest",
+    )?;
+    if trimmed_filter_digest != ICU_TRIMMED_FILTER_DIGEST {
+        return Err(format!(
+            "v2 receipt ICU trimmed filter digest is not pinned digest {ICU_TRIMMED_FILTER_DIGEST}"
+        ));
+    }
+
+    Ok(CanonicalIcuReceipt {
+        trimmed_data_archive,
+        full_data_archive,
+        trimmed_filter_path,
+        trimmed_filter_digest,
     })
 }
 
@@ -365,5 +507,61 @@ mod tests {
                 .map(String::as_str),
             Some("sha256-5555555555555555555555555555555555555555555555555555555555555555")
         );
+    }
+
+    #[test]
+    fn linux_icu_metadata_binds_both_data_variants_and_the_filter() {
+        let mut document = document();
+        document["target"] = Value::String("aarch64-unknown-linux-gnu".into());
+        let archives = document["archives"].as_array_mut().expect("archives");
+        for (path, byte) in [
+            ("lib/libicudata-full.a", '6'),
+            ("lib/libicudata.a", '7'),
+            ("lib/libicui18n.a", '8'),
+            ("lib/libicuuc.a", '9'),
+        ] {
+            archives.push(serde_json::json!({
+                "path": path,
+                "digest": format!("sha256-{}", byte.to_string().repeat(64)),
+            }));
+        }
+        archives.sort_by(|left, right| {
+            left["path"]
+                .as_str()
+                .expect("path")
+                .cmp(right["path"].as_str().expect("path"))
+        });
+        document["icu"] = serde_json::json!({
+            "upstream": {
+                "artifact": "unicode-org/icu",
+                "sourceCommit": ICU_SOURCE_COMMIT,
+                "sourceRef": "release-74-2",
+                "sourceVersion": "74.2"
+            },
+            "codeArchives": ["lib/libicui18n.a", "lib/libicuuc.a"],
+            "data": {
+                "trimmed": {
+                    "archive": "lib/libicudata.a",
+                    "filter": {
+                        "path": "share/icu/filters-root-en.json",
+                        "digest": ICU_TRIMMED_FILTER_DIGEST
+                    }
+                },
+                "full": { "archive": "lib/libicudata-full.a" }
+            }
+        });
+
+        let receipt = validate(&document, Some("aarch64-unknown-linux-gnu"))
+            .expect("canonical Linux ICU metadata");
+        assert_eq!(
+            receipt.icu.expect("ICU metadata").full_data_archive,
+            "lib/libicudata-full.a"
+        );
+
+        document["icu"]["data"]["trimmed"]["filter"]["digest"] =
+            Value::String(format!("sha256-{}", "0".repeat(64)));
+        assert!(validate(&document, None)
+            .unwrap_err()
+            .contains("trimmed filter digest"));
     }
 }

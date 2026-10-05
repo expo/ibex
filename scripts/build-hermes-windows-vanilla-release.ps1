@@ -63,6 +63,8 @@ $receiptArgs = @(
   "--link-directive=rustc-link-lib=static=hermesvm_a",
   "--link-directive=rustc-link-lib=static=jsi",
   "--link-directive=rustc-link-lib=static=boost_context",
+  "--link-directive=rustc-link-lib=icuuc",
+  "--link-directive=rustc-link-lib=icuin",
   "--link-directive=rustc-link-lib=dbghelp",
   "--link-directive=rustc-link-lib=version",
   "--link-directive=rustc-link-lib=psapi",

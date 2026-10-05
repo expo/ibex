@@ -1,4 +1,4 @@
-# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v2
+# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v3
 # receipt and exact vanilla dual-VM link closure without release or OIDC
 # authority. A default-branch workflow_run publisher consumes the handoff.
 name: Hermes vanilla release builder
@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: hermes-vanilla-d412d3bd8512-v2
+  group: hermes-vanilla-d412d3bd8512-v3
   cancel-in-progress: false
 
 permissions: {}
 
 env:
   HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
-  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v2
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v3
 
 jobs:
   macos_arm64:
@@ -231,18 +231,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libicu-dev libtinfo-dev ninja-build pkg-config
-
       - name: Build and package Linux x86_64
         id: package
         run: |
           set -euo pipefail
           asset_name=hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz
           asset_path="$RUNNER_TEMP/$asset_name"
-          scripts/build-hermes-vanilla-release.sh x86_64-unknown-linux-gnu "$asset_path"
+          scripts/build-hermes-vanilla-linux-container.sh x86_64-unknown-linux-gnu "$asset_path"
           asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
           asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
           printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
@@ -285,18 +280,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libicu-dev libtinfo-dev ninja-build pkg-config
-
       - name: Build and package Linux arm64
         id: package
         run: |
           set -euo pipefail
           asset_name=hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz
           asset_path="$RUNNER_TEMP/$asset_name"
-          scripts/build-hermes-vanilla-release.sh aarch64-unknown-linux-gnu "$asset_path"
+          scripts/build-hermes-vanilla-linux-container.sh aarch64-unknown-linux-gnu "$asset_path"
           asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
           asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
           printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
