@@ -551,6 +551,91 @@ The 208-second native build is functional evidence, not an isolated performance
 comparison. No primary branch, old install or global PATH was changed by this
 qualification.
 
+#### Windows crate split and receipt-v2 qualification
+
+Implementation owner: Codex, 2026-10-04; independently reviewed by the parent
+agent before the test portability correction.
+
+The 2026-10-04 L1b/L1c update moves the owning CLI and engine-bearing tests to
+`ibex2-runtime`, leaves `ibex2` engine-free by default, and selects the shared
+engine/compiler through `hermes-lean-sys`. The vanilla source pin is now
+`d412d3bd851278712c20cca25d094e32641a0465` (260318099.0.4). Qualify the actual
+new source build and generated v2 receipt; do not relabel the old engine or
+replace the already qualified versioned user-local installation. V1 receipts
+remain readable by design, so schema acceptance alone does not establish use
+of the new engine. The receipt's archive digest must match the actual archive
+and the identity baked into the runtime and binding bytecode.
+
+The workflow-security test failed before running its cases in a normal CRLF
+Windows checkout: its block-scalar scanner required LF. The reviewed test-only
+port normalizes CRLF at workflow-text ingestion, selects Windows' actual
+`python` command instead of assuming a usable `python3` alias, and explicitly
+fails subprocess launch errors. Extra-entry and changed-byte refusal remain
+independent of the actual symlink fixture. Only a Windows symlink creation
+privilege failure may skip that fixture, with a visible reason; it must not
+suppress other publisher refusal checks. Publisher, receipt, workflow and
+runtime production behavior are unchanged by this test portability correction.
+
+Qualification at Ibex `d803493ab76bfe336c343b190dda6bc5dcb50197` uses Rust 1.97.0,
+VS 2022 MSVC 14.44.35207 and a fresh short process-local cache. All 436 Hermes
+build steps and the v2 producer pass, with HBC 99, three archives and 136 headers.
+The new install starts empty; old private inputs and the previously qualified
+`1c2f4c13` user-local distribution remain preserved. Every archive/header and the
+compiler hash match the receipt. Its exact engine archive digest is
+`sha256-3017672471edba7152d04b07b039cf35c1a7d20b7db8ad52f2ba346f0cb57950`.
+This is a locally built engine qualification, not a downloaded release-bundle
+attestation or a refresh of Exact's patched vendor snapshot.
+
+The all-features workspace sweep passes 645 tests with 23 existing ignores;
+the engine-free library run passes 177 with one ignore and its normal/build
+dependency tree excludes Hermes, the owning runtime and Oxc. Bindings-only
+tests pass 205 with one ignore. Default and crypto-only feature checks pass;
+those narrower configurations still emit six existing JWK-helper dead-code
+warnings and two vendored-ring lifetime warnings. Strict all-features workspace
+Clippy, formatting, reference validation and caps pass; those warnings were
+neither suppressed nor represented as a clean strict check of every feature cut.
+
+Both release CLIs start from an unrelated directory. The full CLI runs source,
+builds and runs AOT graphs of 100 and 500 dependencies with exact expected
+outputs; run-only executes those same AOT graphs and refuses source/build.
+The new CLI also refuses an actual old-engine precompiled artifact without
+changing its files, despite both engine versions using HBC 99. Both executables
+retain an 8 MiB stack reserve and 4 KiB commit, with normal Windows, ICU and MSVC
+DLL imports. The workflow tests pass nine cases and visibly skip only the real
+symlink fixture on this token's `EPERM` privilege refusal. Logs and byte/provenance
+checks are retained under `target/windows-v2-*`; timings are functional checks,
+not an isolated performance comparison. No global PATH or installed CLI changes.
+
+#### Windows complete-install override documentation
+
+The L1b README incorrectly advised setting `HERMES_LEAN_SYS_DIR` to the
+repository builder's `windows-x64` directory. That root has the archives and
+headers, but its compiler lives in the parent directory with a platform suffix.
+The actual override resolver requires `hermesc.exe` or `bin/hermesc.exe` inside
+the selected root. Reproducing the documented override fails with that missing
+compiler; leaving the variable unset correctly selects both repository paths.
+
+Root approved a separate documentation-only correction before implementation:
+describe the complete override layout, keep the builder's default selection,
+and explain that L1b bakes these paths into the runtime during the Cargo build.
+The full CLI's AOT build also needs the matching receipt in the engine root.
+No resolver fallback, runtime environment override, receipt rule or installed
+distribution is changed by this correction.
+
+Qualification copies the three matching archives, 136 headers and compiler
+into a private complete install whose path contains spaces, `#` and `café`.
+The existing receipt producer emits its v2 receipt with unchanged engine and
+compiler digests and a local `hermesc.exe` name. With that absolute override,
+`cargo check --locked -p ibex2 --no-default-features --features bindings` passes;
+exported build metadata names the copied root and compiler. Removing the
+process-local override and repeating the command passes and restores the
+repository builder's engine/compiler metadata. The inherited two vendored
+`ring` lifetime warnings remain; these compile checks are not strict lint
+claims. Prior installed inputs remain unchanged.
+A separate Codex agent reviewed the final README/LLP diff against the resolver,
+runtime receipt path and retained failure/success logs, with no blocker; the
+review did not rerun builds. The independently reviewed scope remains docs only.
+
 ### Windows app storage qualification
 
 Implementation owner: Codex, 2026-10-04, following the Windows engine slice.

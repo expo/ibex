@@ -80,9 +80,15 @@ produce it. No custom Hermes INCLUDE or LIB environment settings are needed.
 The build cache lives under `%LOCALAPPDATA%/Exact/hermes2-windows-vanilla`;
 keep that path short, because some MSVC tools still limit generated path lengths.
 
-For an existing vanilla install, set `HERMES_LEAN_SYS_DIR` to the absolute
-`windows-x64` directory; the install supplies both the engine and its matching
-compiler. Leave it unset to use the repository-local installation above.
+Leave `HERMES_LEAN_SYS_DIR` unset for the repository builder's output above:
+that layout keeps the compiler beside, rather than inside, `windows-x64`.
+For a separate complete vanilla install, set it to the absolute root containing
+`hermes-headers/`, `windows-static/`, and the matching `hermesc.exe` (or
+`bin/hermesc.exe`). The full CLI's `build` command also requires
+`hermes-input-receipt.json` in that root. Pointing the override at the repository's
+`windows-x64` directory alone fails because it does not contain that compiler.
+Set this variable before Cargo builds: the selected engine and compiler paths
+are baked into the runtime, so moving an install requires rebuilding it.
 
 Compile a small application ahead of time and run it:
 

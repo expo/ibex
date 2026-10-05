@@ -21,11 +21,11 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const builderWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/hermes-vanilla-build.yml"),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 const publisherWorkflow = readFileSync(
   join(repoRoot, ".github/workflows/hermes-vanilla-publish.yml"),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 const receiptWriter = readFileSync(join(repoRoot, "scripts/hermes-input-receipt.mjs"), "utf8");
 const localAppleBuilder = readFileSync(join(repoRoot, "scripts/build-hermes.sh"), "utf8");
 const localLinuxBuilder = readFileSync(join(repoRoot, "scripts/build-hermes-linux.sh"), "utf8");
@@ -202,26 +202,30 @@ test("read-only builders are separated from the default-branch publisher", () =>
   assert.ok(jobEnv.length > 0, "publisher has a job-level env block");
   assert.doesNotMatch(jobEnv, /runner\./);
   assert.doesNotMatch(publisherWorkflow.slice(0, publisherWorkflow.indexOf("\njobs:\n")), /runner\./);
-  assert.match(publisher, /gh release create "\$RELEASE_TAG"/);
-  assert.match(publisher, /--target "\$SOURCE_SHA"/);
+  // The draft is created through the API and addressed by its returned id
+  // from then on; listing right after a write can miss it.
+  assert.match(publisher, /gh api --method POST "repos\/\$GITHUB_REPOSITORY\/releases"/);
+  assert.match(publisher, /-f target_commitish="\$SOURCE_SHA"/);
+  assert.match(publisher, /created draft does not carry the requested tag, target, and marker/);
+  assert.doesNotMatch(publisher, /gh release (create|upload|edit)/);
   assert.match(publisher, /gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$RELEASE_TAG"/);
   assert.match(publisher, /DRAFT_MARKER="\$DRAFT_MARKER_PREFIX source-sha=\$SOURCE_SHA -->"/);
-  assert.match(publisher, /--draft \\/);
-  assert.match(publisher, /gh release upload "\$RELEASE_TAG" "\$RELEASE_DIR"\/\*/);
+  assert.match(publisher, /-F draft=true \\/);
+  assert.match(publisher, /https:\/\/uploads\.github\.com\/repos\/\$GITHUB_REPOSITORY\/releases\/\$release_id\/assets/);
   assert.match(publisher, /releases\/\$release_id\/assets\?per_page=100/);
   assert.match(publisher, /remote release asset names are not the exact local set/);
   assert.match(publisher, /remote asset digest mismatch/);
-  assert.match(publisher, /gh release edit "\$RELEASE_TAG"/);
-  assert.match(publisher, /--draft=false \\/);
-  assert.match(publisher, /--prerelease \\/);
+  assert.match(publisher, /gh api --method PATCH "repos\/\$GITHUB_REPOSITORY\/releases\/\$release_id"/);
+  assert.match(publisher, /-F draft=false \\/);
+  assert.match(publisher, /-F prerelease=true \\/);
   // An existing release, draft or published, is refused and never adopted.
   assert.match(publisher, /if \[\[ "\$existing_count" != 0 \]\]; then\n\s+echo "::error::a release named/);
   assert.doesNotMatch(publisher, /releases\/assets\/\$asset_id|--method DELETE/);
   // What was published is verified again: assets, immutability, and the tag.
-  const publish = publisher.indexOf("--draft=false \\");
-  const finalAssetCheck = publisher.lastIndexOf("\n          verify_remote_assets\n");
+  const publish = publisher.indexOf("-F draft=false \\");
+  const finalAssetCheck = publisher.lastIndexOf("\n          fetch_and_verify_assets\n");
   assert.ok(publish !== -1 && finalAssetCheck > publish, "assets are re-verified after publication");
-  assert.equal(publisher.split("\n          verify_remote_assets\n").length, 3);
+  assert.equal(publisher.split("\n          fetch_and_verify_assets\n").length, 3);
   assert.match(publisher, /release\.get\("immutable"\) is not True/);
   assert.match(publisher, /tag\.get\("type"\) != "commit" or tag\.get\("sha"\) != os\.environ\["SOURCE_SHA"\]/);
   const releaseLookup = publisher.indexOf(
@@ -308,22 +312,28 @@ function runValidator(setup, environment = {}) {
     size_in_bytes: bytes.length,
     expired: false,
   }] }]));
-  setup?.({ temporary, handoff, artifactName, assetName, bytes, artifactsFile });
-  const output = join(temporary, "output");
-  const result = spawnSync("python3", ["-c", validator], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      EXPECTED_ARTIFACT_NAME: artifactName,
-      EXPECTED_ASSET_NAME: assetName,
-      ARTIFACTS_FILE: artifactsFile,
-      HANDOFF_DIR: handoff,
-      GITHUB_OUTPUT: output,
-      ...environment,
-    },
-  });
-  rmSync(temporary, { recursive: true, force: true });
-  return result;
+  try {
+    setup?.({ temporary, handoff, artifactName, assetName, bytes, artifactsFile });
+    const output = join(temporary, "output");
+    const python = process.platform === "win32" ? "python" : "python3";
+    const result = spawnSync(python, ["-c", validator], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EXPECTED_ARTIFACT_NAME: artifactName,
+        EXPECTED_ASSET_NAME: assetName,
+        ARTIFACTS_FILE: artifactsFile,
+        HANDOFF_DIR: handoff,
+        GITHUB_OUTPUT: output,
+        ...environment,
+      },
+    });
+    assert.ifError(result.error);
+    assert.notEqual(result.status, null, `${python} did not exit normally: ${result.signal}`);
+    return result;
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 test("publisher accepts exactly one named regular archive with matching bytes", () => {
@@ -362,18 +372,29 @@ test("publisher rejects empty digests, zero sizes, and digest mismatches", () =>
   assert.notEqual(mismatchedDigest.status, 0);
 });
 
-test("publisher rejects extra entries, symlinks, and changed bytes", () => {
+test("publisher rejects extra entries and changed bytes", () => {
   const extra = runValidator(({ handoff }) => writeFileSync(join(handoff, "extra"), "x"));
   assert.notEqual(extra.status, 0);
 
-  const linked = runValidator(({ temporary, handoff, assetName }) => {
-    rmSync(join(handoff, assetName));
-    const outside = join(temporary, "outside");
-    writeFileSync(outside, "inert archive bytes");
-    symlinkSync(outside, join(handoff, assetName));
-  });
-  assert.notEqual(linked.status, 0);
-
   const changed = runValidator(({ handoff, assetName }) => writeFileSync(join(handoff, assetName), "changed"));
   assert.notEqual(changed.status, 0);
+});
+
+test("publisher rejects an actual symlink archive", (t) => {
+  try {
+    const linked = runValidator(({ temporary, handoff, assetName }) => {
+      rmSync(join(handoff, assetName));
+      const outside = join(temporary, "outside");
+      writeFileSync(outside, "inert archive bytes");
+      symlinkSync(outside, join(handoff, assetName));
+    });
+    assert.notEqual(linked.status, 0);
+  } catch (error) {
+    if (process.platform === "win32" && error.syscall === "symlink"
+        && ["EPERM", "EACCES"].includes(error.code)) {
+      t.skip(`Windows symlink creation privilege unavailable: ${error.code}`);
+      return;
+    }
+    throw error;
+  }
 });
