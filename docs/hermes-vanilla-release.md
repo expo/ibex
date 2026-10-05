@@ -109,40 +109,10 @@ test "$(gh api -H "X-GitHub-Api-Version: $api_version" \
   --jq .total_count)" = 0
 ```
 
-Protect `main`: require a pull request with one non-author approval, dismiss
-stale approvals, require approval after the last push, enforce the rule for
-administrators, require linear history and resolved conversations, and forbid
-force pushes and deletion. This command deliberately names no bypass actor
-and no status check; add required checks separately once their stable check
-names are known.
-
-```sh
-gh api --method PUT \
-  -H "X-GitHub-Api-Version: $api_version" \
-  "repos/$repo/branches/main/protection" --input - <<'JSON'
-{
-  "required_status_checks": null,
-  "enforce_admins": true,
-  "required_pull_request_reviews": {
-    "dismiss_stale_reviews": true,
-    "require_code_owner_reviews": false,
-    "required_approving_review_count": 1,
-    "require_last_push_approval": true
-  },
-  "restrictions": null,
-  "required_linear_history": true,
-  "allow_force_pushes": false,
-  "allow_deletions": false,
-  "block_creations": false,
-  "required_conversation_resolution": true,
-  "lock_branch": false,
-  "allow_fork_syncing": false
-}
-JSON
-
-gh api -H "X-GitHub-Api-Version: $api_version" \
-  "repos/$repo/branches/main/protection"
-```
+Full branch protection on `main` is not applied, by Charlie's decision on
+2026-10-04, and is not a release prerequisite. The active `Default branch
+protections` ruleset targets `~DEFAULT_BRANCH` and blocks both deletion and
+non-fast-forward updates (force-pushes).
 
 ## Cut the release
 
@@ -218,6 +188,21 @@ gh api -H "X-GitHub-Api-Version: $api_version" \
    gh release view hermes-vanilla-d412d3bd8512-v1 --repo "$repo"
    ```
 
+### First publication (2026-10-04)
+
+The first immutable publication used builder run
+[37229325065](https://github.com/expo/ibex/actions/runs/37229325065) and
+publisher run
+[37230233860](https://github.com/expo/ibex/actions/runs/37230233860). Both ran
+from `321cc6d2b80ced4dd22ac482fe12c180e7bac473`, and the published tag
+`hermes-vanilla-d412d3bd8512-v1` resolves directly to that commit.
+
+Post-publication verification downloaded the release, passed every
+`SHA256SUMS` check, and verified all seven retained attestations. Each
+attestation was checked with the publisher workflow certificate identity on
+`refs/heads/main`, `--source-ref refs/heads/main`, and both `--source-digest`
+and `--signer-digest` set to the full `321cc6d…` tag target above.
+
 ## Recover a stuck draft
 
 The publisher never adopts, edits, or deletes an existing release. If any
@@ -269,7 +254,6 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
   gh attestation verify "$archive" \
     --repo "$repo" \
     --bundle "$archive.sigstore.json" \
-    --signer-workflow expo/ibex/.github/workflows/hermes-vanilla-publish.yml \
     --cert-identity \
       https://github.com/expo/ibex/.github/workflows/hermes-vanilla-publish.yml@refs/heads/main \
     --source-ref refs/heads/main \
@@ -289,13 +273,13 @@ done
 ```
 
 This checks the downloaded bytes against `SHA256SUMS`; verifies the retained
-Sigstore bundle for each archive; requires the attestation repository and
-signer workflow to be `expo/ibex` and the publisher path above; requires the
-certificate subject to bind that workflow to `refs/heads/main`; and requires
-both the source and signer digests to equal the Ibex commit named by the
-release tag. Separately, the receipt check binds the archive contents to the
-pinned upstream Hermes commit, an empty patch set, and the closed v2
-archive/header/link manifests.
+Sigstore bundle for each archive; and uses the certificate identity to bind
+the publisher workflow path specifically to `refs/heads/main`. The source and
+signer digests must both equal the Ibex commit named by the release tag.
+Separately, the receipt check binds the archive contents to the pinned upstream
+Hermes commit, an empty patch set, and the closed v2 archive/header/link
+manifests. Do not combine `--cert-identity` with `--signer-workflow`: `gh`
+rejects that pair.
 
 ## Consuming the bundles
 
@@ -316,8 +300,11 @@ preflights the complete archive and accepts only relative regular-file and
 directory entries: absolute paths, parent traversal, links, and special files
 are refused. Completed installs are atomically renamed into
 `$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/`, with Cargo home defaulting
-to `$HOME/.cargo` (or the platform home equivalent). A cache entry is reused
-only when its recorded archive digest equals the pin.
+to `$HOME/.cargo` (or the platform home equivalent). The verified tarball is
+retained in the cache entry. Every admission rehashes it against the source
+pin, rebuilds a per-file manifest from its members, and compares that manifest
+with the extracted tree, including refusal of missing, changed, extra, linked,
+or special entries.
 
 `CARGO_NET_OFFLINE=true` and `HERMES_LEAN_SYS_OFFLINE=1` both prohibit a
 download. In offline mode a valid warm cache entry or local override is
@@ -329,9 +316,11 @@ For cross compilation, `hermesc` comes from the pinned host bundle while the
 headers and archives come from the target bundle. Its reported HBC bytecode
 version must match the target receipt. For every published bundle, and every
 local install carrying a receipt, the receipt's engine path and digest must
-name the archive `hermes-lean-sys` selected. A recorded compiler digest must
-likewise equal the selected `hermesc`, preventing a receipt from describing a
-different compiler than the one that produced binding bytecode.
+name the archive `hermes-lean-sys` selected. Before `hermesc` executes, its
+digest must match the compiler digest in the receipt of the host bundle that
+supplied it. The target receipt authenticates the target engine and HBC
+version; its compiler digest need not equal the independently built host
+compiler's digest.
 
 ## Bump consumer pins
 
