@@ -1,5 +1,5 @@
 use serde_json::{Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const SCHEMA: &str = "ibex/hermes-upstream-pinned-receipt/2";
 pub(crate) const SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465";
@@ -23,6 +23,13 @@ pub(crate) struct CanonicalReceipt {
     pub(crate) engine_digest: String,
     pub(crate) compiler_digest: String,
     pub(crate) bytecode_version: u64,
+    archive_digests: BTreeMap<String, String>,
+}
+
+impl CanonicalReceipt {
+    pub(crate) fn archive_digests(&self) -> &BTreeMap<String, String> {
+        &self.archive_digests
+    }
 }
 
 pub(crate) fn validate(
@@ -164,6 +171,7 @@ pub(crate) fn validate(
         engine_digest,
         compiler_digest,
         bytecode_version,
+        archive_digests: archives.into_iter().collect(),
     })
 }
 
@@ -345,5 +353,17 @@ mod tests {
         assert!(validate(&duplicate, None)
             .unwrap_err()
             .contains("more than one target lean VM archive"));
+    }
+
+    #[test]
+    fn shared_fixture_exposes_the_lean_archive_identity() {
+        let receipt = validate(&document(), None).expect("canonical v2");
+        assert_eq!(
+            receipt
+                .archive_digests()
+                .get("lib/libhermesvmlean_a.a")
+                .map(String::as_str),
+            Some("sha256-5555555555555555555555555555555555555555555555555555555555555555")
+        );
     }
 }

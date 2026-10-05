@@ -31,10 +31,17 @@ fn main() {
     let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
-    let links_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
+    let links_full_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
+    let links_lean_runtime = std::env::var_os("CARGO_FEATURE_LINK_LEAN").is_some();
     let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
 
-    let install = resolve_engine_directory(repo_root, &target, &host)
+    // @ref LLP 0057.000#l1--the-bindings-door — R-e permits exactly one
+    // linked archive identity in a process.
+    if links_full_runtime && links_lean_runtime {
+        panic!("hermes-lean-sys features `link` and `link-lean` are mutually exclusive; select exactly one VM archive");
+    }
+
+    let install = resolve_engine_directory(repo_root, &target, &host, links_lean_runtime)
         .unwrap_or_else(|error| panic!("Hermes engine resolution failed: {error}"));
 
     for path in rerun_paths(&install, &target) {
@@ -43,6 +50,10 @@ fn main() {
 
     let engine_digest = digest_file(&install.vm_archive)
         .unwrap_or_else(|error| panic!("cannot hash selected Hermes engine: {error}"));
+    let lean_engine_digest = install.lean_vm_archive.is_file().then(|| {
+        digest_file(&install.lean_vm_archive)
+            .unwrap_or_else(|error| panic!("cannot hash selected lean Hermes engine: {error}"))
+    });
     let bytecode_version = hermesc_bytecode_version(&install.hermesc)
         .unwrap_or_else(|error| panic!("cannot inspect selected Hermes compiler: {error}"));
     metadata("include_dir", &install.include_dir.display().to_string());
@@ -50,7 +61,15 @@ fn main() {
     metadata("lib_root", &install.lib_root.display().to_string());
     metadata("archive", &install.vm_archive.display().to_string());
     metadata("engine_digest", &engine_digest);
+    metadata(
+        "lean_archive",
+        &install.lean_vm_archive.display().to_string(),
+    );
+    if let Some(digest) = &lean_engine_digest {
+        metadata("lean_engine_digest", digest);
+    }
     metadata("bytecode_version", &bytecode_version);
+    metadata("lean_bytecode_version", &bytecode_version);
     metadata("engine_dir", &install.root.display().to_string());
     println!("cargo:rustc-env=HERMES_LEAN_ENGINE_DIGEST={engine_digest}");
     println!(
@@ -58,14 +77,36 @@ fn main() {
         install.vm_archive.display()
     );
     println!("cargo:rustc-env=HERMES_LEAN_BYTECODE_VERSION={bytecode_version}");
+    println!(
+        "cargo:rustc-env=HERMES_LEAN_LEAN_ARCHIVE={}",
+        install.lean_vm_archive.display()
+    );
+    if let Some(digest) = &lean_engine_digest {
+        println!("cargo:rustc-env=HERMES_LEAN_LEAN_ENGINE_DIGEST={digest}");
+    }
+    println!("cargo:rustc-env=HERMES_LEAN_LEAN_BYTECODE_VERSION={bytecode_version}");
 
-    if links_runtime {
-        emit_link_lines(
-            &target_os,
-            &target_vendor,
-            &install.lib_root,
-            &install.vm_archive,
+    let linked = if links_full_runtime {
+        Some((&install.vm_archive, engine_digest.as_str()))
+    } else if links_lean_runtime {
+        Some((
+            &install.lean_vm_archive,
+            lean_engine_digest
+                .as_deref()
+                .expect("link-lean requires a lean VM digest"),
+        ))
+    } else {
+        None
+    };
+    if let Some((archive, digest)) = linked {
+        metadata("linked_archive", &archive.display().to_string());
+        metadata("linked_engine_digest", digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_LINKED_ARCHIVE={}",
+            archive.display()
         );
+        println!("cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DIGEST={digest}");
+        emit_link_lines(&target_os, &target_vendor, &install.lib_root, archive);
     }
     if links_icu && target_os == "linux" {
         emit_linux_icu_link_lines(&install.lib_root);

@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 #[path = "receipt_schema.rs"]
 mod receipt_schema;
 
-pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v1";
+pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
@@ -23,9 +23,10 @@ pub(crate) struct BundlePin {
 
 // @ref LLP 0057.000#l1--the-bindings-door — this table is the trust root for
 // the compiler/VM identity shared by the bindings and the owning runtime.
-// These are the verified immutable v1 release digests. Keep them under the v1
-// namespace until a later release has been published and independently
-// verified; see scripts/update-hermes-lean-sys-pins.mjs.
+// These are the verified v1 digests retained as deliberate placeholders while
+// v2 is built and published. They MUST be replaced with the v2 asset digests
+// only after the immutable release and its Sigstore attestations are verified;
+// see scripts/update-hermes-lean-sys-pins.mjs.
 pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
@@ -82,6 +83,7 @@ struct InstallLayout {
     include_dir: PathBuf,
     lib_root: PathBuf,
     vm_archive: PathBuf,
+    lean_vm_archive: PathBuf,
     origin: InstallOrigin,
     requires_receipt: bool,
     target: String,
@@ -93,6 +95,7 @@ pub(crate) struct EngineInstall {
     pub include_dir: PathBuf,
     pub lib_root: PathBuf,
     pub vm_archive: PathBuf,
+    pub lean_vm_archive: PathBuf,
     pub hermesc: PathBuf,
 }
 
@@ -102,6 +105,7 @@ pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathB
         install.root.clone(),
         install.include_dir.clone(),
         install.vm_archive.clone(),
+        install.lean_vm_archive.clone(),
         install.hermesc.clone(),
         install.root.join("hermes-input-receipt.json"),
         install.root.join(CACHE_ARCHIVE),
@@ -172,6 +176,7 @@ struct ReceiptClaims {
     engine_digest: String,
     compiler_digest: Option<String>,
     bytecode_version: Option<String>,
+    archive_digests: Option<BTreeMap<String, String>>,
 }
 
 pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String> {
@@ -232,6 +237,7 @@ pub(crate) fn resolve_engine_directory(
     repo_root: &Path,
     target: &str,
     host: &str,
+    require_lean: bool,
 ) -> Result<EngineInstall, String> {
     let target_layout = if let Some(overridden) = env::var_os("HERMES_LEAN_SYS_DIR") {
         install_layout(PathBuf::from(overridden), target, InstallOrigin::Override)
@@ -246,7 +252,7 @@ pub(crate) fn resolve_engine_directory(
         }
     };
 
-    validate_layout(&target_layout)?;
+    validate_layout(&target_layout, require_lean)?;
     let (hermesc, bytecode_version) = if target != host {
         let host_pin = pin_for_target(host).map_err(|_| {
             format!(
@@ -256,7 +262,7 @@ pub(crate) fn resolve_engine_directory(
         let options = download_options_from_env()?;
         let host_root = acquire_bundle(host_pin, &options)?;
         let host_layout = install_layout(host_root, host, InstallOrigin::Bundle);
-        validate_layout(&host_layout)?;
+        validate_layout(&host_layout, false)?;
         let compiler = compiler_in_bundle_or_install(&host_layout.root, host);
         let version = validate_compiler_bundle(&host_layout, &compiler)?;
         (compiler, version)
@@ -293,6 +299,7 @@ pub(crate) fn resolve_engine_directory(
         target == host,
         &engine_digest,
         &bytecode_version,
+        require_lean,
     )?;
 
     Ok(EngineInstall {
@@ -300,6 +307,7 @@ pub(crate) fn resolve_engine_directory(
         include_dir: target_layout.include_dir,
         lib_root: target_layout.lib_root,
         vm_archive: target_layout.vm_archive,
+        lean_vm_archive: target_layout.lean_vm_archive,
         hermesc,
     })
 }
@@ -338,15 +346,16 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
         };
         (root.join("hermes-headers"), root.join(lib_dir))
     };
-    let archive = if target.ends_with("-pc-windows-msvc") {
-        "hermesvm_a.lib"
+    let (archive, lean_archive) = if target.ends_with("-pc-windows-msvc") {
+        ("hermesvm_a.lib", "hermesvmlean_a.lib")
     } else {
-        "libhermesvm_a.a"
+        ("libhermesvm_a.a", "libhermesvmlean_a.a")
     };
     InstallLayout {
         root,
         include_dir,
         vm_archive: lib_root.join(archive),
+        lean_vm_archive: lib_root.join(lean_archive),
         lib_root,
         origin,
         requires_receipt: bundle_layout,
@@ -394,12 +403,16 @@ fn same_location(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn validate_layout(layout: &InstallLayout) -> Result<(), String> {
-    for (label, path, want_dir) in [
+fn validate_layout(layout: &InstallLayout, require_lean: bool) -> Result<(), String> {
+    let mut required = vec![
         ("Hermes headers", &layout.include_dir, true),
         ("Hermes library directory", &layout.lib_root, true),
         ("Hermes VM archive", &layout.vm_archive, false),
-    ] {
+    ];
+    if require_lean {
+        required.push(("lean Hermes VM archive", &layout.lean_vm_archive, false));
+    }
+    for (label, path, want_dir) in required {
         let exists = if want_dir {
             path.is_dir()
         } else {
@@ -407,8 +420,13 @@ fn validate_layout(layout: &InstallLayout) -> Result<(), String> {
         };
         if !exists {
             return Err(format!(
-                "{label} not found at {}; set HERMES_LEAN_SYS_DIR to a complete local install or populate the pinned bundle cache",
-                path.display()
+                "{label} not found at {}; set HERMES_LEAN_SYS_DIR to a complete local install{} or populate the pinned bundle cache",
+                path.display(),
+                if require_lean && label == "lean Hermes VM archive" {
+                    " containing the lean archive"
+                } else {
+                    ""
+                },
             ));
         }
     }
@@ -422,7 +440,14 @@ fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<S
     authenticate_compiler(layout, compiler)?;
     let engine_digest = digest_file(&layout.vm_archive)?;
     let bytecode_version = hermesc_bytecode_version(compiler)?;
-    validate_receipt(layout, compiler, true, &engine_digest, &bytecode_version)?;
+    validate_receipt(
+        layout,
+        compiler,
+        true,
+        &engine_digest,
+        &bytecode_version,
+        false,
+    )?;
     Ok(bytecode_version)
 }
 
@@ -457,6 +482,7 @@ fn validate_receipt(
     validate_compiler_digest: bool,
     engine_digest: &str,
     bytecode_version: &str,
+    validate_lean_archive: bool,
 ) -> Result<(), String> {
     let receipt_path = layout.root.join("hermes-input-receipt.json");
     let Some(receipt) = read_receipt_claims(layout)? else {
@@ -490,6 +516,43 @@ fn validate_receipt(
             receipt.engine_digest,
             engine_digest
         ));
+    }
+    if validate_lean_archive {
+        let lean_digest = digest_file(&layout.lean_vm_archive)?;
+        let relative = layout
+            .lean_vm_archive
+            .strip_prefix(&layout.root)
+            .map_err(|_| {
+                format!(
+                    "selected lean Hermes archive {} is outside engine root {}",
+                    layout.lean_vm_archive.display(),
+                    layout.root.display()
+                )
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let manifest = receipt.archive_digests.as_ref().ok_or_else(|| {
+            format!(
+                "{} has no archive manifest, so it cannot authenticate selected lean Hermes archive {}",
+                receipt_path.display(),
+                layout.lean_vm_archive.display()
+            )
+        })?;
+        let recorded = manifest.get(&relative).ok_or_else(|| {
+            format!(
+                "{} does not bind selected lean Hermes archive {} in its archive manifest",
+                receipt_path.display(),
+                relative
+            )
+        })?;
+        if recorded != &lean_digest {
+            return Err(format!(
+                "{} records lean engine digest {}, but LEAN_ENGINE_DIGEST is {}",
+                receipt_path.display(),
+                recorded,
+                lean_digest
+            ));
+        }
     }
     if validate_compiler_digest {
         if let Some(compiler_digest) = receipt.compiler_digest {
@@ -544,11 +607,29 @@ fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, 
                 )
             })?;
         debug_assert_eq!(receipt.target, receipt_target);
+        let archive_digests = document["archives"]
+            .as_array()
+            .expect("canonical validator requires archives")
+            .iter()
+            .map(|entry| {
+                let path = entry["path"]
+                    .as_str()
+                    .expect("canonical validator requires archive paths")
+                    .to_owned();
+                let digest = receipt
+                    .archive_digests()
+                    .get(&path)
+                    .expect("canonical validator parsed every archive")
+                    .to_owned();
+                (path, digest)
+            })
+            .collect();
         return Ok(Some(ReceiptClaims {
             engine_binary: receipt.engine_binary,
             engine_digest: receipt.engine_digest,
             compiler_digest: Some(receipt.compiler_digest),
             bytecode_version: Some(receipt.bytecode_version.to_string()),
+            archive_digests: Some(archive_digests),
         }));
     }
     if layout.requires_receipt {
@@ -577,6 +658,7 @@ fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, 
         engine_digest: receipt.engine.binary_digest,
         compiler_digest: receipt.compiler.and_then(|compiler| compiler.digest),
         bytecode_version,
+        archive_digests: None,
     }))
 }
 
@@ -1407,6 +1489,7 @@ mod internal_tests {
             true,
             "sha256-unused",
             "96",
+            false,
         )
         .expect_err("published layout without a receipt must fail");
         assert!(error.contains("missing"), "{error}");
@@ -1442,6 +1525,7 @@ mod internal_tests {
             true,
             &engine_digest,
             "96",
+            false,
         )
         .expect_err("compiler mismatch must fail");
         assert!(error.contains("different compiler"), "{error}");
@@ -1526,6 +1610,7 @@ mod internal_tests {
             true,
             &engine_digest,
             "96",
+            false,
         )
         .expect_err("decoy archive must fail");
         assert!(error.contains("selected"), "{error}");
@@ -1594,6 +1679,7 @@ mod internal_tests {
             false,
             &target_engine_digest,
             &host_version,
+            false,
         )
         .expect("matching HBC versions permit a cross-bundle pairing");
 
@@ -1613,8 +1699,96 @@ mod internal_tests {
             false,
             &target_engine_digest,
             &host_version,
+            false,
         )
         .expect_err("different HBC versions must fail");
         assert!(error.contains("HBC bytecode version"), "{error}");
+    }
+
+    #[test]
+    fn a_missing_lean_archive_fails_only_when_lean_is_requested() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+        fs::create_dir_all(root.join("include")).expect("include directory");
+        fs::create_dir_all(root.join("lib")).expect("lib directory");
+        fs::write(root.join("lib/libhermesvm_a.a"), b"full").expect("full archive");
+        let layout = install_layout(
+            root.to_path_buf(),
+            "aarch64-apple-darwin",
+            InstallOrigin::Override,
+        );
+
+        validate_layout(&layout, false).expect("full selection accepts the old local layout");
+        let error = validate_layout(&layout, true).expect_err("lean selection needs lean bytes");
+        assert!(error.contains("lean Hermes VM archive"), "{error}");
+        assert!(error.contains("containing the lean archive"), "{error}");
+    }
+
+    #[test]
+    fn lean_selection_is_bound_by_the_receipt_archive_manifest() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+        fs::create_dir_all(root.join("include")).expect("include directory");
+        fs::create_dir_all(root.join("lib")).expect("lib directory");
+        fs::create_dir_all(root.join("bin")).expect("bin directory");
+        fs::write(root.join("lib/libhermesvm_a.a"), b"full").expect("full archive");
+        fs::write(root.join("lib/libhermesvmlean_a.a"), b"lean").expect("lean archive");
+        fs::write(root.join("bin/hermesc"), b"compiler").expect("compiler");
+        let full_digest = digest_file(&root.join("lib/libhermesvm_a.a")).expect("full digest");
+        let lean_digest = digest_file(&root.join("lib/libhermesvmlean_a.a")).expect("lean digest");
+        let compiler_digest = digest_file(&root.join("bin/hermesc")).expect("compiler digest");
+        write_v2_receipt(
+            root,
+            "aarch64-apple-darwin",
+            "lib/libhermesvm_a.a",
+            &full_digest,
+            &compiler_digest,
+            96,
+        );
+        let receipt_path = root.join("hermes-input-receipt.json");
+        let mut receipt: serde_json::Value =
+            serde_json::from_slice(&fs::read(&receipt_path).expect("receipt")).expect("JSON");
+        receipt["archives"] = serde_json::json!([
+            { "path": "lib/libhermesvm_a.a", "digest": full_digest },
+            { "path": "lib/libhermesvmlean_a.a", "digest": lean_digest }
+        ]);
+        fs::write(
+            &receipt_path,
+            serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
+        )
+        .expect("receipt");
+        let layout = install_layout(
+            root.to_path_buf(),
+            "aarch64-apple-darwin",
+            InstallOrigin::Bundle,
+        );
+
+        validate_receipt(
+            &layout,
+            &root.join("bin/hermesc"),
+            true,
+            &full_digest,
+            "96",
+            true,
+        )
+        .expect("manifest authenticates the selected lean archive");
+
+        receipt["archives"][1]["digest"] =
+            serde_json::Value::String(format!("sha256-{}", "0".repeat(64)));
+        fs::write(
+            &receipt_path,
+            serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
+        )
+        .expect("receipt");
+        let error = validate_receipt(
+            &layout,
+            &root.join("bin/hermesc"),
+            true,
+            &full_digest,
+            "96",
+            true,
+        )
+        .expect_err("changed lean identity must fail");
+        assert!(error.contains("LEAN_ENGINE_DIGEST"), "{error}");
     }
 }

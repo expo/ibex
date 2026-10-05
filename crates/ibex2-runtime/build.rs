@@ -32,8 +32,18 @@ fn main() {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     compile_javascript(&hermesc, "src/bindings/esm.js", &out_dir.join("esm.hbc"));
 
-    let engine_digest = required("DEP_HERMES_LEAN_ENGINE_DIGEST");
-    let engine_archive = required("DEP_HERMES_LEAN_ARCHIVE");
+    let engine_digest = required("DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST");
+    let engine_archive = required("DEP_HERMES_LEAN_LINKED_ARCHIVE");
+    assert_eq!(
+        engine_digest,
+        required("DEP_HERMES_LEAN_ENGINE_DIGEST"),
+        "ibex2-runtime must link the full source-capable Hermes VM"
+    );
+    assert_eq!(
+        engine_archive,
+        required("DEP_HERMES_LEAN_ARCHIVE"),
+        "ibex2-runtime must link the full source-capable Hermes archive"
+    );
     let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");
     let engine_dir = required("DEP_HERMES_LEAN_ENGINE_DIR");
     let target = std::env::var("TARGET").expect("Cargo supplies TARGET");

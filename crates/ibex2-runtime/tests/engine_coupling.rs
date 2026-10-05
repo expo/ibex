@@ -14,11 +14,11 @@ fn bindings_sys_and_linked_archive_have_one_digest() {
     );
     assert_eq!(
         ibex2_runtime::LINKED_ENGINE_DIGEST,
-        hermes_lean_sys::ENGINE_DIGEST
+        hermes_lean_sys::LINKED_ENGINE_DIGEST.expect("runtime links one Hermes VM")
     );
     assert_eq!(
         ibex2_runtime::LINKED_ENGINE_ARCHIVE,
-        hermes_lean_sys::ARCHIVE
+        hermes_lean_sys::LINKED_ARCHIVE.expect("runtime links one Hermes VM")
     );
 
     let archive = std::fs::read(ibex2_runtime::LINKED_ENGINE_ARCHIVE)

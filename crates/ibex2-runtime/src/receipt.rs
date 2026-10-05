@@ -16,7 +16,7 @@
 //! @ref LLP 0067#5-the-engine-and-the-artifacts — the receipt, and what is verified where
 //! @ref LLP 0067#5-the-engine-and-the-artifacts — vanilla means zero patches: the claim being checked
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 #[path = "../../hermes-lean-sys/receipt_schema.rs"]
 mod receipt_schema;
@@ -41,6 +41,8 @@ pub struct HermesInput {
     pub compiler_digest: Option<String>,
     pub bytecode_version: Option<u64>,
     pub target: Option<String>,
+    /// Canonical archive identities, empty for legacy receipts.
+    pub archive_digests: BTreeMap<String, String>,
 }
 
 impl HermesInput {
@@ -133,6 +135,10 @@ impl HermesInput {
             }
         }
 
+        let archive_digests = canonical
+            .as_ref()
+            .map(|receipt| receipt.archive_digests().clone())
+            .unwrap_or_default();
         Ok(Self {
             binary_path,
             binary_digest,
@@ -142,6 +148,7 @@ impl HermesInput {
             compiler_digest,
             bytecode_version,
             target: canonical.map(|receipt| receipt.target),
+            archive_digests,
         })
     }
 
@@ -204,6 +211,56 @@ impl HermesInput {
             self.binary_digest,
             actual.join("\n           ")
         ))
+    }
+
+    /// Verify the lean VM archive named by a canonical receipt's archive
+    /// manifest. `engine.binary` remains the full VM, so lean selection uses
+    /// this explicit second identity check.
+    pub fn verify_lean_binary(&self, engine_dir: &Path) -> Result<String, String> {
+        let expected_name = if self
+            .target
+            .as_deref()
+            .is_some_and(|target| target.ends_with("-pc-windows-msvc"))
+        {
+            "hermesvmlean_a.lib"
+        } else {
+            "libhermesvmlean_a.a"
+        };
+        let mut matches = self.archive_digests.iter().filter(|(path, _)| {
+            Path::new(path)
+                .file_name()
+                .is_some_and(|name| name == expected_name)
+        });
+        let (relative, expected_digest) = matches.next().ok_or_else(|| {
+            format!("receipt archive manifest has no lean VM archive {expected_name}")
+        })?;
+        if matches.next().is_some() {
+            return Err(format!(
+                "receipt archive manifest names more than one lean VM archive {expected_name}"
+            ));
+        }
+        let binary = engine_dir.join(relative);
+        let metadata = std::fs::symlink_metadata(&binary)
+            .map_err(|error| format!("cannot inspect {}: {error}", binary.display()))?;
+        if !metadata.file_type().is_file() {
+            return Err(format!(
+                "receipt lean engine archive is not a regular file: {}",
+                binary.display()
+            ));
+        }
+        let bytes = std::fs::read(&binary)
+            .map_err(|error| format!("cannot read {}: {error}", binary.display()))?;
+        let actual = format!(
+            "sha256-{}",
+            hex(&<sha2::Sha256 as sha2::Digest>::digest(&bytes))
+        );
+        if &actual != expected_digest {
+            return Err(format!(
+                "receipt describes a different lean engine than the exact archive present\n  receipt: {expected_digest}\n  actual:  {}: {actual}",
+                binary.display()
+            ));
+        }
+        Ok(actual)
     }
 }
 
@@ -396,17 +453,21 @@ mod tests {
         );
         let receipt = HermesInput {
             binary_path: Some("lib/libhermesvm_a.a".into()),
-            binary_digest: digest,
+            binary_digest: digest.clone(),
             variant: "release".into(),
             patch_set_digest: CANONICAL_EMPTY_PATCH_SET.into(),
             patches_applied: 0,
             compiler_digest: Some("sha256-compiler".into()),
             bytecode_version: Some(99),
             target: Some("aarch64-apple-darwin".into()),
+            archive_digests: BTreeMap::from([("lib/libhermesvmlean_a.a".into(), digest)]),
         };
         receipt
             .verify_binary(&engine)
             .expect("full archive matches");
+        receipt
+            .verify_lean_binary(&engine)
+            .expect("lean archive matches its distinct manifest identity");
 
         std::fs::write(
             lib.join("libhermesvm_a.a"),

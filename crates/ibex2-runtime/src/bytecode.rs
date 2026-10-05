@@ -773,6 +773,7 @@ mod tests {
                 compiler_digest: Some(compiler.into()),
                 bytecode_version: Some(bytecode_version),
                 target: None,
+                archive_digests: Default::default(),
             }
         }
 
@@ -883,6 +884,7 @@ mod tests {
                 compiler_digest: None,
                 bytecode_version: None,
                 target: None,
+                archive_digests: Default::default(),
             }),
         )
         .expect("compiler");
@@ -901,6 +903,7 @@ mod tests {
                 compiler_digest: None,
                 bytecode_version: None,
                 target: None,
+                archive_digests: Default::default(),
             }),
         )
         .expect("compiler");

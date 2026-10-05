@@ -86,14 +86,21 @@ fn main() {
         "cargo:rustc-env=IBEX2_HARDEN_BYTECODE_PATH={}",
         harden_bytecode.display()
     );
+    let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");
+    let lean_bytecode_version = required("DEP_HERMES_LEAN_LEAN_BYTECODE_VERSION");
+    assert_eq!(
+        bytecode_version, lean_bytecode_version,
+        "full and lean Hermes VMs from one resolution must consume the same HBC version"
+    );
     println!(
         "cargo:rustc-env=IBEX2_BINDINGS_ENGINE_DIGEST={}",
         required("DEP_HERMES_LEAN_ENGINE_DIGEST")
     );
-    println!(
-        "cargo:rustc-env=IBEX2_BINDINGS_BYTECODE_VERSION={}",
-        required("DEP_HERMES_LEAN_BYTECODE_VERSION")
-    );
+    if let Ok(digest) = std::env::var("DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST") {
+        println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_ENGINE_DIGEST={digest}");
+    }
+    println!("cargo:rustc-env=IBEX2_BINDINGS_BYTECODE_VERSION={bytecode_version}");
+    println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_BYTECODE_VERSION={lean_bytecode_version}");
 }
 
 fn build_platform_backends(is_apple: bool) {

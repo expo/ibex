@@ -27,9 +27,16 @@ pub const HARDEN_SOURCE_PATH: &str = env!("IBEX2_HARDEN_SOURCE_PATH");
 pub const HARDEN_BYTECODE_PATH: &str = env!("IBEX2_HARDEN_BYTECODE_PATH");
 /// Hardening bytecode compiled from [`HARDEN_SOURCE`].
 pub const HARDEN_BYTECODE: &[u8] = include_bytes!(env!("IBEX2_HARDEN_BYTECODE_PATH"));
-/// Digest and HBC version inherited from the one `hermes-lean-sys` resolution.
+/// Digest of the full VM archive in the one `hermes-lean-sys` resolution.
 pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
+/// Digest of the lean VM archive in that resolution, when the selected local
+/// layout contains it. An embedder linking lean compares its linked identity
+/// to this value; pinned release bundles always provide it.
+pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_ENGINE_DIGEST");
+/// HBC versions for the full and lean VMs. `build.rs` asserts they are equal
+/// before compiling any binding bytecode.
 pub const BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_BYTECODE_VERSION");
+pub const LEAN_BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_LEAN_BYTECODE_VERSION");
 pub const SQLITE_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/sqlite.js");
 pub const TYPESCRIPT: &str = include_str!("bindings/storage.d.ts");
 

@@ -11,6 +11,9 @@ default = []
 # Archive selection is invariant across feature contexts. `link` controls only
 # whether this crate emits the selected full VM's native link lines.
 link = ["icu"]
+# Link the precompiled-bytecode-only VM instead of the full source-capable VM.
+# This is mutually exclusive with `link`.
+link-lean = ["icu"]
 # Linux ICU link lines only. The JSI bindings' Intl shims call ICU directly
 # without linking a VM, so `ibex2[bindings]` enables this alone; `link`
 # implies it, so ICU is emitted by exactly one crate in any graph.

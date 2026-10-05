@@ -46,6 +46,7 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         include_dir: root.join("include"),
         lib_root: root.join("lib"),
         vm_archive: root.join("lib/libhermesvm_a.a"),
+        lean_vm_archive: root.join("lib/libhermesvmlean_a.a"),
         hermesc: root.join("bin/hermesc"),
     };
     let paths = watched_inputs(&install, "x86_64-unknown-linux-gnu");
@@ -56,6 +57,7 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         root.join(CACHE_ARCHIVE),
         root.join("bin/hermesc"),
         root.join("lib/libhermesvm_a.a"),
+        root.join("lib/libhermesvmlean_a.a"),
         root.join("lib/libjsi.a"),
         root.join("lib/libboost_context.a"),
         root.join("lib/libicui18n.a"),
@@ -349,6 +351,7 @@ fn rerun_paths_name_only_existing_inputs_and_the_root() {
         include_dir: root.join("include"),
         lib_root: root.join("lib"),
         vm_archive: root.join("lib/libhermesvm_a.a"),
+        lean_vm_archive: root.join("lib/libhermesvmlean_a.a"),
         hermesc: root.join("bin/hermesc"),
     };
     let paths = rerun_paths(&install, "aarch64-apple-darwin");
