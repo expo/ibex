@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-04 (§3: opt-in `InstallOptions::fetch_primitives` publishes one same-endowment bootstrap object for embedders that own fetch; `Hermes::harden` refuses until its chosen global is deleted)
 **Revised:** 2026-10-04 (§3/OQ2: Linux bindings link their direct ICU dependency through `hermes-lean-sys`'s `icu` feature without linking the VM; `link` implies `icu`, so ICU has one owner)
 **Revised:** 2026-10-04 (§3: the engine-free default, empty, bindings-only, and crypto-only feature combinations are explicit compile gates)
 **Revised:** 2026-10-04 (§1/§3/OQ1: L1b split the library/bindings, owning runtime, and lean-engine resolver; Decision C requires hardening before application code)
@@ -173,6 +174,30 @@ The one JSI entry point is:
 Adapter adapter(runtime, context.state_ptr());
 adapter.install(groups, context.bindings_ptr(), compiled_scripts, script_count);
 ```
+
+An embedder that owns the JavaScript fetch policy layer may opt into one
+additional trusted-bootstrap output in that same call. In Rust this is
+`Hermes::install_with(groups, &context, InstallOptions {
+fetch_primitives: Some(name) })` (or `install_runtime_with` for the complete
+runtime bootstrap); in C++ the caller sets
+`InstallOptions::fetch_primitives` and passes that value to
+`Adapter::install_with`. The option requires `FETCH` and publishes a frozen
+object under `name` with exactly these members:
+
+```text
+{ fetch, responseField, responseRead, fetchControl,
+  textEncode, textDecode, textEncodeInto, headersFree }
+```
+
+`fetch` is async op 101 bound to the same endowment grants used for ordinary
+fetch. `responseRead` is async op 102; `fetchControl` is op 72; the response
+field callable uses the existing response-field ABI; the text functions are
+ops 20–22; and `headersFree` is op 51. This is no second operation or authority
+path. Existing `install` is the empty-options case and publishes none of these
+names. Trusted bootstrap captures the object and deletes `globalThis[name]`
+before hardening and before application code. The owning runtime records the
+chosen name, and `Hermes::harden` refuses if it is still present; a caller-owned
+runtime has the same deletion obligation before evaluating `HARDEN_SOURCE`.
 
 Here `compiled_scripts` is the name/byte-span array produced from that exact
 `bindings::scripts(groups)` order. The adapter checks the dependency graph,
