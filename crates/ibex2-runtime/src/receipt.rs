@@ -82,7 +82,9 @@ impl HermesInput {
         }
 
         let canonical = if schema == HERMES_INPUT_SCHEMA {
-            Some(receipt_schema::validate(&document, expected_target)?)
+            let expected_bundle_target =
+                expected_target.map(receipt_schema::bundle_target_for_rust_target);
+            Some(receipt_schema::validate(&document, expected_bundle_target)?)
         } else {
             None
         };

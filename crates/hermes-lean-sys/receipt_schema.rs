@@ -6,6 +6,16 @@ pub(crate) const SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465
 pub(crate) const EMPTY_PATCH_SET: &str =
     "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
+/// Translate Rust target aliases to the exact target identifier carried by
+/// the selected published bundle. Both simulator architectures consume the
+/// same universal release artifact and therefore the same receipt identity.
+pub(crate) fn bundle_target_for_rust_target(target: &str) -> &str {
+    match target {
+        "aarch64-apple-ios-sim" | "x86_64-apple-ios" => "universal-apple-ios-simulator",
+        target => target,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct CanonicalReceipt {
     pub(crate) target: String,
@@ -241,6 +251,22 @@ mod tests {
         let receipt = validate(&document(), Some("aarch64-apple-darwin")).expect("canonical v2");
         assert_eq!(receipt.target, "aarch64-apple-darwin");
         assert_eq!(receipt.bytecode_version, 99);
+    }
+
+    #[test]
+    fn simulator_aliases_select_the_universal_bundle_receipt_target() {
+        assert_eq!(
+            bundle_target_for_rust_target("aarch64-apple-ios-sim"),
+            "universal-apple-ios-simulator"
+        );
+        assert_eq!(
+            bundle_target_for_rust_target("x86_64-apple-ios"),
+            "universal-apple-ios-simulator"
+        );
+        assert_eq!(
+            bundle_target_for_rust_target("aarch64-apple-ios"),
+            "aarch64-apple-ios"
+        );
     }
 
     #[test]

@@ -29,42 +29,42 @@ pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
         asset: "hermes-vanilla-aarch64-apple-darwin.tar.gz",
-        sha256: "TODO_L1D_SHA256_AARCH64_APPLE_DARWIN",
+        sha256: "852a3b70878e1b4029a76c19370d1b6867b56fb11855b68716da09b360dd3af8",
     },
     BundlePin {
         target: "x86_64-apple-darwin",
         asset: "hermes-vanilla-x86_64-apple-darwin.tar.gz",
-        sha256: "TODO_L1D_SHA256_X86_64_APPLE_DARWIN",
+        sha256: "9db8687a9eadeda2cfd7fab27afa9b0dc949fa8f04753d4ece3075c9fe65682a",
     },
     BundlePin {
         target: "aarch64-apple-ios",
         asset: "hermes-vanilla-aarch64-apple-ios.tar.gz",
-        sha256: "TODO_L1D_SHA256_AARCH64_APPLE_IOS",
+        sha256: "6eea36a120eb12de160c8f876a8a65c310c4eb5d8fc2b12b03c026a8d2e5ec08",
     },
     BundlePin {
         target: "aarch64-apple-ios-sim",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "TODO_L1D_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
+        sha256: "bf555ff4f9c87776dfd23d92da5fa3784839cc2dc7a8d6e4db9930af650ce180",
     },
     BundlePin {
         target: "x86_64-apple-ios",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "TODO_L1D_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
+        sha256: "bf555ff4f9c87776dfd23d92da5fa3784839cc2dc7a8d6e4db9930af650ce180",
     },
     BundlePin {
         target: "x86_64-unknown-linux-gnu",
         asset: "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
-        sha256: "TODO_L1D_SHA256_X86_64_UNKNOWN_LINUX_GNU",
+        sha256: "092558b35f6a13e1421056f314e4d98edd12f96ba228186767bc5de81b600d6f",
     },
     BundlePin {
         target: "aarch64-unknown-linux-gnu",
         asset: "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
-        sha256: "TODO_L1D_SHA256_AARCH64_UNKNOWN_LINUX_GNU",
+        sha256: "749781c2df4832257200c03fb79fcd2e03637bbea88c573e1a13fc7a25971a02",
     },
     BundlePin {
         target: "x86_64-pc-windows-msvc",
         asset: "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz",
-        sha256: "TODO_L1D_SHA256_X86_64_PC_WINDOWS_MSVC",
+        sha256: "94a53782538e9f87f157e21880d0161c7a5687419ab40f0e69ea76f748380bf1",
     },
 ];
 
@@ -522,14 +522,15 @@ fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, 
     let document: serde_json::Value = serde_json::from_slice(&bytes)
         .map_err(|error| format!("cannot parse {}: {error}", receipt_path.display()))?;
     if document.get("schema").and_then(serde_json::Value::as_str) == Some(receipt_schema::SCHEMA) {
+        let receipt_target = receipt_schema::bundle_target_for_rust_target(&layout.target);
         let receipt =
-            receipt_schema::validate(&document, Some(&layout.target)).map_err(|error| {
+            receipt_schema::validate(&document, Some(receipt_target)).map_err(|error| {
                 format!(
                     "invalid canonical receipt {}: {error}",
                     receipt_path.display()
                 )
             })?;
-        debug_assert_eq!(receipt.target, layout.target);
+        debug_assert_eq!(receipt.target, receipt_target);
         return Ok(Some(ReceiptClaims {
             engine_binary: receipt.engine_binary,
             engine_digest: receipt.engine_digest,
