@@ -36,11 +36,13 @@ fn main() {
     let engine_archive = required("DEP_HERMES_LEAN_ARCHIVE");
     let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");
     let engine_dir = required("DEP_HERMES_LEAN_ENGINE_DIR");
+    let target = std::env::var("TARGET").expect("Cargo supplies TARGET");
     println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DIGEST={engine_digest}");
     println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_ARCHIVE={engine_archive}");
     println!("cargo:rustc-env=IBEX2_LINKED_BYTECODE_VERSION={bytecode_version}");
     println!("cargo:rustc-env=IBEX2_HERMESC_PATH={}", hermesc.display());
     println!("cargo:rustc-env=IBEX2_ENGINE_DIR={engine_dir}");
+    println!("cargo:rustc-env=IBEX2_TARGET_TRIPLE={target}");
 }
 
 fn compile_javascript(hermesc: &std::path::Path, source: &str, output: &std::path::Path) {

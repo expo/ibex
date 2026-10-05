@@ -7,6 +7,9 @@ use std::fs::{self, File};
 use std::io::{self, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 
+#[path = "receipt_schema.rs"]
+mod receipt_schema;
+
 pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v1";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
@@ -80,6 +83,7 @@ struct InstallLayout {
     vm_archive: PathBuf,
     origin: InstallOrigin,
     requires_receipt: bool,
+    target: String,
 }
 
 #[derive(Debug)]
@@ -100,8 +104,6 @@ pub(crate) struct DownloadOptions {
 
 #[derive(Deserialize)]
 struct Receipt {
-    #[serde(default)]
-    schema: Option<String>,
     engine: ReceiptEngine,
     #[serde(default)]
     compiler: Option<ReceiptCompiler>,
@@ -125,6 +127,13 @@ struct ReceiptCompiler {
 #[derive(Deserialize)]
 struct ReceiptBytecode {
     version: serde_json::Value,
+}
+
+struct ReceiptClaims {
+    engine_binary: String,
+    engine_digest: String,
+    compiler_digest: Option<String>,
+    bytecode_version: Option<String>,
 }
 
 pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String> {
@@ -303,6 +312,7 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
         lib_root,
         origin,
         requires_receipt: bundle_layout,
+        target: target.to_owned(),
     }
 }
 
@@ -379,38 +389,17 @@ fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<S
 }
 
 fn authenticate_compiler(layout: &InstallLayout, compiler: &Path) -> Result<(), String> {
-    let receipt_path = layout.root.join("hermes-input-receipt.json");
-    if !receipt_path.is_file() {
-        if layout.requires_receipt {
-            return Err(format!(
-                "pinned Hermes bundle is missing {}",
-                receipt_path.display()
-            ));
-        }
+    let Some(receipt) = read_receipt_claims(layout)? else {
         return Ok(());
-    }
-    let bytes = fs::read(&receipt_path)
-        .map_err(|error| format!("cannot read {}: {error}", receipt_path.display()))?;
-    let receipt: Receipt = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("cannot parse {}: {error}", receipt_path.display()))?;
-    if layout.requires_receipt
-        && receipt.schema.as_deref() != Some("ibex/hermes-upstream-pinned-receipt/2")
-    {
-        return Err(format!(
-            "pinned Hermes bundle receipt {} is not schema ibex/hermes-upstream-pinned-receipt/2",
-            receipt_path.display()
-        ));
-    }
-    let expected = receipt
-        .compiler
-        .and_then(|compiler| compiler.digest)
-        .ok_or_else(|| {
-            format!(
-                "{} has no compiler digest, so {} cannot be authenticated before execution",
-                receipt_path.display(),
-                compiler.display()
-            )
-        })?;
+    };
+    let receipt_path = layout.root.join("hermes-input-receipt.json");
+    let expected = receipt.compiler_digest.ok_or_else(|| {
+        format!(
+            "{} has no compiler digest, so {} cannot be authenticated before execution",
+            receipt_path.display(),
+            compiler.display()
+        )
+    })?;
     let actual = digest_file(compiler)?;
     if expected != actual {
         return Err(format!(
@@ -432,28 +421,10 @@ fn validate_receipt(
     bytecode_version: &str,
 ) -> Result<(), String> {
     let receipt_path = layout.root.join("hermes-input-receipt.json");
-    if !receipt_path.is_file() {
-        if layout.requires_receipt {
-            return Err(format!(
-                "pinned Hermes bundle is missing {}",
-                receipt_path.display()
-            ));
-        }
+    let Some(receipt) = read_receipt_claims(layout)? else {
         return Ok(());
-    }
-    let bytes = fs::read(&receipt_path)
-        .map_err(|error| format!("cannot read {}: {error}", receipt_path.display()))?;
-    let receipt: Receipt = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("cannot parse {}: {error}", receipt_path.display()))?;
-    if layout.requires_receipt
-        && receipt.schema.as_deref() != Some("ibex/hermes-upstream-pinned-receipt/2")
-    {
-        return Err(format!(
-            "pinned Hermes bundle receipt {} is not schema ibex/hermes-upstream-pinned-receipt/2",
-            receipt_path.display()
-        ));
-    }
-    let receipt_archive = safe_relative_path(&layout.root, Path::new(&receipt.engine.binary))?;
+    };
+    let receipt_archive = safe_relative_path(&layout.root, Path::new(&receipt.engine_binary))?;
     let selected_archive = fs::canonicalize(&layout.vm_archive).map_err(|error| {
         format!(
             "cannot resolve selected Hermes archive {}: {error}",
@@ -470,20 +441,20 @@ fn validate_receipt(
         return Err(format!(
             "{} describes engine archive {}, but hermes-lean-sys selected {}",
             receipt_path.display(),
-            receipt.engine.binary,
+            receipt.engine_binary,
             layout.vm_archive.display()
         ));
     }
-    if receipt.engine.binary_digest != engine_digest {
+    if receipt.engine_digest != engine_digest {
         return Err(format!(
             "{} records engine digest {}, but ENGINE_DIGEST is {}",
             receipt_path.display(),
-            receipt.engine.binary_digest,
+            receipt.engine_digest,
             engine_digest
         ));
     }
     if validate_compiler_digest {
-        if let Some(compiler_digest) = receipt.compiler.and_then(|compiler| compiler.digest) {
+        if let Some(compiler_digest) = receipt.compiler_digest {
             let selected_compiler_digest = digest_file(compiler)?;
             if compiler_digest != selected_compiler_digest {
                 return Err(format!(
@@ -496,17 +467,7 @@ fn validate_receipt(
             }
         }
     }
-    if let Some(receipt_bytecode) = receipt.bytecode {
-        let receipt_version = match receipt_bytecode.version {
-            serde_json::Value::Number(number) => number.to_string(),
-            serde_json::Value::String(text) => text,
-            other => {
-                return Err(format!(
-                    "{} has invalid bytecode.version {other}",
-                    receipt_path.display()
-                ))
-            }
-        };
+    if let Some(receipt_version) = receipt.bytecode_version {
         if receipt_version != bytecode_version {
             return Err(format!(
                 "{} records HBC bytecode version {}, but selected hermesc {} reports {}",
@@ -518,6 +479,66 @@ fn validate_receipt(
         }
     }
     Ok(())
+}
+
+fn read_receipt_claims(layout: &InstallLayout) -> Result<Option<ReceiptClaims>, String> {
+    let receipt_path = layout.root.join("hermes-input-receipt.json");
+    if !receipt_path.is_file() {
+        if layout.requires_receipt {
+            return Err(format!(
+                "pinned Hermes bundle is missing {}",
+                receipt_path.display()
+            ));
+        }
+        return Ok(None);
+    }
+    let bytes = fs::read(&receipt_path)
+        .map_err(|error| format!("cannot read {}: {error}", receipt_path.display()))?;
+    let document: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("cannot parse {}: {error}", receipt_path.display()))?;
+    if document.get("schema").and_then(serde_json::Value::as_str) == Some(receipt_schema::SCHEMA) {
+        let receipt =
+            receipt_schema::validate(&document, Some(&layout.target)).map_err(|error| {
+                format!(
+                    "invalid canonical receipt {}: {error}",
+                    receipt_path.display()
+                )
+            })?;
+        debug_assert_eq!(receipt.target, layout.target);
+        return Ok(Some(ReceiptClaims {
+            engine_binary: receipt.engine_binary,
+            engine_digest: receipt.engine_digest,
+            compiler_digest: Some(receipt.compiler_digest),
+            bytecode_version: Some(receipt.bytecode_version.to_string()),
+        }));
+    }
+    if layout.requires_receipt {
+        return Err(format!(
+            "pinned Hermes bundle receipt {} is not schema {}",
+            receipt_path.display(),
+            receipt_schema::SCHEMA
+        ));
+    }
+
+    let receipt: Receipt = serde_json::from_value(document)
+        .map_err(|error| format!("cannot parse legacy {}: {error}", receipt_path.display()))?;
+    let bytecode_version = match receipt.bytecode.map(|bytecode| bytecode.version) {
+        None => None,
+        Some(serde_json::Value::Number(number)) => Some(number.to_string()),
+        Some(serde_json::Value::String(text)) => Some(text),
+        Some(other) => {
+            return Err(format!(
+                "{} has invalid bytecode.version {other}",
+                receipt_path.display()
+            ));
+        }
+    };
+    Ok(Some(ReceiptClaims {
+        engine_binary: receipt.engine.binary,
+        engine_digest: receipt.engine.binary_digest,
+        compiler_digest: receipt.compiler.and_then(|compiler| compiler.digest),
+        bytecode_version,
+    }))
 }
 
 fn safe_relative_path(root: &Path, relative: &Path) -> Result<PathBuf, String> {
@@ -1071,6 +1092,32 @@ fn validate_archive_entries(archive_path: &Path) -> Result<(), String> {
 mod internal_tests {
     use super::*;
 
+    fn write_v2_receipt(
+        root: &Path,
+        target: &str,
+        engine_binary: &str,
+        engine_digest: &str,
+        compiler_digest: &str,
+        bytecode_version: u64,
+    ) {
+        let mut receipt: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/receipt-v2-valid.json"))
+                .expect("shared receipt fixture");
+        receipt["target"] = serde_json::Value::String(target.to_owned());
+        receipt["engine"]["binary"] = serde_json::Value::String(engine_binary.to_owned());
+        receipt["engine"]["binaryDigest"] = serde_json::Value::String(engine_digest.to_owned());
+        receipt["compiler"]["digest"] = serde_json::Value::String(compiler_digest.to_owned());
+        receipt["bytecode"]["version"] = serde_json::Value::from(bytecode_version);
+        receipt["archives"] = serde_json::json!([
+            { "path": engine_binary, "digest": engine_digest }
+        ]);
+        fs::write(
+            root.join("hermes-input-receipt.json"),
+            serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
+        )
+        .expect("receipt");
+    }
+
     #[test]
     fn published_layout_requires_a_v2_receipt_even_for_an_override() {
         let temporary = tempfile::tempdir().expect("temporary directory");
@@ -1105,14 +1152,14 @@ mod internal_tests {
         fs::write(root.join("lib/libhermesvm_a.a"), b"engine").expect("engine archive");
         fs::write(root.join("bin/hermesc"), b"selected compiler").expect("compiler");
         let engine_digest = digest_file(&root.join("lib/libhermesvm_a.a")).expect("digest");
-        fs::write(
-            root.join("hermes-input-receipt.json"),
-            format!(
-                r#"{{"schema":"ibex/hermes-upstream-pinned-receipt/2","engine":{{"binary":"lib/libhermesvm_a.a","binaryDigest":"{engine_digest}"}},"compiler":{{"digest":"sha256-{}"}},"bytecode":{{"version":96}}}}"#,
-                "0".repeat(64)
-            ),
-        )
-        .expect("receipt");
+        write_v2_receipt(
+            root,
+            "aarch64-apple-darwin",
+            "lib/libhermesvm_a.a",
+            &engine_digest,
+            &format!("sha256-{}", "0".repeat(64)),
+            96,
+        );
         let layout = install_layout(
             root.to_path_buf(),
             "aarch64-apple-darwin",
@@ -1155,14 +1202,14 @@ mod internal_tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&compiler, permissions).expect("executable compiler");
         let engine_digest = digest_file(&root.join("lib/libhermesvm_a.a")).expect("digest");
-        fs::write(
-            root.join("hermes-input-receipt.json"),
-            format!(
-                r#"{{"schema":"ibex/hermes-upstream-pinned-receipt/2","engine":{{"binary":"lib/libhermesvm_a.a","binaryDigest":"{engine_digest}"}},"compiler":{{"digest":"sha256-{}"}},"bytecode":{{"version":96}}}}"#,
-                "0".repeat(64)
-            ),
-        )
-        .expect("receipt");
+        write_v2_receipt(
+            root,
+            "aarch64-apple-darwin",
+            "lib/libhermesvm_a.a",
+            &engine_digest,
+            &format!("sha256-{}", "0".repeat(64)),
+            96,
+        );
         let layout = install_layout(
             root.to_path_buf(),
             "aarch64-apple-darwin",
@@ -1185,14 +1232,18 @@ mod internal_tests {
         fs::create_dir_all(root.join("lib")).expect("lib directory");
         fs::create_dir_all(root.join("bin")).expect("bin directory");
         fs::write(root.join("lib/libhermesvm_a.a"), b"selected").expect("selected archive");
-        fs::write(root.join("lib/decoy.a"), b"decoy").expect("decoy archive");
+        fs::create_dir(root.join("decoy")).expect("decoy directory");
+        fs::write(root.join("decoy/libhermesvm_a.a"), b"decoy").expect("decoy archive");
         fs::write(root.join("bin/hermesc"), b"compiler").expect("compiler");
         let engine_digest = digest_file(&root.join("lib/libhermesvm_a.a")).expect("digest");
-        fs::write(
-            root.join("hermes-input-receipt.json"),
-            format!(r#"{{"schema":"ibex/hermes-upstream-pinned-receipt/2","engine":{{"binary":"lib/decoy.a","binaryDigest":"{engine_digest}"}}}}"#),
-        )
-        .expect("receipt");
+        write_v2_receipt(
+            root,
+            "aarch64-apple-darwin",
+            "decoy/libhermesvm_a.a",
+            &engine_digest,
+            &digest_file(&root.join("bin/hermesc")).expect("compiler digest"),
+            96,
+        );
         let layout = install_layout(
             root.to_path_buf(),
             "aarch64-apple-darwin",
@@ -1234,13 +1285,14 @@ mod internal_tests {
             let engine_digest =
                 digest_file(&root.join("lib/libhermesvm_a.a")).expect("engine digest");
             let compiler_digest = digest_file(&compiler_path).expect("compiler digest");
-            fs::write(
-                root.join("hermes-input-receipt.json"),
-                format!(
-                    r#"{{"schema":"ibex/hermes-upstream-pinned-receipt/2","engine":{{"binary":"lib/libhermesvm_a.a","binaryDigest":"{engine_digest}"}},"compiler":{{"digest":"{compiler_digest}"}},"bytecode":{{"version":{version}}}}}"#
-                ),
-            )
-            .expect("receipt");
+            write_v2_receipt(
+                root,
+                "aarch64-apple-darwin",
+                "lib/libhermesvm_a.a",
+                &engine_digest,
+                &compiler_digest,
+                version,
+            );
             (
                 install_layout(
                     root.to_path_buf(),
@@ -1275,11 +1327,16 @@ mod internal_tests {
         )
         .expect("matching HBC versions permit a cross-bundle pairing");
 
-        let mismatched = fs::read_to_string(target.root.join("hermes-input-receipt.json"))
-            .expect("target receipt")
-            .replace(r#""version":96"#, r#""version":97"#);
-        fs::write(target.root.join("hermes-input-receipt.json"), mismatched)
-            .expect("mismatched target receipt");
+        let mut mismatched: serde_json::Value = serde_json::from_slice(
+            &fs::read(target.root.join("hermes-input-receipt.json")).expect("target receipt"),
+        )
+        .expect("target receipt JSON");
+        mismatched["bytecode"]["version"] = serde_json::Value::from(97);
+        fs::write(
+            target.root.join("hermes-input-receipt.json"),
+            serde_json::to_vec_pretty(&mismatched).expect("mismatched receipt JSON"),
+        )
+        .expect("mismatched target receipt");
         let error = validate_receipt(
             &target,
             &host_compiler,

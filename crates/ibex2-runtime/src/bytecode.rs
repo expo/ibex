@@ -75,7 +75,7 @@ impl Compiler {
         engine_dir: &Path,
         require_receipt: bool,
     ) -> Result<Self, String> {
-        let receipt = crate::receipt::HermesInput::read(engine_dir).ok();
+        let receipt = read_target_receipt(engine_dir)?;
         if require_receipt && receipt.is_none() {
             return Err(format!(
                 "the engine at {} has no HermesInputReceipt, so nothing attests it is unpatched\n\
@@ -129,7 +129,7 @@ impl Compiler {
         engine_dir: &Path,
         precompiled_only: bool,
     ) -> Result<Self, String> {
-        let receipt = crate::receipt::HermesInput::read(engine_dir).ok();
+        let receipt = read_target_receipt(engine_dir)?;
         if let Some(receipt) = &receipt {
             if !receipt.is_vanilla() {
                 return Err(format!(
@@ -642,6 +642,13 @@ fn verified_compiler_identity(
     Ok(actual)
 }
 
+fn read_target_receipt(engine_dir: &Path) -> Result<Option<crate::receipt::HermesInput>, String> {
+    if !crate::receipt::HermesInput::path(engine_dir).is_file() {
+        return Ok(None);
+    }
+    crate::receipt::HermesInput::read_for_target(engine_dir, crate::TARGET_TRIPLE).map(Some)
+}
+
 fn compiler_identity_without_binary(
     target_receipt: Option<&crate::receipt::HermesInput>,
     hermesc: &Path,
@@ -765,6 +772,7 @@ mod tests {
                 patches_applied: 0,
                 compiler_digest: Some(compiler.into()),
                 bytecode_version: Some(bytecode_version),
+                target: None,
             }
         }
 
@@ -874,6 +882,7 @@ mod tests {
                 patches_applied: 0,
                 compiler_digest: None,
                 bytecode_version: None,
+                target: None,
             }),
         )
         .expect("compiler");
@@ -891,6 +900,7 @@ mod tests {
                 patches_applied: 0,
                 compiler_digest: None,
                 bytecode_version: None,
+                target: None,
             }),
         )
         .expect("compiler");

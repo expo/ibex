@@ -18,9 +18,12 @@
 
 use std::path::Path;
 
+#[path = "../../hermes-lean-sys/receipt_schema.rs"]
+mod receipt_schema;
+
 /// The canonical release-bundle schema. V1 remains readable so already-built
 /// local engines do not become unusable during the crate split.
-pub const HERMES_INPUT_SCHEMA: &str = "ibex/hermes-upstream-pinned-receipt/2";
+pub const HERMES_INPUT_SCHEMA: &str = receipt_schema::SCHEMA;
 pub const LEGACY_HERMES_INPUT_SCHEMA: &str = "ibex/hermes-upstream-pinned-receipt/1";
 
 /// SHA-256 of no input at all — what an empty patch set must hash to.
@@ -37,6 +40,7 @@ pub struct HermesInput {
     pub patches_applied: usize,
     pub compiler_digest: Option<String>,
     pub bytecode_version: Option<u64>,
+    pub target: Option<String>,
 }
 
 impl HermesInput {
@@ -53,7 +57,18 @@ impl HermesInput {
         Self::parse(&text)
     }
 
+    pub(crate) fn read_for_target(engine_dir: &Path, target: &str) -> Result<Self, String> {
+        let path = Self::path(engine_dir);
+        let text = std::fs::read_to_string(&path)
+            .map_err(|_| format!("no HermesInputReceipt at {}", path.display()))?;
+        Self::parse_for_target(&text, Some(target))
+    }
+
     pub fn parse(text: &str) -> Result<Self, String> {
+        Self::parse_for_target(text, None)
+    }
+
+    fn parse_for_target(text: &str, expected_target: Option<&str>) -> Result<Self, String> {
         let document: serde_json::Value =
             serde_json::from_str(text).map_err(|error| format!("invalid receipt JSON: {error}"))?;
         let root = document
@@ -66,6 +81,11 @@ impl HermesInput {
             ));
         }
 
+        let canonical = if schema == HERMES_INPUT_SCHEMA {
+            Some(receipt_schema::validate(&document, expected_target)?)
+        } else {
+            None
+        };
         let engine = object(root.get("engine"), "receipt has no engine object")?;
         let binary_path = match engine.get("binary") {
             None | Some(serde_json::Value::Null) => None,
@@ -101,13 +121,14 @@ impl HermesInput {
             .and_then(|bytecode| bytecode.get("version"))
             .and_then(serde_json::Value::as_u64);
 
-        if schema == HERMES_INPUT_SCHEMA {
-            validate_v2(
-                root,
-                binary_path.as_deref(),
-                &binary_digest,
-                compiler_digest.as_deref(),
-            )?;
+        if let Some(canonical) = &canonical {
+            if binary_path.as_deref() != Some(canonical.engine_binary.as_str())
+                || binary_digest != canonical.engine_digest
+                || compiler_digest.as_deref() != Some(canonical.compiler_digest.as_str())
+                || bytecode_version != Some(canonical.bytecode_version)
+            {
+                return Err("canonical receipt fields were parsed inconsistently".into());
+            }
         }
 
         Ok(Self {
@@ -118,6 +139,7 @@ impl HermesInput {
             patches_applied: applied.len(),
             compiler_digest,
             bytecode_version,
+            target: canonical.map(|receipt| receipt.target),
         })
     }
 
@@ -200,87 +222,6 @@ fn object<'a>(
         .ok_or_else(|| missing.to_owned())
 }
 
-fn validate_v2(
-    root: &serde_json::Map<String, serde_json::Value>,
-    binary_path: Option<&str>,
-    binary_digest: &str,
-    compiler_digest: Option<&str>,
-) -> Result<(), String> {
-    if root.contains_key("producedOn") {
-        return Err("v2 receipt contains volatile producedOn".into());
-    }
-    let upstream = object(root.get("upstream"), "v2 receipt has no upstream object")?;
-    let source_commit = string(
-        upstream.get("sourceCommit"),
-        "v2 receipt has no upstream sourceCommit",
-    )?;
-    if source_commit.len() != 40
-        || !source_commit
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        return Err("v2 receipt sourceCommit is not 40 lowercase hex characters".into());
-    }
-    let target = string(root.get("target"), "v2 receipt has no target")?;
-    string(root.get("profile"), "v2 receipt has no profile")?;
-
-    let build = object(root.get("build"), "v2 receipt has no build object")?;
-    let flags = build
-        .get("flags")
-        .and_then(serde_json::Value::as_array)
-        .ok_or("v2 receipt build.flags is not an array")?;
-    if flags.iter().any(|value| !value.is_string()) {
-        return Err("v2 receipt build.flags contains a non-string".into());
-    }
-    let bytecode = object(root.get("bytecode"), "v2 receipt has no bytecode object")?;
-    if bytecode
-        .get("version")
-        .and_then(serde_json::Value::as_u64)
-        .filter(|version| *version > 0)
-        .is_none()
-    {
-        return Err("v2 receipt has no positive HBC bytecode version".into());
-    }
-    if compiler_digest.is_none() {
-        return Err("v2 receipt has no compiler digest".into());
-    }
-
-    let engine_path = binary_path.ok_or("v2 receipt has no engine binary path")?;
-    let expected_engine_name = if target.ends_with("-pc-windows-msvc") {
-        "hermesvm_a.lib"
-    } else {
-        "libhermesvm_a.a"
-    };
-    if engine_path.rsplit('/').next() != Some(expected_engine_name) {
-        return Err(format!(
-            "v2 receipt engine binary is not the target's full VM archive {expected_engine_name}"
-        ));
-    }
-    let archives = manifest(root.get("archives"), "archives")?;
-    if !archives.iter().any(|entry| {
-        entry.get("path").and_then(serde_json::Value::as_str) == Some(engine_path)
-            && entry.get("digest").and_then(serde_json::Value::as_str) == Some(binary_digest)
-    }) {
-        return Err("v2 receipt engine is not bound by its archive manifest".into());
-    }
-    manifest(root.get("headers"), "headers")?;
-
-    let links = root
-        .get("linkDirectives")
-        .and_then(serde_json::Value::as_array)
-        .filter(|values| !values.is_empty())
-        .ok_or("v2 receipt has no ordered link directives")?;
-    if links.iter().any(|value| {
-        value
-            .as_str()
-            .filter(|directive| !directive.is_empty())
-            .is_none()
-    }) {
-        return Err("v2 receipt linkDirectives contains an empty or non-string value".into());
-    }
-    Ok(())
-}
-
 fn validate_engine_path(path: &str) -> Result<(), String> {
     if Path::new(path).is_absolute()
         || path.contains('\\')
@@ -292,30 +233,6 @@ fn validate_engine_path(path: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
-}
-
-fn manifest<'a>(
-    value: Option<&'a serde_json::Value>,
-    name: &str,
-) -> Result<&'a Vec<serde_json::Value>, String> {
-    let entries = value
-        .and_then(serde_json::Value::as_array)
-        .filter(|values| !values.is_empty())
-        .ok_or_else(|| format!("v2 receipt has no {name} manifest"))?;
-    for entry in entries {
-        let item = entry
-            .as_object()
-            .ok_or_else(|| format!("v2 receipt {name} manifest contains a non-object"))?;
-        string(
-            item.get("path"),
-            &format!("v2 receipt {name} entry has no path"),
-        )?;
-        string(
-            item.get("digest"),
-            &format!("v2 receipt {name} entry has no digest"),
-        )?;
-    }
-    Ok(entries)
 }
 
 fn engine_binaries(engine_dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
@@ -360,52 +277,25 @@ mod tests {
       "compiler": { "digest": "sha256-def" }
     }"#;
 
-    const VANILLA: &str = r#"{
-      "schema": "ibex/hermes-upstream-pinned-receipt/2",
-      "upstream": {
-        "artifact": "facebook/hermes",
-        "sourceCommit": "d412d3bd851278712c20cca25d094e32641a0465",
-        "sourceRef": "hermes-v260318099.0.4",
-        "sourceVersion": "260318099.0.4"
-      },
-      "patchSet": {
-        "digest": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "applied": []
-      },
-      "target": "aarch64-apple-darwin",
-      "profile": "release",
-      "build": { "flags": ["-DHERMES_ENABLE_DEBUGGER=false"] },
-      "bytecode": { "version": 99 },
-      "compiler": { "binary": "bin/hermesc", "digest": "sha256-def" },
-      "engine": {
-        "binary": "lib/libhermesvm_a.a",
-        "binaryDigest": "sha256-full",
-        "variant": "release"
-      },
-      "archives": [
-        { "path": "lib/libhermesvmlean_a.a", "digest": "sha256-lean" },
-        { "path": "lib/libhermesvm_a.a", "digest": "sha256-full" },
-        { "path": "lib/libjsi.a", "digest": "sha256-jsi" }
-      ],
-      "headers": [
-        { "path": "include/jsi/jsi.h", "digest": "sha256-header" }
-      ],
-      "linkDirectives": [
-        "rustc-link-search=native=lib",
-        "rustc-link-lib=static=hermesvm_a"
-      ]
-    }"#;
+    const VANILLA: &str = include_str!("../../hermes-lean-sys/testdata/receipt-v2-valid.json");
 
     #[test]
     fn a_v2_vanilla_receipt_parses_and_reads_as_vanilla() {
         let receipt = HermesInput::parse(VANILLA).expect("parse");
         assert_eq!(receipt.binary_path.as_deref(), Some("lib/libhermesvm_a.a"));
-        assert_eq!(receipt.binary_digest, "sha256-full");
+        assert_eq!(
+            receipt.binary_digest,
+            "sha256-2222222222222222222222222222222222222222222222222222222222222222"
+        );
         assert_eq!(receipt.variant, "release");
         assert_eq!(receipt.patches_applied, 0);
         assert!(receipt.is_vanilla());
-        assert_eq!(receipt.compiler_digest.as_deref(), Some("sha256-def"));
+        assert_eq!(
+            receipt.compiler_digest.as_deref(),
+            Some("sha256-1111111111111111111111111111111111111111111111111111111111111111")
+        );
         assert_eq!(receipt.bytecode_version, Some(99));
+        assert_eq!(receipt.target.as_deref(), Some("aarch64-apple-darwin"));
     }
 
     #[test]
@@ -421,7 +311,7 @@ mod tests {
 
     #[test]
     fn a_receipt_claiming_applied_patches_is_not_vanilla() {
-        let patched = VANILLA.replace(r#""applied": []"#, r#""applied": ["0001-x.patch"]"#);
+        let patched = LEGACY_VANILLA.replace(r#""applied": []"#, r#""applied": ["0001-x.patch"]"#);
         let receipt = HermesInput::parse(&patched).expect("parse");
         assert_eq!(receipt.patches_applied, 1);
         assert!(!receipt.is_vanilla());
@@ -431,7 +321,8 @@ mod tests {
     /// empty one is not vanilla even if it says nothing was applied.
     #[test]
     fn an_empty_list_with_a_non_empty_digest_is_not_vanilla() {
-        let inconsistent = VANILLA.replace(CANONICAL_EMPTY_PATCH_SET, "sha256-something-else");
+        let inconsistent =
+            LEGACY_VANILLA.replace(CANONICAL_EMPTY_PATCH_SET, "sha256-something-else");
         assert!(!HermesInput::parse(&inconsistent).unwrap().is_vanilla());
     }
 
@@ -465,11 +356,10 @@ mod tests {
 
     #[test]
     fn v2_requires_the_engine_digest_in_the_archive_manifest() {
-        let inconsistent = VANILLA.replace(
-            r#""path": "lib/libhermesvm_a.a", "digest": "sha256-full""#,
-            r#""path": "lib/libhermesvm_a.a", "digest": "sha256-other""#,
-        );
-        let err = HermesInput::parse(&inconsistent).unwrap_err();
+        let mut inconsistent: serde_json::Value = serde_json::from_str(VANILLA).unwrap();
+        inconsistent["archives"][0]["digest"] =
+            serde_json::Value::String(format!("sha256-{}", "9".repeat(64)));
+        let err = HermesInput::parse(&inconsistent.to_string()).unwrap_err();
         assert!(err.contains("archive manifest"), "{err}");
     }
 
@@ -510,6 +400,7 @@ mod tests {
             patches_applied: 0,
             compiler_digest: Some("sha256-compiler".into()),
             bytecode_version: Some(99),
+            target: Some("aarch64-apple-darwin".into()),
         };
         receipt
             .verify_binary(&engine)
