@@ -50,8 +50,8 @@ fn main() {
 
     let engine_digest = digest_file(&install.vm_archive)
         .unwrap_or_else(|error| panic!("cannot hash selected Hermes engine: {error}"));
-    let lean_engine_digest = install.lean_vm_archive.is_file().then(|| {
-        digest_file(&install.lean_vm_archive)
+    let lean_engine_digest = install.lean_vm_archive.as_ref().map(|lean_vm_archive| {
+        digest_file(lean_vm_archive)
             .unwrap_or_else(|error| panic!("cannot hash selected lean Hermes engine: {error}"))
     });
     let bytecode_version = hermesc_bytecode_version(&install.hermesc)
@@ -61,15 +61,14 @@ fn main() {
     metadata("lib_root", &install.lib_root.display().to_string());
     metadata("archive", &install.vm_archive.display().to_string());
     metadata("engine_digest", &engine_digest);
-    metadata(
-        "lean_archive",
-        &install.lean_vm_archive.display().to_string(),
-    );
+    if let Some(lean_vm_archive) = &install.lean_vm_archive {
+        metadata("lean_archive", &lean_vm_archive.display().to_string());
+    }
     if let Some(digest) = &lean_engine_digest {
         metadata("lean_engine_digest", digest);
+        metadata("lean_bytecode_version", &bytecode_version);
     }
     metadata("bytecode_version", &bytecode_version);
-    metadata("lean_bytecode_version", &bytecode_version);
     metadata("engine_dir", &install.root.display().to_string());
     println!("cargo:rustc-env=HERMES_LEAN_ENGINE_DIGEST={engine_digest}");
     println!(
@@ -77,20 +76,25 @@ fn main() {
         install.vm_archive.display()
     );
     println!("cargo:rustc-env=HERMES_LEAN_BYTECODE_VERSION={bytecode_version}");
-    println!(
-        "cargo:rustc-env=HERMES_LEAN_LEAN_ARCHIVE={}",
-        install.lean_vm_archive.display()
-    );
+    if let Some(lean_vm_archive) = &install.lean_vm_archive {
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_LEAN_ARCHIVE={}",
+            lean_vm_archive.display()
+        );
+    }
     if let Some(digest) = &lean_engine_digest {
         println!("cargo:rustc-env=HERMES_LEAN_LEAN_ENGINE_DIGEST={digest}");
+        println!("cargo:rustc-env=HERMES_LEAN_LEAN_BYTECODE_VERSION={bytecode_version}");
     }
-    println!("cargo:rustc-env=HERMES_LEAN_LEAN_BYTECODE_VERSION={bytecode_version}");
 
     let linked = if links_full_runtime {
         Some((&install.vm_archive, engine_digest.as_str()))
     } else if links_lean_runtime {
         Some((
-            &install.lean_vm_archive,
+            install
+                .lean_vm_archive
+                .as_ref()
+                .expect("link-lean requires a lean VM archive"),
             lean_engine_digest
                 .as_deref()
                 .expect("link-lean requires a lean VM digest"),

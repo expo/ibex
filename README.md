@@ -33,12 +33,14 @@ cargo test -p ibex2-runtime --all-features --no-fail-fast
 ```
 
 `hermes-lean-sys` resolves vanilla Hermes in this order: a complete local
-install selected by `HERMES_LEAN_SYS_DIR`; this checkout's platform layout
-(`ios/Frameworks-vanilla`, `linux/Frameworks-vanilla`, or
-`tools/hermes-vanilla`) when present; then the SHA-256-pinned
+install selected by `HERMES_LEAN_SYS_DIR`; this checkout's layout when it
+actually contains the Cargo target (the Apple repository layout is macOS-only);
+then the SHA-256-pinned
 `hermes-vanilla-d412d3bd8512-v2` release bundle for the Cargo target. The
-release fallback needs no consumer configuration once the publication
-placeholders in the pin table have been filled.
+unpublished v2 pins are rejecting sentinels, so the release fallback cannot
+download anything until verified v2 digests replace them. In particular, an
+iOS cross build does not select the repository's macOS archive; it falls
+through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
 
 Downloaded bundles are cached at
 `$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/` (`$HOME/.cargo` when
@@ -65,8 +67,12 @@ The Rust constants are `ARCHIVE`, `ENGINE_DIGEST`, `LEAN_ARCHIVE`,
 `ibex2::bindings::ENGINE_DIGEST` continues to name the full archive;
 `ibex2::bindings::LEAN_ENGINE_DIGEST` is the identity a lean embedder checks.
 Both VMs consume one HBC version, asserted while binding bytecode is built.
-Old local layouts without a lean archive continue to support full-VM builds
-and fail with a targeted message only when `link-lean` is requested. The
+Whenever an install has a receipt and a lean archive, the receipt's archive
+manifest authenticates the lean bytes in every feature context before any lean
+metadata is exported. A receipt that does not bind those bytes is refused.
+Old local layouts without a lean archive export no lean path, digest, or HBC
+version; they continue to support full-VM builds and fail with a targeted
+message only when `link-lean` is requested. The
 end-to-end lean proof can be run against a complete v2 bundle:
 
 ```sh

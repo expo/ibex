@@ -303,16 +303,22 @@ triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
 `x86_64-apple-ios` both select the universal iOS Simulator archive.
 
 The `link` feature emits the full VM's link line; `link-lean` emits the lean
-VM's link line, and the two features are mutually exclusive. Resolution still
-exports both archive paths and, when present, both digests in every feature
-context. Downstream build scripts receive `DEP_HERMES_LEAN_ARCHIVE` and
+VM's link line, and the two features are mutually exclusive. Resolution
+exports lean metadata only when the lean archive exists. If a receipt is
+present, its archive manifest must authenticate that archive in every feature
+context, even one that does not enable `link-lean`; a receipt that omits or
+mismatches the lean entry is refused. Downstream build scripts receive
+`DEP_HERMES_LEAN_ARCHIVE` and
 `DEP_HERMES_LEAN_ENGINE_DIGEST` for full, plus
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` and `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST` for
-lean. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
+lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what that process links. This
 is the R-e identity: a process never reports the full digest while linking
-lean. Legacy local layouts may omit lean; they fail only if `link-lean` is
-requested. Published v2 bundles must carry and manifest both.
+lean. Legacy local layouts may omit lean; they export no lean path, digest, or
+HBC version and fail only if `link-lean` is requested. Published v2 bundles
+must carry and manifest both. Repository discovery uses the Apple layout only
+for macOS targets; iOS cross builds fall through to their pinned target bundle
+or an explicit complete `HERMES_LEAN_SYS_DIR`.
 
 The downloader uses rustls with WebPKI roots and always verifies the pinned
 archive SHA-256 before inspecting or extracting the tarball. Extraction
@@ -360,6 +366,7 @@ override cases on the follow-up lean-selection branch before landing consumer
 updates. Never replace an asset: a
 changed build or packaging authority receives a new release revision suffix
 (`-v3`, `-v4`, and so on) and new consumer digests.
-Until v2 is published and all seven attestations pass, the pin table
-deliberately retains the verified v1 SHA-256 values as placeholders. They do
-not authenticate v2 assets and must be replaced only by the procedure above.
+Until v2 is published and all seven attestations pass, every pin is a rejecting
+`TODO_L1F_SHA256_*` sentinel. The resolver refuses those sentinels before any
+download, so neither a mirror nor a pre-populated cache can substitute v1 bytes
+under the v2 release name. Replace them only by the procedure above.

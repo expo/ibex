@@ -3,9 +3,9 @@
 mod build_support;
 
 use build_support::{
-    acquire_bundle, download_options_from_env, parse_pin_sha256, pin_for_target, rerun_paths,
-    verify_and_extract_archive, watched_inputs, BundlePin, DownloadOptions, EngineInstall,
-    RELEASE_TAG,
+    acquire_bundle, download_options_from_env, parse_pin_sha256, pin_for_target,
+    repository_install_root, rerun_paths, verify_and_extract_archive, watched_inputs, BundlePin,
+    DownloadOptions, EngineInstall, RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -46,7 +46,7 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         include_dir: root.join("include"),
         lib_root: root.join("lib"),
         vm_archive: root.join("lib/libhermesvm_a.a"),
-        lean_vm_archive: root.join("lib/libhermesvmlean_a.a"),
+        lean_vm_archive: Some(root.join("lib/libhermesvmlean_a.a")),
         hermesc: root.join("bin/hermesc"),
     };
     let paths = watched_inputs(&install, "x86_64-unknown-linux-gnu");
@@ -85,7 +85,7 @@ fn pin_table_digest_parser_accepts_only_sha256_hex() {
     );
     assert!(parse_pin_sha256("abc").is_err());
     assert!(parse_pin_sha256(&"g".repeat(64)).is_err());
-    let placeholder = parse_pin_sha256("TODO_L1D_SHA256_TEST").expect_err("placeholder");
+    let placeholder = parse_pin_sha256("TODO_L1F_SHA256_TEST").expect_err("sentinel");
     assert!(
         placeholder.contains("awaiting publication"),
         "{placeholder}"
@@ -351,7 +351,7 @@ fn rerun_paths_name_only_existing_inputs_and_the_root() {
         include_dir: root.join("include"),
         lib_root: root.join("lib"),
         vm_archive: root.join("lib/libhermesvm_a.a"),
-        lean_vm_archive: root.join("lib/libhermesvmlean_a.a"),
+        lean_vm_archive: None,
         hermesc: root.join("bin/hermesc"),
     };
     let paths = rerun_paths(&install, "aarch64-apple-darwin");
@@ -371,6 +371,15 @@ fn rerun_paths_name_only_existing_inputs_and_the_root() {
 #[test]
 fn local_http_mirror_bundle_is_verified_and_cached() {
     let temporary = tempfile::tempdir().expect("temporary directory");
+    let repository = temporary.path().join("repository");
+    fs::create_dir_all(repository.join("ios/Frameworks-vanilla/hermes-headers"))
+        .expect("repository headers");
+    fs::create_dir_all(repository.join("ios/Frameworks-vanilla/macos-static"))
+        .expect("macOS repository libraries");
+    assert!(
+        repository_install_root(&repository, "aarch64-apple-ios").is_none(),
+        "an iOS target must not select the repository's macOS-only layout"
+    );
     let archive = temporary.path().join(ASSET);
     write_archive(
         &archive,
@@ -407,7 +416,7 @@ fn local_http_mirror_bundle_is_verified_and_cached() {
     options.cache_root = temporary.path().join("cache");
     options.offline = false;
     let pin = BundlePin {
-        target: "test-target",
+        target: "aarch64-apple-ios",
         asset: ASSET,
         sha256: leak(digest.clone()),
     };
@@ -420,6 +429,10 @@ fn local_http_mirror_bundle_is_verified_and_cached() {
     assert_eq!(
         fs::read(installed.join("lib/libhermesvm_a.a")).expect("engine"),
         b"engine"
+    );
+    assert!(
+        installed.starts_with(&options.cache_root),
+        "the iOS fallthrough selects the pinned bundle cache, not the macOS repository layout"
     );
     assert_eq!(
         sha256_file(&installed.join(CACHE_ARCHIVE)),

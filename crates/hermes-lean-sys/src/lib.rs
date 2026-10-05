@@ -18,19 +18,22 @@ pub const ARCHIVE: &str = env!("HERMES_LEAN_ARCHIVE");
 /// Digest of [`ARCHIVE`], independent of the `link` feature.
 pub const ENGINE_DIGEST: &str = env!("HERMES_LEAN_ENGINE_DIGEST");
 
-/// Expected lean VM archive path for this target. Older local layouts may not
-/// contain it; [`LEAN_ENGINE_DIGEST`] is `None` in that case unless
-/// `link-lean` is requested, which fails resolution clearly.
-pub const LEAN_ARCHIVE: &str = env!("HERMES_LEAN_LEAN_ARCHIVE");
+/// Lean VM archive selected for this target, if the install contains one.
+/// When a receipt is present, this is exported only after its archive manifest
+/// authenticates the lean bytes. It is `None` when no lean archive exists;
+/// requesting `link-lean` makes that absence a resolution error.
+pub const LEAN_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_LEAN_ARCHIVE");
 
-/// Digest of [`LEAN_ARCHIVE`] when that archive is available and authenticated.
+/// Digest of [`LEAN_ARCHIVE`] when present and, if a receipt exists,
+/// authenticated by that receipt's archive manifest.
 pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LEAN_ENGINE_DIGEST");
 
 /// HBC version reported by the matching `hermesc`.
 pub const BYTECODE_VERSION: &str = env!("HERMES_LEAN_BYTECODE_VERSION");
 
-/// HBC version consumed by the lean VM from the same source commit.
-pub const LEAN_BYTECODE_VERSION: &str = env!("HERMES_LEAN_LEAN_BYTECODE_VERSION");
+/// HBC version consumed by [`LEAN_ARCHIVE`], or `None` when no lean archive is
+/// present in the selected install.
+pub const LEAN_BYTECODE_VERSION: Option<&str> = option_env!("HERMES_LEAN_LEAN_BYTECODE_VERSION");
 
 /// Archive actually selected by `link` or `link-lean`, if either is enabled.
 pub const LINKED_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_LINKED_ARCHIVE");

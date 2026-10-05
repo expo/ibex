@@ -29,14 +29,16 @@ pub const HARDEN_BYTECODE_PATH: &str = env!("IBEX2_HARDEN_BYTECODE_PATH");
 pub const HARDEN_BYTECODE: &[u8] = include_bytes!(env!("IBEX2_HARDEN_BYTECODE_PATH"));
 /// Digest of the full VM archive in the one `hermes-lean-sys` resolution.
 pub const ENGINE_DIGEST: &str = env!("IBEX2_BINDINGS_ENGINE_DIGEST");
-/// Digest of the lean VM archive in that resolution, when the selected local
-/// layout contains it. An embedder linking lean compares its linked identity
-/// to this value; pinned release bundles always provide it.
+/// Digest of the lean VM archive in that resolution, when present. If the
+/// install has a receipt, its archive manifest is always checked before this
+/// identity is exported; an unbound lean archive fails the build.
 pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_ENGINE_DIGEST");
-/// HBC versions for the full and lean VMs. `build.rs` asserts they are equal
-/// before compiling any binding bytecode.
+/// HBC version for the full VM selected to compile binding bytecode.
 pub const BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_BYTECODE_VERSION");
-pub const LEAN_BYTECODE_VERSION: &str = env!("IBEX2_BINDINGS_LEAN_BYTECODE_VERSION");
+/// HBC version for the lean VM, or `None` when the selected install has no
+/// lean archive. `build.rs` asserts equality with [`BYTECODE_VERSION`] when
+/// this value is present.
+pub const LEAN_BYTECODE_VERSION: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN_BYTECODE_VERSION");
 pub const SQLITE_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/sqlite.js");
 pub const TYPESCRIPT: &str = include_str!("bindings/storage.d.ts");
 

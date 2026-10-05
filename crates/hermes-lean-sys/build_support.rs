@@ -23,50 +23,50 @@ pub(crate) struct BundlePin {
 
 // @ref LLP 0057.000#l1--the-bindings-door — this table is the trust root for
 // the compiler/VM identity shared by the bindings and the owning runtime.
-// These are the verified v1 digests retained as deliberate placeholders while
-// v2 is built and published. They MUST be replaced with the v2 asset digests
-// only after the immutable release and its Sigstore attestations are verified;
-// see scripts/update-hermes-lean-sys-pins.mjs.
+// The v2 release is not published yet, so every digest is a deliberately
+// rejecting sentinel. They MUST be replaced with the v2 asset digests only
+// after the immutable release and its Sigstore attestations are verified; see
+// scripts/update-hermes-lean-sys-pins.mjs.
 pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
         asset: "hermes-vanilla-aarch64-apple-darwin.tar.gz",
-        sha256: "852a3b70878e1b4029a76c19370d1b6867b56fb11855b68716da09b360dd3af8",
+        sha256: "TODO_L1F_SHA256_AARCH64_APPLE_DARWIN",
     },
     BundlePin {
         target: "x86_64-apple-darwin",
         asset: "hermes-vanilla-x86_64-apple-darwin.tar.gz",
-        sha256: "9db8687a9eadeda2cfd7fab27afa9b0dc949fa8f04753d4ece3075c9fe65682a",
+        sha256: "TODO_L1F_SHA256_X86_64_APPLE_DARWIN",
     },
     BundlePin {
         target: "aarch64-apple-ios",
         asset: "hermes-vanilla-aarch64-apple-ios.tar.gz",
-        sha256: "6eea36a120eb12de160c8f876a8a65c310c4eb5d8fc2b12b03c026a8d2e5ec08",
+        sha256: "TODO_L1F_SHA256_AARCH64_APPLE_IOS",
     },
     BundlePin {
         target: "aarch64-apple-ios-sim",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "bf555ff4f9c87776dfd23d92da5fa3784839cc2dc7a8d6e4db9930af650ce180",
+        sha256: "TODO_L1F_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
     },
     BundlePin {
         target: "x86_64-apple-ios",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "bf555ff4f9c87776dfd23d92da5fa3784839cc2dc7a8d6e4db9930af650ce180",
+        sha256: "TODO_L1F_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
     },
     BundlePin {
         target: "x86_64-unknown-linux-gnu",
         asset: "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
-        sha256: "092558b35f6a13e1421056f314e4d98edd12f96ba228186767bc5de81b600d6f",
+        sha256: "TODO_L1F_SHA256_X86_64_UNKNOWN_LINUX_GNU",
     },
     BundlePin {
         target: "aarch64-unknown-linux-gnu",
         asset: "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
-        sha256: "749781c2df4832257200c03fb79fcd2e03637bbea88c573e1a13fc7a25971a02",
+        sha256: "TODO_L1F_SHA256_AARCH64_UNKNOWN_LINUX_GNU",
     },
     BundlePin {
         target: "x86_64-pc-windows-msvc",
         asset: "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz",
-        sha256: "94a53782538e9f87f157e21880d0161c7a5687419ab40f0e69ea76f748380bf1",
+        sha256: "TODO_L1F_SHA256_X86_64_PC_WINDOWS_MSVC",
     },
 ];
 
@@ -95,7 +95,7 @@ pub(crate) struct EngineInstall {
     pub include_dir: PathBuf,
     pub lib_root: PathBuf,
     pub vm_archive: PathBuf,
-    pub lean_vm_archive: PathBuf,
+    pub lean_vm_archive: Option<PathBuf>,
     pub hermesc: PathBuf,
 }
 
@@ -105,11 +105,13 @@ pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathB
         install.root.clone(),
         install.include_dir.clone(),
         install.vm_archive.clone(),
-        install.lean_vm_archive.clone(),
         install.hermesc.clone(),
         install.root.join("hermes-input-receipt.json"),
         install.root.join(CACHE_ARCHIVE),
     ]);
+    if let Some(lean_vm_archive) = &install.lean_vm_archive {
+        paths.insert(lean_vm_archive.clone());
+    }
     for archive in if windows {
         ["jsi.lib", "boost_context.lib"]
     } else {
@@ -191,7 +193,7 @@ pub(crate) fn pin_for_target(target: &str) -> Result<&'static BundlePin, String>
 }
 
 pub(crate) fn parse_pin_sha256(value: &str) -> Result<String, String> {
-    if value.starts_with("TODO_L1D_SHA256_") {
+    if value.starts_with("TODO_L1F_SHA256_") {
         return Err(format!(
             "the Hermes bundle digest pin {value} is awaiting publication; set HERMES_LEAN_SYS_DIR to a complete local install"
         ));
@@ -299,21 +301,25 @@ pub(crate) fn resolve_engine_directory(
         target == host,
         &engine_digest,
         &bytecode_version,
-        require_lean,
     )?;
+
+    let lean_vm_archive = target_layout
+        .lean_vm_archive
+        .is_file()
+        .then(|| target_layout.lean_vm_archive.clone());
 
     Ok(EngineInstall {
         root: target_layout.root,
         include_dir: target_layout.include_dir,
         lib_root: target_layout.lib_root,
         vm_archive: target_layout.vm_archive,
-        lean_vm_archive: target_layout.lean_vm_archive,
+        lean_vm_archive,
         hermesc,
     })
 }
 
-fn repository_install_root(repo_root: &Path, target: &str) -> Option<PathBuf> {
-    let root = if target.contains("-apple-") {
+pub(crate) fn repository_install_root(repo_root: &Path, target: &str) -> Option<PathBuf> {
+    let root = if matches!(target, "aarch64-apple-darwin" | "x86_64-apple-darwin") {
         repo_root.join("ios/Frameworks-vanilla")
     } else if target.ends_with("-pc-windows-msvc") {
         let arch = if target.starts_with("x86_64-") {
@@ -440,14 +446,7 @@ fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<S
     authenticate_compiler(layout, compiler)?;
     let engine_digest = digest_file(&layout.vm_archive)?;
     let bytecode_version = hermesc_bytecode_version(compiler)?;
-    validate_receipt(
-        layout,
-        compiler,
-        true,
-        &engine_digest,
-        &bytecode_version,
-        false,
-    )?;
+    validate_receipt(layout, compiler, true, &engine_digest, &bytecode_version)?;
     Ok(bytecode_version)
 }
 
@@ -482,7 +481,6 @@ fn validate_receipt(
     validate_compiler_digest: bool,
     engine_digest: &str,
     bytecode_version: &str,
-    validate_lean_archive: bool,
 ) -> Result<(), String> {
     let receipt_path = layout.root.join("hermes-input-receipt.json");
     let Some(receipt) = read_receipt_claims(layout)? else {
@@ -517,7 +515,11 @@ fn validate_receipt(
             engine_digest
         ));
     }
-    if validate_lean_archive {
+    // A receipt governs every VM archive present in its install, independent
+    // of which link feature this compilation enables. This prevents a
+    // build-dependency instance from exporting an unauthenticated lean
+    // identity for a sibling runtime instance to trust.
+    if layout.lean_vm_archive.is_file() {
         let lean_digest = digest_file(&layout.lean_vm_archive)?;
         let relative = layout
             .lean_vm_archive
@@ -1489,7 +1491,6 @@ mod internal_tests {
             true,
             "sha256-unused",
             "96",
-            false,
         )
         .expect_err("published layout without a receipt must fail");
         assert!(error.contains("missing"), "{error}");
@@ -1525,7 +1526,6 @@ mod internal_tests {
             true,
             &engine_digest,
             "96",
-            false,
         )
         .expect_err("compiler mismatch must fail");
         assert!(error.contains("different compiler"), "{error}");
@@ -1610,7 +1610,6 @@ mod internal_tests {
             true,
             &engine_digest,
             "96",
-            false,
         )
         .expect_err("decoy archive must fail");
         assert!(error.contains("selected"), "{error}");
@@ -1679,7 +1678,6 @@ mod internal_tests {
             false,
             &target_engine_digest,
             &host_version,
-            false,
         )
         .expect("matching HBC versions permit a cross-bundle pairing");
 
@@ -1699,7 +1697,6 @@ mod internal_tests {
             false,
             &target_engine_digest,
             &host_version,
-            false,
         )
         .expect_err("different HBC versions must fail");
         assert!(error.contains("HBC bytecode version"), "{error}");
@@ -1725,7 +1722,7 @@ mod internal_tests {
     }
 
     #[test]
-    fn lean_selection_is_bound_by_the_receipt_archive_manifest() {
+    fn every_present_lean_archive_is_bound_by_the_receipt_archive_manifest() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let root = temporary.path();
         fs::create_dir_all(root.join("include")).expect("include directory");
@@ -1745,6 +1742,15 @@ mod internal_tests {
             &compiler_digest,
             96,
         );
+        let layout = install_layout(
+            root.to_path_buf(),
+            "aarch64-apple-darwin",
+            InstallOrigin::Bundle,
+        );
+        let error = validate_receipt(&layout, &root.join("bin/hermesc"), true, &full_digest, "96")
+            .expect_err("a present lean archive must be bound even without link-lean");
+        assert!(error.contains("does not bind"), "{error}");
+
         let receipt_path = root.join("hermes-input-receipt.json");
         let mut receipt: serde_json::Value =
             serde_json::from_slice(&fs::read(&receipt_path).expect("receipt")).expect("JSON");
@@ -1757,21 +1763,8 @@ mod internal_tests {
             serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
         )
         .expect("receipt");
-        let layout = install_layout(
-            root.to_path_buf(),
-            "aarch64-apple-darwin",
-            InstallOrigin::Bundle,
-        );
-
-        validate_receipt(
-            &layout,
-            &root.join("bin/hermesc"),
-            true,
-            &full_digest,
-            "96",
-            true,
-        )
-        .expect("manifest authenticates the selected lean archive");
+        validate_receipt(&layout, &root.join("bin/hermesc"), true, &full_digest, "96")
+            .expect("manifest authenticates the selected lean archive");
 
         receipt["archives"][1]["digest"] =
             serde_json::Value::String(format!("sha256-{}", "0".repeat(64)));
@@ -1780,15 +1773,8 @@ mod internal_tests {
             serde_json::to_vec_pretty(&receipt).expect("receipt JSON"),
         )
         .expect("receipt");
-        let error = validate_receipt(
-            &layout,
-            &root.join("bin/hermesc"),
-            true,
-            &full_digest,
-            "96",
-            true,
-        )
-        .expect_err("changed lean identity must fail");
+        let error = validate_receipt(&layout, &root.join("bin/hermesc"), true, &full_digest, "96")
+            .expect_err("changed lean identity must fail");
         assert!(error.contains("LEAN_ENGINE_DIGEST"), "{error}");
     }
 }

@@ -87,11 +87,13 @@ fn main() {
         harden_bytecode.display()
     );
     let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");
-    let lean_bytecode_version = required("DEP_HERMES_LEAN_LEAN_BYTECODE_VERSION");
-    assert_eq!(
-        bytecode_version, lean_bytecode_version,
-        "full and lean Hermes VMs from one resolution must consume the same HBC version"
-    );
+    let lean_bytecode_version = std::env::var("DEP_HERMES_LEAN_LEAN_BYTECODE_VERSION").ok();
+    if let Some(lean_bytecode_version) = &lean_bytecode_version {
+        assert_eq!(
+            &bytecode_version, lean_bytecode_version,
+            "full and lean Hermes VMs from one resolution must consume the same HBC version"
+        );
+    }
     println!(
         "cargo:rustc-env=IBEX2_BINDINGS_ENGINE_DIGEST={}",
         required("DEP_HERMES_LEAN_ENGINE_DIGEST")
@@ -100,7 +102,9 @@ fn main() {
         println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_ENGINE_DIGEST={digest}");
     }
     println!("cargo:rustc-env=IBEX2_BINDINGS_BYTECODE_VERSION={bytecode_version}");
-    println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_BYTECODE_VERSION={lean_bytecode_version}");
+    if let Some(lean_bytecode_version) = lean_bytecode_version {
+        println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_BYTECODE_VERSION={lean_bytecode_version}");
+    }
 }
 
 fn build_platform_backends(is_apple: bool) {
