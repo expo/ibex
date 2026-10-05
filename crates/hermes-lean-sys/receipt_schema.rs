@@ -129,6 +129,21 @@ pub(crate) fn validate(
     {
         return Err("v2 receipt engine is not bound by its archive manifest".into());
     }
+    let expected_lean_engine_name = if target.ends_with("-pc-windows-msvc") {
+        "hermesvmlean_a.lib"
+    } else {
+        "libhermesvmlean_a.a"
+    };
+    if archives
+        .iter()
+        .filter(|(path, _)| path.rsplit('/').next() == Some(expected_lean_engine_name))
+        .count()
+        > 1
+    {
+        return Err(format!(
+            "v2 receipt archive manifest names more than one target lean VM archive {expected_lean_engine_name}"
+        ));
+    }
     manifest(root.get("headers"), "headers")?;
 
     let links = root
@@ -309,5 +324,26 @@ mod tests {
         assert!(validate(&zero_hbc, None)
             .unwrap_err()
             .contains("positive HBC"));
+    }
+
+    #[test]
+    fn shared_fixture_binds_one_target_lean_archive() {
+        validate(&document(), None).expect("canonical v2 with full and lean VMs");
+
+        let mut duplicate = document();
+        let archives = duplicate["archives"].as_array_mut().expect("archives");
+        archives.push(serde_json::json!({
+            "path": "other/libhermesvmlean_a.a",
+            "digest": "sha256-6666666666666666666666666666666666666666666666666666666666666666"
+        }));
+        archives.sort_by(|left, right| {
+            left["path"]
+                .as_str()
+                .expect("path")
+                .cmp(right["path"].as_str().expect("path"))
+        });
+        assert!(validate(&duplicate, None)
+            .unwrap_err()
+            .contains("more than one target lean VM archive"));
     }
 }

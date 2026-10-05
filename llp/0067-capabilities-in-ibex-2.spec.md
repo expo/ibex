@@ -5,6 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-05 (§5: the v2 release pipeline packages full and lean VM archives together; the manifest binds both and receipt generation scans both before claiming an empty patch set)
 **Revised:** 2026-10-04 (§5: the canonical receipt names the exact full-VM archive linked for its target; generation scans that archive for patched symbols and verification hashes that path rather than accepting any digest-matching candidate)
 **Revised:** 2026-10-04 (§5: canonical Hermes input receipt v2 binds the target static link closure and host compiler without a volatile production date; v1 remains readable; local Apple and Linux builders write v2 as part of installation)
 **Revised:** 2026-10-04 (§1: `WebSocket` is a per-module grant-bound constructor and absent from the secure global)
@@ -156,10 +157,12 @@ canonical v2 receipt has no production date: it binds the source commit and
 empty patch set; target, profile, and ordered build flags; HBC bytecode
 version and compiler digest; every target archive digest; the sorted header
 manifest; the explicit full-VM archive path linked for the target; and the
-ordered Cargo link directives. Receipt generation scans that exact archive for
-patched symbols, and verification hashes that exact path rather than accepting
-another candidate archive with the recorded digest. V1 receipts remain
-readable for already-built local installs, but release bundles are v2. The
+ordered Cargo link directives. A v2 release bundle carries both full and lean
+VM archives in that manifest. Receipt generation scans both before attesting an
+empty patch set, while `engine.binary` remains the exact full archive for
+compatibility. Verification hashes exact manifest paths rather than accepting
+another candidate archive with a recorded digest. V1 receipts remain readable
+for already-built local installs. The
 Apple and Linux local builders invoke the v2 writer with their exact target,
 engine archive, and link directives as part of installation, so the installed
 tree is immediately usable by `ibex2 build`; a receipt is not a separate manual

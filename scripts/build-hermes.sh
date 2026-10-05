@@ -94,6 +94,7 @@ write_receipt() {
     --commit "$hermes_commit"
     --compiler "$tools_dir/hermesc-macos-$tool_arch"
     --engine-archive macos-static/libhermesvm_a.a
+    --lean-engine-archive macos-static/libhermesvmlean_a.a
     --build-flag=-DHERMES_APPLE_TARGET_PLATFORM=macosx
     --build-flag=-DCMAKE_OSX_ARCHITECTURES=x86_64\;arm64
     --build-flag=-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0

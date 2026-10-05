@@ -258,21 +258,28 @@ if (!archivePaths.includes(engineBinary)) {
   die('engine archive is not present in the archive manifest');
 }
 
-let leanEngineBinary;
+const expectedLeanEngineName = target.endsWith('-pc-windows-msvc')
+  ? 'hermesvmlean_a.lib'
+  : 'libhermesvmlean_a.a';
+const manifestedLeanEngineArchives = archivePaths.filter(
+  (archive) => basename(archive) === expectedLeanEngineName,
+);
+if (manifestedLeanEngineArchives.length > 1) {
+  die(`archive manifest contains more than one lean VM archive ${expectedLeanEngineName}`);
+}
+let leanEngineBinary = manifestedLeanEngineArchives[0];
 if (requestedLeanEngineArchive) {
-  leanEngineBinary = inside(bundleDir, requestedLeanEngineArchive, 'lean engine archive');
-  const expectedLeanEngineName = target.endsWith('-pc-windows-msvc')
-    ? 'hermesvmlean_a.lib'
-    : 'libhermesvmlean_a.a';
-  if (basename(leanEngineBinary) !== expectedLeanEngineName) {
+  const requested = inside(bundleDir, requestedLeanEngineArchive, 'lean engine archive');
+  if (basename(requested) !== expectedLeanEngineName) {
     die(`lean engine archive must be the target's lean VM archive ${expectedLeanEngineName}`);
   }
-  if (!isFile(leanEngineBinary)) {
-    die(`lean engine archive is not a regular file: ${leanEngineBinary}`);
+  if (!isFile(requested)) {
+    die(`lean engine archive is not a regular file: ${requested}`);
   }
-  if (!archivePaths.includes(leanEngineBinary)) {
+  if (!archivePaths.includes(requested)) {
     die('lean engine archive is not present in the archive manifest');
   }
+  leanEngineBinary = requested;
 }
 
 const symbols = exportedSymbols(engineBinary);

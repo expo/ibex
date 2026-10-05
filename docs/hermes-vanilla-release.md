@@ -1,18 +1,20 @@
 # Vanilla Hermes release bundles
 
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
-The release for the current pin is the immutable prerelease
-`hermes-vanilla-d412d3bd8512-v1`. It contains seven deterministic archives,
-`SHA256SUMS`, and one retained Sigstore bundle beside each archive.
+The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v2`. It contains
+seven deterministic archives, `SHA256SUMS`, and one retained Sigstore bundle
+beside each archive. The immutable v1 release contains only the full VM and
+cannot gain the lean archive, which is why this uses a new release namespace.
 
-Each archive contains the full-VM target link closure under `lib/`, host `hermesc`
-under `bin/`, public headers under `include/`, the upstream license, and a
-canonical `hermes-input-receipt.json`. Receipt v2 binds the source commit,
-empty patch set, target, profile and build flags, HBC version, compiler,
-archive/header digests, the explicit full-VM archive linked for the target, and
-ordered Cargo link directives. Patched-symbol scanning and installed-engine
-verification both use that exact archive path. The receipt deliberately has no
-production date.
+Each v2 archive contains both the full `hermesvm_a` and lean
+`hermesvmlean_a` target archives under `lib/`, the rest of their target link
+closure, host `hermesc` under `bin/`, public headers under `include/`, the
+upstream license, and a canonical `hermes-input-receipt.json`. Receipt v2 binds
+the source commit, empty patch set, target, profile and build flags, HBC
+version, compiler, and every archive/header digest. `engine.binary` remains the
+full VM for compatibility; the lean VM is bound by the same archive manifest.
+Receipt generation scans both VM archives for patched exports whenever lean is
+present. The receipt deliberately has no production date.
 
 ## Required repository settings
 
@@ -185,7 +187,7 @@ non-fast-forward updates (force-pushes).
    done
    test -n "$publisher_run_id"
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
-   gh release view hermes-vanilla-d412d3bd8512-v1 --repo "$repo"
+   gh release view hermes-vanilla-d412d3bd8512-v2 --repo "$repo"
    ```
 
 ### First publication (2026-10-04)
@@ -225,7 +227,7 @@ If a run stops after creating its draft but before publishing it:
    unchanged current `main`.
 
 If the tag already exists, or a published release exists, don't delete either:
-increment the immutable release suffix (`-v2`, `-v3`, and so on).
+increment the immutable release suffix (`-v3`, `-v4`, and so on).
 
 After publication the workflow re-reads the release. It requires it to be a
 non-draft, immutable prerelease with the exact 15-asset set and digests, and
@@ -244,7 +246,7 @@ repository from satisfying this check.
 
 ```sh
 repo=expo/ibex
-tag=hermes-vanilla-d412d3bd8512-v1
+tag=hermes-vanilla-d412d3bd8512-v2
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
@@ -266,6 +268,9 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     (.producedOn | not) and
     (.engine.binary == "lib/libhermesvm_a.a" or
       .engine.binary == "lib/hermesvm_a.lib") and
+    (any(.archives[];
+      .path == "lib/libhermesvmlean_a.a" or
+      .path == "lib/hermesvmlean_a.lib")) and
     (.archives | length > 0) and
     (.headers | length > 0) and
     (.linkDirectives | length > 0)'
@@ -283,7 +288,10 @@ rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. It resolves a complete
+`hermes-lean-sys` is the supported consumer. Until v2 is published and its
+seven checksums are independently verified, its release table intentionally
+stays on immutable v1 with the real v1 digests and full-VM-only behavior. It
+resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
@@ -334,6 +342,7 @@ node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS"
 The script requires all seven archive checksums and rewrites the duplicate
 universal-simulator mappings consistently. Review the resulting source diff,
 then exercise cold-cache, warm-cache, offline-cache, mirror, and local-directory
-override cases before landing consumer updates. Never replace an asset: a
+override cases on the follow-up lean-selection branch before landing consumer
+updates. Never replace an asset: a
 changed build or packaging authority receives a new release revision suffix
-(`-v2`, `-v3`, and so on) and new consumer digests.
+(`-v3`, `-v4`, and so on) and new consumer digests.

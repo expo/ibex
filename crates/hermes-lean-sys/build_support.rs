@@ -23,8 +23,9 @@ pub(crate) struct BundlePin {
 
 // @ref LLP 0057.000#l1--the-bindings-door — this table is the trust root for
 // the compiler/VM identity shared by the bindings and the owning runtime.
-// L1d placeholders are replaced after the immutable release and its Sigstore
-// attestations have been verified; see scripts/update-hermes-lean-sys-pins.mjs.
+// These are the verified immutable v1 release digests. Keep them under the v1
+// namespace until a later release has been published and independently
+// verified; see scripts/update-hermes-lean-sys-pins.mjs.
 pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",

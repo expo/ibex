@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -29,6 +30,10 @@ const publisherWorkflow = readFileSync(
 const receiptWriter = readFileSync(join(repoRoot, "scripts/hermes-input-receipt.mjs"), "utf8");
 const localAppleBuilder = readFileSync(join(repoRoot, "scripts/build-hermes.sh"), "utf8");
 const localLinuxBuilder = readFileSync(join(repoRoot, "scripts/build-hermes-linux.sh"), "utf8");
+const localWindowsBuilder = readFileSync(
+  join(repoRoot, "scripts/build-hermes-windows-vanilla.ps1"),
+  "utf8",
+);
 const releaseBuilder = readFileSync(
   join(repoRoot, "scripts/build-hermes-vanilla-release.sh"),
   "utf8",
@@ -278,6 +283,7 @@ test("release receipts bind both VM archives and keep the full VM as engine.bina
   for (const [name, producer, archive] of [
     ["local Apple", localAppleBuilder, "--engine-archive macos-static/libhermesvm_a.a"],
     ["local Linux", localLinuxBuilder, "--engine-archive linux-static/libhermesvm_a.a"],
+    ["local Windows", localWindowsBuilder, "--engine-archive=windows-static/hermesvm_a.lib"],
     ["Unix release", releaseBuilder, "--engine-archive lib/libhermesvm_a.a"],
     ["Windows release", windowsReleaseBuilder, "--engine-archive=lib/hermesvm_a.lib"],
   ]) {
@@ -285,10 +291,57 @@ test("release receipts bind both VM archives and keep the full VM as engine.bina
     assert.match(producer, /link-directive=rustc-link-lib=static=hermesvm_a/);
   }
   assert.match(releaseBuilder, /--target hermesvm_a hermesvmlean_a/);
+  assert.match(localAppleBuilder, /--lean-engine-archive macos-static\/libhermesvmlean_a\.a/);
   assert.match(releaseBuilder, /--lean-engine-archive lib\/libhermesvmlean_a\.a/);
   assert.match(windowsReleaseBuilder, /--target hermesvmlean_a/);
   assert.match(windowsReleaseBuilder, /--lean-engine-archive=lib\/hermesvmlean_a\.lib/);
-  assert.match(receiptWriter, /lean engine archive is not present in the archive manifest/);
+  assert.match(receiptWriter, /manifestedLeanEngineArchives/);
+  assert.match(receiptWriter, /exportedSymbols\(leanEngineBinary\)/);
+});
+
+test("receipt writer scans a manifested lean archive without an optional argument", (t) => {
+  if (process.platform === "win32") {
+    t.skip("the fixture supplies a POSIX fake nm; Windows release coverage is structural");
+    return;
+  }
+  const temporary = mkdtempSync(join(tmpdir(), "hermes-receipt-lean-scan-"));
+  const bundle = join(temporary, "bundle");
+  const fakeBin = join(temporary, "bin");
+  mkdirSync(join(bundle, "lib"), { recursive: true });
+  mkdirSync(join(bundle, "include", "hermes"), { recursive: true });
+  mkdirSync(join(bundle, "bin"), { recursive: true });
+  mkdirSync(fakeBin);
+  writeFileSync(join(bundle, "lib", "libhermesvm_a.a"), "full VM");
+  writeFileSync(join(bundle, "lib", "libhermesvmlean_a.a"), "lean VM");
+  writeFileSync(join(bundle, "include", "hermes", "Hermes.h"), "// header\n");
+  writeFileSync(join(bundle, "bin", "hermesc"), "compiler");
+  const fakeNm = join(fakeBin, "nm");
+  writeFileSync(fakeNm, `#!/bin/sh
+case "$*" in
+  *libhermesvmlean_a.a*) printf '00000000 T ex_hermes_vm_disable_eval\\n' ;;
+  *) printf '00000000 T ordinary_vanilla_symbol\\n' ;;
+esac
+`);
+  chmodSync(fakeNm, 0o755);
+  try {
+    const result = spawnSync(process.execPath, [
+      join(repoRoot, "scripts/hermes-input-receipt.mjs"),
+      bundle,
+      "--target=aarch64-apple-darwin",
+      "--profile=release",
+      "--engine-archive=lib/libhermesvm_a.a",
+      "--bytecode-version=99",
+      "--link-directive=rustc-link-lib=static=hermesvm_a",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}` },
+    });
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(result.stderr, /refusing an empty-patch-set receipt for a patched engine/);
+    assert.match(result.stderr, /ex_hermes_vm_disable_eval/);
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 });
 
 const validator = blockScalar(publisherWorkflow, "HANDOFF_VALIDATOR");
