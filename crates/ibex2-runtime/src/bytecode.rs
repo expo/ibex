@@ -199,11 +199,16 @@ impl Compiler {
         cache_dir: PathBuf,
         engine: Option<crate::receipt::HermesInput>,
     ) -> Result<Self, String> {
-        // The receipt already records the compiler's digest; hash the binary
-        // only when there is no receipt to say.
+        let actual = hash_file(&hermesc)?;
         let toolchain = match engine.as_ref().and_then(|r| r.compiler_digest.clone()) {
-            Some(digest) => digest,
-            None => hash_file(&hermesc)?,
+            Some(expected) if expected == actual => expected,
+            Some(expected) => {
+                return Err(format!(
+                    "the receipt describes a different hermesc than the one present; refusing to execute it\n  \
+                     receipt: {expected}\n  actual:  {actual}"
+                ))
+            }
+            None => actual,
         };
         Ok(Self {
             hermesc: Some(hermesc),

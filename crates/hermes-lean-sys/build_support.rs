@@ -214,7 +214,7 @@ pub(crate) fn resolve_engine_directory(
         (compiler, version)
     } else if target_layout.origin == InstallOrigin::Repository {
         let compiler = repository_hermesc(repo_root, host)?;
-        let version = hermesc_bytecode_version(&compiler)?;
+        let version = validate_compiler_bundle(&target_layout, &compiler)?;
         (compiler, version)
     } else {
         let local = compiler_in_bundle_or_install(&target_layout.root, host);
@@ -228,7 +228,7 @@ pub(crate) fn resolve_engine_directory(
         } else {
             local
         };
-        let version = hermesc_bytecode_version(&compiler)?;
+        let version = validate_compiler_bundle(&target_layout, &compiler)?;
         (compiler, version)
     };
 
@@ -370,10 +370,57 @@ fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<S
     if !compiler.is_file() {
         return Err(format!("hermesc not found at {}", compiler.display()));
     }
+    authenticate_compiler(layout, compiler)?;
     let engine_digest = digest_file(&layout.vm_archive)?;
     let bytecode_version = hermesc_bytecode_version(compiler)?;
     validate_receipt(layout, compiler, true, &engine_digest, &bytecode_version)?;
     Ok(bytecode_version)
+}
+
+fn authenticate_compiler(layout: &InstallLayout, compiler: &Path) -> Result<(), String> {
+    let receipt_path = layout.root.join("hermes-input-receipt.json");
+    if !receipt_path.is_file() {
+        if layout.requires_receipt {
+            return Err(format!(
+                "pinned Hermes bundle is missing {}",
+                receipt_path.display()
+            ));
+        }
+        return Ok(());
+    }
+    let bytes = fs::read(&receipt_path)
+        .map_err(|error| format!("cannot read {}: {error}", receipt_path.display()))?;
+    let receipt: Receipt = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("cannot parse {}: {error}", receipt_path.display()))?;
+    if layout.requires_receipt
+        && receipt.schema.as_deref() != Some("ibex/hermes-upstream-pinned-receipt/2")
+    {
+        return Err(format!(
+            "pinned Hermes bundle receipt {} is not schema ibex/hermes-upstream-pinned-receipt/2",
+            receipt_path.display()
+        ));
+    }
+    let expected = receipt
+        .compiler
+        .and_then(|compiler| compiler.digest)
+        .ok_or_else(|| {
+            format!(
+                "{} has no compiler digest, so {} cannot be authenticated before execution",
+                receipt_path.display(),
+                compiler.display()
+            )
+        })?;
+    let actual = digest_file(compiler)?;
+    if expected != actual {
+        return Err(format!(
+            "{} records compiler digest {}, but selected hermesc {} has {}; refusing to execute an unauthenticated compiler",
+            receipt_path.display(),
+            expected,
+            compiler.display(),
+            actual
+        ));
+    }
+    Ok(())
 }
 
 fn validate_receipt(
@@ -821,6 +868,54 @@ mod internal_tests {
         )
         .expect_err("compiler mismatch must fail");
         assert!(error.contains("different compiler"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn compiler_digest_is_checked_before_hermesc_executes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+        fs::create_dir_all(root.join("include")).expect("include directory");
+        fs::create_dir_all(root.join("lib")).expect("library directory");
+        fs::create_dir_all(root.join("bin")).expect("compiler directory");
+        fs::write(root.join("lib/libhermesvm_a.a"), b"engine").expect("engine archive");
+        let marker = root.join("executed");
+        let compiler = root.join("bin/hermesc");
+        fs::write(
+            &compiler,
+            format!(
+                "#!/bin/sh\ntouch '{}'\necho 'HBC bytecode version: 96'\n",
+                marker.display()
+            ),
+        )
+        .expect("compiler script");
+        let mut permissions = fs::metadata(&compiler).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&compiler, permissions).expect("executable compiler");
+        let engine_digest = digest_file(&root.join("lib/libhermesvm_a.a")).expect("digest");
+        fs::write(
+            root.join("hermes-input-receipt.json"),
+            format!(
+                r#"{{"schema":"ibex/hermes-upstream-pinned-receipt/2","engine":{{"binary":"lib/libhermesvm_a.a","binaryDigest":"{engine_digest}"}},"compiler":{{"digest":"sha256-{}"}},"bytecode":{{"version":96}}}}"#,
+                "0".repeat(64)
+            ),
+        )
+        .expect("receipt");
+        let layout = install_layout(
+            root.to_path_buf(),
+            "aarch64-apple-darwin",
+            InstallOrigin::Bundle,
+        );
+
+        let error = validate_compiler_bundle(&layout, &compiler)
+            .expect_err("unauthenticated compiler must fail");
+        assert!(error.contains("refusing to execute"), "{error}");
+        assert!(
+            !marker.exists(),
+            "hermesc ran before its digest was authenticated"
+        );
     }
 
     #[test]
