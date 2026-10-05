@@ -75,7 +75,7 @@ impl Compiler {
         engine_dir: &Path,
         require_receipt: bool,
     ) -> Result<Self, String> {
-        let receipt = crate::receipt::HermesInput::read(engine_dir).ok();
+        let receipt = read_target_receipt(engine_dir)?;
         if require_receipt && receipt.is_none() {
             return Err(format!(
                 "the engine at {} has no HermesInputReceipt, so nothing attests it is unpatched\n\
@@ -104,25 +104,19 @@ impl Compiler {
             }
         }
         let hermesc = Self::find_hermesc()?;
-        if let Some(expected) = receipt.as_ref().and_then(|r| r.compiler_digest.as_deref()) {
-            let actual = format!(
-                "sha256-{}",
-                hex(&Sha256::digest(std::fs::read(&hermesc).map_err(
-                    |e| format!("cannot read {}: {e}", hermesc.display()),
-                )?))
-            );
-            if actual != expected {
-                return Err(format!(
-                    "the receipt describes a different hermesc than the one present\n  \
-                     receipt: {expected}\n  actual:  {actual}"
-                ));
-            }
-        }
-        Self::with_engine(hermesc, cache_dir, receipt)
+        let toolchain = verified_compiler_identity(receipt.as_ref(), &hermesc)?;
+        Ok(Self {
+            hermesc: Some(hermesc),
+            cache_dir,
+            toolchain,
+            engine: receipt.map(|receipt| receipt.binary_digest),
+            linked: Self::linked_engine().to_string(),
+        })
     }
 
-    /// The compiler for a run: the receipt's digests, read and never
-    /// re-hashed, and a compiler only if one may be needed.
+    /// The compiler for a run: a compiler only if one may be needed. When it
+    /// may execute, its bytes are authenticated; a precompiled-only run reads
+    /// receipt identities without hashing or executing the compiler.
     ///
     /// A `--precompiled` run touches the receipt (2 KB) and the manifest and
     /// nothing else before the floor. The previous design hashed the framework
@@ -135,7 +129,7 @@ impl Compiler {
         engine_dir: &Path,
         precompiled_only: bool,
     ) -> Result<Self, String> {
-        let receipt = crate::receipt::HermesInput::read(engine_dir).ok();
+        let receipt = read_target_receipt(engine_dir)?;
         if let Some(receipt) = &receipt {
             if !receipt.is_vanilla() {
                 return Err(format!(
@@ -150,13 +144,9 @@ impl Compiler {
         } else {
             Some(Self::find_hermesc()?)
         };
-        let toolchain = match (
-            receipt.as_ref().and_then(|r| r.compiler_digest.clone()),
-            &hermesc,
-        ) {
-            (Some(digest), _) => digest,
-            (None, Some(hermesc)) => hash_file(hermesc)?,
-            (None, None) => "no-compiler".to_string(),
+        let toolchain = match &hermesc {
+            Some(hermesc) => verified_compiler_identity(receipt.as_ref(), hermesc)?,
+            None => compiler_identity_without_binary(receipt.as_ref(), &hermesc_path())?,
         };
         Ok(Self {
             hermesc,
@@ -209,11 +199,16 @@ impl Compiler {
         cache_dir: PathBuf,
         engine: Option<crate::receipt::HermesInput>,
     ) -> Result<Self, String> {
-        // The receipt already records the compiler's digest; hash the binary
-        // only when there is no receipt to say.
+        let actual = hash_file(&hermesc)?;
         let toolchain = match engine.as_ref().and_then(|r| r.compiler_digest.clone()) {
-            Some(digest) => digest,
-            None => hash_file(&hermesc)?,
+            Some(expected) if expected == actual => expected,
+            Some(expected) => {
+                return Err(format!(
+                    "the receipt describes a different hermesc than the one present; refusing to execute it\n  \
+                     receipt: {expected}\n  actual:  {actual}"
+                ))
+            }
+            None => actual,
         };
         Ok(Self {
             hermesc: Some(hermesc),
@@ -611,6 +606,125 @@ pub fn is_hermes_bytecode(bytes: &[u8]) -> bool {
     bytes.len() >= 8 && bytes[..4] == [0xc6, 0x1f, 0xbc, 0x03]
 }
 
+fn verified_compiler_identity(
+    target_receipt: Option<&crate::receipt::HermesInput>,
+    hermesc: &Path,
+) -> Result<String, String> {
+    let actual = hash_file(hermesc)?;
+    let Some(target_receipt) = target_receipt else {
+        return Ok(actual);
+    };
+    validate_receipt_bytecode(target_receipt, crate::LINKED_BYTECODE_VERSION, "target")?;
+    if target_receipt.compiler_digest.as_deref() == Some(actual.as_str()) {
+        return Ok(actual);
+    }
+
+    let supplier = receipt_for_compiler(hermesc)?;
+    if !supplier.is_vanilla() {
+        return Err(format!(
+            "the bundle supplying hermesc {} is not vanilla",
+            hermesc.display()
+        ));
+    }
+    let expected = supplier.compiler_digest.as_deref().ok_or_else(|| {
+        format!(
+            "the receipt for the bundle supplying hermesc {} has no compiler digest",
+            hermesc.display()
+        )
+    })?;
+    if expected != actual {
+        return Err(format!(
+            "the supplying bundle receipt describes a different hermesc than the one present\n  \
+             receipt: {expected}\n  actual:  {actual}"
+        ));
+    }
+    validate_cross_bytecode(target_receipt, &supplier)?;
+    Ok(actual)
+}
+
+fn read_target_receipt(engine_dir: &Path) -> Result<Option<crate::receipt::HermesInput>, String> {
+    if !crate::receipt::HermesInput::path(engine_dir).is_file() {
+        return Ok(None);
+    }
+    crate::receipt::HermesInput::read_for_target(engine_dir, crate::TARGET_TRIPLE).map(Some)
+}
+
+fn compiler_identity_without_binary(
+    target_receipt: Option<&crate::receipt::HermesInput>,
+    hermesc: &Path,
+) -> Result<String, String> {
+    let Some(target_receipt) = target_receipt else {
+        return Ok("no-compiler".to_string());
+    };
+    validate_receipt_bytecode(target_receipt, crate::LINKED_BYTECODE_VERSION, "target")?;
+    if let Ok(supplier) = receipt_for_compiler(hermesc) {
+        validate_cross_bytecode(target_receipt, &supplier)?;
+        if let Some(digest) = supplier.compiler_digest {
+            return Ok(digest);
+        }
+    }
+    target_receipt
+        .compiler_digest
+        .clone()
+        .ok_or_else(|| "the target receipt has no compiler digest".to_string())
+}
+
+fn validate_cross_bytecode(
+    target: &crate::receipt::HermesInput,
+    supplier: &crate::receipt::HermesInput,
+) -> Result<(), String> {
+    let target_version = target
+        .bytecode_version
+        .ok_or("the target receipt has no HBC bytecode version")?;
+    let supplier_version = supplier
+        .bytecode_version
+        .ok_or("the compiler-supplying receipt has no HBC bytecode version")?;
+    if target_version != supplier_version {
+        return Err(format!(
+            "target receipt HBC bytecode version {target_version} does not match compiler-supplying receipt version {supplier_version}"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_receipt_bytecode(
+    receipt: &crate::receipt::HermesInput,
+    selected: &str,
+    label: &str,
+) -> Result<(), String> {
+    let Some(version) = receipt.bytecode_version else {
+        return Ok(());
+    };
+    if version.to_string() == selected {
+        Ok(())
+    } else {
+        Err(format!(
+            "{label} receipt HBC bytecode version {version} does not match the selected version {selected}"
+        ))
+    }
+}
+
+fn receipt_for_compiler(hermesc: &Path) -> Result<crate::receipt::HermesInput, String> {
+    let parent = hermesc
+        .parent()
+        .ok_or_else(|| format!("hermesc has no parent directory: {}", hermesc.display()))?;
+    let mut roots = vec![parent.to_path_buf()];
+    if parent.file_name().is_some_and(|name| name == "bin") {
+        if let Some(root) = parent.parent() {
+            roots.push(root.to_path_buf());
+        }
+    }
+    for root in &roots {
+        if crate::receipt::HermesInput::path(root).is_file() {
+            return crate::receipt::HermesInput::read(root);
+        }
+    }
+    Err(format!(
+        "no HermesInputReceipt beside the bundle supplying hermesc {}",
+        hermesc.display()
+    ))
+}
+
 /// `sha256-<hex>` of a file, the receipt's own convention.
 fn hash_file(path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
@@ -645,6 +759,31 @@ mod tests {
         assert!(super::require_linked_engine(&linked, &linked).is_ok());
         let err = super::require_linked_engine(&decoy, &linked).unwrap_err();
         assert!(err.contains("different engine archive"), "{err}");
+    }
+
+    #[test]
+    fn cross_receipts_pair_by_hbc_version_not_compiler_digest() {
+        fn receipt(compiler: &str, bytecode_version: u64) -> crate::receipt::HermesInput {
+            crate::receipt::HermesInput {
+                binary_path: Some("lib/libhermesvm_a.a".into()),
+                binary_digest: "sha256-engine".into(),
+                variant: "release".into(),
+                patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
+                patches_applied: 0,
+                compiler_digest: Some(compiler.into()),
+                bytecode_version: Some(bytecode_version),
+                target: None,
+            }
+        }
+
+        let target = receipt("sha256-target-compiler", 99);
+        let host = receipt("sha256-host-compiler", 99);
+        assert!(super::validate_cross_bytecode(&target, &host).is_ok());
+
+        let incompatible = receipt("sha256-host-compiler", 100);
+        let error = super::validate_cross_bytecode(&target, &incompatible)
+            .expect_err("different HBC versions must fail");
+        assert!(error.contains("does not match"), "{error}");
     }
 
     use super::*;
@@ -742,6 +881,8 @@ mod tests {
                 patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
                 patches_applied: 0,
                 compiler_digest: None,
+                bytecode_version: None,
+                target: None,
             }),
         )
         .expect("compiler");
@@ -758,6 +899,8 @@ mod tests {
                 patch_set_digest: crate::receipt::CANONICAL_EMPTY_PATCH_SET.into(),
                 patches_applied: 0,
                 compiler_digest: None,
+                bytecode_version: None,
+                target: None,
             }),
         )
         .expect("compiler");

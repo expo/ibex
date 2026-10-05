@@ -24,11 +24,17 @@ pub const LINKED_ENGINE_DIGEST: &str = env!("IBEX2_LINKED_ENGINE_DIGEST");
 /// Archive whose link lines `hermes-lean-sys` emitted for this runtime.
 pub const LINKED_ENGINE_ARCHIVE: &str = env!("IBEX2_LINKED_ENGINE_ARCHIVE");
 
+/// HBC format shared by the selected target engine and supplying compiler.
+pub const LINKED_BYTECODE_VERSION: &str = env!("IBEX2_LINKED_BYTECODE_VERSION");
+
 /// Compiler selected by the same `hermes-lean-sys` resolution as the VM.
 pub const HERMESC_PATH: &str = env!("IBEX2_HERMESC_PATH");
 
 /// Engine install selected by `hermes-lean-sys` for this runtime.
 pub const ENGINE_DIR: &str = env!("IBEX2_ENGINE_DIR");
+
+/// Cargo target whose engine receipt must match this runtime.
+pub const TARGET_TRIPLE: &str = env!("IBEX2_TARGET_TRIPLE");
 
 /// Retain this crate's native shim for embedders whose Rust code calls only
 /// C entry points from the linked test/host adapter.

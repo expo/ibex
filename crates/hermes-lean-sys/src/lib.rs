@@ -1,7 +1,8 @@
 //! Link metadata for the repository's pinned, unmodified Hermes engine.
 //!
-//! This first version resolves only a caller-supplied or repository-local
-//! engine install. Downloading verified release artifacts belongs to L1c.
+//! Resolution prefers a caller-supplied install, then this repository's local
+//! development layout, then a SHA-256-pinned release bundle in the per-user
+//! Cargo cache.
 
 /// Full VM archive selected for this target. The owning Ibex runtime needs
 /// its source entrance; the `link` feature controls only link-line emission.
