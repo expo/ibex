@@ -117,6 +117,33 @@ pub struct InstallOptions<'a> {
     pub fetch_primitives: Option<&'a str>,
 }
 
+/// The one accepted spelling of a fetch-primitives global: an ASCII JavaScript
+/// identifier, `[A-Za-z_$][A-Za-z0-9_$]*`. The C++ adapter applies the same
+/// rule and builds every property key for the name with `PropNameID::forAscii`,
+/// so the Rust string, the C++ string, and the JavaScript key are one byte
+/// sequence.
+fn fetch_primitives_name(name: &str) -> Result<CString, JsError> {
+    if name.is_empty() {
+        return Err(JsError::Thrown(
+            "fetch primitives require a non-empty global name".into(),
+        ));
+    }
+    let start = |byte: u8| byte.is_ascii_alphabetic() || byte == b'_' || byte == b'$';
+    let bytes = name.as_bytes();
+    if !start(bytes[0])
+        || !bytes[1..]
+            .iter()
+            .all(|&byte| start(byte) || byte.is_ascii_digit())
+    {
+        return Err(JsError::Thrown(
+            "fetch primitives global name must be an ASCII JavaScript identifier \
+             ([A-Za-z_$][A-Za-z0-9_$]*)"
+                .into(),
+        ));
+    }
+    Ok(CString::new(name).expect("an ASCII identifier contains no NUL"))
+}
+
 /// A vanilla Hermes runtime.
 pub struct Hermes {
     handle: *mut c_void,
@@ -334,16 +361,7 @@ impl Hermes {
         }
         let fetch_primitives = options
             .fetch_primitives
-            .map(|name| {
-                if name.is_empty() {
-                    return Err(JsError::Thrown(
-                        "fetch primitives require a non-empty global name".into(),
-                    ));
-                }
-                CString::new(name).map_err(|_| {
-                    JsError::Thrown("fetch primitives global name contains a NUL byte".into())
-                })
-            })
+            .map(fetch_primitives_name)
             .transpose()?;
         let scripts = crate::bindings::compiled_scripts(groups)
             .map_err(|error| JsError::Thrown(error.to_string()))?;
@@ -424,6 +442,9 @@ impl Hermes {
             return Err(JsError::Thrown(
                 "fetch primitives require the FETCH group".into(),
             ));
+        }
+        if let Some(name) = options.fetch_primitives {
+            fetch_primitives_name(name)?;
         }
         groups
             .validate()

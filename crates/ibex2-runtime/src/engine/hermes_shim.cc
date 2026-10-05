@@ -1132,7 +1132,11 @@ int ibex2_hermes_has_global(void *handle, const char *name) {
   if (rt == nullptr || rt->runtime == nullptr || name == nullptr)
     return -1;
   try {
-    return rt->runtime->global().hasProperty(*rt->runtime, name) ? 1 : 0;
+    auto &runtime = *rt->runtime;
+    return runtime.global().hasProperty(
+               runtime, jsi::PropNameID::forAscii(runtime, name))
+        ? 1
+        : 0;
   } catch (...) {
     return -1;
   }

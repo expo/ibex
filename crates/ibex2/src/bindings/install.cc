@@ -585,6 +585,26 @@ struct FetchPrimitiveHandles {
   throw jsi::JSError(rt, std::move(error));
 }
 
+// The only accepted spelling of a fetch-primitives global. Restricting it to an
+// ASCII identifier makes the Rust string, this C++ string, and the JavaScript
+// property key the same bytes, so publication, the collision checks, and the
+// harden guard can never disagree about which property they mean.
+bool is_ascii_identifier(const std::string& name) {
+  auto start = [](char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+        c == '$';
+  };
+  if (name.empty() || !start(name[0])) return false;
+  for (char c : name)
+    if (!start(c) && !(c >= '0' && c <= '9')) return false;
+  return true;
+}
+
+// Every lookup of the chosen name goes through this one key construction.
+jsi::PropNameID fetch_primitives_key(jsi::Runtime& rt, const std::string& name) {
+  return jsi::PropNameID::forAscii(rt, name);
+}
+
 uint64_t primitive_handle(jsi::Runtime& rt, const jsi::Value& value,
                           const char* kind) {
   if (!value.isNumber())
@@ -1245,9 +1265,15 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       fetch_primitives = options.fetch_primitives;
       if (fetch_primitives.empty())
         throw std::invalid_argument("fetch primitives require a non-empty global name");
+      if (!is_ascii_identifier(fetch_primitives))
+        throw std::invalid_argument(
+            "fetch primitives global name must be an ASCII JavaScript "
+            "identifier ([A-Za-z_$][A-Za-z0-9_$]*)");
       if (!has(groups, GROUP_FETCH))
         throw std::invalid_argument("fetch primitives require the FETCH group");
-      if (rt.global().hasProperty(rt, fetch_primitives.c_str()))
+      // hasProperty follows the global's prototype chain, so inherited names
+      // such as `toString` or `__proto__` collide as well.
+      if (rt.global().hasProperty(rt, fetch_primitives_key(rt, fetch_primitives)))
         throw std::invalid_argument("fetch primitives global already exists");
     }
     auto expected = expected_scripts(groups);
@@ -1450,11 +1476,11 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
     if (has(groups, GROUP_ENV))
       global.setProperty(rt, "process", make_process(rt, grants));
     if (!fetch_primitives.empty()) {
-      if (global.hasProperty(rt, fetch_primitives.c_str()))
+      if (global.hasProperty(rt, fetch_primitives_key(rt, fetch_primitives)))
         throw std::invalid_argument(
             "fetch primitives global collides with an installed binding");
       global.setProperty(
-          rt, jsi::PropNameID::forUtf8(rt, fetch_primitives),
+          rt, fetch_primitives_key(rt, fetch_primitives),
           make_fetch_primitives(rt, *this, state_->lifetime, grants));
     }
 
