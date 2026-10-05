@@ -36,13 +36,35 @@ cargo test -p ibex2-runtime --all-features --no-fail-fast
 install selected by `HERMES_LEAN_SYS_DIR`; this checkout's layout when it
 actually contains the Cargo target (the Apple repository layout is macOS-only);
 then the SHA-256-pinned
-`hermes-vanilla-d412d3bd8512-v2` release bundle for the Cargo target. The
-unpublished v2 pins are rejecting sentinels, so the release fallback cannot
-download anything until verified v2 digests replace them. In particular, an
-iOS cross build does not select the repository's macOS archive; it falls
-through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
+`hermes-vanilla-d412d3bd8512-v2` release bundle for the Cargo target. In
+particular, an iOS cross build does not select the repository's macOS archive;
+it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
 
-Downloaded bundles are cached at
+There are two supported release-bundle modes. In the default automatic mode,
+a Cargo build downloads a missing pinned bundle and caches it. For a build
+that must never access the network, install the host bundle and any cross
+targets once, before enabling offline mode:
+
+```sh
+# Host only.
+cargo run -p hermes-lean-sys-installer --
+
+# Host, plus one or more cross targets.
+cargo run -p hermes-lean-sys-installer -- \
+  --target aarch64-apple-ios \
+  --target aarch64-apple-ios-sim
+
+HERMES_LEAN_SYS_OFFLINE=1 cargo build --locked -p ibex2-runtime
+```
+
+Both paths use the same implementation. They verify the compiled-in archive
+SHA-256 before extraction, reject unsafe tar entries, retain the archive,
+compare its per-file manifest with the extracted tree, and validate the
+canonical receipt, selected VM, compiler digest, and HBC version. The
+installer always includes the host bundle because a cross build uses its
+authenticated `hermesc`.
+
+Bundles are cached at
 `$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/` (`$HOME/.cargo` when
 `CARGO_HOME` is unset). Set `CARGO_NET_OFFLINE=true` or
 `HERMES_LEAN_SYS_OFFLINE=1` to forbid network access; an already verified
@@ -52,6 +74,20 @@ digest is enforced for every origin. Cross builds select `hermesc` for the
 host, require its HBC version to match the target receipt, and require every
 available receipt to describe the exact engine archive and compiler selected
 by the build.
+
+For repositories such as exact2 that prohibit downloads from `build.rs`, the
+recommended checked-in Cargo configuration is explicit because Cargo's
+`[net] offline` setting does not itself set a build-script environment
+variable:
+
+```toml
+[env]
+HERMES_LEAN_SYS_OFFLINE = { value = "1", force = true }
+```
+
+Run the installer first from an online Ibex checkout. Configure Cargo's
+separate `[net]` `offline = true` setting if Rust dependencies must also be
+resolved without the network.
 
 Each v2 bundle contains both source-capable `hermesvm_a` and bytecode-only
 `hermesvmlean_a`. Enable exactly one `hermes-lean-sys` link feature: `link`

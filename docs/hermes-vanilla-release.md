@@ -288,10 +288,8 @@ rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. Until v2 is published and its
-seven checksums are independently verified, its release table intentionally
-stays on immutable v1 with the real v1 digests and full-VM-only behavior. It
-resolves a complete
+`hermes-lean-sys` is the supported consumer. Its release table pins the
+independently verified immutable v2 asset digests. It resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
@@ -320,23 +318,74 @@ must carry and manifest both. Repository discovery uses the Apple layout only
 for macOS targets; iOS cross builds fall through to their pinned target bundle
 or an explicit complete `HERMES_LEAN_SYS_DIR`.
 
-The downloader uses rustls with WebPKI roots and always verifies the pinned
-archive SHA-256 before inspecting or extracting the tarball. Extraction
-preflights the complete archive and accepts only relative regular-file and
-directory entries: absolute paths, parent traversal, links, and special files
-are refused. Completed installs are atomically renamed into
+Two consumption modes are supported:
+
+1. **Automatic download during a Cargo build.** This is the default. A missing
+   release bundle is downloaded, verified, and cached by
+   `hermes-lean-sys`'s build script.
+2. **Install once, then build offline.** Run the explicit installer while
+   online, then make network access a refusing build invariant:
+
+   ```sh
+   # Installs the host bundle.
+   cargo run -p hermes-lean-sys-installer --
+
+   # Installs the host bundle plus every named cross target.
+   cargo run -p hermes-lean-sys-installer -- \
+     --target aarch64-apple-ios \
+     --target aarch64-apple-ios-sim
+
+   HERMES_LEAN_SYS_OFFLINE=1 cargo build --locked -p ibex2-runtime
+   ```
+
+   A cross-target invocation always installs the host bundle too, because the
+   host's authenticated `hermesc` compiles bytecode for the target VM.
+
+Both modes call the same acquisition and admission code. The downloader uses
+rustls with WebPKI roots and verifies the compiled-in archive SHA-256 before
+inspecting or extracting the tarball. Extraction preflights the complete
+archive and accepts only relative regular-file and directory entries:
+absolute paths, parent traversal, links, and special files are refused.
+Completed installs are atomically renamed into
 `$CARGO_HOME/hermes-lean-sys/<tag>/<archive-sha256>/`, with Cargo home defaulting
 to `$HOME/.cargo` (or the platform home equivalent). The verified tarball is
 retained in the cache entry. Every admission rehashes it against the source
 pin, rebuilds a per-file manifest from its members, and compares that manifest
 with the extracted tree, including refusal of missing, changed, extra, linked,
-or special entries.
+or special entries. Admission also validates the canonical receipt's exact
+target, pinned upstream commit, empty patch set, engine path and digest,
+compiler digest, positive HBC version, and non-empty archive, header, and
+ordered link manifests. The installer finishes only after the cache entry
+passes those same checks.
 
 `CARGO_NET_OFFLINE=true` and `HERMES_LEAN_SYS_OFFLINE=1` both prohibit a
 download. In offline mode a valid warm cache entry or local override is
 required. `HERMES_LEAN_SYS_MIRROR` replaces
 `https://github.com/expo/ibex/releases/download` as the base URL and must serve
 `<tag>/<asset>` beneath that base; mirrors do not replace digest verification.
+The installer uses the same variable, for example:
+
+```sh
+HERMES_LEAN_SYS_MIRROR=https://mirror.example/hermes \
+  cargo run -p hermes-lean-sys-installer -- --target aarch64-apple-ios
+```
+
+For exact2 and other consumers whose policy forbids build-script downloads,
+install the bundles first and check this into the consumer's
+`.cargo/config.toml`:
+
+```toml
+[env]
+HERMES_LEAN_SYS_OFFLINE = { value = "1", force = true }
+```
+
+This `[env]` entry is the recommended `hermes-lean-sys` control: it reaches
+the build script and cannot be silently overridden by a caller's ambient
+environment. Cargo's separate `[net] offline = true` setting controls registry
+and Git dependency access but does not itself promise to export
+`CARGO_NET_OFFLINE` to build scripts. A repository that wants both guarantees
+should configure both. Run the installer from an online Ibex checkout before
+enabling the consumer's forced offline environment.
 
 For cross compilation, `hermesc` comes from the pinned host bundle while the
 headers and archives come from the target bundle. Its reported HBC bytecode
@@ -366,7 +415,8 @@ override cases on the follow-up lean-selection branch before landing consumer
 updates. Never replace an asset: a
 changed build or packaging authority receives a new release revision suffix
 (`-v3`, `-v4`, and so on) and new consumer digests.
-Until v2 is published and all seven attestations pass, every pin is a rejecting
-`TODO_L1F_SHA256_*` sentinel. The resolver refuses those sentinels before any
-download, so neither a mirror nor a pre-populated cache can substitute v1 bytes
-under the v2 release name. Replace them only by the procedure above.
+Before a future release revision is published and all attestations pass, its
+pins must remain rejecting `TODO_*` sentinels. The resolver refuses those
+sentinels before any download, so neither a mirror nor a pre-populated cache
+can substitute bytes under an unpublished release name. Replace them only by
+the procedure above.

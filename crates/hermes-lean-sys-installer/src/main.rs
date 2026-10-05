@@ -2,6 +2,8 @@
 #[path = "../../hermes-lean-sys/build_support.rs"]
 mod build_support;
 
+// @ref LLP 0057.000#l1--the-bindings-door — L1h keeps acquisition outside
+// offline consumer builds while sharing the resolver's trust implementation.
 use build_support::{
     acquire_bundle, download_options_from_env, pin_for_target, validate_host_bundle,
     validate_target_bundle, BundlePin, INSTALL_COMMAND,
