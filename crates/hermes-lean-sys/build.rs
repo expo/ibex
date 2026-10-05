@@ -91,10 +91,14 @@ fn main() {
         Some((&install.vm_archive, engine_digest.as_str()))
     } else if links_lean_runtime {
         Some((
-            install
-                .lean_vm_archive
-                .as_ref()
-                .expect("link-lean requires a lean VM archive"),
+            install.lean_vm_archive.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "link-lean requires a lean VM archive authenticated by the install's \
+                         hermes-input-receipt.json; {} has no receipt or no lean archive \
+                         (use the pinned bundle, or a receipted HERMES_LEAN_SYS_DIR install)",
+                    install.root.display()
+                )
+            }),
             lean_engine_digest
                 .as_deref()
                 .expect("link-lean requires a lean VM digest"),

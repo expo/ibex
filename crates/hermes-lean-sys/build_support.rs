@@ -303,10 +303,7 @@ pub(crate) fn resolve_engine_directory(
         &bytecode_version,
     )?;
 
-    let lean_vm_archive = target_layout
-        .lean_vm_archive
-        .is_file()
-        .then(|| target_layout.lean_vm_archive.clone());
+    let lean_vm_archive = authenticated_lean_archive(&target_layout);
 
     Ok(EngineInstall {
         root: target_layout.root,
@@ -473,6 +470,17 @@ fn authenticate_compiler(layout: &InstallLayout, compiler: &Path) -> Result<(), 
         ));
     }
     Ok(())
+}
+
+/// The lean VM archive is offered only when the install's receipt has
+/// authenticated it. `validate_receipt` (already run for this layout) refuses a
+/// receipt that doesn't bind a present lean archive, so a receipt plus a lean
+/// archive means an authenticated one. A receipt-free legacy layout keeps
+/// working for the full VM, but exports no lean identity and can't satisfy
+/// `link-lean`: its lean archive would be a self-measured, unattested digest.
+fn authenticated_lean_archive(layout: &InstallLayout) -> Option<PathBuf> {
+    (layout.root.join("hermes-input-receipt.json").is_file() && layout.lean_vm_archive.is_file())
+        .then(|| layout.lean_vm_archive.clone())
 }
 
 fn validate_receipt(
@@ -1445,6 +1453,29 @@ fn validate_archive_entries(archive_path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod internal_tests {
     use super::*;
+
+    #[test]
+    fn a_receipt_free_layout_offers_no_lean_archive() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path().join("legacy");
+        fs::create_dir_all(root.join("hermes-headers")).expect("headers");
+        fs::create_dir_all(root.join("macos-static")).expect("lib");
+        fs::write(root.join("macos-static/libhermesvm_a.a"), b"full").expect("full");
+        fs::write(root.join("macos-static/libhermesvmlean_a.a"), b"lean").expect("lean");
+        let layout = install_layout(
+            root.clone(),
+            "aarch64-apple-darwin",
+            InstallOrigin::Override,
+        );
+        assert_eq!(authenticated_lean_archive(&layout), None);
+
+        fs::write(root.join("hermes-input-receipt.json"), b"{}").expect("receipt marker");
+        assert_eq!(
+            authenticated_lean_archive(&layout),
+            Some(root.join("macos-static/libhermesvmlean_a.a")),
+            "with a receipt, validate_receipt has authenticated the lean archive"
+        );
+    }
 
     fn write_v2_receipt(
         root: &Path,
