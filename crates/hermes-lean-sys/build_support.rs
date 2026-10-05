@@ -31,42 +31,42 @@ pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
         asset: "hermes-vanilla-aarch64-apple-darwin.tar.gz",
-        sha256: "TODO_L1F_SHA256_AARCH64_APPLE_DARWIN",
+        sha256: "7c31ef1a182783c9eb28fe030553ec7a1391831c674b7175634e65b8776dd6c4",
     },
     BundlePin {
         target: "x86_64-apple-darwin",
         asset: "hermes-vanilla-x86_64-apple-darwin.tar.gz",
-        sha256: "TODO_L1F_SHA256_X86_64_APPLE_DARWIN",
+        sha256: "cca5ff516d7f72f85b8db809a29636085c42e5e2c5cc340985b04c2fb4dab4d2",
     },
     BundlePin {
         target: "aarch64-apple-ios",
         asset: "hermes-vanilla-aarch64-apple-ios.tar.gz",
-        sha256: "TODO_L1F_SHA256_AARCH64_APPLE_IOS",
+        sha256: "d6f0958c76a0b770391910b83ca1f90564759ee20a0519b789fe7bea383ba31b",
     },
     BundlePin {
         target: "aarch64-apple-ios-sim",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "TODO_L1F_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
+        sha256: "9c653b840497465f25e36b23c50b128f12c02ab34e1a90fbd5f96828921a7fb4",
     },
     BundlePin {
         target: "x86_64-apple-ios",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "TODO_L1F_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
+        sha256: "9c653b840497465f25e36b23c50b128f12c02ab34e1a90fbd5f96828921a7fb4",
     },
     BundlePin {
         target: "x86_64-unknown-linux-gnu",
         asset: "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
-        sha256: "TODO_L1F_SHA256_X86_64_UNKNOWN_LINUX_GNU",
+        sha256: "72b6be4ccf147379872fc11aa7cd5b41b6ea873ad1ba08106d8baf5b394aa9eb",
     },
     BundlePin {
         target: "aarch64-unknown-linux-gnu",
         asset: "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
-        sha256: "TODO_L1F_SHA256_AARCH64_UNKNOWN_LINUX_GNU",
+        sha256: "1d2902fa27dd3f6a4a057f4b0c55c7a9137b4afa7b3ad53e67ec11d600c593d2",
     },
     BundlePin {
         target: "x86_64-pc-windows-msvc",
         asset: "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz",
-        sha256: "TODO_L1F_SHA256_X86_64_PC_WINDOWS_MSVC",
+        sha256: "93d034570d2afe346d349c4e024208ca739606c533293b7a012dcaed6c2e9257",
     },
 ];
 
