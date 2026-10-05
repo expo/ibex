@@ -256,6 +256,10 @@ fn offline_empty_cache_fails_with_recovery_instructions() {
     let error = acquire_bundle(&pin, &options).expect_err("empty offline cache");
     assert!(error.contains("offline mode is enabled"), "{error}");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
+    assert!(
+        error.contains("cargo run -p hermes-lean-sys-installer -- --target test-target"),
+        "{error}"
+    );
 }
 
 #[test]

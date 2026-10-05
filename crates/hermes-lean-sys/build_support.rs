@@ -13,6 +13,7 @@ mod receipt_schema;
 pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
+pub(crate) const INSTALL_COMMAND: &str = "cargo run -p hermes-lean-sys-installer --";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BundlePin {
@@ -97,6 +98,13 @@ pub(crate) struct EngineInstall {
     pub vm_archive: PathBuf,
     pub lean_vm_archive: Option<PathBuf>,
     pub hermesc: PathBuf,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct ValidatedHostBundle {
+    pub hermesc: PathBuf,
+    pub bytecode_version: String,
 }
 
 pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathBuf> {
@@ -445,6 +453,47 @@ fn validate_compiler_bundle(layout: &InstallLayout, compiler: &Path) -> Result<S
     let bytecode_version = hermesc_bytecode_version(compiler)?;
     validate_receipt(layout, compiler, true, &engine_digest, &bytecode_version)?;
     Ok(bytecode_version)
+}
+
+/// Apply the same layout, compiler, receipt, and archive checks that the build
+/// resolver applies to a native bundle, without consulting repository layouts.
+/// The explicit installer uses this after `acquire_bundle` has admitted the
+/// retained archive and extracted tree into the cache.
+#[allow(dead_code)]
+pub(crate) fn validate_host_bundle(
+    root: PathBuf,
+    target: &str,
+) -> Result<ValidatedHostBundle, String> {
+    let layout = install_layout(root, target, InstallOrigin::Bundle);
+    validate_layout(&layout, false)?;
+    let hermesc = compiler_in_bundle_or_install(&layout.root, target);
+    let bytecode_version = validate_compiler_bundle(&layout, &hermesc)?;
+    Ok(ValidatedHostBundle {
+        hermesc,
+        bytecode_version,
+    })
+}
+
+/// Apply the build resolver's target-side checks using the already
+/// authenticated host compiler identity and HBC version. Cross bundles carry
+/// their own compiler, but Cargo never executes it on the host and therefore
+/// does not require it to have the host compiler's independently built digest.
+#[allow(dead_code)]
+pub(crate) fn validate_target_bundle(
+    root: PathBuf,
+    target: &str,
+    host: &ValidatedHostBundle,
+) -> Result<(), String> {
+    let layout = install_layout(root, target, InstallOrigin::Bundle);
+    validate_layout(&layout, false)?;
+    let engine_digest = digest_file(&layout.vm_archive)?;
+    validate_receipt(
+        &layout,
+        &host.hermesc,
+        false,
+        &engine_digest,
+        &host.bytecode_version,
+    )
 }
 
 fn authenticate_compiler(layout: &InstallLayout, compiler: &Path) -> Result<(), String> {
@@ -862,8 +911,9 @@ pub(crate) fn acquire_bundle(
             Ok(()) => return Ok(entry),
             Err(error) if options.offline => {
                 return Err(format!(
-                    "cached Hermes bundle {} is invalid and offline mode is enabled: {error}; reconnect to rebuild the cache or set HERMES_LEAN_SYS_DIR to a complete local install",
-                    entry.display()
+                    "cached Hermes bundle {} is invalid and offline mode is enabled: {error}; while online run `{INSTALL_COMMAND} --target {}` to replace it, or set HERMES_LEAN_SYS_DIR to a complete local install",
+                    entry.display(),
+                    pin.target,
                 ));
             }
             Err(_) => remove_cache_entry(&entry)?,
@@ -871,9 +921,10 @@ pub(crate) fn acquire_bundle(
     }
     if options.offline {
         return Err(format!(
-            "Hermes bundle {} is not cached at {} and offline mode is enabled; pre-populate the cache while online or set HERMES_LEAN_SYS_DIR to a complete local install",
+            "Hermes bundle {} is not cached at {} and offline mode is enabled; while online run `{INSTALL_COMMAND} --target {}` to install it, or set HERMES_LEAN_SYS_DIR to a complete local install",
             pin.asset,
-            entry.display()
+            entry.display(),
+            pin.target,
         ));
     }
 

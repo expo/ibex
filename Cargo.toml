@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/hermes-lean-sys",
+    "crates/hermes-lean-sys-installer",
     "crates/ibex2",
     "crates/ibex2-runtime",
     "crates/ibex2-sqlite",
