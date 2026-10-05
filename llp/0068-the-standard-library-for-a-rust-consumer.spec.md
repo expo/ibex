@@ -7,6 +7,7 @@
 **Date:** 2026-08-29
 **Revised:** 2026-10-05 (§3 "Opt-in fetch primitives protocol": normative member protocol; ASCII-identifier names; harden refuses while the object or any member is reachable from the frozen graph; `Adapter::harden` brings the same guard to the bindings door; numeric arguments validated before conversion)
 **Revised:** 2026-10-04 (§3: opt-in `InstallOptions::fetch_primitives` publishes one same-endowment bootstrap object for embedders that own fetch; `Hermes::harden` refuses until its chosen global is deleted)
+**Revised:** 2026-10-05 (§3: full and lean Hermes identities, mutually exclusive link features, common HBC version, and the lean bindings-door proof)
 **Revised:** 2026-10-04 (§3/OQ2: Linux bindings link their direct ICU dependency through `hermes-lean-sys`'s `icu` feature without linking the VM; `link` implies `icu`, so ICU has one owner)
 **Revised:** 2026-10-04 (§3: the engine-free default, empty, bindings-only, and crypto-only feature combinations are explicit compile gates)
 **Revised:** 2026-10-04 (§1/§3/OQ1: L1b split the library/bindings, owning runtime, and lean-engine resolver; Decision C requires hardening before application code)
@@ -143,7 +144,7 @@ selection on the caller's behalf. The groups are:
 | `ENV` | endowed `process.env` snapshot | grant-selected environment snapshot | — | core |
 | `SECRETS` | no JSI projection yet; named for the existing Rust binding | `secret.keep` library operations | — | core/platform backend |
 | `KV` | no JSI projection yet; named for the existing Rust binding | `storage.kv` library operations | — | core/platform backend |
-| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `bindings` on Linux, via `hermes-lean-sys`'s `icu` feature (which `link` implies), so ICU is linked once per graph |
+| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | `bindings` on Linux, via `hermes-lean-sys`'s `icu` feature (which either VM link feature implies), so ICU is linked once per graph |
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
@@ -164,10 +165,20 @@ hold only in a hardened runtime. Findings that depend on an unhardened runtime
 belong in `issues/20261004-binding-intrinsic-capture-audit.md`; they are not
 fixed one by one into an unsupported second security posture.
 
-R-e selects the target's full VM archive in every `hermes-lean-sys` feature
-context because the owning runtime requires its source entrance. `link`
-controls only link-line emission; `ENGINE_DIGEST` and the exported archive path
-therefore identify the same bytes for the binding compiler and linked runtime.
+R-e resolves both VM archives without making compiler selection depend on a
+feature context. `link` emits the full source-capable VM and `link-lean` emits
+the precompiled-bytecode-only VM; enabling both is a compile-time error.
+`ENGINE_DIGEST` remains the full identity and `LEAN_ENGINE_DIGEST` is the lean
+identity. `LINKED_ENGINE_DIGEST` names whichever archive a process actually
+links. The same names are exported to downstream build scripts as
+`DEP_HERMES_LEAN_ENGINE_DIGEST`, `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST`, and
+`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST`, with matching `*_ARCHIVE` paths.
+`ibex2::bindings::LEAN_ENGINE_DIGEST` is what a lean embedder checks; its
+existing `ENGINE_DIGEST` remains the full value for compatibility. Both VMs
+from one source build consume one HBC version, asserted by the bindings build.
+The isolated `ibex2-lean-embedding` test links only lean, installs `PURE`
+through `Adapter::install`, evaluates `HARDEN_BYTECODE`, runs a precompiled
+application, and proves source evaluation is unavailable.
 
 The one JSI entry point is:
 
@@ -1116,9 +1127,9 @@ requires no undeclared shared transport or TLS library; the qualified binary's
 observed floor is glibc 2.39 / `GLIBCXX_3.4.30`, not musl or an older
 distribution. Because the bindings' Intl C++ calls ICU directly, `ibex2`
 enables `hermes-lean-sys`'s `icu` feature whenever `bindings` is on; that
-feature emits only the Linux ICU link lines, not the VM's. `link` implies
-`icu`, so `hermes-lean-sys` is ICU's single owner and a runtime graph that
-enables both features still carries the archives in one rlib. Pinned Hermes's non-Apple Intl stubs remain
+feature emits only the Linux ICU link lines, not the VM's. Both `link` and
+`link-lean` imply `icu`, so `hermes-lean-sys` is ICU's single owner and a
+runtime graph carries the archives in one rlib. Pinned Hermes's non-Apple Intl stubs remain
 unchanged, but the engine-facing Ibex tier now replaces the selected
 consumer-visible operations
 for Number/BigInt formatting, locale String case mapping, and Date/DateTime

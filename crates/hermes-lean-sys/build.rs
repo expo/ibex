@@ -139,7 +139,7 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_arc
         println!("cargo:rustc-link-lib=psapi");
         println!("cargo:rustc-link-lib=winmm");
     } else {
-        // ICU comes from the `icu` feature, which `link` implies.
+        // ICU comes from the `icu` feature, which both VM link features imply.
         println!("cargo:rustc-link-lib=static=tinfo");
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=dl");

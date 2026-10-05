@@ -17,7 +17,8 @@ ring = { version = "0.17", optional = true }
 url = "2.5"
 serde_json = "1"
 # `icu` on the normal dependency only: the bindings' Linux Intl shims need ICU
-# at link time, and hermes-lean-sys is its single owner (`link` implies it).
+# at link time, and hermes-lean-sys is its single owner (both VM link features
+# imply it).
 hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false, features = ["icu"] }
 
 [dev-dependencies]

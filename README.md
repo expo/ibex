@@ -8,7 +8,8 @@ engine-facing crates follow the three public doors:
   builds the JSI installer and binding bytecode but links no VM.
 - `ibex2-runtime` owns Hermes, loading, hardening, the loop, the CLI, and
   engine-bearing tests.
-- `hermes-lean-sys` selects the matching VM, JSI headers, and `hermesc`.
+- `hermes-lean-sys` selects the matching full or lean VM, JSI headers, and
+  `hermesc`.
 
 `ibex2-sqlite` remains the optional native SQLite provider.
 
@@ -35,7 +36,7 @@ cargo test -p ibex2-runtime --all-features --no-fail-fast
 install selected by `HERMES_LEAN_SYS_DIR`; this checkout's platform layout
 (`ios/Frameworks-vanilla`, `linux/Frameworks-vanilla`, or
 `tools/hermes-vanilla`) when present; then the SHA-256-pinned
-`hermes-vanilla-d412d3bd8512-v1` release bundle for the Cargo target. The
+`hermes-vanilla-d412d3bd8512-v2` release bundle for the Cargo target. The
 release fallback needs no consumer configuration once the publication
 placeholders in the pin table have been filled.
 
@@ -49,6 +50,29 @@ digest is enforced for every origin. Cross builds select `hermesc` for the
 host, require its HBC version to match the target receipt, and require every
 available receipt to describe the exact engine archive and compiler selected
 by the build.
+
+Each v2 bundle contains both source-capable `hermesvm_a` and bytecode-only
+`hermesvmlean_a`. Enable exactly one `hermes-lean-sys` link feature: `link`
+for the full VM or `link-lean` for lean. Enabling both is a compile-time error.
+The full identity remains `DEP_HERMES_LEAN_ARCHIVE` /
+`DEP_HERMES_LEAN_ENGINE_DIGEST`; lean is
+`DEP_HERMES_LEAN_LEAN_ARCHIVE` / `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST`.
+When one link feature is active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
+`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` name the archive actually linked.
+The Rust constants are `ARCHIVE`, `ENGINE_DIGEST`, `LEAN_ARCHIVE`,
+`LEAN_ENGINE_DIGEST`, `LINKED_ARCHIVE`, and `LINKED_ENGINE_DIGEST`.
+
+`ibex2::bindings::ENGINE_DIGEST` continues to name the full archive;
+`ibex2::bindings::LEAN_ENGINE_DIGEST` is the identity a lean embedder checks.
+Both VMs consume one HBC version, asserted while binding bytecode is built.
+Old local layouts without a lean archive continue to support full-VM builds
+and fail with a targeted message only when `link-lean` is requested. The
+end-to-end lean proof can be run against a complete v2 bundle:
+
+```sh
+HERMES_LEAN_SYS_DIR=/path/to/extracted-v2-bundle \
+  cargo test --locked --manifest-path crates/ibex2-lean-embedding/Cargo.toml
+```
 
 An embedder using `ibex2[bindings]` must evaluate
 `ibex2::bindings::HARDEN_SOURCE` or its matching precompiled bytecode before

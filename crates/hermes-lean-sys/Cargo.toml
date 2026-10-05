@@ -15,8 +15,8 @@ link = ["icu"]
 # This is mutually exclusive with `link`.
 link-lean = ["icu"]
 # Linux ICU link lines only. The JSI bindings' Intl shims call ICU directly
-# without linking a VM, so `ibex2[bindings]` enables this alone; `link`
-# implies it, so ICU is emitted by exactly one crate in any graph.
+# without linking a VM, so `ibex2[bindings]` enables this alone; both VM link
+# features imply it, so ICU is emitted by exactly one crate in any graph.
 icu = []
 
 [build-dependencies]

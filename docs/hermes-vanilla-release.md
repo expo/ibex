@@ -14,7 +14,8 @@ the source commit, empty patch set, target, profile and build flags, HBC
 version, compiler, and every archive/header digest. `engine.binary` remains the
 full VM for compatibility; the lean VM is bound by the same archive manifest.
 Receipt generation scans both VM archives for patched exports whenever lean is
-present. The receipt deliberately has no production date.
+present, and lean selection verifies its distinct manifest digest. The receipt
+deliberately has no production date.
 
 ## Required repository settings
 
@@ -156,8 +157,7 @@ non-fast-forward updates (force-pushes).
    prerelease. A published release is never edited or deleted.
 
    ```sh
-   git push -u origin l1c-release
-
+   # Run only after the reviewed release change has been merged to main.
    repo=expo/ibex
    ref=main
    builder_workflow=hermes-vanilla-build.yml
@@ -302,6 +302,18 @@ triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
 `aarch64-apple-ios-sim` and
 `x86_64-apple-ios` both select the universal iOS Simulator archive.
 
+The `link` feature emits the full VM's link line; `link-lean` emits the lean
+VM's link line, and the two features are mutually exclusive. Resolution still
+exports both archive paths and, when present, both digests in every feature
+context. Downstream build scripts receive `DEP_HERMES_LEAN_ARCHIVE` and
+`DEP_HERMES_LEAN_ENGINE_DIGEST` for full, plus
+`DEP_HERMES_LEAN_LEAN_ARCHIVE` and `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST` for
+lean. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
+`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what that process links. This
+is the R-e identity: a process never reports the full digest while linking
+lean. Legacy local layouts may omit lean; they fail only if `link-lean` is
+requested. Published v2 bundles must carry and manifest both.
+
 The downloader uses rustls with WebPKI roots and always verifies the pinned
 archive SHA-256 before inspecting or extracting the tarball. Extraction
 preflights the complete archive and accepts only relative regular-file and
@@ -328,7 +340,9 @@ name the archive `hermes-lean-sys` selected. Before `hermesc` executes, its
 digest must match the compiler digest in the receipt of the host bundle that
 supplied it. The target receipt authenticates the target engine and HBC
 version; its compiler digest need not equal the independently built host
-compiler's digest.
+compiler's digest. The full and lean VMs from one source build share that HBC
+version; the bindings build asserts the equality, and the lean embedding test
+checks it against the runtime API.
 
 ## Bump consumer pins
 
@@ -346,3 +360,6 @@ override cases on the follow-up lean-selection branch before landing consumer
 updates. Never replace an asset: a
 changed build or packaging authority receives a new release revision suffix
 (`-v3`, `-v4`, and so on) and new consumer digests.
+Until v2 is published and all seven attestations pass, the pin table
+deliberately retains the verified v1 SHA-256 values as placeholders. They do
+not authenticate v2 assets and must be replaced only by the procedure above.
