@@ -3,7 +3,7 @@
 mod build_support;
 
 use build_support::{
-    acquire_bundle, download_options_from_env, parse_pin_sha256, pin_for_target,
+    acquire_bundle, download_options_from_env, parse_pin_sha256, pin_for_target, rerun_paths,
     verify_and_extract_archive, watched_inputs, BundlePin, DownloadOptions, EngineInstall,
     RELEASE_TAG,
 };
@@ -298,6 +298,73 @@ fn warm_cache_is_reverified_against_its_retained_archive() {
     assert!(error.contains("not pinned"), "{error}");
 }
 
+#[cfg(unix)]
+#[test]
+fn warm_cache_with_a_non_executable_compiler_is_stale() {
+    use std::os::unix::fs::PermissionsExt;
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let archive = temporary.path().join(ASSET);
+    write_archive(
+        &archive,
+        &[ArchiveEntry::Executable("bin/hermesc", b"compiler")],
+    );
+    let digest = sha256_file(&archive);
+    let entry = temporary
+        .path()
+        .join("cache")
+        .join(RELEASE_TAG)
+        .join(&digest);
+    fs::create_dir_all(&entry).expect("cache entry");
+    verify_and_extract_archive(&archive, &digest, &entry).expect("verified extraction");
+    fs::copy(&archive, entry.join(CACHE_ARCHIVE)).expect("retained archive");
+    let pin = BundlePin {
+        target: "test-target",
+        asset: ASSET,
+        sha256: leak(digest.clone()),
+    };
+    let options = DownloadOptions {
+        cache_root: temporary.path().join("cache"),
+        release_base_url: "http://127.0.0.1:1".to_owned(),
+        offline: true,
+    };
+    acquire_bundle(&pin, &options).expect("executable compiler admitted");
+
+    let compiler = entry.join("bin/hermesc");
+    fs::set_permissions(&compiler, fs::Permissions::from_mode(0o644)).expect("chmod -x");
+    let error = acquire_bundle(&pin, &options).expect_err("non-executable compiler");
+    assert!(error.contains("bin/hermesc"), "{error}");
+}
+
+#[test]
+fn rerun_paths_name_only_existing_inputs_and_the_root() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path().join("install");
+    fs::create_dir_all(root.join("include")).expect("include");
+    fs::create_dir_all(root.join("lib")).expect("lib");
+    fs::write(root.join("lib/libhermesvm_a.a"), b"engine").expect("engine");
+    fs::create_dir_all(root.join("bin")).expect("bin");
+    fs::write(root.join("bin/hermesc"), b"compiler").expect("compiler");
+    let install = EngineInstall {
+        root: root.clone(),
+        include_dir: root.join("include"),
+        lib_root: root.join("lib"),
+        vm_archive: root.join("lib/libhermesvm_a.a"),
+        hermesc: root.join("bin/hermesc"),
+    };
+    let paths = rerun_paths(&install, "aarch64-apple-darwin");
+    for expected in [
+        root.clone(),
+        root.join("include"),
+        root.join("lib/libhermesvm_a.a"),
+        root.join("bin/hermesc"),
+    ] {
+        assert!(paths.contains(&expected), "missing {}", expected.display());
+    }
+    assert!(!paths.contains(&root.join(CACHE_ARCHIVE)));
+    assert!(!paths.contains(&root.join("hermes-input-receipt.json")));
+    assert!(!paths.contains(&root.join("lib/libjsi.a")));
+}
+
 #[test]
 fn local_http_mirror_bundle_is_verified_and_cached() {
     let temporary = tempfile::tempdir().expect("temporary directory");
@@ -419,6 +486,7 @@ fn non_directory_cache_entry_is_rejected_before_use() {
 enum ArchiveEntry<'a> {
     Dir(&'a str),
     File(&'a str, &'a [u8]),
+    Executable(&'a str, &'a [u8]),
     Symlink(&'a str, &'a str),
 }
 
@@ -446,6 +514,15 @@ fn write_archive(path: &Path, entries: &[ArchiveEntry<'_>]) {
                 archive
                     .append_data(&mut header, name, *contents)
                     .expect("regular entry");
+            }
+            ArchiveEntry::Executable(name, contents) => {
+                let mut header = tar::Header::new_gnu();
+                header.set_mode(0o755);
+                header.set_size(contents.len() as u64);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, name, *contents)
+                    .expect("executable entry");
             }
             ArchiveEntry::Symlink(name, target) => {
                 let mut header = tar::Header::new_gnu();

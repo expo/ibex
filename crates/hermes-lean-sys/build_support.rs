@@ -120,6 +120,18 @@ pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathB
     paths.into_iter().collect()
 }
 
+/// The inputs to name in `cargo:rerun-if-changed`. Cargo treats a watched path
+/// that doesn't exist as permanently stale, which would rerun this script (and
+/// rehash the engine) on every build of a layout that lacks, say, the retained
+/// cache archive. The root is always watched, and Cargo scans a watched
+/// directory recursively, so a file created later still triggers a rerun.
+pub(crate) fn rerun_paths(install: &EngineInstall, target: &str) -> Vec<PathBuf> {
+    watched_inputs(install, target)
+        .into_iter()
+        .filter(|path| *path == install.root || path.exists())
+        .collect()
+}
+
 #[derive(Debug)]
 pub(crate) struct DownloadOptions {
     pub cache_root: PathBuf,
@@ -1001,6 +1013,7 @@ fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTre
             if entry_type.is_dir() {
                 tree.directories.insert(path);
             } else if entry_type.is_file() {
+                let executable = entry.header().mode().unwrap_or(0o644) & 0o111 != 0;
                 let mut digest = Sha256::new();
                 io::copy(&mut entry, &mut DigestWriter(&mut digest)).map_err(|error| {
                     format!(
@@ -1009,12 +1022,37 @@ fn archive_tree(archive_path: &Path, expected_digest: &str) -> Result<ArchiveTre
                         archive_path.display()
                     )
                 })?;
-                tree.files
-                    .insert(path, format!("sha256-{:x}", digest.finalize()));
+                tree.files.insert(
+                    path,
+                    with_mode(format!("sha256-{:x}", digest.finalize()), executable),
+                );
             }
         }
     }
     Ok(tree)
+}
+
+/// A cached file's identity is its digest plus, where the host has one, its
+/// executable bit: extraction applies the archive's mode, so a cache entry whose
+/// `bin/hermesc` lost its execute bit is stale and is refetched rather than
+/// admitted and then failing with "permission denied" forever.
+fn with_mode(digest: String, executable: bool) -> String {
+    if cfg!(unix) && executable {
+        format!("{digest} (executable)")
+    } else {
+        digest
+    }
+}
+
+#[cfg(unix)]
+fn is_executable(metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_metadata: &fs::Metadata) -> bool {
+    false
 }
 
 fn add_parent_directories(directories: &mut BTreeSet<PathBuf>, path: &Path) {
@@ -1068,8 +1106,10 @@ fn extracted_tree(root: &Path) -> Result<ArchiveTree, String> {
                 tree.directories.insert(relative.to_path_buf());
                 visit(root, &path, tree)?;
             } else if metadata.file_type().is_file() {
-                tree.files
-                    .insert(relative.to_path_buf(), digest_file(&path)?);
+                tree.files.insert(
+                    relative.to_path_buf(),
+                    with_mode(digest_file(&path)?, is_executable(&metadata)),
+                );
             } else {
                 return Err(format!(
                     "cached extraction contains special file {}",
