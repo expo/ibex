@@ -54,7 +54,10 @@ extern "C" {
         fetch_primitives: *const c_char,
         out_error: *mut *mut c_char,
     ) -> c_int;
-    fn ibex2_hermes_has_global(handle: *mut c_void, name: *const c_char) -> c_int;
+    fn ibex2_hermes_verify_fetch_primitives(
+        handle: *mut c_void,
+        out_error: *mut *mut c_char,
+    ) -> c_int;
     fn ibex2_hermes_prepare_runtime(handle: *mut c_void, groups: u16) -> c_int;
     fn ibex2_hermes_pump(handle: *mut c_void, out_ran: *mut c_int) -> c_int;
     fn ibex2_hermes_collect_garbage(handle: *mut c_void) -> c_int;
@@ -149,7 +152,6 @@ pub struct Hermes {
     handle: *mut c_void,
     loader: Box<crate::loader_state::LoaderState>,
     installed_groups: Option<crate::bindings::Groups>,
-    fetch_primitives_global: Option<String>,
     /// The armed deadline as this side handed it over. The engine holds the
     /// same point on its own clock and is what stops JavaScript; this copy
     /// is what the helpers that block *between* entrances cap their waits
@@ -242,7 +244,6 @@ impl Hermes {
             handle,
             loader,
             installed_groups: None,
-            fetch_primitives_global: None,
             deadline: None,
         })
     }
@@ -409,7 +410,6 @@ impl Hermes {
             ));
         }
         self.installed_groups = Some(groups);
-        self.fetch_primitives_global = options.fetch_primitives.map(str::to_owned);
         Ok(())
     }
 
@@ -467,24 +467,26 @@ impl Hermes {
 
     /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
     /// bindings are installed and before any module code runs.
+    ///
+    /// When [`InstallOptions::fetch_primitives`] published an object, this
+    /// first runs the adapter's fetch-primitives guard (the same check as the
+    /// C++ `Adapter::harden`) and refuses, without freezing anything, if the
+    /// chosen global is still present or if the object or any of its member
+    /// functions is reachable from what the freeze walks: the global object's
+    /// own string- and symbol-keyed properties, its prototype chain, and
+    /// transitively every reached object's own data values, accessor
+    /// functions (never invoked), and prototype. A value held only in a
+    /// closure, native state, a collection entry, or behind a concealing
+    /// Proxy is invisible to that walk, as it is to the freeze itself.
+    // @ref LLP 0068#caller-owned-javascript-runtimes — one guard for both doors; the walk mirrors harden.js
     pub fn harden(&mut self) -> Result<(), JsError> {
-        if let Some(name) = &self.fetch_primitives_global {
-            let name = CString::new(name.as_str()).expect("validated primitive global name");
-            // SAFETY: the runtime is live and the C string remains valid for
-            // the native own-runtime global check.
-            match unsafe { ibex2_hermes_has_global(self.handle, name.as_ptr()) } {
-                0 => {}
-                1 => {
-                    return Err(JsError::Thrown(format!(
-                        "refusing to harden while fetch primitives global {name:?} is present"
-                    )))
-                }
-                _ => {
-                    return Err(JsError::Thrown(
-                        "could not verify that the fetch primitives global was deleted".into(),
-                    ))
-                }
-            }
+        let mut out: *mut c_char = std::ptr::null_mut();
+        // SAFETY: the runtime is live; `out` receives a malloc'd message we
+        // take ownership of on refusal.
+        if unsafe { ibex2_hermes_verify_fetch_primitives(self.handle, &mut out) } != 0 {
+            return Err(JsError::Thrown(take_c_string(out).unwrap_or_else(|| {
+                "could not verify that the fetch primitives are unreachable".into()
+            })));
         }
         self.eval_bytes(crate::bindings::HARDEN_BYTECODE)
             .map(|_| ())

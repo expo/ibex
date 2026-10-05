@@ -359,6 +359,29 @@ struct Integrity {
   }
 };
 
+// The reflective intrinsics the fetch-primitives reachability walk uses,
+// captured when install_with publishes the object -- before the embedder's
+// bootstrap runs between install and harden -- so that bootstrap cannot change
+// what the walk sees by replacing Object.getOwnPropertyNames or Set.prototype.
+struct Reachability {
+  jsi::Function names, symbols, descriptor, prototype, set, has, add;
+  explicit Reachability(jsi::Runtime& rt)
+      : names(object_function(rt, "getOwnPropertyNames")),
+        symbols(object_function(rt, "getOwnPropertySymbols")),
+        descriptor(object_function(rt, "getOwnPropertyDescriptor")),
+        prototype(object_function(rt, "getPrototypeOf")),
+        set(rt.global().getPropertyAsFunction(rt, "Set")),
+        has(set_method(rt, "has")),
+        add(set_method(rt, "add")) {}
+  static jsi::Function object_function(jsi::Runtime& rt, const char* name) {
+    return rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, name);
+  }
+  static jsi::Function set_method(jsi::Runtime& rt, const char* name) {
+    return rt.global().getPropertyAsObject(rt, "Set")
+        .getPropertyAsObject(rt, "prototype").getPropertyAsFunction(rt, name);
+  }
+};
+
 enum class InstallStatus { Fresh, Installed, Spent };
 
 struct WebSocketOwner final : jsi::NativeState {
@@ -412,6 +435,12 @@ struct Adapter::State {
   jsi::Value rejection_unhandled;
   jsi::Value rejection_handled;
   std::unique_ptr<Integrity> integrity;
+  // L1e: the chosen global name and the identities published under it (the
+  // object first, then each member), kept so the harden guard can prove that
+  // none of them is still reachable from what harden.js freezes.
+  std::string fetch_primitives_name;
+  std::vector<std::pair<std::string, jsi::Value>> fetch_primitive_identities;
+  std::unique_ptr<Reachability> reachability;
   State(jsi::Runtime& rt, const void* value, uint32_t version,
         std::shared_ptr<Lifetime> lifetime_value)
       : queue(value), bytecode_version(version),
@@ -463,6 +492,8 @@ void Adapter::detach() {
   state_->rejection_unhandled = jsi::Value::undefined();
   state_->rejection_handled = jsi::Value::undefined();
   state_->integrity.reset();
+  state_->fetch_primitive_identities.clear();
+  state_->reachability.reset();
   state_->queue = nullptr;
   runtime_ = nullptr;
 }
@@ -972,6 +1003,86 @@ jsi::Object make_fetch_primitives(
   return primitives;
 }
 
+// The members of the published object, in the order their identities are
+// recorded after the object's own identity.
+constexpr const char* kFetchPrimitiveMembers[] = {
+    "fetch", "responseField", "responseRead", "fetchControl",
+    "textEncode", "textDecode", "textEncodeInto", "headersFree"};
+
+// Bounds the walk on a pathological graph; reaching it refuses (fails closed).
+constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
+
+// Walk what harden.js freezes and refuse if any recorded identity is in it.
+//
+// Coverage mirrors harden.js exactly: the global object's own properties
+// (string and symbol keys), its prototype chain, and transitively every object
+// or function reached through an own property -- a data property's value, or
+// an accessor's getter and setter functions themselves -- plus each reached
+// object's prototype. Descriptors are read with the captured
+// Object.getOwnPropertyDescriptor, so no getter is ever invoked. A Set of
+// visited objects makes the walk cycle-safe; the explicit stack keeps it off
+// the native stack; kMaxReachabilityObjects bounds it.
+//
+// Not covered, because harden.js cannot see it either: values held only in
+// closure scopes (including a getter's closure), in native state, in
+// WeakMap/Map/Set entries, behind a Proxy whose traps conceal them, or in an
+// object reachable only from somewhere other than the global object. Those
+// stay the trusted bootstrap's obligation.
+// @ref LLP 0068#caller-owned-javascript-runtimes — L1e: the harden guard proves the bootstrap handoff did not leave a path to the primitives
+void require_unreachable(
+    jsi::Runtime& rt, const Reachability& walk,
+    const std::vector<std::pair<std::string, jsi::Value>>& identities) {
+  try {
+    auto global = rt.global();
+    auto seen = walk.set.callAsConstructor(rt).getObject(rt);
+    std::vector<jsi::Value> pending;
+    auto expand = [&](const jsi::Object& object) {
+      for (const auto* list : {&walk.names, &walk.symbols}) {
+        auto keys = list->call(rt, object).getObject(rt).getArray(rt);
+        const size_t count = keys.size(rt);
+        for (size_t i = 0; i < count; ++i) {
+          auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
+          if (!raw.isObject()) continue;
+          auto descriptor = raw.getObject(rt);
+          if (descriptor.hasProperty(rt, "value")) {
+            pending.push_back(descriptor.getProperty(rt, "value"));
+          } else {
+            pending.push_back(descriptor.getProperty(rt, "get"));
+            pending.push_back(descriptor.getProperty(rt, "set"));
+          }
+        }
+      }
+      pending.push_back(walk.prototype.call(rt, object));
+    };
+    walk.add.callWithThis(rt, seen, global);
+    expand(global);
+    size_t visited = 0;
+    while (!pending.empty()) {
+      jsi::Value value = std::move(pending.back());
+      pending.pop_back();
+      if (!value.isObject()) continue;
+      if (walk.has.callWithThis(rt, seen, value).getBool()) continue;
+      walk.add.callWithThis(rt, seen, value);
+      if (++visited > kMaxReachabilityObjects)
+        throw std::runtime_error(
+            "refusing to harden: the global object graph is too large to "
+            "prove the fetch primitives unreachable");
+      auto object = value.getObject(rt);
+      for (const auto& [label, identity] : identities) {
+        if (jsi::Object::strictEquals(rt, object, identity.getObject(rt)))
+          throw std::runtime_error(
+              "refusing to harden: " + label +
+              " is still reachable from the global object");
+      }
+      expand(object);
+    }
+  } catch (const jsi::JSIException& error) {
+    throw std::runtime_error(
+        std::string("refusing to harden: could not prove the fetch primitives "
+                    "unreachable: ") + error.what());
+  }
+}
+
 jsi::Object make_process(jsi::Runtime& rt, const void* grants) {
   jsi::Object env(rt);
   const size_t count = ibex2_grants_env_count(grants);
@@ -1261,6 +1372,7 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       throw std::invalid_argument("Ibex2 bindings do not belong to this runtime state");
     validate_groups(groups);
     std::string fetch_primitives;
+    std::unique_ptr<Reachability> reachability;
     if (options.fetch_primitives != nullptr) {
       fetch_primitives = options.fetch_primitives;
       if (fetch_primitives.empty())
@@ -1275,6 +1387,7 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       // such as `toString` or `__proto__` collide as well.
       if (rt.global().hasProperty(rt, fetch_primitives_key(rt, fetch_primitives)))
         throw std::invalid_argument("fetch primitives global already exists");
+      reachability = std::make_unique<Reachability>(rt);
     }
     auto expected = expected_scripts(groups);
     if (script_count != expected.size() || (script_count != 0 && scripts == nullptr))
@@ -1479,9 +1592,19 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       if (global.hasProperty(rt, fetch_primitives_key(rt, fetch_primitives)))
         throw std::invalid_argument(
             "fetch primitives global collides with an installed binding");
-      global.setProperty(
-          rt, fetch_primitives_key(rt, fetch_primitives),
-          make_fetch_primitives(rt, *this, state_->lifetime, grants));
+      auto primitives =
+          make_fetch_primitives(rt, *this, state_->lifetime, grants);
+      auto& identities = state_->fetch_primitive_identities;
+      identities.emplace_back("the fetch primitives object",
+                              jsi::Value(rt, primitives));
+      for (const char* member : kFetchPrimitiveMembers)
+        identities.emplace_back(
+            std::string("fetch primitives member ") + member,
+            primitives.getProperty(rt, member));
+      global.setProperty(rt, fetch_primitives_key(rt, fetch_primitives),
+                         std::move(primitives));
+      state_->fetch_primitives_name = fetch_primitives;
+      state_->reachability = std::move(reachability);
     }
 
     state_->install_status = InstallStatus::Installed;
@@ -1498,6 +1621,19 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
           "runtime must be discarded");
     throw;
   }
+}
+
+void Adapter::verify_fetch_primitives_unreachable() {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  const auto& name = state_->fetch_primitives_name;
+  if (name.empty()) return;
+  if (rt.global().hasProperty(rt, fetch_primitives_key(rt, name)))
+    throw std::runtime_error(
+        "refusing to harden while fetch primitives global \"" + name +
+        "\" is present");
+  require_unreachable(rt, *state_->reachability,
+                      state_->fetch_primitive_identities);
 }
 
 static jsi::Value filesystem_promise(jsi::Runtime& r, jsi::Value value, uint32_t op) {

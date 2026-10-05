@@ -1125,20 +1125,22 @@ int ibex2_hermes_install_groups_with_options(
                         fetch_primitives, out_error);
 }
 
-/// A native global-presence check used by harden's fail-closed bootstrap
-/// guard. It does not run JavaScript or consult replaceable intrinsics.
-int ibex2_hermes_has_global(void *handle, const char *name) {
+/// Harden's fail-closed fetch-primitives guard: the same check
+/// Adapter::harden runs for a caller-owned runtime. 0 when nothing was
+/// published or nothing published is reachable; 1 with a message otherwise.
+int ibex2_hermes_verify_fetch_primitives(void *handle, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
-  if (rt == nullptr || rt->runtime == nullptr || name == nullptr)
-    return -1;
+  if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
+    if (out_error != nullptr)
+      *out_error = dup_c_string("the runtime has no live bindings adapter");
+    return 1;
+  }
   try {
-    auto &runtime = *rt->runtime;
-    return runtime.global().hasProperty(
-               runtime, jsi::PropNameID::forAscii(runtime, name))
-        ? 1
-        : 0;
-  } catch (...) {
-    return -1;
+    rt->bindings->verify_fetch_primitives_unreachable();
+    return 0;
+  } catch (const std::exception &error) {
+    if (out_error != nullptr) *out_error = dup_c_string(error.what());
+    return 1;
   }
 }
 

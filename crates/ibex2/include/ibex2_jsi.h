@@ -147,6 +147,16 @@ public:
   void install_with(Groups groups, const Ibex2Bindings* bindings,
                     const CompiledScript* scripts, size_t script_count,
                     const InstallOptions& options);
+  // The fetch-primitives harden guard. A no-op unless install_with published
+  // fetch primitives; otherwise throws (std::runtime_error) if the chosen
+  // global is still present, or if the published object or any of its eight
+  // member functions is reachable from what HARDEN_SOURCE freezes: the global
+  // object's own string- and symbol-keyed properties, its prototype chain,
+  // and transitively each reached object's own data values, accessor
+  // functions (never invoked), and prototype. Values held only in closures,
+  // native state, collection entries, or behind concealing Proxy traps are
+  // not visible to this walk, exactly as they are not visible to the freeze.
+  void verify_fetch_primitives_unreachable();
   jsi::Function async_binding(const char* name, uint32_t op, const void* grants);
   // Endowed values built from the factories retained by install().
   jsi::Function fetch(const void* grants);
