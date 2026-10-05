@@ -5,7 +5,7 @@ mod build_support;
 use build_support::{
     acquire_bundle, download_options_from_env, installer_command, parse_pin_sha256, pin_for_target,
     repository_install_root, rerun_paths, verify_and_extract_archive, watched_inputs, BundlePin,
-    DownloadOptions, EngineInstall, IBEX_PIN_REVISION, RELEASE_TAG,
+    DownloadOptions, EngineInstall, RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -262,7 +262,7 @@ fn offline_empty_cache_fails_with_recovery_instructions() {
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
     assert!(
         error.contains(&format!(
-            "Ibex revision {IBEX_PIN_REVISION} pins {RELEASE_TAG}/{ASSET} at sha256-{digest}"
+            "this build pins {RELEASE_TAG}/{ASSET} at sha256-{digest}"
         )),
         "{error}"
     );

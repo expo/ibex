@@ -6,7 +6,7 @@ mod build_support;
 // offline consumer builds while sharing the resolver's trust implementation.
 use build_support::{
     acquire_validated_host_bundle, acquire_validated_target_bundle, download_options_from_env,
-    installer_command, pin_for_target, BundlePin, IBEX_PIN_REVISION,
+    installer_command, pin_for_target, BundlePin, RELEASE_TAG,
 };
 use std::collections::BTreeSet;
 use std::env;
@@ -44,7 +44,7 @@ fn run(arguments: impl Iterator<Item = OsString>) -> Result<(), String> {
     let options = download_options_from_env(manifest_dir)?;
     if options.offline {
         return Err(format!(
-            "offline mode is enabled; this installer uses the Hermes pins from Ibex revision {IBEX_PIN_REVISION}; run `{}` from an online environment so the explicit install step may download missing bundles",
+            "offline mode is enabled; this installer installs the Hermes pins compiled into this checkout ({RELEASE_TAG}); run `{}` from an online environment so the explicit install step may download missing bundles",
             installer_command(&options),
         ));
     }

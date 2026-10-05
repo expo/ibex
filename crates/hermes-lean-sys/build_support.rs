@@ -12,7 +12,6 @@ use std::path::{Component, Path, PathBuf};
 mod receipt_schema;
 
 pub(crate) const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
-pub(crate) const IBEX_PIN_REVISION: &str = "14ab3b2676a426c188654e0780c502bb6c2e5a3e";
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/expo/ibex/releases/download";
 pub(crate) const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
@@ -991,7 +990,7 @@ where
 {
     let expected_digest = parse_pin_sha256(pin.sha256)?;
     let recovery = format!(
-        "Ibex revision {IBEX_PIN_REVISION} pins {RELEASE_TAG}/{} at sha256-{expected_digest}; while online run `{} --target {}`",
+        "this build pins {RELEASE_TAG}/{} at sha256-{expected_digest}; while online run `{} --target {}`",
         pin.asset,
         installer_command(options),
         pin.target,

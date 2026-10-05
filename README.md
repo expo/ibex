@@ -46,8 +46,8 @@ that must never access the network, install the host bundle and any cross
 targets once, before enabling offline mode. Use the installer from the same
 Ibex source revision as `hermes-lean-sys`; the build error prints its absolute
 manifest path, so the command works from a consumer directory for both Cargo
-Git checkouts and vendored/path copies. The current pin set is identified by
-Ibex revision `14ab3b2676a426c188654e0780c502bb6c2e5a3e`:
+Git checkouts and vendored/path copies. The pins are identified by the release
+tag and the SHA-256 the build error prints:
 
 ```sh
 # Host only.

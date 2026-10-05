@@ -17,7 +17,6 @@ use std::thread;
 use std::time::Duration;
 
 const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v2";
-const IBEX_PIN_REVISION: &str = "14ab3b2676a426c188654e0780c502bb6c2e5a3e";
 const HERMES_SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465";
 
 #[test]
@@ -113,10 +112,6 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
     assert!(
         missing_output.contains(&recovery_command),
         "missing install command in:\n{missing_output}"
-    );
-    assert!(
-        missing_output.contains(IBEX_PIN_REVISION),
-        "missing Ibex pin revision in:\n{missing_output}"
     );
     assert!(
         missing_output.contains("offline mode is enabled"),

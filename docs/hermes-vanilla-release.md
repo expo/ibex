@@ -328,8 +328,8 @@ Two consumption modes are supported:
    installer manifest from the same Ibex source revision as
    `hermes-lean-sys`. The build's recovery error prints its absolute path, so
    this works from a consumer repository whether Ibex is a Cargo Git checkout
-   or a vendored/path dependency. The current pin set is identified by Ibex
-   revision `14ab3b2676a426c188654e0780c502bb6c2e5a3e`:
+   or a vendored/path dependency. The pins are identified by the release tag
+   and the SHA-256 the build error prints:
 
    ```sh
    # Installs the host bundle.
