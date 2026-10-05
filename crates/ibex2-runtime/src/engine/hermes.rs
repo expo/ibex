@@ -98,22 +98,114 @@ pub enum DynamicCode {
     Open,
 }
 
-/// Additive outputs from one trusted binding installation.
+/// Additive, trusted-bootstrap outputs from one binding installation.
 ///
-/// When `fetch_primitives` names a global, installation also publishes one
-/// frozen object there with this JavaScript shape:
+/// `fetch_primitives`, when set, names the global under which installation
+/// publishes one frozen object. The name must be an ASCII JavaScript identifier,
+/// `[A-Za-z_$][A-Za-z0-9_$]*`, that is not already a property of the global
+/// object or its prototype chain and that no installed binding takes; anything
+/// else is refused before the runtime is touched (an installed-binding collision
+/// is found after installation and spends the runtime). The option requires the
+/// [`crate::bindings::Groups::FETCH`] group.
+///
+/// CONTRACT: trusted embedder bootstrap only. Application code must never reach
+/// the object or any of its members. Between installation and hardening, and
+/// before any application code, the bootstrap captures the object, deletes the
+/// global, and wraps the members in closures it publishes instead. It then
+/// hardens through [`Hermes::harden`], which refuses (and freezes nothing)
+/// while the global is still present or while the object or any member is
+/// reachable from
+/// what the freeze walks: the global object's own string- and symbol-keyed
+/// properties, its prototype chain, and transitively each reached object's own
+/// data values, accessor functions (never invoked), and prototype. Values held
+/// only in closures, native state, collection entries, or behind a concealing
+/// Proxy are outside that walk, so a wrapper must never hand `p` or a member to
+/// application code.
+///
+/// Members (synchronous unless a Promise is named):
 ///
 /// ```text
-/// { fetch, responseField, responseRead, fetchControl,
-///   textEncode, textDecode, textEncodeInto, headersFree }
+/// fetch(url, method, body, redirect, headersHandle, controlToken)
+///     -> Promise<responseHandle>
+/// responseField(responseHandle, fieldId[, headerName]) -> value
+/// responseRead(responseHandle) -> Promise<ArrayBuffer | null>
+/// fetchControl(action[, token]) -> token | undefined
+/// textEncode(string) -> ArrayBuffer
+/// textDecode(bytes[, fatal[, ignoreBOM]]) -> string
+/// textEncodeInto(string, Uint8Array) -> "read,written"
+/// headersFree(headersHandle) -> undefined
 /// ```
 ///
-/// `fetch` is the grant-bound raw op 101. The other functions are the response,
-/// control, text, and Headers-free operations used by the standard binding
-/// scripts, with the same semantics and opcodes. This option requires
-/// [`crate::bindings::Groups::FETCH`]. Trusted embedder bootstrap must capture
-/// the object and delete its global before [`Hermes::harden`] and before any
-/// application code. `harden` refuses while the name is still present.
+/// `fetch` is async op 101 bound to the installation's endowment, so it has the
+/// same `net.fetch` grants as the ordinary installed fetch. `url` is a string;
+/// `method` a string or undefined (undefined or "" means GET; it is uppercased);
+/// `body` undefined or null for none, or an ArrayBuffer or typed array whose
+/// bytes are sent (a string must be encoded first). `redirect` is a string or
+/// undefined: "manual" resolves with the 3xx response itself; "error" rejects on
+/// a 3xx; anything else, undefined included, follows up to 20 redirects inside
+/// the transport, admitting every hop against the same grants (an ungranted hop
+/// rejects with "denied: net.fetch"), turning 303 and a non-GET/HEAD 301/302
+/// into a bodiless GET, and dropping authorization, cookie, and
+/// proxy-authorization on a cross-origin hop. `headersHandle` is undefined or a
+/// live Headers registry handle (a standard `Headers` object's `_handle`); it is
+/// validated first and from then on belongs to this object, so release it with
+/// `headersFree` exactly once after the returned promise settles, even when a
+/// later argument check throws. `controlToken` is undefined or a token from this
+/// object's `fetchControl(0)`. The promise resolves to a response handle owned by
+/// this object, or rejects with the host error text as message.
+///
+/// `responseField` field ids: 0 status (number), 1 ok (boolean), 2 final URL
+/// (string), 3 one header value by `headerName`, a string (string, or null when
+/// absent), 5 redirected (boolean), 7 every header as a JSON string of
+/// `[name, value]` pairs sorted by name, 8 cancel: abort the body, drop the row,
+/// release its control, and stop accepting the handle (returns undefined). Any
+/// other id is a RangeError.
+///
+/// `responseRead` reads one chunk of 1 to 16384 bytes as an ArrayBuffer and
+/// resolves null at end of body; await each read before issuing the next. Null
+/// or a rejection (transport error or abort) is terminal: the row is dropped and
+/// the handle is no longer accepted.
+///
+/// `fetchControl` actions: 0 allocates and returns a new token; 1 aborts the
+/// request or body read using `token`; 2 releases `token`, which is then no
+/// longer accepted. Any other action is a RangeError. Release every token once,
+/// even after its response has finished.
+///
+/// The text members are UTF-8 operations 20-22 with the semantics of the
+/// standard binding scripts; `headersFree` is op 51.
+///
+/// Ownership. Each published object is its own handle domain: it accepts only
+/// response handles its `fetch` resolved, tokens its `fetchControl(0)`
+/// allocated, and headers handles its `fetch` accepted, and only until they are
+/// released. A handle from ordinary `fetch` or `Headers`, from another object, or
+/// already released is a TypeError even when the id is live. Numeric arguments
+/// are validated before conversion: a non-number is a TypeError; NaN, an
+/// infinity, a fraction, or an out-of-range value is a RangeError (handles and
+/// tokens 1 to 2^53 - 1, field ids 0 to 2^32 - 1, actions 0 to 2). Primitive
+/// response rows have no garbage-collection owner: finish every response handle
+/// with a null read, a rejected read, or field 8, or its row and connection stay
+/// open until the runtime is destroyed.
+///
+/// Lifecycle (bootstrap source, evaluated after installation):
+///
+/// ```text
+/// globalThis.embedderFetch = (function (p) {
+///   delete globalThis.__embedder_fetch_primitives;   // capture, then delete
+///   return function embedderFetch(url) {             // wrap: only closures hold p
+///     var token = p.fetchControl(0);
+///     return p.fetch(String(url), "GET", undefined, "follow", undefined, token)
+///       .then(function (handle) {
+///         var status = p.responseField(handle, 0);
+///         p.responseField(handle, 8);                // done: cancel, drop the row
+///         p.fetchControl(2, token);
+///         return status;
+///       }, function (error) { p.fetchControl(2, token); throw error; });
+///   };
+/// })(globalThis.__embedder_fetch_primitives);
+/// ```
+///
+/// then [`Hermes::harden`] before any application code.
+// @ref LLP 0068#opt-in-fetch-primitives-protocol — the normative L1e handoff protocol
 // @ref LLP 0057.000#l1--the-bindings-door — L1e lets an embedder own its fetch layer without adding an authority path
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InstallOptions<'a> {
@@ -478,7 +570,7 @@ impl Hermes {
     /// functions (never invoked), and prototype. A value held only in a
     /// closure, native state, a collection entry, or behind a concealing
     /// Proxy is invisible to that walk, as it is to the freeze itself.
-    // @ref LLP 0068#caller-owned-javascript-runtimes — one guard for both doors; the walk mirrors harden.js
+    // @ref LLP 0068#opt-in-fetch-primitives-protocol — one guard for both doors; the walk mirrors harden.js
     pub fn harden(&mut self) -> Result<(), JsError> {
         let mut out: *mut c_char = std::ptr::null_mut();
         // SAFETY: the runtime is live; `out` receives a malloc'd message we

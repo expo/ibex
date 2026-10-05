@@ -1119,7 +1119,7 @@ constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 // WeakMap/Map/Set entries, behind a Proxy whose traps conceal them, or in an
 // object reachable only from somewhere other than the global object. Those
 // stay the trusted bootstrap's obligation.
-// @ref LLP 0068#caller-owned-javascript-runtimes — L1e: the harden guard proves the bootstrap handoff did not leave a path to the primitives
+// @ref LLP 0068#opt-in-fetch-primitives-protocol — L1e: the harden guard proves the bootstrap handoff did not leave a path to the primitives
 void require_unreachable(
     jsi::Runtime& rt, const Reachability& walk,
     const std::vector<std::pair<std::string, jsi::Value>>& identities) {

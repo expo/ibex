@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-05 (§3 "Opt-in fetch primitives protocol": normative member protocol; ASCII-identifier names; harden refuses while the object or any member is reachable from the frozen graph; `Adapter::harden` brings the same guard to the bindings door; numeric arguments validated before conversion)
 **Revised:** 2026-10-04 (§3: opt-in `InstallOptions::fetch_primitives` publishes one same-endowment bootstrap object for embedders that own fetch; `Hermes::harden` refuses until its chosen global is deleted)
 **Revised:** 2026-10-04 (§3/OQ2: Linux bindings link their direct ICU dependency through `hermes-lean-sys`'s `icu` feature without linking the VM; `link` implies `icu`, so ICU has one owner)
 **Revised:** 2026-10-04 (§3: the engine-free default, empty, bindings-only, and crypto-only feature combinations are explicit compile gates)
@@ -194,10 +195,10 @@ fetch. `responseRead` is async op 102; `fetchControl` is op 72; the response
 field callable uses the existing response-field ABI; the text functions are
 ops 20–22; and `headersFree` is op 51. This is no second operation or authority
 path. Existing `install` is the empty-options case and publishes none of these
-names. Trusted bootstrap captures the object and deletes `globalThis[name]`
-before hardening and before application code. The owning runtime records the
-chosen name, and `Hermes::harden` refuses if it is still present; a caller-owned
-runtime has the same deletion obligation before evaluating `HARDEN_SOURCE`.
+names. Trusted bootstrap captures the object, deletes `globalThis[name]`, and
+hardens through `Hermes::harden` or, for a caller-owned runtime,
+`Adapter::harden` — both run one guard before the freeze. The full protocol is
+normative and lives in "Opt-in fetch primitives protocol" below.
 
 Here `compiled_scripts` is the name/byte-span array produced from that exact
 `bindings::scripts(groups)` order. The adapter checks the dependency graph,
@@ -316,6 +317,126 @@ persistence, grants and detach without the Ibex2 loader.
 This is the reusable storage door. Exact2's data-source continuation integration
 is separate work: installing the bindings alone does not teach its executor
 how to resume an answer awaiting storage.
+
+#### Opt-in fetch primitives protocol
+
+This subsection is normative for `InstallOptions::fetch_primitives` (Rust
+`Hermes::install_with` / `install_runtime_with`; C++
+`Adapter::install_with`). The same text is carried by the Rust doc on
+`InstallOptions` and by `ibex2_jsi.h`.
+
+**The name.** An ASCII JavaScript identifier, `[A-Za-z_$][A-Za-z0-9_$]*`,
+validated in Rust and in C++. Every key for it — the preflight collision
+check, publication, the post-install collision check, and the harden guard —
+is built with `PropNameID::forAscii`, so the Rust string, the C++ string, and
+the JavaScript key are one byte sequence. A name already present on the global
+object or its prototype chain (`Object`, `toString`, `__proto__`) is refused
+before the runtime is touched; one an installed binding takes (`Headers`) is
+refused after installation and spends the runtime.
+
+**The contract: trusted embedder bootstrap only.** Application code must never
+reach the object or any member. After installation and before any application
+code, the bootstrap (1) captures the object, (2) deletes the global, (3) wraps
+the members in closures it publishes instead, and (4) hardens through
+`Hermes::harden` or `Adapter::harden`. Evaluating `HARDEN_SOURCE` directly
+skips the guard and is not a supported way to harden after `install_with`.
+
+**The harden guard.** At publication the adapter records the object's identity
+and its eight member functions' identities, and captures
+`Object.getOwnPropertyNames`, `getOwnPropertySymbols`,
+`getOwnPropertyDescriptor`, `getPrototypeOf`, `Set`, and `Set.prototype.has` /
+`add`. Before the harden bytecode runs, the guard refuses — freezing nothing —
+if the chosen global is present, or if any recorded identity is reachable from
+exactly what `harden.js` walks: the global object's own string- and
+symbol-keyed properties, its prototype chain, and transitively every reached
+object's own data values, accessor getter and setter functions (as values,
+never invoked), and prototype. The walk is iterative, cycle-safe, bounded at
+2^20 objects, and fails closed on that bound or on a throwing descriptor read.
+It cannot see — and neither can the freeze — a value held only in a closure
+(including a getter's closure), in native state, in a `Map`/`Set`/`WeakMap`
+entry, or behind a Proxy whose traps conceal it. Those remain the bootstrap's
+obligation, which is why a wrapper must never return `p` or a member. The walk
+runs only when primitives were published; on the default runtime groups it
+adds about 2 ms to `harden` (measured 2026-10-05 on the Mac Studio).
+
+**Members.** Synchronous unless a Promise is named.
+
+```text
+fetch(url, method, body, redirect, headersHandle, controlToken)
+    -> Promise<responseHandle>
+responseField(responseHandle, fieldId[, headerName]) -> value
+responseRead(responseHandle) -> Promise<ArrayBuffer | null>
+fetchControl(action[, token]) -> token | undefined
+textEncode(string) -> ArrayBuffer
+textDecode(bytes[, fatal[, ignoreBOM]]) -> string
+textEncodeInto(string, Uint8Array) -> "read,written"
+headersFree(headersHandle) -> undefined
+```
+
+- `fetch`: `url` a string; `method` a string or undefined (undefined or `""`
+  is GET; uppercased); `body` undefined or null for none, or an ArrayBuffer or
+  typed array whose bytes are sent (encode a string first); `redirect` a
+  string or undefined — `"manual"` resolves with the 3xx response itself,
+  `"error"` rejects on a 3xx, and anything else (undefined included) follows
+  up to 20 redirects inside the transport, admitting **every hop** against the
+  same `net.fetch` grants (an ungranted hop rejects `denied: net.fetch`),
+  turning 303 and a non-GET/HEAD 301/302 into a bodiless GET and dropping
+  `authorization`, `cookie`, and `proxy-authorization` across origins;
+  `headersHandle` undefined or a live Headers registry handle (a standard
+  `Headers` object's `_handle`), validated first and from then on owned by
+  this object even if a later argument check throws; `controlToken` undefined
+  or a live token from this object. Resolves to a response handle owned by
+  this object; rejects with the host error text as message.
+- `responseField` ids: 0 status (number); 1 ok (boolean); 2 final URL
+  (string); 3 the value of header `headerName`, which must be a string
+  (string, or null); 5 redirected (boolean); 7 every header as a JSON string
+  of `[name, value]` pairs sorted by name; 8 cancel — abort the body, drop the
+  row, release its control, stop accepting the handle (returns undefined).
+  Any other id is a RangeError.
+- `responseRead`: one chunk of 1–16384 bytes per call, as an ArrayBuffer;
+  `null` at end of body. Await each read before the next. `null` or a
+  rejection (transport error, abort) is terminal: the row is dropped and the
+  handle is no longer accepted.
+- `fetchControl` actions: **0** allocates and returns a token; **1** aborts
+  the request or body read using `token`; **2** releases `token`, which is no
+  longer accepted. Any other action is a RangeError.
+- `textEncode`, `textDecode`, `textEncodeInto` are UTF-8 ops 20–22 with the
+  standard bindings' semantics; `headersFree` is op 51.
+
+**Ownership and release.** Each published object is its own handle domain. It
+accepts only response handles its `fetch` resolved, tokens its
+`fetchControl(0)` allocated, and headers handles its `fetch` accepted, each
+only until released. A handle from ordinary `fetch` or `Headers`, from another
+object, or already released is a TypeError even when the id is live in the
+runtime. Numeric arguments are validated before any conversion: a non-number
+is a TypeError; NaN, an infinity, a fraction, or an out-of-range value is a
+RangeError (handles and tokens 1 to 2^53 − 1, field ids 0 to 2^32 − 1, actions
+0–2). Release obligations: every response handle ends with a `null` read, a
+rejected read, or field 8 — primitive rows have no garbage-collection owner,
+so an abandoned one keeps its row and connection until the runtime is
+destroyed; every token is released once with action 2, even after its response
+finished; every headers handle passed to `fetch` is freed once with
+`headersFree` after the returned promise settles.
+
+**Lifecycle.**
+
+```js
+// Trusted bootstrap: after install_with, before harden and any app code.
+globalThis.embedderFetch = (function (p) {
+  delete globalThis.__embedder_fetch_primitives;   // capture, then delete
+  return function embedderFetch(url) {             // wrap: only closures hold p
+    var token = p.fetchControl(0);
+    return p.fetch(String(url), "GET", undefined, "follow", undefined, token)
+      .then(function (handle) {
+        var status = p.responseField(handle, 0);
+        p.responseField(handle, 8);                // done: cancel, drop the row
+        p.fetchControl(2, token);
+        return status;
+      }, function (error) { p.fetchControl(2, token); throw error; });
+  };
+})(globalThis.__embedder_fetch_primitives);
+// then: runtime.harden()? in Rust, or adapter.harden(harden_bytecode) in C++
+```
 
 ## 4. Exact 2
 
