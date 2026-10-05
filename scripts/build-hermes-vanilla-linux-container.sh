@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # Run the canonical Linux release builder in the same pinned Debian/Rust
-# container profile used by the ICU 74 filtering spike.
+# container profile used by the ICU 74 filtering spike. The digest is the
+# multi-platform OCI index containing both workflow architectures.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,6 +24,7 @@ case "$output_archive" in
   *) echo "output archive must be absolute: $output_archive" >&2; exit 2 ;;
 esac
 command -v docker >/dev/null 2>&1 || { echo 'docker is required' >&2; exit 1; }
+container_image='rust:1.97-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97'
 
 output_dir="$(dirname "$output_archive")"
 output_name="$(basename "$output_archive")"
@@ -40,7 +42,7 @@ docker run --rm --platform "$platform" \
   -v "$cache_dir:/cache" \
   -e IBEX_HERMES_RELEASE_CACHE_DIR=/cache/release \
   -e IBEX_HERMES_SOURCE_BUILD_LOCK_FILE=/cache/source-build.lock \
-  rust:1.97-bookworm \
+  "$container_image" \
   bash /repo/scripts/build-hermes-vanilla-linux-in-container.sh \
     "$target" "/out/$staging_name"
 

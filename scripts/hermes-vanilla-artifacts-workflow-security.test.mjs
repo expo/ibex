@@ -79,10 +79,42 @@ test("Linux VM artifacts use pinned ICU 74 with trimmed and full data", () => {
     assert.match(producer, /--icu-trimmed-filter=/);
     assert.match(producer, /ibex_verify_icu_data_variants/);
   }
-  assert.match(linuxContainerBuilder, /rust:1\.97-bookworm/);
+  assert.match(
+    linuxContainerBuilder,
+    /^container_image='rust:1\.97-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97'$/m,
+  );
   assert.match(linuxContainerBuilder, /--platform "\$platform"/);
+  assert.match(linuxContainerBuilder, /^  "\$container_image" \\$/m);
   assert.match(linuxContainerBody, /build-hermes-vanilla-release\.sh/);
   assert.doesNotMatch(linuxContainerBody, /libicu-dev/);
+  assert.doesNotMatch(linuxContainerBody, /(?:deb|security)\.debian\.org/);
+  assert.match(linuxContainerBody, /snapshot_timestamp=20261005T000000Z/);
+  assert.match(
+    linuxContainerBody,
+    /snapshot\.debian\.org\/archive\/debian\/\$\{snapshot_timestamp\}/,
+  );
+  assert.match(
+    linuxContainerBody,
+    /snapshot\.debian\.org\/archive\/debian-security\/\$\{snapshot_timestamp\}/,
+  );
+  assert.match(linuxContainerBody, /rm -f \/etc\/apt\/sources\.list\.d\/debian\.sources/);
+  for (const pinnedPackage of [
+    "build-essential=12.9",
+    "ca-certificates=20250419~deb12u1",
+    "cmake=3.25.1-1",
+    "git=1:2.39.5-0+deb12u3",
+    "libreadline-dev=8.2-1.3",
+    "libtinfo-dev=6.4-4",
+    "locales=2.36-9+deb12u14",
+    "ninja-build=1.11.1-2~deb12u1",
+    "nodejs=18.20.4+dfsg-1~deb12u3",
+    "pkg-config=1.8.1-1",
+    "python3=3.11.2-1+b1",
+    "python3-jsonschema=4.10.3-1",
+    "zlib1g-dev=1:1.2.13.dfsg-1",
+  ]) {
+    assert.ok(linuxContainerBody.includes(pinnedPackage), `${pinnedPackage} is pinned`);
+  }
   assert.match(releaseBuilder, /\(\( jobs <= 4 \)\) \|\| jobs=4/);
   assert.match(releaseBuilder, /-DCMAKE_JOB_POOLS=link_pool=2/);
   assert.match(localLinuxBuilder, /\(\( jobs <= 4 \)\) \|\| jobs=4/);

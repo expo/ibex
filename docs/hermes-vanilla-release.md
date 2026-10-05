@@ -30,9 +30,27 @@ the shared code paths, and that filter digest. Both data archives are also in
 the ordinary sorted archive manifest, so they receive the same digest and
 cache-tree verification as every other static archive.
 
-The Linux jobs run in `rust:1.97-bookworm`, matching the filtering spike.
-ICU uses two make jobs; Hermes uses at most four Ninja jobs and a two-slot
-link pool. Hermes is configured with `HERMES_ENABLE_INTL=false`,
+The Linux jobs run in the multi-platform `rust:1.97-bookworm` OCI image pinned
+at
+`sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97`,
+matching the filtering spike. Both `linux/amd64` and `linux/arm64` resolve
+through that index. Packages come from the Debian and Debian Security snapshots
+at `20261005T000000Z`; every directly requested package has an exact version in
+`build-hermes-vanilla-linux-in-container.sh`, while transitive dependencies are
+bounded by that immutable snapshot. The earlier v1 and v2 Linux builds used the
+GitHub runner's system packages; v3 tightens the build environment by pinning
+the container, repository snapshot, and requested package versions.
+
+To update the Linux environment, resolve the tag's current OCI index digest,
+confirm that it contains both workflow platforms, choose one UTC Debian
+snapshot timestamp, and query every requested package's candidate version for
+both architectures. Update the two Linux container scripts, the workflow
+security test, and this paragraph together, then rebuild and inspect both Linux
+bundles. Do not update the tag without its digest or move the snapshot while
+retaining old version pins.
+
+ICU uses two make jobs; Hermes uses at most four Ninja jobs and a two-slot link
+pool. Hermes is configured with `HERMES_ENABLE_INTL=false`,
 `HERMES_UNICODE_LITE=false`, and `HERMES_USE_STATIC_ICU=true`. Apple is
 unchanged and keeps `HERMES_ENABLE_INTL=true`. Windows is also unchanged:
 the receipt records `HERMES_ENABLE_WIN10_ICU_FALLBACK=ON` plus the `icuuc` and
