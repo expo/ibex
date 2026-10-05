@@ -698,6 +698,34 @@ void install_blob(jsi::Runtime& rt,
   set_group_binding(rt, global, "__ibex2_multipart_encode", 74, lifetime);
 }
 
+jsi::Function make_response_field(
+    jsi::Runtime& rt, const std::shared_ptr<Lifetime>& lifetime) {
+  return jsi::Function::createFromHostFunction(
+      rt, jsi::PropNameID::forAscii(rt, "__ibex2_response_field"), 3,
+      [lifetime](jsi::Runtime& r, const jsi::Value&,
+                 const jsi::Value* args, size_t count) -> jsi::Value {
+        const void* queue = lifetime->require(r);
+        if (count < 2)
+          throw jsi::JSError(r, "response field needs a handle and a field id");
+        std::vector<std::string> owned;
+        Ibex2AbiValue name{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+        if (count >= 3) name = to_abi(r, args[2], owned);
+        Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
+        int status = ibex2_response_field(
+            queue, args[0].asNumber(), static_cast<uint32_t>(args[1].asNumber()),
+            count >= 3 ? &name : nullptr, &out);
+        struct Release {
+          Ibex2AbiValue& value;
+          ~Release() { ibex2_host_release(&value); }
+        } release{out};
+        auto result = from_abi(r, out);
+        if (status != 0)
+          throw jsi::JSError(r, result.isString()
+              ? result.getString(r).utf8(r) : std::string("response read failed"));
+        return result;
+      });
+}
+
 void install_fetch(jsi::Runtime& rt, Adapter& adapter,
                    const std::shared_ptr<Lifetime>& lifetime) {
   auto global = rt.global();
@@ -721,31 +749,32 @@ void install_fetch(jsi::Runtime& rt, Adapter& adapter,
           }));
   global.setProperty(rt, "__ibex2_response_read",
                      adapter.async_binding("__ibex2_response_read", 102, nullptr));
-  auto field = jsi::Function::createFromHostFunction(rt,
-      jsi::PropNameID::forAscii(rt, "__ibex2_response_field"), 3,
-      [lifetime](jsi::Runtime& r, const jsi::Value&,
-                 const jsi::Value* args, size_t count) -> jsi::Value {
-        const void* queue = lifetime->require(r);
-        if (count < 2)
-          throw jsi::JSError(r, "response field needs a handle and a field id");
-        std::vector<std::string> owned;
-        Ibex2AbiValue name{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-        if (count >= 3) name = to_abi(r, args[2], owned);
-        Ibex2AbiValue out{IBEX2_TAG_UNDEFINED, 0.0, nullptr, 0};
-        int status = ibex2_response_field(
-            queue, args[0].asNumber(), static_cast<uint32_t>(args[1].asNumber()),
-            count >= 3 ? &name : nullptr, &out);
-        struct Release {
-          Ibex2AbiValue& value;
-          ~Release() { ibex2_host_release(&value); }
-        } release{out};
-        auto result = from_abi(r, out);
-        if (status != 0)
-          throw jsi::JSError(r, result.isString()
-              ? result.getString(r).utf8(r) : std::string("response read failed"));
-        return result;
-      });
-  global.setProperty(rt, "__ibex2_response_field", std::move(field));
+  global.setProperty(rt, "__ibex2_response_field",
+                     make_response_field(rt, lifetime));
+}
+
+jsi::Object make_fetch_primitives(
+    jsi::Runtime& rt, Adapter& adapter,
+    const std::shared_ptr<Lifetime>& lifetime, const void* grants) {
+  jsi::Object primitives(rt);
+  primitives.setProperty(rt, "fetch",
+      adapter.async_binding("fetch", 101, grants));
+  primitives.setProperty(rt, "responseField",
+      make_response_field(rt, lifetime));
+  primitives.setProperty(rt, "responseRead",
+      adapter.async_binding("responseRead", 102, nullptr));
+  primitives.setProperty(rt, "fetchControl",
+      make_group_binding(rt, "fetchControl", 72, lifetime));
+  primitives.setProperty(rt, "textEncode",
+      make_group_binding(rt, "textEncode", 20, lifetime));
+  primitives.setProperty(rt, "textDecode",
+      make_group_binding(rt, "textDecode", 21, lifetime));
+  primitives.setProperty(rt, "textEncodeInto",
+      make_group_binding(rt, "textEncodeInto", 22, lifetime));
+  primitives.setProperty(rt, "headersFree",
+      make_group_binding(rt, "headersFree", 51, lifetime));
+  freeze(rt, primitives);
+  return primitives;
 }
 
 jsi::Object make_process(jsi::Runtime& rt, const void* grants) {
@@ -1006,6 +1035,12 @@ jsi::Object Adapter::websocket_hooks(const void* grants) {
 
 void Adapter::install(Groups groups, const Ibex2Bindings* bindings,
                       const CompiledScript* scripts, size_t script_count) {
+  install_with(groups, bindings, scripts, script_count, InstallOptions{});
+}
+
+void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
+                           const CompiledScript* scripts, size_t script_count,
+                           const InstallOptions& options) {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
   auto& rt = *runtime_;
   state_->require(rt);
@@ -1030,6 +1065,16 @@ void Adapter::install(Groups groups, const Ibex2Bindings* bindings,
     if (endowed_state != state_->queue)
       throw std::invalid_argument("Ibex2 bindings do not belong to this runtime state");
     validate_groups(groups);
+    std::string fetch_primitives;
+    if (options.fetch_primitives != nullptr) {
+      fetch_primitives = options.fetch_primitives;
+      if (fetch_primitives.empty())
+        throw std::invalid_argument("fetch primitives require a non-empty global name");
+      if (!has(groups, GROUP_FETCH))
+        throw std::invalid_argument("fetch primitives require the FETCH group");
+      if (rt.global().hasProperty(rt, fetch_primitives.c_str()))
+        throw std::invalid_argument("fetch primitives global already exists");
+    }
     auto expected = expected_scripts(groups);
     if (script_count != expected.size() || (script_count != 0 && scripts == nullptr))
       throw std::invalid_argument("Ibex2 binding bytecode count does not match groups");
@@ -1229,6 +1274,14 @@ void Adapter::install(Groups groups, const Ibex2Bindings* bindings,
     }
     if (has(groups, GROUP_ENV))
       global.setProperty(rt, "process", make_process(rt, grants));
+    if (!fetch_primitives.empty()) {
+      if (global.hasProperty(rt, fetch_primitives.c_str()))
+        throw std::invalid_argument(
+            "fetch primitives global collides with an installed binding");
+      global.setProperty(
+          rt, jsi::PropNameID::forUtf8(rt, fetch_primitives),
+          make_fetch_primitives(rt, *this, state_->lifetime, grants));
+    }
 
     state_->install_status = InstallStatus::Installed;
   } catch (const std::exception& error) {

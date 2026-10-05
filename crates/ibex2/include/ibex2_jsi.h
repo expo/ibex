@@ -64,6 +64,23 @@ struct CompiledScript {
   size_t len;
 };
 
+/// Additive, trusted-bootstrap outputs from one binding installation.
+///
+/// `fetch_primitives`, when non-null, names a previously absent global where
+/// install publishes a frozen object with these functions:
+///
+///   { fetch, responseField, responseRead, fetchControl,
+///     textEncode, textDecode, textEncodeInto, headersFree }
+///
+/// `fetch` is raw op 101 and carries the same endowment grants as the ordinary
+/// installed fetch. The remaining functions have the same semantics/opcodes as
+/// the private accessors consumed by headers.js and fetch.js. This option
+/// requires GROUP_FETCH. Trusted bootstrap must capture the object and delete
+/// the global before hardening and before any application code.
+struct InstallOptions {
+  const char* fetch_primitives = nullptr;
+};
+
 Ibex2AbiValue to_abi(jsi::Runtime&, const jsi::Value&, std::vector<std::string>&);
 jsi::Value from_abi(jsi::Runtime&, Ibex2AbiValue&);
 struct HostCallResult {
@@ -124,6 +141,12 @@ public:
   // @ref LLP 0057.000#50-three-doors-one-implementation — door 2 installs into a caller-owned runtime and returns
   void install(Groups groups, const Ibex2Bindings* bindings,
                const CompiledScript* scripts, size_t script_count);
+  // The same one-shot, atomic installation with explicitly requested trusted-
+  // bootstrap outputs. Existing install() is exactly the empty-options case.
+  // @ref LLP 0057.000#l1--the-bindings-door — L1e keeps fetch ownership with embedders without creating a second authority path
+  void install_with(Groups groups, const Ibex2Bindings* bindings,
+                    const CompiledScript* scripts, size_t script_count,
+                    const InstallOptions& options);
   jsi::Function async_binding(const char* name, uint32_t op, const void* grants);
   // Endowed values built from the factories retained by install().
   jsi::Function fetch(const void* grants);

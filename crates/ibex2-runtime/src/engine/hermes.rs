@@ -45,6 +45,16 @@ extern "C" {
         script_count: usize,
         out_error: *mut *mut c_char,
     ) -> c_int;
+    fn ibex2_hermes_install_groups_with_options(
+        handle: *mut c_void,
+        groups: u16,
+        bindings: *const crate::bindings::Ibex2Bindings,
+        scripts: *const CompiledScript,
+        script_count: usize,
+        fetch_primitives: *const c_char,
+        out_error: *mut *mut c_char,
+    ) -> c_int;
+    fn ibex2_hermes_has_global(handle: *mut c_void, name: *const c_char) -> c_int;
     fn ibex2_hermes_prepare_runtime(handle: *mut c_void, groups: u16) -> c_int;
     fn ibex2_hermes_pump(handle: *mut c_void, out_ran: *mut c_int) -> c_int;
     fn ibex2_hermes_collect_garbage(handle: *mut c_void) -> c_int;
@@ -85,11 +95,34 @@ pub enum DynamicCode {
     Open,
 }
 
+/// Additive outputs from one trusted binding installation.
+///
+/// When `fetch_primitives` names a global, installation also publishes one
+/// frozen object there with this JavaScript shape:
+///
+/// ```text
+/// { fetch, responseField, responseRead, fetchControl,
+///   textEncode, textDecode, textEncodeInto, headersFree }
+/// ```
+///
+/// `fetch` is the grant-bound raw op 101. The other functions are the response,
+/// control, text, and Headers-free operations used by the standard binding
+/// scripts, with the same semantics and opcodes. This option requires
+/// [`crate::bindings::Groups::FETCH`]. Trusted embedder bootstrap must capture
+/// the object and delete its global before [`Hermes::harden`] and before any
+/// application code. `harden` refuses while the name is still present.
+// @ref LLP 0057.000#l1--the-bindings-door — L1e lets an embedder own its fetch layer without adding an authority path
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InstallOptions<'a> {
+    pub fetch_primitives: Option<&'a str>,
+}
+
 /// A vanilla Hermes runtime.
 pub struct Hermes {
     handle: *mut c_void,
     loader: Box<crate::loader_state::LoaderState>,
     installed_groups: Option<crate::bindings::Groups>,
+    fetch_primitives_global: Option<String>,
     /// The armed deadline as this side handed it over. The engine holds the
     /// same point on its own clock and is what stops JavaScript; this copy
     /// is what the helpers that block *between* entrances cap their waits
@@ -182,6 +215,7 @@ impl Hermes {
             handle,
             loader,
             installed_groups: None,
+            fetch_primitives_global: None,
             deadline: None,
         })
     }
@@ -277,11 +311,40 @@ impl Hermes {
         groups: crate::bindings::Groups,
         context: &crate::bindings::Context,
     ) -> Result<(), JsError> {
+        self.install_with(groups, context, InstallOptions::default())
+    }
+
+    /// Install named bindings plus explicitly requested trusted-bootstrap
+    /// outputs. This is the same one-shot adapter call as [`Self::install`].
+    pub fn install_with(
+        &mut self,
+        groups: crate::bindings::Groups,
+        context: &crate::bindings::Context,
+        options: InstallOptions<'_>,
+    ) -> Result<(), JsError> {
         if self.installed_groups.is_some() {
             return Err(JsError::Thrown(
                 "the Ibex2 binding groups are already installed".into(),
             ));
         }
+        if options.fetch_primitives.is_some() && !groups.contains(crate::bindings::Groups::FETCH) {
+            return Err(JsError::Thrown(
+                "fetch primitives require the FETCH group".into(),
+            ));
+        }
+        let fetch_primitives = options
+            .fetch_primitives
+            .map(|name| {
+                if name.is_empty() {
+                    return Err(JsError::Thrown(
+                        "fetch primitives require a non-empty global name".into(),
+                    ));
+                }
+                CString::new(name).map_err(|_| {
+                    JsError::Thrown("fetch primitives global name contains a NUL byte".into())
+                })
+            })
+            .transpose()?;
         let scripts = crate::bindings::compiled_scripts(groups)
             .map_err(|error| JsError::Thrown(error.to_string()))?;
         let names: Vec<_> = scripts
@@ -301,14 +364,26 @@ impl Hermes {
         // SAFETY: the runtime is live; every byte/name span is static and the
         // context's Arc-backed endowment supplies the state and authority.
         let status = unsafe {
-            ibex2_hermes_install_groups(
-                self.handle,
-                groups.bits(),
-                context.bindings_ptr(),
-                compiled.as_ptr(),
-                compiled.len(),
-                &mut out,
-            )
+            if let Some(name) = &fetch_primitives {
+                ibex2_hermes_install_groups_with_options(
+                    self.handle,
+                    groups.bits(),
+                    context.bindings_ptr(),
+                    compiled.as_ptr(),
+                    compiled.len(),
+                    name.as_ptr(),
+                    &mut out,
+                )
+            } else {
+                ibex2_hermes_install_groups(
+                    self.handle,
+                    groups.bits(),
+                    context.bindings_ptr(),
+                    compiled.as_ptr(),
+                    compiled.len(),
+                    &mut out,
+                )
+            }
         };
         if status != 0 {
             return Err(JsError::Thrown(
@@ -316,6 +391,7 @@ impl Hermes {
             ));
         }
         self.installed_groups = Some(groups);
+        self.fetch_primitives_global = options.fetch_primitives.map(str::to_owned);
         Ok(())
     }
 
@@ -328,9 +404,25 @@ impl Hermes {
         groups: crate::bindings::Groups,
         context: &crate::bindings::Context,
     ) -> Result<(), JsError> {
+        self.install_runtime_with(groups, context, InstallOptions::default())
+    }
+
+    /// Runtime bootstrap with the same trusted-bootstrap outputs supported by
+    /// [`Self::install_with`]. Runtime-only ESM helpers are installed normally.
+    pub fn install_runtime_with(
+        &mut self,
+        groups: crate::bindings::Groups,
+        context: &crate::bindings::Context,
+        options: InstallOptions<'_>,
+    ) -> Result<(), JsError> {
         if self.installed_groups.is_some() {
             return Err(JsError::Thrown(
                 "the Ibex2 binding groups are already installed".into(),
+            ));
+        }
+        if options.fetch_primitives.is_some() && !groups.contains(crate::bindings::Groups::FETCH) {
+            return Err(JsError::Thrown(
+                "fetch primitives require the FETCH group".into(),
             ));
         }
         groups
@@ -343,7 +435,7 @@ impl Hermes {
                 "could not prepare the Ibex2 runtime globals".into(),
             ));
         }
-        self.install(groups, context)?;
+        self.install_with(groups, context, options)?;
         self.eval_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/esm.hbc")))?;
         Ok(())
     }
@@ -355,6 +447,24 @@ impl Hermes {
     /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
     /// bindings are installed and before any module code runs.
     pub fn harden(&mut self) -> Result<(), JsError> {
+        if let Some(name) = &self.fetch_primitives_global {
+            let name = CString::new(name.as_str()).expect("validated primitive global name");
+            // SAFETY: the runtime is live and the C string remains valid for
+            // the native own-runtime global check.
+            match unsafe { ibex2_hermes_has_global(self.handle, name.as_ptr()) } {
+                0 => {}
+                1 => {
+                    return Err(JsError::Thrown(format!(
+                        "refusing to harden while fetch primitives global {name:?} is present"
+                    )))
+                }
+                _ => {
+                    return Err(JsError::Thrown(
+                        "could not verify that the fetch primitives global was deleted".into(),
+                    ))
+                }
+            }
+        }
         self.eval_bytes(crate::bindings::HARDEN_BYTECODE)
             .map(|_| ())
     }

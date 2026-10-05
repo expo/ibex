@@ -1064,10 +1064,10 @@ int ibex2_hermes_prepare_runtime(void *handle, uint16_t groups) {
 /// Install the selected bindings through the engine-independent JSI adapter.
 /// Runtime-only bootstrap consumes endowed capability globals before any
 /// module runs; their factories remain in Adapter for per-module authority.
-int ibex2_hermes_install_groups(void *handle, uint16_t groups,
-                                const Ibex2Bindings *endowment,
-                                const CompiledScript *scripts,
-                                size_t script_count, char **out_error) {
+static int install_groups(void *handle, uint16_t groups,
+                          const Ibex2Bindings *endowment,
+                          const CompiledScript *scripts, size_t script_count,
+                          const char *fetch_primitives, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
     return 1;
@@ -1079,7 +1079,15 @@ int ibex2_hermes_install_groups(void *handle, uint16_t groups,
         throw std::invalid_argument(
             "Ibex2 bindings require a live, unadopted endowment");
     }
-    rt->bindings->install(groups, rt->adopted_bindings, scripts, script_count);
+    if (fetch_primitives == nullptr) {
+      rt->bindings->install(
+          groups, rt->adopted_bindings, scripts, script_count);
+    } else {
+      ibex2::jsi_adapter::InstallOptions options;
+      options.fetch_primitives = fetch_primitives;
+      rt->bindings->install_with(
+          groups, rt->adopted_bindings, scripts, script_count, options);
+    }
     auto global = runtime.global();
     auto remove = [&](const char *name) {
       runtime.global().getPropertyAsObject(runtime, "Reflect")
@@ -1098,6 +1106,35 @@ int ibex2_hermes_install_groups(void *handle, uint16_t groups,
   } catch (const std::exception &error) {
     if (out_error != nullptr) *out_error = dup_c_string(error.what());
     return 1;
+  }
+}
+
+int ibex2_hermes_install_groups(void *handle, uint16_t groups,
+                                const Ibex2Bindings *endowment,
+                                const CompiledScript *scripts,
+                                size_t script_count, char **out_error) {
+  return install_groups(handle, groups, endowment, scripts, script_count,
+                        nullptr, out_error);
+}
+
+int ibex2_hermes_install_groups_with_options(
+    void *handle, uint16_t groups, const Ibex2Bindings *endowment,
+    const CompiledScript *scripts, size_t script_count,
+    const char *fetch_primitives, char **out_error) {
+  return install_groups(handle, groups, endowment, scripts, script_count,
+                        fetch_primitives, out_error);
+}
+
+/// A native global-presence check used by harden's fail-closed bootstrap
+/// guard. It does not run JavaScript or consult replaceable intrinsics.
+int ibex2_hermes_has_global(void *handle, const char *name) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || name == nullptr)
+    return -1;
+  try {
+    return rt->runtime->global().hasProperty(*rt->runtime, name) ? 1 : 0;
+  } catch (...) {
+    return -1;
   }
 }
 
