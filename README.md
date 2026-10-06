@@ -286,6 +286,11 @@ New-Item -ItemType Directory -Force target/windows-smoke | Out-Null
 ./target/release/ibex2.exe run ./target/windows-smoke/index.js --root ./target/windows-smoke --precompiled
 ```
 
+Sources are read as UTF-8. Windows PowerShell 5.1 does not write UTF-8 by
+default: `Set-Content` writes the ANSI code page and `-Encoding ascii` writes
+`?` for every non-ASCII character, and a BOM-less `.ps1` is itself read as
+ANSI. Write sources with `-Encoding utf8` (or `[IO.File]::WriteAllText`).
+
 Applications receive no capabilities unless an explicit grant manifest is
 supplied. `run --no-compile` loads source for development; ship precompiled
 artifacts. A smaller, run-only executable omits the loader and default optional

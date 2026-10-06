@@ -82,6 +82,64 @@ fn windows_cli_keeps_engine_errors_and_async_pump_budget() {
     assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "entry");
 }
 
+/// Non-ASCII string literals reach the engine intact through every CLI source
+/// path: the entry named on argv, ESM lowering, TypeScript stripping (a codegen
+/// rewrite, not a splice), the hermesc hand-off, and stdout. Filed on Windows
+/// as `"é"` → `"?"`; the `?` was in the file, written by PowerShell 5.1's
+/// `Set-Content -Encoding ascii` (issues/closed/20261006-windows-cli-source-non-ascii-literals.md).
+#[test]
+fn the_cli_keeps_non_ascii_string_literals() {
+    let p = Project::new("cli literals");
+    let literals = r#"["é", "İ", "é", "\u{1F600}", "😀", "😀"]"#;
+    let units = "const units = (s) => Array.from({ length: s.length }, (_, i) => \
+                 s.charCodeAt(i).toString(16)).join(' ');";
+    p.file(
+        "entrée.js",
+        &format!(
+            "import {{ typed }} from './typed.ts';\n{units}\nconst plain = {literals};\n\
+             console.log(plain.map(units).join(','));\n\
+             console.log(typed.map(units).join(','));\n\
+             console.log(plain.join(''));\n"
+        ),
+    )
+    .file(
+        "typed.ts",
+        &format!("export const typed: string[] = {literals};\n"),
+    );
+    let codes = "e9,130,e9,d83d de00,d83d de00,d83d de00";
+    let expected = format!("{codes}\n{codes}\néİé😀😀😀");
+
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let compiles = ibex2_runtime::bytecode::Compiler::discover_for_engine(
+        &root,
+        p.0.join(".ibex2/cache"),
+        &Project::engine_dir(),
+        true,
+    )
+    .is_ok();
+    let mut legs: Vec<(&str, &[&str])> = vec![("run", &["--no-compile"]), ("run", &[])];
+    if compiles {
+        legs.extend([("build", &[][..]), ("run", &["--precompiled"][..])]);
+    }
+    for (command, flags) in legs {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_ibex2"))
+            .current_dir(&p.0)
+            .args([command, "entrée.js", "--root", "."])
+            .args(flags)
+            .output()
+            .expect("start the CLI");
+        assert!(output.status.success(), "{command} {flags:?}: {output:?}");
+        if command == "run" {
+            let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+            assert_eq!(
+                stdout.trim().replace("\r\n", "\n"),
+                expected,
+                "{command} {flags:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn modules_require_each_other_and_exports_flow() {
     let p = Project::new("basic");
