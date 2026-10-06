@@ -631,6 +631,37 @@ fn abort_hooks_are_opt_in_frozen_and_run_before_public_abort_listeners() {
 }
 
 #[test]
+fn event_abort_hooks_run_before_a_stopping_application_listener() {
+    const NAME: &str = "__exact_ibex2_abort_hooks";
+    let consumer = BareConsumer::from_context_with_outputs(
+        Groups::PURE | Groups::EVENTS | Groups::ABORT,
+        Context::new(GrantSet::none()),
+        None,
+        Some(NAME),
+    );
+    assert_eq!(
+        consumer.eval(&format!(
+            r#"
+            (function (hooks) {{
+              var order = [], eventProbe = [];
+              var controller = new AbortController();
+              controller.signal.addEventListener("abort", function (event) {{
+                order.push("app");
+                eventProbe.push(event instanceof Event, event.constructor === Event, event.type);
+                event.stopImmediatePropagation();
+              }});
+              controller.signal.addEventListener("abort", function () {{ order.push("stopped"); }});
+              hooks.subscribe(controller.signal, function () {{ order.push("hook"); }});
+              controller.abort();
+              return order.join(",") + "|" + eventProbe.join(",");
+            }})(globalThis.{NAME})
+            "#
+        )),
+        "hook,app|true,true,abort"
+    );
+}
+
+#[test]
 fn abort_hook_exceptions_do_not_stop_later_hooks_or_public_dispatch() {
     const NAME: &str = "__exact_ibex2_abort_hooks";
     for groups in [

@@ -12,6 +12,7 @@ use std::time::Duration;
 mod common;
 
 const PRIMITIVES_GLOBAL: &str = "__snapback_ibex2_fetch_primitives";
+const ABORT_HOOKS_GLOBAL: &str = "__exact_ibex2_abort_hooks";
 const SNAPBACK_FETCH: &str = include_str!("fixtures/snapback_fetch.js");
 const SNAPBACK_BOUND: &str = include_str!("fixtures/snapback_bound.js");
 const FETCH_GROUPS: Groups = Groups::PURE.union(Groups::ABORT).union(Groups::FETCH);
@@ -111,6 +112,64 @@ fn install_with_primitives(grants: GrantSet) -> Hermes {
         )
         .expect("install fetch primitives");
     runtime
+}
+
+#[test]
+fn fetch_runtime_hides_abort_hook_authority_after_bootstrap_and_harden() {
+    let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = Context::new(GrantSet::none());
+    runtime
+        .install_with(
+            FETCH_GROUPS,
+            &context,
+            InstallOptions {
+                abort_hooks: Some(ABORT_HOOKS_GLOBAL),
+                ..InstallOptions::default()
+            },
+        )
+        .expect("install fetch with abort hooks");
+    runtime
+        .eval(&format!(
+            r#"
+            globalThis.embedderAbortSubscribe = (function (hooks) {{
+              var subscribe = hooks.subscribe;
+              delete globalThis.{ABORT_HOOKS_GLOBAL};
+              return (function (subscribeOnly) {{
+                return function (signal, callback) {{ return subscribeOnly(signal, callback); }};
+              }})(subscribe);
+            }})(globalThis.{ABORT_HOOKS_GLOBAL});
+            "#
+        ))
+        .expect("trusted bootstrap wraps subscribe and deletes its global");
+    runtime.harden().expect("only a closure retains subscribe");
+    assert_eq!(
+        runtime
+            .eval(&format!(
+                r#"
+                (function () {{
+                  var controller = new AbortController(), callbackArgument = "not-called";
+                  var unsubscribe = embedderAbortSubscribe(controller.signal, function () {{
+                    callbackArgument = arguments.length === 0 ? "none" : typeof arguments[0];
+                  }});
+                  controller.abort();
+                  return [
+                    typeof globalThis.{ABORT_HOOKS_GLOBAL},
+                    typeof globalThis.__ibex2_abort,
+                    typeof AbortSignal.own,
+                    typeof AbortSignal.subscribe,
+                    typeof controller.signal.own,
+                    typeof controller.signal.subscribe,
+                    typeof embedderAbortSubscribe.own,
+                    typeof embedderAbortSubscribe.subscribe,
+                    typeof unsubscribe,
+                    callbackArgument
+                  ].join("|");
+                }})()
+                "#
+            ))
+            .expect("application probe"),
+        "undefined|undefined|undefined|undefined|undefined|undefined|undefined|undefined|function|none"
+    );
 }
 
 #[test]
