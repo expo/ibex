@@ -92,6 +92,7 @@ pub const WINDOWS_11_ONLY: &[&str] = &[
 /// What this process observes of the operating system's ICU. Every field is
 /// an unpinned fact about the machine running the process, not about the
 /// build; the same binary reports different values after a Windows update.
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OsIcu {
     /// The DLL the shims call (`icu.dll`).
