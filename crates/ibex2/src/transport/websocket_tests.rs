@@ -661,6 +661,13 @@ fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
             stream.shutdown(Shutdown::Write).unwrap();
         }
         oversize_sent.send(()).unwrap();
+        if terminal_drain {
+            // Keep the client write-blocked until epoll/IOCP has reported the
+            // FIN and the terminal parser has inspected the oversized frame.
+            // Reading sooner races that state transition by admitting the
+            // queued local Close onto the wire first.
+            std::thread::sleep(Duration::from_millis(100));
+        }
         loop {
             let (_, opcode, payload) = client_frame(&mut stream).expect("the client sent 1009");
             if opcode == 0x8 {
@@ -672,18 +679,32 @@ fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
     });
 
     let observer = Arc::new(PumpObserver::default());
-    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let writer_gate =
+        terminal_drain.then(|| Arc::new((Mutex::new(false), std::sync::Condvar::new())));
+    let transport = writer_gate.as_ref().map_or_else(
+        || TcpSocketTransport::with_pump_observer(Arc::clone(&observer)),
+        |gate| TcpSocketTransport::with_writer_gate(Arc::clone(gate)),
+    );
     let url = url::Url::parse(&format!("ws://127.0.0.1:{port}/oversize-close")).unwrap();
     let mut socket = transport
         .connect(&url, 64, &AbortSignal::default())
         .unwrap();
     socket.send_binary(&vec![9; 8 << 20]).unwrap();
     socket.close(3008, "queued").unwrap();
-    wait_for_blocked_write(&observer);
+    if terminal_drain {
+        // Let the pump construct the blocked data fragment before delivering
+        // terminal input; the closed gate makes the wire ordering exact.
+        std::thread::sleep(Duration::from_millis(20));
+    } else {
+        wait_for_blocked_write(&observer);
+    }
     send_oversize.send(()).unwrap();
     oversize_observed.recv().unwrap();
     if terminal_drain {
         std::thread::sleep(Duration::from_millis(50));
+        let gate = writer_gate.as_ref().unwrap();
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_one();
     }
     assert_eq!(socket.next().unwrap(), Incoming::TooLarge);
     assert_eq!(
