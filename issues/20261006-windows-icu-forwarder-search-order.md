@@ -68,3 +68,20 @@ only because its planted copy is byte-identical to System32's.
 
 The first fix is the proportionate next step if this is taken up. The second
 removes the residual for the engine as well.
+
+## Addendum (2026-10-06): embedders that link `windows-sys` import `icu.dll` directly
+
+Verifying exact2 on Windows, its winit-based app executable imported about 50
+ICU functions (`ucol_*`, `udat_*`, `unorm2_*`, `uloc_*`, …) from `icu.dll` and
+none from `icuuc.dll`/`icuin.dll`. The likely cause (not confirmed with linker
+order output): winit 0.30 → `windows-sys` 0.52 with `Win32_Globalization`
+brings `windows_x86_64_msvc`'s catch-all import library, which also names
+`icu.dll`'s exports, and the linker resolves Hermes's ICU references there
+before reaching `icuuc.lib`/`icuin.lib`. No `unumf_*` was imported; that
+binding stays at run time from System32 as designed. The search-order exposure
+above is the same either way (an application-directory `icu.dll` is what both
+paths load), so this does not change the risk; it does change which DLL an
+`dumpbin /dependents` shows. If a fix is wanted, emit the `icuuc`/`icuin` link
+lines so they precede `windows-sys` on the link line, or let the embedder
+choose; for now it is documented in LLP 0057.000 §5.1.1.
+
