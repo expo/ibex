@@ -1,5 +1,7 @@
 # Release builds shouldn't depend on GitHub-hosted macOS runner capacity
 
+**Status:** Closed (2026-10-06)
+**Resolution:** Option 1. The macOS and iOS builder jobs now use the larger hosted runners (`macos-15-xlarge`, `macos-15-large`); a probe started both within seconds. Charlie: "the expo paid larger macos runners is probably right." Self-hosted runners and a relaxed publisher head check were not needed.
 **Opened:** 2026-10-05 (Charlie: "maybe we should set up the process to not rely on github mac runners … i have some mac capacity of my own")
 **Area:** `.github/workflows/hermes-vanilla-build.yml`, docs/hermes-vanilla-release.md
 

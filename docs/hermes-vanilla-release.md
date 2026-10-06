@@ -60,6 +60,18 @@ selects its `USE_WIN10_ICU` declarations (marked `dllimport`) and reports
 Thus the Windows build continues to use the OS ICU DLL for its Unicode
 backend; v3 adds no packaged Windows ICU archive.
 
+## Runners
+
+The macOS and iOS builder jobs run on GitHub's larger hosted macOS runners
+(`macos-15-xlarge`, Apple silicon; `macos-15-large`, Intel), which draw on the
+`expo` organization's dedicated larger-runner capacity rather than the shared
+standard pool. On 2026-10-05 the v3 build's standard `macos-15` jobs waited
+about two hours behind an organization-wide queue and one was cancelled before
+it received a runner; a probe on 2026-10-06 started both larger labels within
+seconds. They use the same macOS 15 image family and Xcode as the standard
+labels, so the build environment is unchanged. Linux and Windows jobs keep the
+standard hosted runners.
+
 ## Required repository settings
 
 Apply these settings after the publisher workflow is merged to `main` and
