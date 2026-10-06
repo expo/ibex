@@ -9,6 +9,7 @@ use std::process::ExitCode;
 
 use ibex2_runtime::loader::Root;
 
+use ibex2::bindings::Groups;
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 use ibex2_runtime::loader::ModuleGrants;
 
@@ -430,7 +431,14 @@ fn run(
     // ours: the baseline R5 subtracts. Everything else must be in
     // ALLOWED_GLOBALS by name — no prefix, no "looks like an intrinsic".
     let baseline: std::collections::BTreeSet<String> = rt.global_names().into_iter().collect();
-    let groups = ibex2::bindings::Groups::DEFAULT;
+    let (groups, intl_unavailable) = cli_groups(Groups::DEFAULT, || {
+        Groups::INTL.validate().map_err(|e| e.to_string())
+    });
+    if let Some(reason) = intl_unavailable {
+        eprintln!(
+            "ibex2: warning: Intl is unavailable on this system, so it is not installed: {reason}"
+        );
+    }
     let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
     rt.install_runtime(groups, &context)
         .map_err(|e| e.to_string())?;
@@ -484,9 +492,56 @@ fn run(
     Ok(())
 }
 
+/// The groups `run` installs: `default`, minus `INTL` when this system
+/// cannot provide it (a Windows without the OS ICU the shims need), with the
+/// reason to report. Embedders keep `Groups::DEFAULT`'s fail-closed install;
+/// only the CLI prefers running an Intl-free program to refusing it.
+///
+/// @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the CLI degrades, the embedding API does not
+fn cli_groups(
+    default: Groups,
+    intl: impl FnOnce() -> Result<(), String>,
+) -> (Groups, Option<String>) {
+    if !default.contains(Groups::INTL) {
+        return (default, None);
+    }
+    match intl() {
+        Ok(()) => (default, None),
+        Err(reason) => (default.without(Groups::INTL), Some(reason)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cli_drops_only_intl_when_the_system_cannot_provide_it() {
+        let with_intl = Groups::PURE.union(Groups::CONSOLE).union(Groups::INTL);
+        let (groups, reason) = cli_groups(with_intl, || Err("no icu.dll".to_owned()));
+        assert_eq!(groups, Groups::PURE.union(Groups::CONSOLE));
+        assert_eq!(reason.as_deref(), Some("no icu.dll"));
+
+        let (groups, reason) = cli_groups(with_intl, || Ok(()));
+        assert_eq!(groups, with_intl);
+        assert_eq!(reason, None);
+
+        // A build without INTL in DEFAULT never asks and never warns.
+        let without = Groups::PURE.union(Groups::CONSOLE);
+        let (groups, reason) = cli_groups(without, || panic!("INTL is not selected"));
+        assert_eq!(groups, without);
+        assert_eq!(reason, None);
+    }
+
+    /// The fallback still installs: DEFAULT without INTL is a valid
+    /// selection in every build.
+    #[test]
+    fn default_without_intl_installs() {
+        let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+        let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+        rt.install_runtime(Groups::DEFAULT.without(Groups::INTL), &context)
+            .expect("install DEFAULT without INTL");
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("ibex2-bin-{name}-{}", std::process::id()));
