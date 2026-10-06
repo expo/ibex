@@ -145,5 +145,10 @@ of terminal delivery, supersede an admitted but unstarted local Close with
 and give the terminal-drain parser exclusive ownership once reading or writing
 closes. Pump regressions cover the watch drop path, demand and terminal 1009,
 Close admission plus FIN, and a peer Close behind unread data when writing
-dies. Repeated Linux and Windows qualification remain in progress; this issue
-stays open.
+dies.
+
+The expanded portable suite passes 24/24 for ten consecutive Linux runs.
+`cargo test -p ibex2 --all-features` and `cargo test -p ibex2-runtime
+--all-features` pass, including the WebSocket WPT gate. Both mandated Clippy
+commands, formatting, and `ref-check` pass. The Windows IOCP rerun remains
+pending from the orchestrator, so this issue stays open.
