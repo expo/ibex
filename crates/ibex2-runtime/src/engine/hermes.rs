@@ -119,8 +119,11 @@ pub enum DynamicCode {
 /// registers an abort algorithm and returns an idempotent unsubscribe function.
 /// It invokes `callback` synchronously before the public abort event, or
 /// immediately when the signal is already aborted. The optional `alive`
-/// predicate is checked before delivery. An application listener's
-/// `stopImmediatePropagation()` therefore cannot suppress this subscription.
+/// predicate is checked before every delivery, including the already-aborted
+/// path. An exception from either `alive` or `callback` is reported and
+/// suppresses only that hook; later hooks and public abort dispatch still run.
+/// An application listener's `stopImmediatePropagation()` therefore cannot
+/// suppress this subscription.
 ///
 /// `defer_intrinsic_snapshot`, when true, makes installation discard the
 /// constructor-time SQLite integrity baseline after the selected bindings are

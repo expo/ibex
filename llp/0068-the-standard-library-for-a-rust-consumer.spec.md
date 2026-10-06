@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `alive` and callback exceptions are contained per hook on pending and already-aborted delivery, so later algorithms and public dispatch still run)
 **Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": an explicit install option plus one-shot capture lets a trusted embedder establish SQLite's complete intrinsic/property baseline after its prelude; harden and SQLite refuse while capture is owed)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": an ABORT-only embedder may request the frozen private hook object under an ASCII-identifier name; hardening applies the same object/member reachability guard as fetch primitives)
 **Revised:** 2026-10-05 (§3/OQ2 fix round 1: bindings export both available ICU-data identities but no selected one; the linking instance alone exports `LINKED_ICU_DATA_*`; full data without Ibex Intl remains a supported Hermes configuration)
@@ -501,19 +502,23 @@ exactly these members:
 `own` accepts only an `AbortSignal` created by this binding and throws a
 `TypeError` otherwise. Its returned record is trusted binding state; embedders
 must not expose or mutate it. `subscribe` validates the signal through `own`.
-If it is already aborted, `callback()` runs synchronously and a no-op
-unsubscribe function is returned. Otherwise the callback is registered as an
-abort algorithm and the returned idempotent function removes that
-registration. When supplied, `alive()` is checked before callback delivery and
-lets a trusted internal consumer discard a stale registration.
+If it is already aborted, delivery runs synchronously and a no-op unsubscribe
+function is returned. Otherwise the callback is registered as an abort
+algorithm and the returned idempotent function removes that registration.
+When supplied, `alive()` is checked before every callback delivery, including
+the already-aborted path, and lets a trusted internal consumer discard a stale
+registration. Each `alive()` and `callback()` invocation is isolated:
+exceptions are reported and suppress only that hook, without escaping the
+subscription or abort call.
 
 Abort algorithms run synchronously after every dependent signal has been
 marked aborted and before any public `abort` event is dispatched. Consequently
 an application listener — including one registered first and calling
 `stopImmediatePropagation()` — cannot prevent the subscribed algorithm from
 running. The callback receives no event; it reads any required reason through
-the trusted signal/state it already captured. Callback exceptions are reported
-by the binding and do not stop later abort algorithms.
+the trusted signal/state it already captured. Exceptions from either the
+liveness predicate or callback do not stop later abort algorithms or public
+abort dispatch.
 
 The bootstrap captures this object from its chosen global, deletes that global,
 and retains the object and members only in closures before hardening. The

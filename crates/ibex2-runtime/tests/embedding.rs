@@ -631,6 +631,73 @@ fn abort_hooks_are_opt_in_frozen_and_run_before_public_abort_listeners() {
 }
 
 #[test]
+fn abort_hook_exceptions_do_not_stop_later_hooks_or_public_dispatch() {
+    const NAME: &str = "__exact_ibex2_abort_hooks";
+    for groups in [
+        Groups::PURE | Groups::ABORT,
+        Groups::PURE | Groups::EVENTS | Groups::ABORT,
+    ] {
+        let consumer = BareConsumer::from_context_with_outputs(
+            groups,
+            Context::new(GrantSet::none()),
+            None,
+            Some(NAME),
+        );
+        let observed = consumer.eval(&format!(
+            r#"
+            (function (hooks) {{
+              var order = [], errors = 0;
+              if (typeof globalThis.addEventListener === "function") {{
+                globalThis.addEventListener("error", function (event) {{
+                  errors++;
+                  event.preventDefault();
+                }});
+              }}
+              var controller = new AbortController();
+              hooks.subscribe(controller.signal, function () {{
+                order.push("throwing");
+                throw new Error("hook callback");
+              }});
+              var aliveChecks = 0;
+              hooks.subscribe(controller.signal, function () {{
+                order.push("should-not-run");
+              }}, function () {{
+                if (++aliveChecks === 1) return true;
+                order.push("alive-throwing");
+                throw new Error("hook alive");
+              }});
+              hooks.subscribe(controller.signal, function () {{ order.push("succeeding"); }});
+              controller.signal.addEventListener("abort", function () {{ order.push("public"); }});
+              controller.abort();
+
+              var already = AbortSignal.abort();
+              var immediate = [];
+              hooks.subscribe(already, function () {{ immediate.push("dead"); }}, function () {{ return false; }});
+              hooks.subscribe(already, function () {{
+                immediate.push("throwing");
+                throw new Error("immediate callback");
+              }});
+              hooks.subscribe(already, function () {{ immediate.push("succeeding"); }});
+              return order.join(",") + "|" + immediate.join(",") + "|" + errors;
+            }})(globalThis.{NAME})
+            "#
+        ));
+        let expected_errors = if groups.contains(Groups::EVENTS) {
+            3
+        } else {
+            0
+        };
+        assert_eq!(
+            observed,
+            format!(
+                "throwing,alive-throwing,succeeding,public|throwing,succeeding|{expected_errors}"
+            ),
+            "groups: {groups:?}"
+        );
+    }
+}
+
+#[test]
 fn adapter_harden_refuses_reachable_abort_hooks_and_members() {
     const NAME: &str = "__exact_ibex2_abort_hooks";
     let make = || {

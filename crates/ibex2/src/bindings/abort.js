@@ -9,9 +9,14 @@
   delete global.__ibex2_fire_trusted_event;
   var setEventAbortHooks = global.__ibex2_set_event_abort_hooks;
   delete global.__ibex2_set_event_abort_hooks;
-  var report = global.console && typeof global.console.error === "function"
+  var consoleError = global.console && typeof global.console.error === "function"
     ? global.console.error
-    : function () {};
+    : null;
+  var reportException = typeof global.reportError === "function"
+    ? global.reportError
+    : consoleError
+      ? function (error) { consoleError("Uncaught " + String(error)); }
+      : function () {};
   function own(signal) {
     var state = signals.get(signal);
     if (!state) throw new TypeError("not an AbortSignal");
@@ -34,8 +39,18 @@
       else if (callback && typeof callback.handleEvent === "function") callback.handleEvent(event);
     } catch (e) {
       // Reporting must not let hostile coercion interrupt other abort algorithms.
-      try { report("Uncaught " + String(e)); } catch (_) {}
+      try { reportException(e); } catch (_) {}
     }
+  }
+  function hookIsAlive(hook) {
+    if (!hook.alive) return true;
+    try { return !!hook.alive(); }
+    catch (e) { try { reportException(e); } catch (_) {} return false; }
+  }
+  function deliverHook(hook) {
+    if (!hookIsAlive(hook)) return;
+    try { hook.callback(); }
+    catch (e) { try { reportException(e); } catch (_) {} }
   }
   function abort(signal, reason) {
     if (own(signal).aborted) return;
@@ -54,7 +69,7 @@
     mark(signal);
     pending.forEach(function (current) {
       var state = own(current), stopped = false;
-      state.hooks.splice(0).forEach(function (hook) { if (!hook.alive || hook.alive()) hook.callback(); });
+      state.hooks.splice(0).forEach(deliverHook);
       if (useEvents) {
         // The private firing path exists only while the native installer moves
         // from events.js to abort.js. Application code never receives it.
@@ -76,8 +91,8 @@
   }
   function subscribe(signal, callback, alive) {
     var state = own(signal);
-    if (state.aborted) { callback(); return function () {}; }
-    state.hooks = state.hooks.filter(function (hook) { return !hook.alive || hook.alive(); });
+    if (state.aborted) { deliverHook({ callback: callback, alive: alive }); return function () {}; }
+    state.hooks = state.hooks.filter(hookIsAlive);
     var entry = { callback: callback, alive: alive };
     state.hooks.push(entry);
     return function () {

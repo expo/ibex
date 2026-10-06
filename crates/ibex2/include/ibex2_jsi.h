@@ -83,9 +83,12 @@ struct CompiledScript {
 /// and invokes `callback` synchronously before the public `abort` event is
 /// dispatched. If the signal is already aborted it invokes `callback`
 /// synchronously and returns a no-op unsubscribe function. The optional `alive`
-/// predicate is checked before delivery and lets an internal consumer discard
-/// a stale hook. Because abort algorithms run before event dispatch, an
-/// application listener's `stopImmediatePropagation()` cannot suppress them.
+/// predicate is checked before every delivery, including that already-aborted
+/// path, and lets an internal consumer discard a stale hook. An exception from
+/// either `alive` or `callback` is reported and suppresses only that hook; later
+/// hooks and public abort dispatch still run. Because abort algorithms run
+/// before event dispatch, an application listener's
+/// `stopImmediatePropagation()` cannot suppress them.
 ///
 /// `defer_intrinsic_snapshot`, when true, makes installation discard the
 /// constructor-time SQLite integrity baseline after all selected binding
