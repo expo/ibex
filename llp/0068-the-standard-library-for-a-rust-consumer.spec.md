@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3: `INTL` is also available on Windows under the same `intl` feature, backed by the OS `icu.dll` and refused unless a one-time OS probe passes; Windows host notes updated; LLP 0057.000 §5.1.1)
 **Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": capture unconditionally snapshots the current realm, so only trusted prelude work may precede it; a frozen `Array.prototype` is refused, but pre-capture application execution is an undetectable embedder error)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `own` exposes only a frozen live `aborted`/`reason` view; that view still carries inspection authority invisible to the harden walk and must not reach application code)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `alive` and callback exceptions are contained per hook on pending and already-aborted delivery, so later algorithms and public dispatch still run)
@@ -136,8 +137,9 @@ gates, so either door remains independently buildable.
 free bitset, separate from cargo features: features choose what family code is
 linked, groups choose what one runtime receives. `Groups::DEFAULT` and
 `Groups::ALL` reproduce the code available to the build. `INTL` is included in
-`Groups::DEFAULT` and `Groups::ALL` only when a Linux consumer has explicitly
-selected the `intl` Cargo feature. An omitted dependency or unavailable group
+`Groups::DEFAULT` and `Groups::ALL` only when a Linux or Windows consumer has
+explicitly selected the `intl` Cargo feature. On Windows, validation also
+refuses `INTL` when the operating system lacks the ICU the shims call. An omitted dependency or unavailable group
 is an error; installation never widens the selection on the caller's behalf.
 The groups are:
 
@@ -154,7 +156,7 @@ The groups are:
 | `ENV` | endowed `process.env` snapshot | grant-selected environment snapshot | — | core |
 | `SECRETS` | no JSI projection yet; named for the existing Rust binding | `secret.keep` library operations | — | core/platform backend |
 | `KV` | no JSI projection yet; named for the existing Rust binding | `storage.kv` library operations | — | core/platform backend |
-| `INTL` (Linux) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | off-by-default `intl` Cargo feature; it implies `bindings` and selects `hermes-lean-sys/icu-full-data`; VM link features already select `icu` with trimmed root+en data for basic Unicode |
+| `INTL` (Linux, Windows) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | off-by-default `intl` Cargo feature; it implies `bindings` and selects `hermes-lean-sys/icu-full-data`; VM link features already select `icu` with trimmed root+en data for basic Unicode. On Windows the same feature calls the OS `icu.dll` (delay-loaded, no data, Windows 10 2004+), `icu-full-data` is a no-op, and validation probes the OS once (LLP 0057.000 §5.1.1) |
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
@@ -631,7 +633,9 @@ directories, plus the matching `hermesc-windows-x64.exe` beside that install.
 The archive is `hermesvm_a.lib`, accompanied by its JSI and Boost.Context
 static dependencies. MSVC compiles the shim as C++17 with exceptions enabled;
 the system ICU import libraries close Hermes's Unicode dependency. The
-Windows profile initially leaves the Linux-only Intl projection disabled.
+Windows profile builds Hermes without engine Intl. Ibex's Intl projection is
+available there under the same opt-in `intl` feature, backed by the OS
+`icu.dll` (LLP 0057.000 §5.1.1).
 
 Cargo selects this layout only for Windows, rejects unsupported targets,
 hashes the archive actually linked as on the other platforms, and compiles

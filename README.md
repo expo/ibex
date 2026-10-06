@@ -42,7 +42,8 @@ cargo test -p ibex2-runtime --no-default-features --features intl
 ```
 
 `Groups::INTL` keeps its stable bit so stored group masks do not change, but
-group validation refuses it unless the build is Linux with `ibex2/intl`.
+group validation refuses it unless the build is Linux or Windows with
+`ibex2/intl`.
 Without that feature it is absent from both `Groups::DEFAULT` and
 `Groups::ALL`; with it, the normal Linux profile installs it. The observable
 engine fallback when the group is not installed is platform-specific:
@@ -61,6 +62,35 @@ its operating-system-backed native implementation, so omitting Ibex's
 Linux-only group does not remove Apple's engine-owned `Intl`. Every Linux v3
 bundle carries matching ICU headers, shared code archives, and both data
 variants, so no build compiles or links against a different system ICU.
+
+Windows Intl uses the same `intl` feature and `INTL` group, backed by the
+operating system's `icu.dll` rather than a bundled ICU. No ICU data is
+added; the release CLI grows by 236,544 bytes (231 KiB). The shims are compiled against the
+Windows 10 2004 API, so that is the floor for `INTL`. `icu.dll` is
+delay-loaded, and validation probes it once, so an `intl` binary still starts
+on an older Windows and refuses `INTL` with a clear error.
+`ibex2::bindings::os_icu()` reports the observed ICU, Unicode, CLDR, and
+tzdata versions. They are unpinned facts about the machine running the
+binary: Windows Update changes them, tzdata can be years old, and Microsoft
+modifies CLDR (for example, en-US time styles put an ASCII space before
+AM/PM). There is no `LINKED_ICU_DATA_*` identity on Windows;
+`hermes_lean_sys::LINKED_OS_ICU` names the DLL instead. Cargo does not
+forward a library's link arguments, so an embedder outside this workspace
+that links `ibex2/intl` into its own executable should add
+`/DELAYLOAD:icu.dll delayimp.lib` to that final link. Without them, the
+executable needs Windows 10 2004 to start. On Windows:
+
+```powershell
+cargo test -p ibex2 --features bindings,intl
+cargo test -p ibex2-runtime --features intl
+```
+
+`scripts/check-ibex2-features.sh`, which covers `ibex2-runtime --features
+intl` among its configurations, also runs on Windows under Git for Windows's
+`usr\bin\bash.exe`. Put MSVC's `link.exe` ahead of Git's `/usr/bin/link` on
+`PATH` (append `C:\Program Files\Git\usr\bin` to an MSVC developer
+environment rather than using the `bin\bash.exe` wrapper). See LLP 0057.000
+§5.1.1.
 
 `hermes-lean-sys` resolves vanilla Hermes in this order: a complete local
 install selected by `HERMES_LEAN_SYS_DIR`; this checkout's layout when it

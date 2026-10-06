@@ -22,8 +22,11 @@ the pinned static vanilla Hermes VM. It does not establish whole-platform parity
   currently admits only `app:/` grants. Exact's shared `exact-grants` parser
   needs a separate reviewed consumer change before these grant extensions can
   reach that consumer; do not replace its patched vendored grant module.
-- Windows does not install the Linux ICU-backed Intl projection. It has
-  Hermes's Windows Unicode support; broader Intl conformance is unqualified.
+- Windows Intl: resolved for the selected surface on 2026-10-06 (LLP
+  0057.000 §5.1.1). `ibex2/intl` now installs the same ICU-backed projection
+  over the OS `icu.dll` (Windows 10 2004+, probe-gated). Broader Intl
+  conformance stays unqualified, as on Linux. Windows 10 itself and ARM64
+  have not been exercised.
 - Three loader symlink fixtures need Windows Developer Mode or the symlink
   privilege. They compile on Windows and are explicitly ignored by default.
   Run and restore these cases when their platform prerequisites are satisfied.
