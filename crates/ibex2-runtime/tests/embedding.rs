@@ -52,6 +52,15 @@ extern "C" {
         script_count: usize,
         fetch_primitives: *const c_char,
         abort_hooks: *const c_char,
+        defer_intrinsic_snapshot: bool,
+        error: *mut *mut c_char,
+    ) -> i32;
+    fn bindings_consumer_capture_intrinsics(handle: *mut c_void, error: *mut *mut c_char) -> i32;
+    fn bindings_consumer_install_storage(
+        handle: *mut c_void,
+        grants: *const c_void,
+        factory: *const u8,
+        len: usize,
         error: *mut *mut c_char,
     ) -> i32;
     fn bindings_consumer_harden(
@@ -159,6 +168,18 @@ impl BareConsumer {
         fetch_primitives: Option<&str>,
         abort_hooks: Option<&str>,
     ) -> Self {
+        Self::from_context_with_options(groups, context, fetch_primitives, abort_hooks, false)
+    }
+    fn from_context_with_deferred_intrinsics(groups: Groups, context: Context) -> Self {
+        Self::from_context_with_options(groups, context, None, None, true)
+    }
+    fn from_context_with_options(
+        groups: Groups,
+        context: Context,
+        fetch_primitives: Option<&str>,
+        abort_hooks: Option<&str>,
+        defer_intrinsic_snapshot: bool,
+    ) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "ibex2-groups-{}-{}",
@@ -176,39 +197,41 @@ impl BareConsumer {
             .map(|name| CString::new(name).expect("primitive name contains no NUL"));
         let abort_hooks =
             abort_hooks.map(|name| CString::new(name).expect("abort-hook name contains no NUL"));
-        let handle = if fetch_primitives.is_some() || abort_hooks.is_some() {
-            let handle = unsafe { bindings_consumer_create_uninstalled(context.state_ptr()) };
-            assert!(!handle.is_null(), "uninstalled borrowed runtime");
-            let installed = unsafe {
-                bindings_consumer_install_with_options(
-                    handle,
-                    context.bindings_ptr(),
-                    groups.bits(),
-                    scripts.as_ptr(),
-                    scripts.len(),
-                    fetch_primitives
-                        .as_ref()
-                        .map_or(std::ptr::null(), |name| name.as_ptr()),
-                    abort_hooks
-                        .as_ref()
-                        .map_or(std::ptr::null(), |name| name.as_ptr()),
-                    &mut error,
-                )
+        let handle =
+            if fetch_primitives.is_some() || abort_hooks.is_some() || defer_intrinsic_snapshot {
+                let handle = unsafe { bindings_consumer_create_uninstalled(context.state_ptr()) };
+                assert!(!handle.is_null(), "uninstalled borrowed runtime");
+                let installed = unsafe {
+                    bindings_consumer_install_with_options(
+                        handle,
+                        context.bindings_ptr(),
+                        groups.bits(),
+                        scripts.as_ptr(),
+                        scripts.len(),
+                        fetch_primitives
+                            .as_ref()
+                            .map_or(std::ptr::null(), |name| name.as_ptr()),
+                        abort_hooks
+                            .as_ref()
+                            .map_or(std::ptr::null(), |name| name.as_ptr()),
+                        defer_intrinsic_snapshot,
+                        &mut error,
+                    )
+                };
+                assert_eq!(installed, 1, "{}", take(error));
+                handle
+            } else {
+                unsafe {
+                    bindings_consumer_create(
+                        context.state_ptr(),
+                        context.bindings_ptr(),
+                        groups.bits(),
+                        scripts.as_ptr(),
+                        scripts.len(),
+                        &mut error,
+                    )
+                }
             };
-            assert_eq!(installed, 1, "{}", take(error));
-            handle
-        } else {
-            unsafe {
-                bindings_consumer_create(
-                    context.state_ptr(),
-                    context.bindings_ptr(),
-                    groups.bits(),
-                    scripts.as_ptr(),
-                    scripts.len(),
-                    &mut error,
-                )
-            }
-        };
         assert!(!handle.is_null(), "{}", take(error));
         Self {
             handle,
@@ -252,6 +275,38 @@ impl BareConsumer {
             bindings_consumer_harden(self.handle, bytecode.as_ptr(), bytecode.len(), &mut error)
         };
         if hardened == 1 {
+            Ok(())
+        } else {
+            Err(take(error))
+        }
+    }
+
+    fn capture_intrinsics(&self) -> Result<(), String> {
+        let mut error = std::ptr::null_mut();
+        let captured = unsafe { bindings_consumer_capture_intrinsics(self.handle, &mut error) };
+        if captured == 1 {
+            Ok(())
+        } else {
+            Err(take(error))
+        }
+    }
+
+    fn install_storage(&self) -> Result<(), String> {
+        let factory = compiled_bytes("sqlite");
+        let mut error = std::ptr::null_mut();
+        let installed = unsafe {
+            bindings_consumer_install_storage(
+                self.handle,
+                self.context
+                    .as_ref()
+                    .expect("live borrowed context")
+                    .grants_ptr(),
+                factory.as_ptr(),
+                factory.len(),
+                &mut error,
+            )
+        };
+        if installed == 1 {
             Ok(())
         } else {
             Err(take(error))
@@ -1593,6 +1648,119 @@ fn freezing_modified_intrinsics_does_not_satisfy_the_installation_contract() {
     let error = c.eval("storage.sqlite.open('app:/data/db')").unwrap_err();
     assert!(error.contains("harden"), "{error}");
     assert!(!c.directory.join("data/db").exists());
+}
+
+#[test]
+fn deferred_intrinsic_capture_accepts_the_complete_trusted_prelude_baseline() {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "ibex2-deferred-integrity-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    for name in ["data", "cache", "tmp"] {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+    }
+    let context =
+        Context::new(GrantSet::parse("sqlite.open app:/data/trusted.db\n").expect("storage grant"));
+    context
+        .set_app_directories(
+            AppDirectories::new(root.join("data"), root.join("cache"), root.join("tmp")).unwrap(),
+        )
+        .unwrap();
+    context
+        .set_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider))
+        .unwrap();
+    let consumer = BareConsumer::from_context_with_deferred_intrinsics(
+        Groups::PURE | Groups::CRYPTO | Groups::ABORT,
+        context,
+    );
+    consumer.eval(
+        r#"
+        Number.prototype.toLocaleString = function () { return "trusted-number"; };
+        Object.defineProperty(Array.prototype, "trustedArrayMethod", {
+          value: function () { return "trusted-array"; },
+          writable: true,
+          configurable: true
+        });
+        "#,
+    );
+    consumer
+        .capture_intrinsics()
+        .expect("trusted prelude establishes the complete baseline");
+    consumer
+        .install_storage()
+        .expect("storage is materialized after the trusted baseline capture");
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("captured deferred baseline hardens");
+    consumer.eval(
+        r#"
+        globalThis.result = "";
+        storage.sqlite.open("app:/data/trusted.db").then(async function (db) {
+          await db.execute("CREATE TABLE accepted(value TEXT)");
+          await db.close();
+          result = (1).toLocaleString() + "|" + [1].trustedArrayMethod();
+        }, function (error) { result = String(error); });
+        "#,
+    );
+    assert_eq!(consumer.finish(), "trusted-number|trusted-array");
+    assert!(root.join("data/trusted.db").exists());
+    drop(consumer);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn default_intrinsic_capture_still_refuses_replacements_and_added_properties() {
+    let consumer = BareConsumer::new(Groups::STORAGE);
+    consumer.eval(
+        r#"
+        Number.prototype.toLocaleString = function () { return "late"; };
+        Object.defineProperty(Array.prototype, "lateArrayMethod", {
+          value: function () {}, configurable: true
+        });
+        "#,
+    );
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("freezing still succeeds; SQLite checks the earlier baseline");
+    let error = consumer
+        .eval_result("sqlite.open('app:/data/refused.db')")
+        .unwrap_err();
+    assert!(error.contains("unchanged, hardened intrinsics"), "{error}");
+}
+
+#[test]
+fn deferred_intrinsic_capture_is_required_once_and_cannot_follow_app_code() {
+    let consumer = BareConsumer::from_context_with_deferred_intrinsics(
+        Groups::empty(),
+        Context::new(GrantSet::none()),
+    );
+    let error = consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .unwrap_err();
+    assert!(
+        error.contains("deferred intrinsic snapshot is captured"),
+        "{error}"
+    );
+    assert_eq!(
+        consumer.eval("String(Object.isFrozen(Array.prototype))"),
+        "false"
+    );
+    consumer.capture_intrinsics().expect("first capture");
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("capture satisfies harden");
+    assert_eq!(
+        consumer.eval("globalThis.appRan = true; String(appRan)"),
+        "true"
+    );
+    let error = consumer.capture_intrinsics().unwrap_err();
+    assert!(error.contains("already captured"), "{error}");
+
+    let ordinary = BareConsumer::new(Groups::empty());
+    let error = ordinary.capture_intrinsics().unwrap_err();
+    assert!(error.contains("was not deferred"), "{error}");
 }
 
 #[test]

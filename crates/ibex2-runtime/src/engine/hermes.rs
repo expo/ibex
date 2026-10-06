@@ -53,9 +53,11 @@ extern "C" {
         script_count: usize,
         fetch_primitives: *const c_char,
         abort_hooks: *const c_char,
+        defer_intrinsic_snapshot: c_int,
         out_error: *mut *mut c_char,
     ) -> c_int;
-    fn ibex2_hermes_verify_trusted_bootstrap(
+    fn ibex2_hermes_capture_intrinsics(handle: *mut c_void, out_error: *mut *mut c_char) -> c_int;
+    fn ibex2_hermes_verify_harden_preconditions(
         handle: *mut c_void,
         out_error: *mut *mut c_char,
     ) -> c_int;
@@ -99,7 +101,7 @@ pub enum DynamicCode {
     Open,
 }
 
-/// Additive, trusted-bootstrap outputs from one binding installation.
+/// Explicit trusted-bootstrap controls for one binding installation.
 ///
 /// `fetch_primitives`, when set, names the global under which installation
 /// publishes one frozen object. The name must be an ASCII JavaScript identifier,
@@ -119,6 +121,14 @@ pub enum DynamicCode {
 /// immediately when the signal is already aborted. The optional `alive`
 /// predicate is checked before delivery. An application listener's
 /// `stopImmediatePropagation()` therefore cannot suppress this subscription.
+///
+/// `defer_intrinsic_snapshot`, when true, makes installation discard the
+/// constructor-time SQLite integrity baseline after the selected bindings are
+/// installed. The trusted embedder then runs its prelude and calls
+/// [`Hermes::capture_intrinsics`] exactly once before [`Hermes::harden`]. Both
+/// hardening and SQLite refuse while the baseline is absent. The default is
+/// false. Application code may run only after hardening, so capture cannot be
+/// moved after application code within the supported lifecycle.
 ///
 /// CONTRACT: trusted embedder bootstrap only. Application code must never reach
 /// either object or any member. Between installation and hardening, and before
@@ -224,6 +234,8 @@ pub struct InstallOptions<'a> {
     pub fetch_primitives: Option<&'a str>,
     // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms cross only into trusted bootstrap
     pub abort_hooks: Option<&'a str>,
+    // @ref LLP 0068#deferred-intrinsic-integrity-baseline — the trusted prelude establishes one complete baseline
+    pub defer_intrinsic_snapshot: bool,
 }
 
 /// The one accepted spelling of a trusted-bootstrap global: an ASCII
@@ -497,7 +509,10 @@ impl Hermes {
         // SAFETY: the runtime is live; every byte/name span is static and the
         // context's Arc-backed endowment supplies the state and authority.
         let status = unsafe {
-            if fetch_primitives.is_some() || abort_hooks.is_some() {
+            if fetch_primitives.is_some()
+                || abort_hooks.is_some()
+                || options.defer_intrinsic_snapshot
+            {
                 ibex2_hermes_install_groups_with_options(
                     self.handle,
                     groups.bits(),
@@ -510,6 +525,7 @@ impl Hermes {
                     abort_hooks
                         .as_ref()
                         .map_or(std::ptr::null(), |name| name.as_ptr()),
+                    c_int::from(options.defer_intrinsic_snapshot),
                     &mut out,
                 )
             } else {
@@ -592,6 +608,24 @@ impl Hermes {
         self.installed_groups
     }
 
+    /// Capture the complete intrinsic-integrity baseline after a trusted
+    /// prelude when [`InstallOptions::defer_intrinsic_snapshot`] was selected.
+    /// This succeeds exactly once, after installation and before hardening.
+    /// The default installation path already captured at construction and
+    /// therefore refuses this method.
+    // @ref LLP 0068#deferred-intrinsic-integrity-baseline — one auditable transition from trusted prelude to fixed baseline
+    pub fn capture_intrinsics(&mut self) -> Result<(), JsError> {
+        let mut out: *mut c_char = std::ptr::null_mut();
+        // SAFETY: the runtime and its bindings adapter are live; `out` receives
+        // a malloc'd message that take_c_string owns on refusal.
+        if unsafe { ibex2_hermes_capture_intrinsics(self.handle, &mut out) } != 0 {
+            return Err(JsError::Thrown(take_c_string(out).unwrap_or_else(|| {
+                "could not capture the deferred intrinsic snapshot".into()
+            })));
+        }
+        Ok(())
+    }
+
     /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
     /// bindings are installed and before any module code runs.
     ///
@@ -610,9 +644,9 @@ impl Hermes {
         let mut out: *mut c_char = std::ptr::null_mut();
         // SAFETY: the runtime is live; `out` receives a malloc'd message we
         // take ownership of on refusal.
-        if unsafe { ibex2_hermes_verify_trusted_bootstrap(self.handle, &mut out) } != 0 {
+        if unsafe { ibex2_hermes_verify_harden_preconditions(self.handle, &mut out) } != 0 {
             return Err(JsError::Thrown(take_c_string(out).unwrap_or_else(|| {
-                "could not verify that trusted-bootstrap outputs are unreachable".into()
+                "could not verify the hardening preconditions".into()
             })));
         }
         self.eval_bytes(crate::bindings::HARDEN_BYTECODE)

@@ -64,7 +64,7 @@ struct CompiledScript {
   size_t len;
 };
 
-/// Additive, trusted-bootstrap outputs from one binding installation.
+/// Explicit trusted-bootstrap controls for one binding installation.
 ///
 /// `fetch_primitives`, when set, names the global under which installation
 /// publishes one frozen object. The name must be an ASCII JavaScript identifier,
@@ -86,6 +86,14 @@ struct CompiledScript {
 /// predicate is checked before delivery and lets an internal consumer discard
 /// a stale hook. Because abort algorithms run before event dispatch, an
 /// application listener's `stopImmediatePropagation()` cannot suppress them.
+///
+/// `defer_intrinsic_snapshot`, when true, makes installation discard the
+/// constructor-time SQLite integrity baseline after all selected binding
+/// scripts have installed. The trusted embedder must run its prelude and then
+/// call `Adapter::capture_intrinsics()` exactly once before hardening. Hardening
+/// and SQLite operations refuse while that baseline is absent. The default is
+/// false and preserves construction-time capture. Application code may run only
+/// after hardening, so a conforming embedder cannot move capture after it.
 ///
 /// CONTRACT: trusted embedder bootstrap only. Application code must never reach
 /// either object or any member. Between installation and hardening, and before
@@ -185,6 +193,8 @@ struct InstallOptions {
   const char* fetch_primitives = nullptr;
   // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms are a trusted-bootstrap handoff, never an application global
   const char* abort_hooks = nullptr;
+  // @ref LLP 0068#deferred-intrinsic-integrity-baseline — trusted preludes may establish the whole SQLite integrity baseline once
+  bool defer_intrinsic_snapshot = false;
 };
 
 Ibex2AbiValue to_abi(jsi::Runtime&, const jsi::Value&, std::vector<std::string>&);
@@ -216,10 +226,12 @@ void set_binding(jsi::Runtime&, jsi::Object&, const char*, uint32_t, const void*
 // All methods, including detach/destruction, run on the runtime's owner thread.
 // The runtime and borrowed Rust queue must outlive detach. One adapter owns the
 // queue's task-id namespace. The caller owns checkpoints, scheduling and timers.
-// Construct before application code, then run the precompiled HARDEN_SOURCE
-// (preferably through Adapter::harden, which is required after install_with
-// published fetch primitives) before application code uses storage. SQLite refuses mutable or replaced
-// intrinsics, including methods changed before a later freeze.
+// Construct before trusted bootstrap or application code. By default the
+// constructor captures SQLite's intrinsic-integrity baseline. An install that
+// opts into deferred capture must be followed by the trusted prelude,
+// capture_intrinsics(), and Adapter::harden(), in that order. In every mode,
+// harden before application code uses storage. SQLite refuses mutable or
+// replaced intrinsics, including methods changed before a later freeze.
 // Retained JavaScript bindings fail closed after detach; they never dereference
 // a destroyed adapter. Detach clears all JSI roots before the runtime is destroyed.
 class Adapter {
@@ -236,9 +248,17 @@ public:
   // token as the core group installers.
   std::shared_ptr<Lifetime> lifetime() const;
   // Update only an already-captured intrinsic property's expected identity
-  // after Ibex's trusted bootstrap replaces that property. Every other
-  // captured identity remains anchored to runtime construction.
+  // after Ibex's trusted bootstrap replaces that property. This suffices for a
+  // named replacement but cannot admit a newly added property because the
+  // construction-time key set is closed. Every other captured identity remains
+  // anchored to runtime construction. A deferred complete baseline uses
+  // capture_intrinsics() instead.
   void accept_trusted_intrinsic_property(jsi::Object, const char* name);
+  // Complete a deferred intrinsic snapshot exactly once, after install_with
+  // and the trusted embedder prelude but before hardening. Throws if deferral
+  // was not requested, installation is incomplete, or capture already ran.
+  // @ref LLP 0068#deferred-intrinsic-integrity-baseline — capture the trusted prelude's complete property sets and identities
+  void capture_intrinsics();
   // Install exactly `groups`. `scripts` must be the compiled results of
   // bindings::scripts(groups), in that order, from the compiler belonging to
   // this runtime's engine. `bindings` is the opaque endowment made from
@@ -271,9 +291,12 @@ public:
   // and abort hooks, when requested. Prefer this over the compatibility-named
   // entry point above when checking explicitly; both run the complete guard.
   void verify_trusted_bootstrap_unreachable();
+  // Every fail-closed check that must precede the freeze: a deferred intrinsic
+  // snapshot has been captured, and trusted-bootstrap outputs are unreachable.
+  void verify_harden_preconditions();
   // The post-install hardening step through the adapter: validates `script`
   // as this runtime's Hermes bytecode (the header checks install() applies),
-  // runs verify_trusted_bootstrap_unreachable(), and only then evaluates it.
+  // runs verify_harden_preconditions(), and only then evaluates it.
   // `script` is HARDEN_SOURCE compiled by this engine's hermesc -- in Rust,
   // ibex2::bindings::HARDEN_BYTECODE (path: HARDEN_BYTECODE_PATH). A caller
   // that requested a trusted-bootstrap output through install_with MUST harden with

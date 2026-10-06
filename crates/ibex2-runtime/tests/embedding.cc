@@ -44,6 +44,10 @@ using HardenMethod = void (ibex2::jsi_adapter::Adapter::*)(
     const ibex2::jsi_adapter::CompiledScript&);
 static_assert(std::is_same_v<decltype(&ibex2::jsi_adapter::Adapter::harden),
                              HardenMethod>);
+using CaptureIntrinsicsMethod = void (ibex2::jsi_adapter::Adapter::*)();
+static_assert(std::is_same_v<
+    decltype(&ibex2::jsi_adapter::Adapter::capture_intrinsics),
+    CaptureIntrinsicsMethod>);
 static_assert(!std::is_convertible_v<const void*, const Ibex2Bindings*>);
 
 extern "C" {
@@ -117,14 +121,45 @@ int bindings_consumer_install_with_fetch_primitives(
 int bindings_consumer_install_with_options(
     void *handle, const Ibex2Bindings *bindings, uint16_t groups,
     const ibex2::jsi_adapter::CompiledScript *scripts, size_t script_count,
-    const char *fetch_primitives, const char *abort_hooks, char **error) {
+    const char *fetch_primitives, const char *abort_hooks,
+    bool defer_intrinsic_snapshot, char **error) {
   try {
     auto *c = static_cast<Consumer *>(handle);
     if (c == nullptr || c->adapter == nullptr) return 0;
     ibex2::jsi_adapter::InstallOptions options;
     options.fetch_primitives = fetch_primitives;
     options.abort_hooks = abort_hooks;
+    options.defer_intrinsic_snapshot = defer_intrinsic_snapshot;
     c->adapter->install_with(groups, bindings, scripts, script_count, options);
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+int bindings_consumer_capture_intrinsics(void *handle, char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr) return 0;
+    c->adapter->capture_intrinsics();
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+int bindings_consumer_install_storage(
+    void *handle, const void *grants, const uint8_t *factory, size_t len,
+    char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr || c->runtime == nullptr) return 0;
+    auto &rt = *c->runtime;
+    auto sqlite_factory = rt.evaluateJavaScript(
+        std::make_shared<Bytes>(factory, len), "sqlite.hbc")
+        .getObject(rt).getFunction(rt);
+    rt.global().setProperty(
+        rt, "storage", c->adapter->storage(grants, sqlite_factory));
     return 1;
   } catch (const std::exception &e) {
     if (error != nullptr) *error = copy(e.what());

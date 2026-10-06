@@ -1068,7 +1068,8 @@ static int install_groups(void *handle, uint16_t groups,
                           const Ibex2Bindings *endowment,
                           const CompiledScript *scripts, size_t script_count,
                           const char *fetch_primitives,
-                          const char *abort_hooks, char **out_error) {
+                          const char *abort_hooks,
+                          bool defer_intrinsic_snapshot, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
     return 1;
@@ -1080,13 +1081,15 @@ static int install_groups(void *handle, uint16_t groups,
         throw std::invalid_argument(
             "Ibex2 bindings require a live, unadopted endowment");
     }
-    if (fetch_primitives == nullptr && abort_hooks == nullptr) {
+    if (fetch_primitives == nullptr && abort_hooks == nullptr &&
+        !defer_intrinsic_snapshot) {
       rt->bindings->install(
           groups, rt->adopted_bindings, scripts, script_count);
     } else {
       ibex2::jsi_adapter::InstallOptions options;
       options.fetch_primitives = fetch_primitives;
       options.abort_hooks = abort_hooks;
+      options.defer_intrinsic_snapshot = defer_intrinsic_snapshot;
       rt->bindings->install_with(
           groups, rt->adopted_bindings, scripts, script_count, options);
     }
@@ -1116,21 +1119,20 @@ int ibex2_hermes_install_groups(void *handle, uint16_t groups,
                                 const CompiledScript *scripts,
                                 size_t script_count, char **out_error) {
   return install_groups(handle, groups, endowment, scripts, script_count,
-                        nullptr, nullptr, out_error);
+                        nullptr, nullptr, false, out_error);
 }
 
 int ibex2_hermes_install_groups_with_options(
     void *handle, uint16_t groups, const Ibex2Bindings *endowment,
     const CompiledScript *scripts, size_t script_count,
-    const char *fetch_primitives, const char *abort_hooks, char **out_error) {
+    const char *fetch_primitives, const char *abort_hooks,
+    int defer_intrinsic_snapshot, char **out_error) {
   return install_groups(handle, groups, endowment, scripts, script_count,
-                        fetch_primitives, abort_hooks, out_error);
+                        fetch_primitives, abort_hooks,
+                        defer_intrinsic_snapshot != 0, out_error);
 }
 
-/// Harden's fail-closed trusted-bootstrap guard: the same check
-/// Adapter::harden runs for a caller-owned runtime. 0 when nothing was
-/// published or nothing published is reachable; 1 with a message otherwise.
-int ibex2_hermes_verify_trusted_bootstrap(void *handle, char **out_error) {
+int ibex2_hermes_capture_intrinsics(void *handle, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
     if (out_error != nullptr)
@@ -1138,7 +1140,26 @@ int ibex2_hermes_verify_trusted_bootstrap(void *handle, char **out_error) {
     return 1;
   }
   try {
-    rt->bindings->verify_trusted_bootstrap_unreachable();
+    rt->bindings->capture_intrinsics();
+    return 0;
+  } catch (const std::exception &error) {
+    if (out_error != nullptr) *out_error = dup_c_string(error.what());
+    return 1;
+  }
+}
+
+/// Harden's fail-closed preconditions: the same deferred-capture and
+/// trusted-bootstrap reachability checks Adapter::harden runs for a
+/// caller-owned runtime. Returns 0 when they hold, 1 with a message otherwise.
+int ibex2_hermes_verify_harden_preconditions(void *handle, char **out_error) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
+    if (out_error != nullptr)
+      *out_error = dup_c_string("the runtime has no live bindings adapter");
+    return 1;
+  }
+  try {
+    rt->bindings->verify_harden_preconditions();
     return 0;
   } catch (const std::exception &error) {
     if (out_error != nullptr) *out_error = dup_c_string(error.what());

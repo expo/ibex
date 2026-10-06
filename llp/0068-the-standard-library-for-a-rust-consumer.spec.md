@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": an explicit install option plus one-shot capture lets a trusted embedder establish SQLite's complete intrinsic/property baseline after its prelude; harden and SQLite refuse while capture is owed)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": an ABORT-only embedder may request the frozen private hook object under an ASCII-identifier name; hardening applies the same object/member reachability guard as fetch primitives)
 **Revised:** 2026-10-05 (§3/OQ2 fix round 1: bindings export both available ICU-data identities but no selected one; the linking instance alone exports `LINKED_ICU_DATA_*`; full data without Ibex Intl remains a supported Hermes configuration)
 **Revised:** 2026-10-05 (§3/OQ2 round 2: Linux VM links require pinned ICU 74.2 with trimmed root+en data; `intl` selects full data through `icu-full-data`; basic Unicode behavior and the separate linked data identity are recorded)
@@ -225,6 +226,17 @@ trusted-bootstrap handoff: capture it, delete the chosen global, expose only
 closures that use it, and call `Hermes::harden` or `Adapter::harden`. The same
 guard refuses while the object or either member is reachable. The normative
 shape and ordering are in "Opt-in abort hooks protocol" below.
+
+A trusted embedder whose prelude deliberately replaces or adds intrinsic
+properties may set `InstallOptions::defer_intrinsic_snapshot`. After the same
+one-shot install and its prelude, it calls `Adapter::capture_intrinsics()` in
+C++ or `Hermes::capture_intrinsics()` in Rust, then hardens. The option discards
+the constructor-time SQLite integrity baseline only after installation
+succeeds; capture records the complete current global identities, prototype
+chains, property sets, and property identities exactly once. Hardening and
+SQLite refuse while the deferred baseline is absent. The default retains the
+constructor-time snapshot and today's refusal behavior. "Deferred intrinsic
+integrity baseline" below is normative.
 
 Here `compiled_scripts` is the name/byte-span array produced from that exact
 `bindings::scripts(groups)` order. The adapter checks the dependency graph,
@@ -510,6 +522,62 @@ and `Adapter::harden` refuse, freezing nothing, while the chosen global remains
 or any recorded identity is reachable from the same graph described by the
 fetch-primitives protocol. Evaluating `HARDEN_SOURCE` directly skips this guard
 and is unsupported after requesting abort hooks.
+
+#### Deferred intrinsic integrity baseline
+
+This subsection is normative for
+`InstallOptions::defer_intrinsic_snapshot` and
+`Adapter::capture_intrinsics()` / `Hermes::capture_intrinsics()`. It exists for
+a caller-owned runtime whose trusted prelude intentionally finishes the realm's
+standard intrinsic surface after Ibex bindings are installed. It is not a way
+for application code to bless its own mutations.
+
+By default the `Adapter` constructor captures the 18 global constructors used
+by SQLite (`Object`, `Function`, `Array`, `Promise`, `WeakMap`, `Reflect`,
+`Number`, `BigInt`, `Uint8Array`, `ArrayBuffer`, `Error`, `TypeError`,
+`RangeError`, `String`, `JSON`, `Symbol`, `Map`, and `Set`), their prototype
+objects and prototype chains, the complete own string/symbol property set of
+every captured object, and every data/getter/setter identity. SQLite later
+requires those objects to be frozen, their global bindings locked, and all
+captured identities and property sets unchanged.
+
+When the option is true, installation uses that normal baseline while its own
+trusted binding mutations run, then discards it only after the one-shot install
+has completed successfully. The adapter is now in an explicit "capture owed"
+state. The embedder evaluates only its trusted prelude and calls
+`capture_intrinsics()`; that call reconstructs the complete baseline from the
+realm's current state and succeeds exactly once. It is refused before a
+successful opted-in install, when the option was false, and after the one
+successful capture. `Adapter::harden` and `Hermes::harden` refuse before
+evaluating the freeze while capture is owed, and a SQLite open refuses before
+native work. Thus the supported lifecycle is auditable:
+
+```text
+construct Adapter
+  -> install_with(..., defer_intrinsic_snapshot = true)
+  -> evaluate trusted embedder prelude
+  -> capture_intrinsics() exactly once
+  -> harden()
+  -> application code
+```
+
+Decision C already forbids application code before `harden`. Since `harden`
+refuses an uncaptured deferred baseline and capture is one-shot, capture after
+conforming application code is impossible; a second call after hardening is
+refused. Directly evaluating `HARDEN_SOURCE`, or evaluating application code in
+the trusted-prelude interval, is outside this lifecycle and cannot turn that
+code into trusted bootstrap.
+
+`accept_trusted_intrinsic_property(object, name)` remains the narrower tool for
+Ibex's own known replacements. It updates the recorded value/getter/setter of a
+property that was already present in the constructor-time snapshot, while
+leaving every other identity and the captured key set anchored. It therefore
+suffices for a specifically named replacement such as
+`Number.prototype.toLocaleString`, but it deliberately refuses a newly added
+property: there is no captured property row to update, and SQLite's property-
+count check would still reject it. Exact2's prelude both replaces that Number
+method and adds ES2023 Array/TypedArray methods, so enumerating replacements is
+not sufficient; the deferred complete snapshot is required.
 
 ## 4. Exact 2
 

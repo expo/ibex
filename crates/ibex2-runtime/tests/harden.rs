@@ -1,7 +1,7 @@
 //! LLP 0067 R4: the intrinsic freeze, exercised from the same file the
 //! binary runs (`intrinsic_harden.rs` measures a copy; this pins behaviour).
 
-use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
+use ibex2_runtime::engine::hermes::{DynamicCode, Hermes, InstallOptions};
 
 fn install_runtime(rt: &mut Hermes) {
     let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
@@ -19,6 +19,42 @@ fn hardened() -> Hermes {
 fn eval(rt: &mut Hermes, program: &str) -> String {
     rt.eval(program)
         .unwrap_or_else(|e| panic!("{program}: {e}"))
+}
+
+#[test]
+fn owning_runtime_can_defer_and_capture_its_intrinsic_baseline_once() {
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_with(
+        ibex2::bindings::Groups::PURE,
+        &context,
+        InstallOptions {
+            defer_intrinsic_snapshot: true,
+            ..InstallOptions::default()
+        },
+    )
+    .expect("deferred install");
+    eval(
+        &mut rt,
+        "Number.prototype.toLocaleString = function () { return 'trusted'; }; \
+         Object.defineProperty(Array.prototype, 'trustedMethod', { value: function () { return 7; }, configurable: true });",
+    );
+    assert!(rt
+        .harden()
+        .unwrap_err()
+        .to_string()
+        .contains("deferred intrinsic snapshot is captured"));
+    rt.capture_intrinsics().expect("capture trusted prelude");
+    rt.harden().expect("capture permits hardening");
+    assert_eq!(
+        eval(&mut rt, "(1).toLocaleString() + [][\"trustedMethod\"]()"),
+        "trusted7"
+    );
+    assert!(rt
+        .capture_intrinsics()
+        .unwrap_err()
+        .to_string()
+        .contains("already captured"));
 }
 
 #[test]

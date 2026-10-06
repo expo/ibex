@@ -440,6 +440,7 @@ struct Adapter::State {
   jsi::Value rejection_unhandled;
   jsi::Value rejection_handled;
   std::unique_ptr<Integrity> integrity;
+  bool intrinsic_snapshot_deferred = false;
   // Trusted-bootstrap globals and the identities published under them (the
   // object first, then each member), kept so the harden guard can prove that
   // none of them is still reachable from what harden.js freezes.
@@ -469,9 +470,23 @@ std::shared_ptr<Lifetime> Adapter::lifetime() const {
 }
 void Adapter::accept_trusted_intrinsic_property(jsi::Object object,
                                                 const char* name) {
-  if (!runtime_ || !state_->integrity)
+  if (!runtime_)
     throw std::logic_error("Ibex2 bindings are detached");
+  if (!state_->integrity)
+    throw std::logic_error(
+        "the intrinsic snapshot is deferred; capture the complete baseline instead");
   state_->integrity->accept_property(*runtime_, object, name);
+}
+void Adapter::capture_intrinsics() {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  if (state_->install_status != InstallStatus::Installed)
+    throw std::logic_error(
+        "a deferred intrinsic snapshot can be captured only after installation");
+  if (!state_->intrinsic_snapshot_deferred)
+    throw std::logic_error("the intrinsic snapshot was not deferred");
+  if (state_->integrity)
+    throw std::logic_error("the deferred intrinsic snapshot was already captured");
+  state_->integrity = std::make_unique<Integrity>(*runtime_);
 }
 void Adapter::detach() {
   if (!state_->alive) return;
@@ -1750,6 +1765,15 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
     if (!state_->bootstrap_outputs.empty())
       state_->reachability = std::move(reachability);
 
+    if (options.defer_intrinsic_snapshot) {
+      // Installation itself may make narrow trusted intrinsic replacements.
+      // Discard the constructor-time baseline only after all installation
+      // mutations succeed; capture_intrinsics() will record the embedder's
+      // complete post-prelude baseline before hardening and application code.
+      state_->integrity.reset();
+      state_->intrinsic_snapshot_deferred = true;
+    }
+
     state_->install_status = InstallStatus::Installed;
   } catch (const std::exception& error) {
     if (mutation_started)
@@ -1784,6 +1808,14 @@ void Adapter::verify_trusted_bootstrap_unreachable() {
     require_unreachable(rt, *state_->reachability, output.identities);
 }
 
+void Adapter::verify_harden_preconditions() {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  if (!state_->integrity)
+    throw std::runtime_error(
+        "refusing to harden before the deferred intrinsic snapshot is captured");
+  verify_trusted_bootstrap_unreachable();
+}
+
 void Adapter::harden(const CompiledScript& script) {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
   auto& rt = *runtime_;
@@ -1791,7 +1823,7 @@ void Adapter::harden(const CompiledScript& script) {
   if (script.bytes == nullptr)
     throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
   validate_bytecode(script, state_->bytecode_version);
-  verify_trusted_bootstrap_unreachable();
+  verify_harden_preconditions();
   rt.evaluateJavaScript(std::make_shared<CompiledBytes>(script.bytes, script.len),
                         "harden.js");
 }
@@ -1845,7 +1877,12 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
   return jsi::Function::createFromHostFunction(rt, jsi::PropNameID::forAscii(rt, name), 1,
       [state, authority, op](jsi::Runtime& r, const jsi::Value&, const jsi::Value* args, size_t count) {
         state->require(r);
-        if (op == 150) state->integrity->require(r);
+        if (op == 150) {
+          if (!state->integrity)
+            throw jsi::JSError(
+                r, "Ibex2 SQLite requires capture_intrinsics() before use");
+          state->integrity->require(r);
+        }
         std::vector<std::string> owned;
         std::vector<Ibex2AbiValue> abi;
         owned.reserve(count); abi.reserve(count);
