@@ -137,8 +137,13 @@ pub(crate) struct PreparedLinkArchive {
     /// The receipt-authenticated bundle input. R-e continues to name this
     /// archive and its receipt digest even when rustc links a thin derivative.
     pub source: PathBuf,
-    /// The path placed on rustc's native-library search path.
+    /// The path placed on rustc's native-library search path. Apple Simulator
+    /// closures place every member in one freshly populated content-addressed
+    /// directory, whether the member was copied or thinned.
     pub linked: PathBuf,
+    /// Digest captured while copying `source` through its one open handle.
+    /// Present for Apple Simulator closures.
+    pub source_digest: Option<String>,
     /// Digest of `linked` when it is an OUT_DIR derivative of `source`.
     pub derivative_digest: Option<String>,
 }
@@ -1202,10 +1207,13 @@ pub(crate) fn apple_simulator_arch(target: &str) -> Option<&'static str> {
     }
 }
 
-/// Thin fat Apple Simulator archives only after every member of the native
-/// link closure has been authenticated against the selected bundle receipt.
-/// Thin device archives and the arm64-only tvOS Simulator archives are linked
-/// directly; `lipo` is deterministic for a fixed source slice and architecture.
+/// Prepare one isolated Apple Simulator native-link closure. Every source is
+/// opened without following a final symlink, checked as a regular file, and
+/// copied into private content-addressed staging while that same handle is
+/// hashed. `lipo` only sees those snapshots. If any snapshot is fat, every
+/// member must match the selected bundle receipt before it can be derived.
+/// Receipt-free legacy overrides remain supported when every archive is
+/// already thin and matches the requested architecture.
 pub(crate) fn prepare_apple_simulator_link_archives(
     install: &EngineInstall,
     target: &str,
@@ -1235,129 +1243,372 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
                 library: archive.library.clone(),
                 source: archive.source.clone(),
                 linked: archive.source.clone(),
+                source_digest: None,
                 derivative_digest: None,
             })
             .collect());
     };
 
-    // Authenticate the complete closure before inspecting or deriving any one
-    // archive. In particular, a receipt omission cannot leave a partially
-    // prepared OUT_DIR that later looks usable.
+    fs::create_dir_all(out_dir).map_err(|error| {
+        format!(
+            "cannot create Apple Simulator staging parent {}: {error}",
+            out_dir.display()
+        )
+    })?;
+    let snapshot_temp = tempfile::Builder::new()
+        .prefix(".hermes-lean-sys-snapshot-")
+        .tempdir_in(out_dir)
+        .map_err(|error| {
+            format!(
+                "cannot create private Apple Simulator staging under {}: {error}",
+                out_dir.display()
+            )
+        })?;
+    let mut snapshots = Vec::with_capacity(archives.len());
+    let mut file_names = BTreeSet::new();
+    let mut libraries = BTreeSet::new();
+    let mut snapshot_identity = Sha256::new();
+    identity_field(&mut snapshot_identity, b"hermes-lean-sys-snapshot-v1");
+    identity_field(&mut snapshot_identity, arch.as_bytes());
     for archive in archives {
-        let expected = install
-            .authenticated_archive_digests
-            .get(&archive.source)
+        let file_name = archive
+            .source
+            .file_name()
+            .and_then(|name| name.to_str())
             .ok_or_else(|| {
                 format!(
-                    "cannot thin Apple Simulator link archive {} because the selected bundle receipt does not authenticate it",
+                    "Apple Simulator link archive {} has no UTF-8 file name",
                     archive.source.display()
                 )
-            })?;
-        let actual = digest_file(&archive.source)?;
-        if &actual != expected {
+            })?
+            .to_owned();
+        if !file_names.insert(file_name.clone()) {
             return Err(format!(
-                "cannot thin Apple Simulator link archive {}: the selected bundle receipt records {}, but the archive has {}",
-                archive.source.display(),
-                expected,
-                actual
+                "Apple Simulator link closure contains duplicate archive file name {file_name}"
             ));
         }
+        if !libraries.insert(archive.library.clone()) {
+            return Err(format!(
+                "Apple Simulator link closure contains duplicate library name {}",
+                archive.library
+            ));
+        }
+        let staged = snapshot_temp.path().join(&file_name);
+        let actual = copy_regular_archive_while_hashing(&archive.source, &staged)?;
+        let authenticated = if let Some(expected) =
+            install.authenticated_archive_digests.get(&archive.source)
+        {
+            if &actual != expected {
+                return Err(format!(
+                    "cannot prepare Apple Simulator link archive {}: the selected bundle receipt records {}, but the archive snapshot has {}",
+                    archive.source.display(),
+                    expected,
+                    actual
+                ));
+            }
+            true
+        } else {
+            false
+        };
+        identity_field(&mut snapshot_identity, archive.library.as_bytes());
+        identity_field(&mut snapshot_identity, file_name.as_bytes());
+        identity_field(&mut snapshot_identity, actual.as_bytes());
+        snapshots.push(SnapshotArchive {
+            archive: archive.clone(),
+            file_name,
+            source_digest: actual,
+            authenticated,
+        });
     }
+    let snapshot_dir = out_dir.join(format!(
+        "hermes-lean-sys-snapshot-{arch}-{:x}",
+        snapshot_identity.finalize()
+    ));
+    publish_private_directory(snapshot_temp, &snapshot_dir)?;
 
-    let derivative_dir = out_dir.join(format!("hermes-lean-sys-{arch}"));
-    let mut prepared = Vec::with_capacity(archives.len());
-    for archive in archives {
-        let architectures = lipo_architectures(lipo, &archive.source)?;
+    let mut inspected = Vec::with_capacity(snapshots.len());
+    for snapshot in snapshots {
+        let staged = snapshot_dir.join(&snapshot.file_name);
+        let architectures = lipo_architectures(lipo, &staged)?;
         if architectures.len() == 1 {
             if architectures[0] != arch {
                 return Err(format!(
                     "thin Apple Simulator archive {} is architecture {}, not required architecture {arch}",
-                    archive.source.display(),
+                    snapshot.archive.source.display(),
                     architectures[0]
                 ));
             }
-            prepared.push(PreparedLinkArchive {
-                library: archive.library.clone(),
-                source: archive.source.clone(),
-                linked: archive.source.clone(),
-                derivative_digest: None,
-            });
-            continue;
-        }
-        if !architectures.iter().any(|candidate| candidate == arch) {
+        } else if !architectures.iter().any(|candidate| candidate == arch) {
             return Err(format!(
                 "universal Apple Simulator archive {} contains architectures {}, not required architecture {arch}",
-                archive.source.display(),
+                snapshot.archive.source.display(),
                 architectures.join(", ")
             ));
         }
+        inspected.push(InspectedArchive {
+            snapshot,
+            architectures,
+        });
+    }
 
-        fs::create_dir_all(&derivative_dir).map_err(|error| {
+    if inspected.iter().any(|archive| archive.is_fat()) {
+        let missing: Vec<_> = inspected
+            .iter()
+            .filter(|archive| !archive.snapshot.authenticated)
+            .map(|archive| archive.snapshot.archive.source.display().to_string())
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "cannot derive a universal Apple Simulator link closure without a canonical receipt authenticating every member; missing {}",
+                missing.join(", ")
+            ));
+        }
+    }
+
+    let link_temp = tempfile::Builder::new()
+        .prefix(".hermes-lean-sys-link-")
+        .tempdir_in(out_dir)
+        .map_err(|error| {
             format!(
-                "cannot create Apple Simulator thin-archive directory {}: {error}",
-                derivative_dir.display()
+                "cannot create private Apple Simulator link closure under {}: {error}",
+                out_dir.display()
             )
         })?;
-        let file_name = archive.source.file_name().ok_or_else(|| {
-            format!(
-                "Apple Simulator link archive {} has no file name",
-                archive.source.display()
-            )
-        })?;
-        let destination = derivative_dir.join(file_name);
-        let temporary = derivative_dir.join(format!(".{}.tmp", file_name.to_string_lossy()));
-        match fs::remove_file(&temporary) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
+    let mut outputs = Vec::with_capacity(inspected.len());
+    let mut closure_identity = Sha256::new();
+    identity_field(&mut closure_identity, b"hermes-lean-sys-link-closure-v1");
+    identity_field(&mut closure_identity, arch.as_bytes());
+    for inspected in &inspected {
+        let staged = snapshot_dir.join(&inspected.snapshot.file_name);
+        let destination = link_temp.path().join(&inspected.snapshot.file_name);
+        if inspected.is_fat() {
+            let output = std::process::Command::new(lipo)
+                .arg("-thin")
+                .arg(arch)
+                .arg(&staged)
+                .arg("-output")
+                .arg(&destination)
+                .output()
+                .map_err(|error| lipo_launch_error(&staged, error))?;
+            if !output.status.success() {
                 return Err(format!(
-                    "cannot replace stale lipo output {}: {error}",
-                    temporary.display()
+                    "lipo -thin {arch} failed for verified snapshot of {} with {}: {}",
+                    inspected.snapshot.archive.source.display(),
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
                 ));
             }
+            let derivative_architectures = lipo_architectures(lipo, &destination)?;
+            if derivative_architectures != [arch] {
+                return Err(format!(
+                    "lipo produced {} with architectures {}, expected only {arch}",
+                    destination.display(),
+                    derivative_architectures.join(", ")
+                ));
+            }
+        } else {
+            fs::copy(&staged, &destination).map_err(|error| {
+                format!(
+                    "cannot copy verified thin Apple Simulator archive {} into the link closure: {error}",
+                    inspected.snapshot.archive.source.display()
+                )
+            })?;
         }
+        let linked_digest = digest_file(&destination)?;
+        if !inspected.is_fat() && linked_digest != inspected.snapshot.source_digest {
+            return Err(format!(
+                "byte-preserving Apple Simulator closure copy {} has digest {}, expected {}",
+                destination.display(),
+                linked_digest,
+                inspected.snapshot.source_digest
+            ));
+        }
+        let derivative_digest = inspected.is_fat().then(|| linked_digest.clone());
+        identity_field(
+            &mut closure_identity,
+            inspected.snapshot.archive.library.as_bytes(),
+        );
+        identity_field(
+            &mut closure_identity,
+            inspected.snapshot.file_name.as_bytes(),
+        );
+        identity_field(&mut closure_identity, linked_digest.as_bytes());
+        outputs.push(derivative_digest);
+    }
+    let closure_dir = out_dir.join(format!(
+        "hermes-lean-sys-link-{arch}-{:x}",
+        closure_identity.finalize()
+    ));
+    publish_private_directory(link_temp, &closure_dir)?;
 
-        let output = std::process::Command::new(lipo)
-            .arg("-thin")
-            .arg(arch)
-            .arg(&archive.source)
-            .arg("-output")
-            .arg(&temporary)
-            .output()
-            .map_err(|error| lipo_launch_error(&archive.source, error))?;
-        if !output.status.success() {
-            let _ = fs::remove_file(&temporary);
+    let prepared = inspected
+        .into_iter()
+        .zip(outputs)
+        .map(|(inspected, derivative_digest)| PreparedLinkArchive {
+            library: inspected.snapshot.archive.library,
+            source: inspected.snapshot.archive.source,
+            linked: closure_dir.join(inspected.snapshot.file_name),
+            source_digest: Some(inspected.snapshot.source_digest),
+            derivative_digest,
+        })
+        .collect();
+    Ok(prepared)
+}
+
+struct SnapshotArchive {
+    archive: LinkArchive,
+    file_name: String,
+    source_digest: String,
+    authenticated: bool,
+}
+
+struct InspectedArchive {
+    snapshot: SnapshotArchive,
+    architectures: Vec<String>,
+}
+
+impl InspectedArchive {
+    fn is_fat(&self) -> bool {
+        self.architectures.len() > 1
+    }
+}
+
+fn identity_field(identity: &mut Sha256, field: &[u8]) {
+    identity.update((field.len() as u64).to_be_bytes());
+    identity.update(field);
+}
+
+fn copy_regular_archive_while_hashing(source: &Path, destination: &Path) -> Result<String, String> {
+    let path_metadata = fs::symlink_metadata(source)
+        .map_err(|error| format!("cannot inspect link archive {}: {error}", source.display()))?;
+    if path_metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Apple Simulator link archive {} is a symlink; only regular files are accepted",
+            source.display()
+        ));
+    }
+    if !path_metadata.is_file() {
+        return Err(format!(
+            "Apple Simulator link archive {} is not a regular file",
+            source.display()
+        ));
+    }
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut input = options.open(source).map_err(|error| {
+        format!(
+            "cannot open regular Apple Simulator link archive {} without following symlinks: {error}",
+            source.display()
+        )
+    })?;
+    let opened_metadata = input.metadata().map_err(|error| {
+        format!(
+            "cannot inspect opened Apple Simulator link archive {}: {error}",
+            source.display()
+        )
+    })?;
+    if !opened_metadata.is_file() {
+        return Err(format!(
+            "Apple Simulator link archive {} changed to a non-regular file while opening",
+            source.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if path_metadata.dev() != opened_metadata.dev()
+            || path_metadata.ino() != opened_metadata.ino()
+        {
             return Err(format!(
-                "lipo -thin {arch} failed for {} with {}: {}",
-                archive.source.display(),
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
+                "Apple Simulator link archive {} changed while it was being opened",
+                source.display()
             ));
         }
-        let derivative_architectures = lipo_architectures(lipo, &temporary)?;
-        if derivative_architectures != [arch] {
-            let _ = fs::remove_file(&temporary);
-            return Err(format!(
-                "lipo produced {} with architectures {}, expected only {arch}",
-                temporary.display(),
-                derivative_architectures.join(", ")
-            ));
-        }
-        let derivative_digest = digest_file(&temporary)?;
-        fs::rename(&temporary, &destination).map_err(|error| {
+    }
+
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|error| {
             format!(
-                "cannot publish thinned Apple Simulator archive {}: {error}",
+                "cannot create private Apple Simulator snapshot {}: {error}",
                 destination.display()
             )
         })?;
-        prepared.push(PreparedLinkArchive {
-            library: archive.library.clone(),
-            source: archive.source.clone(),
-            linked: destination,
-            derivative_digest: Some(derivative_digest),
-        });
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = input.read(&mut buffer).map_err(|error| {
+            format!(
+                "cannot read Apple Simulator link archive {}: {error}",
+                source.display()
+            )
+        })?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+        output.write_all(&buffer[..count]).map_err(|error| {
+            format!(
+                "cannot write private Apple Simulator snapshot {}: {error}",
+                destination.display()
+            )
+        })?;
     }
-    Ok(prepared)
+    output.flush().map_err(|error| {
+        format!(
+            "cannot flush private Apple Simulator snapshot {}: {error}",
+            destination.display()
+        )
+    })?;
+    Ok(format!("sha256-{:x}", digest.finalize()))
+}
+
+fn publish_private_directory(
+    temporary: tempfile::TempDir,
+    destination: &Path,
+) -> Result<(), String> {
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            fs::remove_dir_all(destination).map_err(|error| {
+                format!(
+                    "cannot clear stale private Apple Simulator directory {}: {error}",
+                    destination.display()
+                )
+            })?;
+        }
+        Ok(_) => {
+            fs::remove_file(destination).map_err(|error| {
+                format!(
+                    "cannot replace stale Apple Simulator path {}: {error}",
+                    destination.display()
+                )
+            })?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect Apple Simulator directory {}: {error}",
+                destination.display()
+            ));
+        }
+    }
+    let source = temporary.keep();
+    if let Err(error) = fs::rename(&source, destination) {
+        let _ = fs::remove_dir_all(&source);
+        return Err(format!(
+            "cannot publish private Apple Simulator directory {}: {error}",
+            destination.display()
+        ));
+    }
+    Ok(())
 }
 
 fn lipo_architectures(lipo: &Path, archive: &Path) -> Result<Vec<String>, String> {

@@ -428,9 +428,15 @@ mismatches the lean entry is refused. Downstream build scripts receive
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` and `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST` for
 lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify the source VM selected for that
-process and its receipt-authenticated digest. The universal iOS Simulator bundle's static link
-closure is authenticated and its fat archives are thinned with `lipo` into
-`OUT_DIR`; thin device and arm64-only tvOS Simulator archives remain in place.
+process and its receipt-authenticated digest. For Apple Simulator links, every
+member must be a regular non-symlink and is copied through one open handle into
+private content-addressed `OUT_DIR` staging while it is hashed. `lipo` inspects
+only those snapshots. A universal closure requires a canonical receipt for all
+members; a receipt-free override remains supported when every member is
+already thin and architecture-matched. Fat members are thinned and thin
+members copied into one freshly populated content-addressed directory whose
+identity covers the exact ordered closure rustc searches. Thin device archives
+remain in place; arm64-only tvOS Simulator inputs are byte-preserving copies.
 `DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST` separately report the VM
 derivative actually passed to rustc without replacing the receipt identity.

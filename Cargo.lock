@@ -443,6 +443,7 @@ name = "hermes-lean-sys"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "libc",
  "serde",
  "serde_json",
  "sha2",
@@ -456,6 +457,7 @@ name = "hermes-lean-sys-installer"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

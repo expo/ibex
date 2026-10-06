@@ -431,6 +431,7 @@ build = "build.rs"
 
 [build-dependencies]
 flate2 = "1"
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

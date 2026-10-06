@@ -192,12 +192,18 @@ The full identity remains `DEP_HERMES_LEAN_ARCHIVE` /
 When one link feature is active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` name the source archive selected for the
 process and its digest (the receipt-authenticated identity for a bundle).
-For the universal iOS Simulator bundle, `hermes-lean-sys` authenticates every
-static archive in the link closure, uses Xcode's `lipo` to thin only the fat
-ones to Cargo's target architecture in `OUT_DIR`, and links those derivatives.
-Thin device and arm64-only tvOS Simulator archives are linked in place. Missing
-`lipo` is an Xcode command-line-tools installation error. The selected VM's
-actual derivative and its SHA-256 are exported separately as
+For an Apple Simulator link, `hermes-lean-sys` refuses symlinked and
+non-regular members, copies each archive through one open handle into private
+content-addressed `OUT_DIR` staging while hashing it, and lets `lipo` inspect
+only that snapshot. A universal closure requires every snapshot to match its
+canonical receipt; a receipt-free override remains supported when all members
+are already thin and architecture-matched. Fat members are thinned and thin
+members copied byte-for-byte into one freshly populated content-addressed link
+directory whose identity covers exactly the ordered closure rustc searches.
+Thin device archives still link in place; an arm64-only tvOS Simulator closure
+uses the same byte-preserving staging. Missing `lipo` is an Xcode
+command-line-tools installation error. The selected fat VM's actual derivative
+and its SHA-256 are exported separately as
 `DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST`; the receipt identity above
 does not change.

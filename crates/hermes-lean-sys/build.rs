@@ -158,13 +158,6 @@ fn main() {
         None
     };
     if let Some((archive, digest)) = linked {
-        metadata("linked_archive", &archive.display().to_string());
-        metadata("linked_engine_digest", digest);
-        println!(
-            "cargo:rustc-env=HERMES_LEAN_LINKED_ARCHIVE={}",
-            archive.display()
-        );
-        println!("cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DIGEST={digest}");
         let link_archives = static_link_archives(&target_os, &install.lib_root, archive);
         let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo supplies OUT_DIR"));
         let prepared =
@@ -174,6 +167,17 @@ fn main() {
             .iter()
             .find(|candidate| candidate.source.as_path() == archive.as_path())
             .expect("prepared link closure contains the selected VM");
+        // Simulator preparation captures this digest from the same open
+        // handle that populated the private snapshot rustc ultimately links.
+        // Other targets retain the digest computed directly above.
+        let linked_source_digest = linked_vm.source_digest.as_deref().unwrap_or(digest);
+        metadata("linked_archive", &archive.display().to_string());
+        metadata("linked_engine_digest", linked_source_digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_LINKED_ARCHIVE={}",
+            archive.display()
+        );
+        println!("cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DIGEST={linked_source_digest}");
         if let Some(derivative_digest) = &linked_vm.derivative_digest {
             metadata(
                 "linked_engine_derivative_archive",
@@ -290,13 +294,10 @@ fn static_link_archives(target_os: &str, lib_root: &Path, vm_archive: &Path) -> 
 
 fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLinkArchive]) {
     let mut search_paths = Vec::new();
-    // Derivative directories must precede the bundle directory so a thinned
-    // archive wins when a closure mixes fat and already-thin inputs.
-    for archive in archives
-        .iter()
-        .filter(|archive| archive.derivative_digest.is_some())
-        .chain(archives)
-    {
+    // Apple Simulator preparation places the complete current closure in one
+    // fresh content-addressed directory, so no stale derivative can shadow a
+    // member that changed from fat to thin.
+    for archive in archives {
         let parent = archive
             .linked
             .parent()
