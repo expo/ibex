@@ -1191,7 +1191,10 @@ fn rust_and_cpp_group_validation_tables_agree() {
     if !error.is_null() {
         let _ = take(error);
     }
-    assert_eq!(cpp_intl, cfg!(all(any(target_os = "linux", windows), feature = "intl")));
+    assert_eq!(
+        cpp_intl,
+        cfg!(all(any(target_os = "linux", windows), feature = "intl"))
+    );
 }
 
 #[test]

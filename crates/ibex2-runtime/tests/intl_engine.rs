@@ -60,6 +60,18 @@ fn engine_intl_surface_without_ibex_intl_group() {
     }
     #[cfg(target_vendor = "apple")]
     assert_eq!(observed, "object|1.234,5");
+    // Windows Hermes is built without Intl; its basic Unicode backend uses
+    // the OS ICU (HERMES_ENABLE_WIN10_ICU_FALLBACK), not Ibex's shims.
+    #[cfg(windows)]
+    {
+        assert_eq!(observed, "undefined|1234.5");
+        assert_eq!(
+            runtime
+                .eval(r#"["é".toUpperCase() === "É", "ß".toUpperCase()].join("|")"#)
+                .expect("exercise the engine's OS-ICU basic Unicode"),
+            "true|SS"
+        );
+    }
 }
 
 #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]

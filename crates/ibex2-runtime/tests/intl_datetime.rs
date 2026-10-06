@@ -5,6 +5,16 @@
 
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 
+/// The space before the day period in an en-US `timeStyle` pattern. CLDR 42+
+/// (Linux's pinned ICU 74) uses U+202F. Windows' OS ICU carries Microsoft's
+/// modified CLDR 42, whose `udat_open` style patterns keep an ASCII space
+/// (skeleton-derived patterns there still use U+202F); see LLP 0057.000
+/// §5.1.1. Linux stays exact.
+#[cfg(not(windows))]
+const STYLE_DAY_PERIOD_SPACE: &str = "\u{202f}";
+#[cfg(windows)]
+const STYLE_DAY_PERIOD_SPACE: &str = " ";
+
 fn runtime() -> Hermes {
     let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
     let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
@@ -111,7 +121,10 @@ fn styles_time_zones_and_date_prototype_methods_share_the_binding() {
                 r.timeStyle, r.timeZone].join("|");
             })()"#,
         ),
-        "12/31/69, 7:00\u{202f}PM|12/31/69, 7:00\u{202f}PM|true|short|short|America/New_York"
+        format!(
+            "12/31/69, 7:00{STYLE_DAY_PERIOD_SPACE}PM|12/31/69, 7:00{STYLE_DAY_PERIOD_SPACE}PM|\
+             true|short|short|America/New_York"
+        )
     );
 
     assert_eq!(
