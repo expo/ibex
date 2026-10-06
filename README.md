@@ -142,6 +142,18 @@ cargo run --manifest-path \
 HERMES_LEAN_SYS_OFFLINE=1 cargo build --locked -p ibex2-runtime
 ```
 
+`--check` installs nothing and never contacts the network. It runs the same
+resolver validation an offline build runs on the cached bundles (for the host
+and each `--target`, including the host/target HBC pairing) and exits non-zero
+with the install command when one is missing or invalid, so a consumer's setup
+check accepts exactly what its offline build will:
+
+```sh
+cargo run --manifest-path \
+  ../ibex/crates/hermes-lean-sys-installer/Cargo.toml -- \
+  --check --target aarch64-apple-ios-sim
+```
+
 Both paths use the same implementation. They verify the compiled-in archive
 SHA-256 before extraction, reject unsafe tar entries, retain the archive,
 compare its per-file manifest with the extracted tree, and validate the
