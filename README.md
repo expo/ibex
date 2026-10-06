@@ -110,7 +110,10 @@ actually contains the Cargo target (`ios/Frameworks-vanilla` for macOS,
 SHA-256-pinned `hermes-vanilla-d412d3bd8512-v4` release bundle for the Cargo
 target. tvOS has a device bundle and an arm64-only Simulator bundle;
 `x86_64-apple-tvos` (the Intel tvOS Simulator) has no bundle and needs
-`HERMES_LEAN_SYS_DIR`. In
+`HERMES_LEAN_SYS_DIR`. The tvOS bundles are built for tvOS 15.0, so set
+`TVOS_DEPLOYMENT_TARGET=15.0` (or later) for tvOS builds: rustc's own default
+(10.0) cannot link them (`___chkstk_darwin` is undefined), and the build script
+warns when the variable is missing or lower. In
 particular, an iOS cross build does not select the repository's macOS archive;
 it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
 

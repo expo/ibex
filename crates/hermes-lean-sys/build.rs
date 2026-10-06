@@ -41,6 +41,7 @@ fn main() {
     let host = std::env::var("HOST").expect("Cargo supplies HOST");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
+    warn_on_low_tvos_deployment_target(&target_os);
     let links_full_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
     let links_lean_runtime = std::env::var_os("CARGO_FEATURE_LINK_LEAN").is_some();
     let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
@@ -290,6 +291,25 @@ fn static_link_archives(target_os: &str, lib_root: &Path, vm_archive: &Path) -> 
             source: archive_path("boost_context"),
         },
     ]
+}
+
+/// The tvOS bundles are built with deployment target 15.0. rustc's default for
+/// tvOS (10.0) links against a libSystem without `___chkstk_darwin`, so the final
+/// link fails far from the cause; say so here instead.
+fn warn_on_low_tvos_deployment_target(target_os: &str) {
+    const BUNDLE_TVOS_MINIMUM: u32 = 15;
+    if target_os != "tvos" {
+        return;
+    }
+    println!("cargo:rerun-if-env-changed=TVOS_DEPLOYMENT_TARGET");
+    let major = std::env::var("TVOS_DEPLOYMENT_TARGET")
+        .ok()
+        .and_then(|value| value.split('.').next()?.parse::<u32>().ok());
+    if major.is_none_or(|major| major < BUNDLE_TVOS_MINIMUM) {
+        println!(
+            "cargo:warning=hermes-lean-sys: the tvOS Hermes bundles target tvOS {BUNDLE_TVOS_MINIMUM}.0; set TVOS_DEPLOYMENT_TARGET={BUNDLE_TVOS_MINIMUM}.0 or later, or the final link fails (___chkstk_darwin undefined)"
+        );
+    }
 }
 
 fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLinkArchive]) {
