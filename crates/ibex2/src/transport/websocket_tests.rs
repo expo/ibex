@@ -5,6 +5,7 @@
 //! handshake, a connection dropped without a close, and an abort.
 use super::*;
 use crate::stdlib::abort::AbortController;
+use std::net::TcpStream;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 /// A server frame (never masked).
@@ -206,6 +207,24 @@ fn text(s: &str) -> Incoming {
 fn wait(seen: &Receiver<String>) -> String {
     seen.recv_timeout(Duration::from_secs(5))
         .expect("the peer reports")
+}
+
+fn server_handshake<W: Read + Write + ?Sized>(wire: &mut W) {
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        wire.read_exact(&mut byte).unwrap();
+        head.push(byte[0]);
+    }
+    let head = String::from_utf8(head).unwrap();
+    let key = head
+        .lines()
+        .find_map(|line| line.strip_prefix("Sec-WebSocket-Key: "))
+        .unwrap()
+        .trim();
+    let accept = crate::stdlib::websocket::accept_key(key);
+    write!(wire, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").unwrap();
+    wire.flush().unwrap();
 }
 
 /// The whole conversation, on whichever transport: shared by the Rust
@@ -469,6 +488,61 @@ fn the_rust_transport_holds_the_whole_conversation() {
 }
 
 #[test]
+fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (close_now, close_requested) = channel();
+    let (close_sent, close_observed) = channel();
+    let (reported, report) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        server_handshake(&mut stream);
+        stream.write_all(&frame(true, 1, b"first")).unwrap();
+        close_requested.recv().unwrap();
+        let mut close = 3001u16.to_be_bytes().to_vec();
+        close.extend_from_slice(b"between");
+        stream.write_all(&frame(true, 0x8, &close)).unwrap();
+        stream.shutdown(Shutdown::Write).unwrap();
+        close_sent.send(()).unwrap();
+        reported.send(client_frame(&mut stream)).unwrap();
+    });
+
+    let mut socket = open_on(
+        &TcpSocketTransport::new(),
+        port,
+        "/close-fin",
+        &AbortSignal::default(),
+    )
+    .unwrap();
+    assert_eq!(socket.next().unwrap(), text("first"));
+    close_now.send(()).unwrap();
+    close_observed.recv().unwrap();
+    // Give poll/WSAPoll time to observe the terminal state while receive
+    // demand is paused. The peer's buffered Close must remain unread.
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 3001,
+            reason: "between".into(),
+        }
+    );
+    let (_, opcode, payload) = report
+        .recv_timeout(Duration::from_secs(3))
+        .expect("the peer received the close reply")
+        .expect("the client sent a frame");
+    assert_eq!(opcode, 0x8);
+    assert_eq!(
+        payload,
+        [3001u16.to_be_bytes().as_slice(), b"between"].concat()
+    );
+    peer.join().unwrap();
+}
+
+#[test]
 fn a_ping_flood_from_a_non_reading_peer_fails_cleanly() {
     const PINGS: usize = 4_096;
 
@@ -539,12 +613,19 @@ fn a_ping_flood_from_a_non_reading_peer_fails_cleanly() {
 }
 
 #[test]
-fn a_stalled_write_to_a_non_reading_peer_fails_within_the_stall_bound() {
+fn control_frames_overtake_a_large_send_to_a_slow_reader() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let (release_peer, released) = channel();
+    let (reported, report) = channel();
+    let (pong_seen, pong_observed) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
+        socket2::SockRef::from(&stream)
+            .set_recv_buffer_size(FRAGMENT)
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let mut head = Vec::new();
         let mut byte = [0u8; 1];
         while !head.ends_with(b"\r\n\r\n") {
@@ -563,53 +644,216 @@ fn a_stalled_write_to_a_non_reading_peer_fails_within_the_stall_bound() {
             "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
         )
         .unwrap();
-        // Never read again. Let the client's large write fill the buffers and
-        // stall first, then ask to close: a reader starved by the stalled
-        // writer cannot see it. Then hold the connection open.
-        std::thread::sleep(Duration::from_millis(300));
-        let _ = stream.write_all(&frame(true, 0x8, &1000u16.to_be_bytes()));
-        let _ = released.recv_timeout(Duration::from_secs(10));
+
+        let ping_sent = std::time::Instant::now();
+        stream.write_all(&frame(true, 0x9, b"priority")).unwrap();
+        let mut data_before_pong = 0;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
+            if opcode == 0xA {
+                assert_eq!(payload, b"priority");
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
+            data_before_pong += payload.len();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let ping_latency = ping_sent.elapsed();
+        pong_seen.send(()).unwrap();
+
+        let close_sent = std::time::Instant::now();
+        stream
+            .write_all(&frame(true, 0x8, &1000u16.to_be_bytes()))
+            .unwrap();
+        let mut data_before_close = data_before_pong;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
+            if opcode == 0x8 {
+                assert_eq!(payload, 1000u16.to_be_bytes());
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
+            data_before_close += payload.len();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        reported
+            .send((
+                ping_latency,
+                close_sent.elapsed(),
+                data_before_pong,
+                data_before_close,
+            ))
+            .unwrap();
     });
 
     let mut socket = open_on(
         &TcpSocketTransport::new(),
         port,
-        "/stall",
+        "/slow-control",
         &AbortSignal::default(),
     )
     .unwrap();
-    // Several MiB cannot fit in the kernel buffers of a peer that never reads,
-    // so the writer stalls inside a frame.
-    socket.send_binary(&vec![5u8; 8 * 1024 * 1024]).unwrap();
-    let (reported, report) = channel();
-    let reader = std::thread::spawn(move || {
-        let started = std::time::Instant::now();
-        let mut last = None;
-        for _ in 0..4 {
-            match socket.next() {
-                Ok(Incoming::Closed { .. }) | Err(_) => {
-                    last = Some(started.elapsed());
-                    break;
-                }
-                Ok(_) => continue,
-            }
+    let payload = vec![5; 8 << 20];
+    socket.send_binary(&payload).unwrap();
+    pong_observed
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the pump answered ping without a posted receive");
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1000,
+            reason: String::new(),
         }
-        let _ = reported.send(last);
-    });
-    // The bound is 500 ms in tests; allow generous scheduling slack.
-    let finished = report.recv_timeout(Duration::from_secs(10));
-    let _ = release_peer.send(());
-    peer.join().unwrap();
-    // A reader still blocked behind a stalled writer would never be joined;
-    // fail instead of hanging the suite.
-    let elapsed = finished
-        .expect("next() must finish while the peer keeps the connection open")
-        .expect("the socket must report a close or a failure");
-    reader.join().unwrap();
-    assert!(
-        elapsed < Duration::from_secs(8),
-        "a stalled write pinned the reader for {elapsed:?}"
     );
+    let (ping_latency, close_latency, before_pong, before_close) = report
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the slow peer received both control replies");
+    peer.join().unwrap();
+    assert!(
+        before_pong < payload.len(),
+        "pong followed the whole message"
+    );
+    assert!(
+        before_close < payload.len(),
+        "close reply followed the whole message"
+    );
+    assert!(
+        ping_latency < Duration::from_secs(2),
+        "pong latency was {ping_latency:?}"
+    );
+    assert!(
+        close_latency < Duration::from_secs(2),
+        "close latency was {close_latency:?}"
+    );
+    eprintln!(
+        "full-duplex control latency: ping={ping_latency:?}, close={close_latency:?}, bytes before pong={before_pong}, bytes before close={before_close}"
+    );
+}
+
+#[cfg(test)]
+fn stalled_peer(
+    secure: bool,
+    flood_pongs: bool,
+) -> (
+    TcpSocketTransport,
+    String,
+    Sender<()>,
+    Arc<PumpObserver>,
+    std::thread::JoinHandle<()>,
+) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (release_peer, released) = channel();
+    let observer = Arc::new(PumpObserver::default());
+    let (transport, server) = if secure {
+        let (_, client, server) = local_tls();
+        (
+            TcpSocketTransport::with_tls_and_pump_observer(client, Arc::clone(&observer)),
+            Some(server),
+        )
+    } else {
+        (
+            TcpSocketTransport::with_pump_observer(Arc::clone(&observer)),
+            None,
+        )
+    };
+    let peer = std::thread::spawn(move || {
+        let tcp = listener.accept().unwrap().0;
+        socket2::SockRef::from(&tcp)
+            .set_recv_buffer_size(1024)
+            .unwrap();
+        tcp.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+        let hold = |wire: &mut (dyn ReadWrite + '_)| {
+            server_handshake(wire);
+            if flood_pongs {
+                let pong = frame(true, 0xA, &[7; 125]);
+                while wire.write_all(&pong).is_ok() {}
+            } else {
+                // After the handshake, neither read nor write until the
+                // client's own no-progress deadline has failed the socket.
+                let _ = released.recv_timeout(Duration::from_secs(5));
+            }
+        };
+        if let Some(server) = server {
+            let connection = rustls::ServerConnection::new(server).unwrap();
+            let mut wire = rustls::StreamOwned::new(connection, tcp);
+            hold(&mut wire);
+        } else {
+            let mut wire = tcp;
+            hold(&mut wire);
+        }
+    });
+
+    let scheme = if secure { "wss" } else { "ws" };
+    (
+        transport,
+        format!("{scheme}://localhost:{port}/stall"),
+        release_peer,
+        observer,
+        peer,
+    )
+}
+
+#[cfg(test)]
+trait ReadWrite: Read + Write {}
+#[cfg(test)]
+impl<T: Read + Write> ReadWrite for T {}
+
+#[cfg(test)]
+fn assert_stall_deadline(secure: bool, flood_pongs: bool) {
+    let (transport, url, release_peer, observer, peer) = stalled_peer(secure, flood_pongs);
+    let mut socket = transport
+        .connect(
+            &url::Url::parse(&url).unwrap(),
+            1024,
+            &AbortSignal::default(),
+        )
+        .unwrap();
+    socket.send_binary(&vec![5u8; 8 * 1024 * 1024]).unwrap();
+    let started = std::time::Instant::now();
+    let error = socket
+        .next()
+        .expect_err("the client's no-progress deadline must fail the socket");
+    let elapsed = started.elapsed();
+    assert!(
+        error
+            .to_string()
+            .contains("the socket write made no progress before its deadline"),
+        "unexpected stalled-write failure: {error}"
+    );
+    assert!(
+        elapsed >= WRITE_STALL_TIMEOUT && elapsed < Duration::from_secs(3),
+        "the {:?} stall fired after {elapsed:?}, expected near {WRITE_STALL_TIMEOUT:?}",
+        if secure { "TLS" } else { "plaintext" }
+    );
+    assert!(
+        observer.network_bytes.load(Ordering::Acquire) > 0,
+        "the test must partially write the frame before it stalls"
+    );
+    eprintln!(
+        "{} stalled write failed after {elapsed:?} with {} network bytes written{}",
+        if secure { "TLS" } else { "plaintext" },
+        observer.network_bytes.load(Ordering::Acquire),
+        if flood_pongs {
+            " during a pong flood"
+        } else {
+            ""
+        }
+    );
+    let _ = release_peer.send(());
+    drop(socket);
+    peer.join().unwrap();
+}
+
+#[test]
+fn silent_peer_stalls_plaintext_and_partial_tls_writes_at_the_deadline() {
+    assert_stall_deadline(false, false);
+    assert_stall_deadline(true, false);
+}
+
+#[test]
+fn pong_flood_cannot_starve_the_stalled_write_deadline() {
+    assert_stall_deadline(false, true);
 }
 
 const LOCAL_CERT: &str = "MIIBcDCCARagAwIBAgIJAL/L9Qemvq28MAoGCCqGSM49BAMCMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDAeFw0yNjEwMDQxMzQ2MTBaFw0yNzEwMDQxMzQ2MTBaMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABB+9b/H/REalNbaY5CeIowEsLfdmeVL8M/iQgCo4BrJM+IgYXRIUDI6EdvgZkkyBFTr8dIRFr/5u/AX/0vRU3p2jUTBPMBoGA1UdEQQTMBGCCWxvY2FsaG9zdIcEfwAAATAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAKBggqhkjOPQQDAgNIADBFAiBU7Mu0QDVetJW9tm7u7aoPrVQcEqkO0IUkZ0aMgPA6GwIhAPMuBqpj21v+kfb7/bCjL94nmzgQkNzpdDPei6+PzVpa";
@@ -645,6 +889,31 @@ fn local_tls() -> (
         .with_single_cert(vec![cert], key)
         .unwrap();
     (cert_bytes, Arc::new(client), Arc::new(server))
+}
+
+#[test]
+fn zero_from_write_tls_is_an_abnormal_close() {
+    struct ZeroWriter;
+    impl Write for ZeroWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let (_, client, _) = local_tls();
+    let name = rustls::pki_types::ServerName::try_from("localhost".to_string()).unwrap();
+    let mut connection = rustls::ClientConnection::new(client, name).unwrap();
+    assert!(
+        connection.wants_write(),
+        "the real rustls path has TLS bytes pending"
+    );
+    assert!(matches!(
+        write_tls_progress(&mut connection, &mut ZeroWriter).unwrap(),
+        WriteProgress::Eof
+    ));
 }
 
 pub(crate) fn tls_echo_peer() -> (
@@ -708,11 +977,11 @@ fn the_rust_transport_echoes_and_closes_over_local_tls() {
     peer.join().unwrap();
 }
 
-/// Go through the production connection path, then inspect and read the socket
-/// actually retained by Wire. Configuring a shutdown clone instead regresses
-/// both progress and the writer bound on Windows.
+/// Go through the production connection path, then inspect and read a clone of
+/// the retained socket. Nonblocking mode is a property of the underlying
+/// socket on every supported platform, including Windows' duplicated handle.
 #[test]
-fn retained_plain_and_tls_sockets_have_bounded_frame_io() {
+fn retained_plain_and_tls_sockets_are_nonblocking_after_the_handshake() {
     for secure in [false, true] {
         let (transport, url, peer) = if secure {
             let (port, _, client, peer) = tls_echo_peer();
@@ -737,40 +1006,14 @@ fn retained_plain_and_tls_sockets_have_bounded_frame_io() {
                 &[],
             )
             .unwrap();
-        {
-            let wire = socket.wire.wire.lock().unwrap();
-            let tcp = match &*wire {
-                Wire::Plain(tcp) => tcp,
-                Wire::Tls(tls) => &tls.sock,
-            };
-            // An OS may round options to its timer granularity. Neither the
-            // old 15 s read nor an unbounded write fits these retained bounds.
-            let read = tcp.read_timeout().unwrap().expect("bounded read");
-            let write = tcp.write_timeout().unwrap().expect("bounded write");
-            assert!((Duration::from_millis(25)..Duration::from_millis(125)).contains(&read));
-            assert!(
-                (WRITE_STALL_TIMEOUT..WRITE_STALL_TIMEOUT + Duration::from_millis(100))
-                    .contains(&write)
-            );
-        }
-        // The peer remains open and waits for our first frame. Keep a generous
-        // watchdog so a lost read bound fails instead of hanging the suite.
-        let shutdown = socket.shutdown.try_clone().unwrap();
-        let (done, finished) = channel();
-        let watchdog = std::thread::spawn(move || {
-            if finished.recv_timeout(Duration::from_secs(2)).is_err() {
-                let _ = shutdown.shutdown(Shutdown::Both);
-            }
-        });
-        let idle = socket.wire.read(&mut [0; 1]);
-        let _ = done.send(());
-        watchdog.join().unwrap();
+        let mut retained = socket.shutdown.try_clone().unwrap();
+        assert_eq!(retained.read_timeout().unwrap(), None);
+        assert_eq!(retained.write_timeout().unwrap(), None);
+        let idle = retained.read(&mut [0; 1]);
         assert!(
-            matches!(idle, Err(ref error) if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock)),
-            "idle retained Wire did not time out: {idle:?}"
+            matches!(idle, Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "idle retained socket was not nonblocking: {idle:?}"
         );
-        // A receive slice is not a failed conversation: writing and receiving
-        // after it must still work, including the shared rustls state.
         socket.send_text("after idle").unwrap();
         assert_eq!(socket.next().unwrap(), text("after idle"));
         socket.close(1000, "done").unwrap();
@@ -785,6 +1028,132 @@ fn retained_plain_and_tls_sockets_have_bounded_frame_io() {
             peer.join().unwrap();
         }
     }
+}
+
+#[test]
+fn an_idle_connection_blocks_without_periodic_wakeups() {
+    let (port, _seen) = peer();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let socket = open_on(&transport, port, "/never", &AbortSignal::default()).unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !observer.parked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(
+        observer.parked.load(Ordering::Acquire),
+        "the pump never entered its readiness wait"
+    );
+    // The socket's one initial writable edge can arrive after open returns.
+    // Let setup readiness settle before measuring the idle interval.
+    std::thread::sleep(Duration::from_millis(50));
+    while !observer.parked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    let returns = observer.returns.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(observer.parked.load(Ordering::Acquire));
+    assert_eq!(
+        observer.returns.load(Ordering::Acquire),
+        returns,
+        "an idle pump returned from readiness without a command or socket event"
+    );
+    drop(socket);
+}
+
+#[cfg(test)]
+fn idle_peer_for_exit_test() -> (u16, std::thread::JoinHandle<()>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        server_handshake(&mut stream);
+        let mut byte = [0u8; 1];
+        while stream.read(&mut byte).unwrap_or(0) != 0 {}
+    });
+    (port, peer)
+}
+
+#[cfg(test)]
+fn wait_for_pump_exit(observer: &PumpObserver, what: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !observer.exited.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(
+        observer.exited.load(Ordering::Acquire),
+        "the {what} pump did not exit"
+    );
+}
+
+#[test]
+fn abort_wakes_and_ends_an_idle_pump() {
+    let (port, peer) = idle_peer_for_exit_test();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let controller = AbortController::new();
+    let mut socket = open_on(&transport, port, "/idle-abort", &controller.signal()).unwrap();
+    controller.abort();
+    wait_for_pump_exit(&observer, "aborted idle");
+    assert!(socket.next().is_err(), "abort remains an error, not EOF");
+    drop(socket);
+    peer.join().unwrap();
+}
+
+#[test]
+fn dropping_the_last_handles_ends_an_idle_pump() {
+    let (port, peer) = idle_peer_for_exit_test();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let socket = open_on(&transport, port, "/idle-drop", &AbortSignal::default()).unwrap();
+    let sender = socket.sender().unwrap();
+    drop(sender);
+    drop(socket);
+    wait_for_pump_exit(&observer, "last-handle drop");
+    peer.join().unwrap();
+}
+
+#[test]
+fn a_real_peer_reset_closes_the_idle_pump_without_spinning() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (reset_now, reset_requested) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        server_handshake(&mut stream);
+        reset_requested.recv().unwrap();
+        socket2::SockRef::from(&stream)
+            .set_linger(Some(Duration::ZERO))
+            .unwrap();
+    });
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let mut socket = transport
+        .open_socket(
+            &url::Url::parse(&format!("ws://127.0.0.1:{port}/never")).unwrap(),
+            1024,
+            &AbortSignal::default(),
+            &[],
+        )
+        .unwrap();
+
+    reset_now.send(()).unwrap();
+    let started = std::time::Instant::now();
+    wait_for_pump_exit(&observer, "reset");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1006,
+            reason: String::new(),
+        }
+    );
+    assert!(!observer.parked.load(Ordering::Acquire));
+    peer.join().unwrap();
 }
 
 #[test]
