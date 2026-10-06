@@ -1,6 +1,6 @@
 # WebSocket: a full-duplex I/O pump for the portable transport
 
-**Status:** Closed (2026-10-06)
+**Status:** Open
 **Opened:** 2026-10-04 (deferred from L4's review, LLP 0057.000 §6 L4)
 **Area:** `crates/ibex2/src/transport/websocket.rs` (non-Apple transport)
 
@@ -70,7 +70,7 @@ batches, stall deadline, latching terminal readiness until buffered input is par
 parked branch's tests and the findings above already specify. Until then the shared-lock
 transport stays: half-duplex but bounded by the 15 s write-stall timeout.
 
-## Resolution (2026-10-06)
+## Attempted resolution (2026-10-06)
 
 Replaced the portable shared-lock reader/writer with one `mio` pump per
 connection (`1faf427`, `e5d6220`, `a729607`). The pump owns the nonblocking TCP
@@ -95,3 +95,30 @@ environment failure (`User interaction is not allowed`); the remainder passes
 when that single fixture is skipped. Both mandated Clippy commands, formatting,
 and `ref-check` pass. Linux and Windows execution remains pending for the
 orchestrator and is not claimed by this closure.
+
+## 2026-10-06: cross-platform fix round 1
+
+The attempted resolution remained open in practice: Linux failed the
+Close+FIN regression 4/4 and Windows failed it 2/4. Both platforms delivered
+the peer Close to `next()`, but a read-half close deregistered the TCP source
+while the echo was blocked, so writable readiness could never resume it.
+
+The pump now has separate caller admission, wire Close-sent/Close-received,
+read-side, and write-side state. A peer Close has priority in the terminal
+latch and cannot be replaced by a later write EOF or error. Terminal draining
+skips data incrementally within `max_message`, retains control frames, and
+never accumulates an unread message. A read EOF stops further data but keeps
+the current fragment and Close echo writable; the TCP source changes to
+WRITABLE-only until they drain. Pings remain answerable until a Close is
+actually on the wire, and sending a generated Close drops queued pongs.
+
+Mac verification is recorded with the landing commit. Linux and Windows must
+both rerun green before this issue closes; that evidence is pending from the
+orchestrator.
+
+The expanded portable suite passes 19/19 for five consecutive macOS runs. A
+fresh probe observed zero idle `Poll::poll` returns over 150 ms, 1.20 ms Pong
+latency and 12.6 ms Close latency during an 8 MiB send. The same stripped
+minimal-consumer fixture is 2,130,152 bytes, 720 bytes above the pre-fix mio
+pump binary and still within D5. Full Mac suites and lints are pending below;
+Linux and Windows remain pending from the orchestrator.
