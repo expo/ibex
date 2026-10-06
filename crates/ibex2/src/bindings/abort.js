@@ -2,7 +2,10 @@
 (function (global) {
   "use strict";
   var brand = global.__ibex2_brand || function (value) { return value; };
-  var signals = new WeakMap(), controllers = new WeakMap();
+  var signals = new WeakMap(), controllers = new WeakMap(), views = new WeakMap();
+  var objectCreate = Object.create;
+  var objectDefineProperties = Object.defineProperties;
+  var objectFreeze = Object.freeze;
   var useEvents = typeof global.EventTarget === "function" && typeof global.Event === "function";
   var EventCtor = global.Event;
   var fireTrustedEvent = global.__ibex2_fire_trusted_event;
@@ -21,6 +24,18 @@
     var state = signals.get(signal);
     if (!state) throw new TypeError("not an AbortSignal");
     return state;
+  }
+  function inspect(signal) {
+    var state = own(signal), view = views.get(signal);
+    if (view) return view;
+    view = objectCreate(null);
+    objectDefineProperties(view, {
+      aborted: { get: function () { return state.aborted; }, enumerable: true },
+      reason: { get: function () { return state.reason; }, enumerable: true }
+    });
+    objectFreeze(view);
+    views.set(signal, view);
+    return view;
   }
   function create() {
     var signal;
@@ -196,7 +211,7 @@
   global.AbortSignal = AbortSignal;
   global.AbortController = AbortController;
   // Captured and deleted by the fetch binding before modules are evaluated.
-  var hooks = { own: own, subscribe: subscribe };
+  var hooks = { own: inspect, subscribe: subscribe };
   if (typeof setEventAbortHooks === "function") setEventAbortHooks(hooks);
   global.__ibex2_abort = hooks;
 })(globalThis);

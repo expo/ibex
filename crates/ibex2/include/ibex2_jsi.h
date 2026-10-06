@@ -77,8 +77,13 @@ struct CompiledScript {
 /// `abort_hooks`, when set, names a global with the same name rules and
 /// collisions. It requires GROUP_ABORT and publishes the frozen hook object
 /// created by the abort binding, with exactly `{ own, subscribe }`. `own(signal)`
-/// returns the binding's private state for an Ibex AbortSignal and throws a
-/// TypeError for any other value. `subscribe(signal, callback[, alive])`
+/// returns a frozen, null-prototype live view with only read-only `aborted` and
+/// `reason` getters for an Ibex AbortSignal and throws a TypeError for any other
+/// value. The view retains private state and is capability-equivalent to `own`
+/// for reading that signal. The harden reachability walk does not recognize or
+/// track views returned from `own`; trusted embedder code may read one but must
+/// never return, publish, or attach it to an application-reachable object.
+/// `subscribe(signal, callback[, alive])`
 /// registers an abort algorithm, returns an idempotent unsubscribe function,
 /// and invokes `callback` synchronously before the public `abort` event is
 /// dispatched. If the signal is already aborted it invokes `callback`

@@ -114,8 +114,13 @@ pub enum DynamicCode {
 /// `abort_hooks`, when set, follows the same name and collision rules, requires
 /// [`crate::bindings::Groups::ABORT`], and publishes the frozen hook object
 /// created by `abort.js`, with exactly `{ own, subscribe }`. `own(signal)`
-/// returns the binding's private state for an Ibex AbortSignal and throws a
-/// `TypeError` for another value. `subscribe(signal, callback[, alive])`
+/// returns a frozen, null-prototype live view with only read-only `aborted` and
+/// `reason` getters for an Ibex AbortSignal and throws a `TypeError` for another
+/// value. The view retains private state and is capability-equivalent to `own`
+/// for reading that signal. The harden reachability walk does not recognize or
+/// track views returned from `own`; trusted embedder code may read one but must
+/// never return, publish, or attach it to an application-reachable object.
+/// `subscribe(signal, callback[, alive])`
 /// registers an abort algorithm and returns an idempotent unsubscribe function.
 /// It invokes `callback` synchronously before the public abort event, or
 /// immediately when the signal is already aborted. The optional `alive`

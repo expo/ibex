@@ -739,6 +739,72 @@ fn adapter_harden_refuses_reachable_abort_hooks_and_members() {
 }
 
 #[test]
+fn abort_hook_bootstrap_can_close_over_only_subscribe() {
+    const NAME: &str = "__exact_ibex2_abort_hooks";
+    let consumer = BareConsumer::from_context_with_outputs(
+        Groups::PURE | Groups::ABORT,
+        Context::new(GrantSet::none()),
+        None,
+        Some(NAME),
+    );
+    assert_eq!(
+        consumer.eval(&format!(
+            r#"
+            (function (hooks) {{
+              var signal = new AbortController().signal;
+              var view = hooks.own(signal);
+              globalThis.abortViewShape = [
+                Object.getPrototypeOf(view) === null,
+                Object.isFrozen(view),
+                Object.keys(view).sort().join(","),
+                typeof Object.getOwnPropertyDescriptor(view, "aborted").get,
+                typeof Object.getOwnPropertyDescriptor(view, "aborted").set
+              ].join("|");
+              var subscribe = hooks.subscribe;
+              delete globalThis.{NAME};
+              globalThis.embedderSubscribe = (function (subscribeOnly) {{
+                return function (signal, callback, alive) {{
+                  return subscribeOnly(signal, callback, alive);
+                }};
+              }})(subscribe);
+            }})(globalThis.{NAME});
+            abortViewShape
+            "#
+        )),
+        "true|true|aborted,reason|function|undefined"
+    );
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("only the subscribe closure retains trusted authority");
+    assert_eq!(
+        consumer.eval(&format!(
+            r#"
+            (function () {{
+              var controller = new AbortController(), callbackArgument = "not-called";
+              var unsubscribe = embedderSubscribe(controller.signal, function () {{
+                callbackArgument = arguments.length === 0 ? "none" : typeof arguments[0];
+              }});
+              controller.abort();
+              return [
+                typeof globalThis.{NAME},
+                typeof globalThis.__ibex2_abort,
+                typeof AbortSignal.own,
+                typeof AbortSignal.subscribe,
+                typeof controller.signal.own,
+                typeof controller.signal.subscribe,
+                typeof embedderSubscribe.own,
+                typeof embedderSubscribe.subscribe,
+                typeof unsubscribe,
+                callbackArgument
+              ].join("|");
+            }})()
+            "#
+        )),
+        "undefined|undefined|undefined|undefined|undefined|undefined|undefined|undefined|function|none"
+    );
+}
+
+#[test]
 fn raw_fetch_primitive_and_global_fetch_share_the_context_grant() {
     const NAME: &str = "__borrowed_fetch_primitives";
     let context = Context::new(GrantSet::none());

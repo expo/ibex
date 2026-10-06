@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `own` exposes only a frozen live `aborted`/`reason` view; that view still carries inspection authority invisible to the harden walk and must not reach application code)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `alive` and callback exceptions are contained per hook on pending and already-aborted delivery, so later algorithms and public dispatch still run)
 **Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": an explicit install option plus one-shot capture lets a trusted embedder establish SQLite's complete intrinsic/property baseline after its prelude; harden and SQLite refuse while capture is owed)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": an ABORT-only embedder may request the frozen private hook object under an ASCII-identifier name; hardening applies the same object/member reachability guard as fetch primitives)
@@ -500,8 +501,18 @@ exactly these members:
 ```
 
 `own` accepts only an `AbortSignal` created by this binding and throws a
-`TypeError` otherwise. Its returned record is trusted binding state; embedders
-must not expose or mutate it. `subscribe` validates the signal through `own`.
+`TypeError` otherwise. It returns a frozen, null-prototype live view with
+exactly the enumerable read-only getters `aborted` and `reason`; the raw
+mutable record does not cross the hook boundary. This reduction is cheap and
+safe because the in-tree fetch consumers require only those two reads and use
+the separate `subscribe` path for delivery. The view retains the binding's
+private state, however, and is capability-equivalent to `own` for reading that
+signal. The harden reachability walk records the hook object and its two member
+identities, but it does not recognize or track a view returned by calling
+`own` (or the private state retained by that view). Trusted embedder code may
+read `aborted` and `reason`, but must never return or publish the view, or
+attach it to an application-reachable object. `subscribe` validates the signal
+through the binding's private ownership check.
 If it is already aborted, delivery runs synchronously and a no-op unsubscribe
 function is returned. Otherwise the callback is registered as an abort
 algorithm and the returned idempotent function removes that registration.
