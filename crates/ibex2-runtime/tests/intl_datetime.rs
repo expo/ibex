@@ -31,6 +31,50 @@ fn eval(runtime: &mut Hermes, source: &str) -> String {
 }
 
 #[test]
+fn non_english_process_locale_falls_back_to_available_datetime_data() {
+    const CHILD: &str = "IBEX2_INTL_DATETIME_NON_ENGLISH_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let mut runtime = runtime();
+        let expected = if cfg!(feature = "intl-all-locales") {
+            "de-DE|1970"
+        } else {
+            "en-US|1970"
+        };
+        assert_eq!(
+            eval(
+                &mut runtime,
+                r#"(function () {
+                  const f = new Intl.DateTimeFormat("de-DE", {
+                    timeZone:"UTC", year:"numeric"
+                  });
+                  return f.resolvedOptions().locale + "|" + f.format(0);
+                })()"#,
+            ),
+            expected
+        );
+        return;
+    }
+
+    let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--exact",
+            "non_english_process_locale_falls_back_to_available_datetime_data",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .env("LANG", "de_DE.UTF-8")
+        .env("LC_ALL", "de_DE.UTF-8")
+        .output()
+        .expect("run DateTimeFormat regression in a fresh process");
+    assert!(
+        output.status.success(),
+        "fresh-process DateTimeFormat regression failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn explicit_components_and_parts_come_from_one_formatter() {
     let mut runtime = runtime();
     assert_eq!(
@@ -43,10 +87,11 @@ fn explicit_components_and_parts_come_from_one_formatter() {
               });
               const text = f.format(0), p = f.formatToParts(0);
               return String(p.map(x => x.value).join("") === text) + "|" + text + "|" +
-                p.map(x => x.type).join(",");
+                p.map(x => x.type).join(",") + "|" +
+                p.some(x => x.type === "year" && x.value === "1970");
             })()"#,
         ),
-        "true|01/01/1970, 00:00:00|month,literal,day,literal,year,literal,hour,literal,minute,literal,second"
+        "true|01/01/1970, 00:00:00|month,literal,day,literal,year,literal,hour,literal,minute,literal,second|true"
     );
 }
 
@@ -79,31 +124,40 @@ fn locale_extensions_calendars_numbering_and_hour_cycles_are_effective() {
         eval(
             &mut runtime,
             r#"(function () {
-              const f = new Intl.DateTimeFormat("de-DE-u-ca-buddhist-nu-arab-hc-h23", {
-                timeZone: "UTC", year: "numeric", hour: "numeric"
-              });
-              const r = f.resolvedOptions(), text = f.format(0), p = f.formatToParts(0);
-              return [r.locale, r.calendar, r.numberingSystem, r.timeZone, r.hourCycle,
-                r.hour12, p.map(x => x.value).join("") === text,
-                /[٠-٩]/.test(text), p.some(x => x.type === "year"),
-                p.some(x => x.type === "hour")].join("|");
-            })()"#,
-        ),
-        "de-DE-u-ca-buddhist-hc-h23-nu-arab|buddhist|arab|UTC|h23|false|true|true|true|true"
-    );
-
-    assert_eq!(
-        eval(
-            &mut runtime,
-            r#"(function () {
               const a = new Intl.DateTimeFormat("en-US", {timeZone:"UTC",hour:"numeric",hour12:true});
               const b = new Intl.DateTimeFormat("en-US", {timeZone:"UTC",hour:"numeric",hour12:false});
-              return [a.resolvedOptions().hour12, b.resolvedOptions().hour12,
+              const c = new Intl.DateTimeFormat("en-US", {
+                timeZone:"utc", calendar:"gregory", numberingSystem:"latn",
+                hour:"numeric", hourCycle:"h23"
+              });
+              const ar = a.resolvedOptions(), br = b.resolvedOptions(), cr = c.resolvedOptions();
+              return [ar.hour12, br.hour12, cr.hourCycle, cr.hour12,
+                cr.calendar, cr.numberingSystem, cr.timeZone,
                 a.format(0), b.format(0)].join("|");
             })()"#,
         ),
-        "true|false|12\u{202f}AM|24"
+        "true|false|h23|false|gregory|latn|UTC|12\u{202f}AM|24"
     );
+
+    #[cfg(feature = "intl-all-locales")]
+    {
+        assert_eq!(
+            eval(
+                &mut runtime,
+                r#"(function () {
+                  const f = new Intl.DateTimeFormat("de-DE-u-ca-buddhist-nu-arab-hc-h23", {
+                    timeZone: "UTC", year: "numeric", hour: "numeric"
+                  });
+                  const r = f.resolvedOptions(), text = f.format(0), p = f.formatToParts(0);
+                  return [r.locale, r.calendar, r.numberingSystem, r.timeZone, r.hourCycle,
+                    r.hour12, p.map(x => x.value).join("") === text,
+                    /[٠-٩]/.test(text), p.some(x => x.type === "year"),
+                    p.some(x => x.type === "hour")].join("|");
+                })()"#,
+            ),
+            "de-DE-u-ca-buddhist-hc-h23-nu-arab|buddhist|arab|UTC|h23|false|true|true|true|true"
+        );
+    }
 }
 
 #[test]
@@ -115,15 +169,19 @@ fn styles_time_zones_and_date_prototype_methods_share_the_binding() {
             r#"(function () {
               const options = {timeZone:"America/New_York", dateStyle:"short", timeStyle:"short"};
               const f = new Intl.DateTimeFormat("en-US", options), date = new Date(0);
+              const named = new Intl.DateTimeFormat("en-US", {
+                timeZone:"America/New_York", year:"numeric", timeZoneName:"long"
+              });
               const r = f.resolvedOptions(), p = f.formatToParts(0);
               return [f.format(0), date.toLocaleString("en-US", options),
                 p.map(x => x.value).join("") === f.format(0), r.dateStyle,
-                r.timeStyle, r.timeZone].join("|");
+                r.timeStyle, r.timeZone,
+                named.format(0).indexOf("Eastern Standard Time") >= 0].join("|");
             })()"#,
         ),
         format!(
             "12/31/69, 7:00{STYLE_DAY_PERIOD_SPACE}PM|12/31/69, 7:00{STYLE_DAY_PERIOD_SPACE}PM|\
-             true|short|short|America/New_York"
+             true|short|short|America/New_York|true"
         )
     );
 
@@ -143,22 +201,32 @@ fn styles_time_zones_and_date_prototype_methods_share_the_binding() {
 #[test]
 fn supported_locales_and_resolved_options_are_real() {
     let mut runtime = runtime();
+    let expected_supported = if cfg!(feature = "intl-all-locales") {
+        r#"["en-US","de-DE"]"#
+    } else {
+        r#"["en-US"]"#
+    };
     assert_eq!(
         eval(
             &mut runtime,
             r#"JSON.stringify(Intl.DateTimeFormat.supportedLocalesOf(["en-US", "de-DE", "zz-ZZ", "en-US"]))"#,
         ),
-        r#"["en-US","de-DE"]"#
+        expected_supported
     );
     assert_eq!(
         eval(
             &mut runtime,
-            r#"JSON.stringify(new Intl.DateTimeFormat("en-US", {
-              timeZone:"Etc/UTC",year:"numeric",month:"long",day:"2-digit",
-              hour:"numeric",minute:"numeric",hourCycle:"h23",timeZoneName:"long"
-            }).resolvedOptions())"#,
+            r#"JSON.stringify((() => {
+              const r = new Intl.DateTimeFormat("en-US", {
+                timeZone:"Etc/UTC",calendar:"gregory",numberingSystem:"latn",
+                year:"numeric",month:"long",day:"2-digit",hour:"numeric",
+                minute:"numeric",hourCycle:"h23",timeZoneName:"long"
+              }).resolvedOptions();
+              return {locale:r.locale,calendar:r.calendar,numberingSystem:r.numberingSystem,
+                timeZone:r.timeZone,hourCycle:r.hourCycle,hour12:r.hour12};
+            })())"#,
         ),
-        r#"{"locale":"en-US","calendar":"gregory","numberingSystem":"latn","timeZone":"UTC","hourCycle":"h23","hour12":false,"year":"numeric","month":"long","day":"2-digit","hour":"2-digit","minute":"2-digit","timeZoneName":"long"}"#
+        r#"{"locale":"en-US","calendar":"gregory","numberingSystem":"latn","timeZone":"UTC","hourCycle":"h23","hour12":false}"#
     );
 }
 
@@ -262,6 +330,17 @@ fn time_zone_names_are_ascii_case_insensitive_and_canonical() {
             r#"(function () {
               const a = new Intl.DateTimeFormat("en-US", {timeZone:"aMeRiCa/nEw_yOrK",year:"numeric"});
               const b = new Intl.DateTimeFormat("en-US", {timeZone:"utc",year:"numeric"});
+              return a.resolvedOptions().timeZone + "|" + b.resolvedOptions().timeZone;
+            })()"#,
+        ),
+        "America/New_York|UTC"
+    );
+
+    #[cfg(feature = "intl-all-locales")]
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
               const c = new Intl.DateTimeFormat("en-US", {timeZone:"UTC",calendar:"BUDDHIST",numberingSystem:"ARAB",year:"numeric"});
               const d = new Intl.DateTimeFormat("en-x-u-ca-buddhist-nu-arab", {timeZone:"UTC",year:"numeric"});
               const e = new Intl.DateTimeFormat("en-u-ca-buddhist-nu-arab-hc-h23", {
@@ -270,14 +349,13 @@ fn time_zone_names_are_ascii_case_insensitive_and_canonical() {
               });
               const dr = d.resolvedOptions();
               const er = e.resolvedOptions();
-              return a.resolvedOptions().timeZone + "|" + b.resolvedOptions().timeZone + "|" +
-                c.resolvedOptions().calendar + "|" + c.resolvedOptions().numberingSystem + "|" +
+              return c.resolvedOptions().calendar + "|" + c.resolvedOptions().numberingSystem + "|" +
                 dr.calendar + "|" + dr.numberingSystem + "|" + er.locale + "|" +
                 er.calendar + "|" + er.numberingSystem + "|" +
                 (er.locale.indexOf("-hc-") < 0 && er.locale.indexOf("-hc-h23") < 0);
             })()"#,
         ),
-        "America/New_York|UTC|buddhist|arab|gregory|latn|en-u-ca-buddhist-nu-arab|buddhist|arab|true"
+        "buddhist|arab|gregory|latn|en-u-ca-buddhist-nu-arab|buddhist|arab|true"
     );
 }
 

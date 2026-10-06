@@ -23,20 +23,20 @@ Linux v4 bundles build ICU 74.2 from tag `release-74-2`, verified at commit
 `2d029329c82c7792b985024b2bdab5fc7278fbc8`. They carry shared
 `libicui18n.a` and `libicuuc.a` code archives plus three data tiers:
 `libicudata.a` is the unchanged 1,109,808-byte v3 base required by Hermes's
-non-Intl Unicode backend, `libicudata-en.a` is the 1,334,064-byte English Intl
+non-Intl Unicode backend, `libicudata-en.a` is the 1,409,456-byte English Intl
 closure, and `libicudata-full.a` is the 30,782,896-byte all-locale archive.
 The base filter is `scripts/icu74-filter-root-en.json`, SHA-256
 `c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702`;
 the English filter is `scripts/icu74-filter-en-intl.json`, SHA-256
-`108164c45163f5b3cc870a9da69bfcd8b13cb4305f6ecbafe351525becf554b1`.
+`796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715`.
 They are copied into each Linux bundle as `share/icu/filters-root-en.json` and
 `share/icu/filters-en-intl.json`. Receipt `icu` metadata binds the ICU tag,
 commit, version, all three data paths, the shared code paths, and both filter
 digests. All three data archives are also in the ordinary sorted archive
 manifest, so they receive the same digest and cache-tree verification as every
-other static archive. Adding `en_US` to the English locale list does not grow
-the data symbol beyond the prior English closure; it makes the available
-locale identity honest for the `en-US` fixtures.
+other static archive. Complete `en` and `en_US` currency resources plus the
+complete supplemental `CurrencyMeta` add 75,392 bytes over the first English
+closure and preserve every currency's fraction metadata, symbols, and names.
 
 The Linux jobs run in the multi-platform `rust:1.97-bookworm` OCI image pinned
 at
@@ -376,7 +376,7 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
       .icu.data.trimmed.filter.path == "share/icu/filters-root-en.json" and
       .icu.data.trimmed.filter.digest == "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702" and
       .icu.data.en.filter.path == "share/icu/filters-en-intl.json" and
-      .icu.data.en.filter.digest == "sha256-108164c45163f5b3cc870a9da69bfcd8b13cb4305f6ecbafe351525becf554b1" and
+      .icu.data.en.filter.digest == "sha256-796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715" and
       any(.archives[]; .path == "lib/libicudata.a") and
       any(.archives[]; .path == "lib/libicudata-en.a") and
       any(.archives[]; .path == "lib/libicudata-full.a")
@@ -395,19 +395,16 @@ rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. The pipeline commits remain on
-independently verified immutable v3 asset digests. The separate v4 consumer
-commit names v4 and rejects every `TODO_I3_V4_SHA256_*` pin until publication
-and attestation; the orchestrator replaces those sentinels from the published
-`SHA256SUMS`. It resolves a complete
+`hermes-lean-sys` is the supported consumer. It pins immutable v4 asset digests,
+replaced from the published, attested `SHA256SUMS`. It resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
 directory) and the published layout (`include/`, `lib/`, and `bin/hermesc`) are
 accepted for local installs. A published-layout override is complete only with
 its receipt. A legacy Apple or Windows repository-layout install may omit one;
-a Linux install must carry a canonical receipt because its ICU code, both data
-variants, and the pinned filter are build inputs. Unsupported
+a Linux install must carry a canonical receipt because its ICU code, all three
+data variants, and both pinned filters are build inputs. Unsupported
 triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
 `aarch64-apple-ios-sim` and `x86_64-apple-ios` both select the universal iOS
 Simulator archive. `aarch64-apple-tvos` selects the tvOS device archive and
@@ -415,10 +412,12 @@ Simulator archive. `aarch64-apple-tvos` selects the tvOS device archive and
 
 The `link` feature emits the full VM's link line; `link-lean` emits the lean
 VM's link line, and the two features are mutually exclusive. On Linux either
-one also selects `icu`, whose default data archive is trimmed root+en;
-`icu-full-data` swaps to the full archive and is enabled by `ibex2/intl`.
-Selecting it directly without `ibex2/intl` is also supported: the engine's
-basic-Unicode backend then uses full data while Ibex's Intl shims remain absent.
+one also selects `icu`, whose default archive is the unchanged v3 base;
+`icu-en-data` swaps to the English archive and is enabled by `ibex2/intl`, and
+`icu-full-data` swaps to the full archive through `ibex2/intl-all-locales`.
+Selection precedence is full, then English, then base. Selecting either data
+feature directly without Ibex Intl is also supported: the engine's
+basic-Unicode backend uses that data while Ibex's Intl shims remain absent.
 Resolution
 exports lean metadata only when the lean archive exists. If a receipt is
 present, its archive manifest must authenticate that archive in every feature
@@ -431,14 +430,16 @@ lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCH
 `DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what VM that process links.
 Linux additionally exports `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST`; this separate identity names exactly
-the trimmed or full data variant while shared ICU code stays archive-manifest
-bound. Bindings-only contexts export both available identities and no selected
-identity; only the normal dependency that emits the link lines exports these
-`LINKED_ICU_DATA_*` values. This is R-e: a process never reports full while
-linking lean, or reports trimmed data while linking full data. Legacy local
+the base, English, or full data variant while shared ICU code stays
+archive-manifest bound. Bindings-only contexts export all three available
+identities and no selected identity; only the normal dependency that emits the
+link lines exports these
+`LINKED_ICU_DATA_*` values. This is R-e: a process never reports one VM or
+data tier while linking another. Legacy local
 layouts may omit lean; they export no lean path, digest, or
 HBC version and fail only if `link-lean` is requested. Published v4 bundles
-must carry and manifest both. Repository discovery uses the Apple layout only
+must carry and manifest all three ICU data archives. Repository discovery uses
+the Apple layout only
 for macOS targets; iOS cross builds fall through to their pinned target bundle
 or an explicit complete `HERMES_LEAN_SYS_DIR`.
 

@@ -13,7 +13,19 @@ fn main() {
         return;
     }
 
-    let headers = required_path("DEP_HERMES_LEAN_INCLUDE_DIR");
+    for variable in [
+        "DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE",
+        "DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST",
+        "DEP_HERMES_LEAN_BINDINGS_LINKED_ICU_DATA_ARCHIVE",
+        "DEP_HERMES_LEAN_BINDINGS_LINKED_ICU_DATA_DIGEST",
+    ] {
+        assert!(
+            std::env::var_os(variable).is_none(),
+            "bindings build context must not see {variable}; only the linking dependency selects an ICU data tier"
+        );
+    }
+
+    let headers = required_path("DEP_HERMES_LEAN_BINDINGS_INCLUDE_DIR");
     println!("cargo:rerun-if-changed=src/bindings/install.cc");
     println!("cargo:rerun-if-changed=include/ibex2_jsi.h");
     let mut installer = cc::Build::new();
@@ -56,7 +68,7 @@ fn main() {
     // features, never here, so a runtime graph carries it exactly once.
     installer.compile("ibex2_bindings_install");
 
-    let hermesc = required_path("DEP_HERMES_LEAN_HERMESC_PATH");
+    let hermesc = required_path("DEP_HERMES_LEAN_BINDINGS_HERMESC_PATH");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let mut scripts = vec![
         "headers",
@@ -99,8 +111,9 @@ fn main() {
         "cargo:rustc-env=IBEX2_HARDEN_BYTECODE_PATH={}",
         harden_bytecode.display()
     );
-    let bytecode_version = required("DEP_HERMES_LEAN_BYTECODE_VERSION");
-    let lean_bytecode_version = std::env::var("DEP_HERMES_LEAN_LEAN_BYTECODE_VERSION").ok();
+    let bytecode_version = required("DEP_HERMES_LEAN_BINDINGS_BYTECODE_VERSION");
+    let lean_bytecode_version =
+        std::env::var("DEP_HERMES_LEAN_BINDINGS_LEAN_BYTECODE_VERSION").ok();
     if let Some(lean_bytecode_version) = &lean_bytecode_version {
         assert_eq!(
             &bytecode_version, lean_bytecode_version,
@@ -109,17 +122,24 @@ fn main() {
     }
     println!(
         "cargo:rustc-env=IBEX2_BINDINGS_ENGINE_DIGEST={}",
-        required("DEP_HERMES_LEAN_ENGINE_DIGEST")
+        required("DEP_HERMES_LEAN_BINDINGS_ENGINE_DIGEST")
     );
     if target_os == "linux" {
-        // @ref LLP 0057.000#l1--the-bindings-door — this build-dependency
-        // context links no VM or ICU data, so it exports both receipt-bound
-        // available identities and never invents a selected one from `intl`.
-        // Only the normal dependency that emits link lines exports LINKED_*.
+        // @ref LLP 0057.000#l1--the-bindings-door — the normal metadata
+        // wrapper forwards all three receipt-bound available identities but
+        // deliberately withholds the selected one. Only hermes-lean-sys can
+        // emit LINKED_*.
         for (source, destination) in [
-            ("DEP_HERMES_LEAN_ICU_DATA", "IBEX2_BINDINGS_ICU_DATA"),
             (
-                "DEP_HERMES_LEAN_ICU_FULL_DATA",
+                "DEP_HERMES_LEAN_BINDINGS_ICU_DATA",
+                "IBEX2_BINDINGS_ICU_DATA",
+            ),
+            (
+                "DEP_HERMES_LEAN_BINDINGS_ICU_EN_DATA",
+                "IBEX2_BINDINGS_ICU_EN_DATA",
+            ),
+            (
+                "DEP_HERMES_LEAN_BINDINGS_ICU_FULL_DATA",
                 "IBEX2_BINDINGS_ICU_FULL_DATA",
             ),
         ] {
@@ -133,7 +153,7 @@ fn main() {
             );
         }
     }
-    if let Ok(digest) = std::env::var("DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST") {
+    if let Ok(digest) = std::env::var("DEP_HERMES_LEAN_BINDINGS_LEAN_ENGINE_DIGEST") {
         println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_ENGINE_DIGEST={digest}");
     }
     println!("cargo:rustc-env=IBEX2_BINDINGS_BYTECODE_VERSION={bytecode_version}");

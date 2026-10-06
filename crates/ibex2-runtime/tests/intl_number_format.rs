@@ -22,37 +22,122 @@ fn eval(runtime: &mut Hermes, source: &str) -> String {
 }
 
 #[test]
-fn formats_locales_styles_precision_and_numbering_systems() {
+fn non_english_process_locale_falls_back_to_available_number_data() {
+    const CHILD: &str = "IBEX2_INTL_NUMBER_NON_ENGLISH_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let mut runtime = runtime(false);
+        let expected = if cfg!(feature = "intl-all-locales") {
+            "de-DE|1.234,5"
+        } else {
+            "en-US|1,234.5"
+        };
+        assert_eq!(
+            eval(
+                &mut runtime,
+                r#"(function () {
+                  const f = new Intl.NumberFormat("de-DE");
+                  return f.resolvedOptions().locale + "|" + f.format(1234.5);
+                })()"#,
+            ),
+            expected
+        );
+        return;
+    }
+
+    let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--exact",
+            "non_english_process_locale_falls_back_to_available_number_data",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .env("LANG", "de_DE.UTF-8")
+        .env("LC_ALL", "de_DE.UTF-8")
+        .output()
+        .expect("run NumberFormat regression in a fresh process");
+    assert!(
+        output.status.success(),
+        "fresh-process NumberFormat regression failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn formats_english_styles_precision_and_numbering_systems() {
     let mut runtime = runtime(false);
     assert_eq!(
         eval(
             &mut runtime,
             r#"(function () {
-              function f(locale, options, value) {
-                return new Intl.NumberFormat(locale, options).format(value);
+              function f(label, locale, options, value) {
+                try { return new Intl.NumberFormat(locale, options).format(value); }
+                catch (error) { return "ERROR " + label + ": " + error; }
               }
-              var grouped = f('de-DE', {}, 1234.5);
-              var currency = f('en-US', {style:'currency', currency:'USD'}, 1234.5);
-              var percent = f('en-US', {style:'percent'}, 0.56);
-              var unit = f('en-US', {style:'unit', unit:'kilometer-per-hour'}, 80);
-              var scientific = f('en-US', {notation:'scientific'}, 12345);
-              var engineering = f('en-US', {notation:'engineering'}, 12345);
-              var compact = f('en-US', {notation:'compact'}, 1200);
-              var significant = f('en-US', {minimumSignificantDigits:4, maximumSignificantDigits:4}, 12.3);
-              var arab = f('ar-EG', {numberingSystem:'arab', useGrouping:false}, 123);
-              return [
-                grouped.indexOf('1.234') >= 0 && grouped.indexOf(',5') >= 0,
-                currency.indexOf('$') >= 0 && currency.indexOf('1,234.50') >= 0,
-                percent === '56%',
-                unit.indexOf('80') >= 0 && /km|kilometer/.test(unit),
-                /E4/.test(scientific), /E3/.test(engineering), compact === '1.2K',
-                significant.indexOf('12.30') >= 0,
-                arab !== '123' && arab.length === 3
-              ].join(':');
+              var grouped = f('grouped', 'en-US', {}, 1234.5);
+              var currency = f('USD', 'en-US', {style:'currency', currency:'USD'}, 1234.5);
+              var eur = f('EUR', 'en-US', {style:'currency', currency:'EUR'}, 1234.5);
+              var gbp = f('GBP', 'en-US', {style:'currency', currency:'GBP'}, 1234.5);
+              var jpy = f('JPY', 'en-US', {style:'currency', currency:'JPY'}, 1234.5);
+              var percent = f('percent', 'en-US', {style:'percent'}, 0.56);
+              var unit = f('unit', 'en-US', {style:'unit', unit:'kilometer-per-hour'}, 80);
+              var unitLong = f('unit long', 'en-US', {
+                style:'unit', unit:'kilometer-per-hour', unitDisplay:'long'
+              }, 80);
+              var scientific = f('scientific', 'en-US', {notation:'scientific'}, 12345);
+              var engineering = f('engineering', 'en-US', {notation:'engineering'}, 12345);
+              var compact = f('compact', 'en-US', {notation:'compact'}, 1200);
+              var significant = f('significant', 'en-US', {minimumSignificantDigits:4, maximumSignificantDigits:4}, 12.3);
+              return [grouped, currency, eur, gbp, jpy, percent, unit, unitLong,
+                scientific, engineering, compact, significant].join('|');
             })()"#,
         ),
-        "true:true:true:true:true:true:true:true:true"
+        "1,234.5|$1,234.50|€1,234.50|£1,234.50|¥1,235|56%|80 km/h|80 kilometers per hour|1.235E4|12.345E3|1.2K|12.30"
     );
+}
+
+#[test]
+fn formats_complete_english_currency_data_and_metadata() {
+    let mut runtime = runtime(false);
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              function currency(code, extra) {
+                var options = {style:'currency', currency:code};
+                if (extra) Object.keys(extra).forEach(function (key) { options[key] = extra[key]; });
+                var formatter = new Intl.NumberFormat('en-US', options);
+                var resolved = formatter.resolvedOptions();
+                return code + '=' + formatter.format(1234.567) + ':' +
+                  resolved.minimumFractionDigits + '/' + resolved.maximumFractionDigits;
+              }
+              return [
+                currency('KWD'), currency('JPY'), currency('CHF'), currency('CLF'),
+                new Intl.NumberFormat('en-US', {
+                  style:'currency', currency:'KWD', currencyDisplay:'name'
+                }).format(1234.567)
+              ].join('|');
+            })()"#,
+        ),
+        concat!(
+            "KWD=KWD\u{a0}1,234.567:3/3|JPY=¥1,235:0/0|",
+            "CHF=CHF\u{a0}1,234.57:2/2|CLF=CLF\u{a0}1,234.5670:4/4|",
+            "1,234.567 Kuwaiti dinars"
+        )
+    );
+
+    let fallback = eval(
+        &mut runtime,
+        r#"(function () {
+          var formatter = new Intl.NumberFormat('de-DE', {style:'currency', currency:'KWD'});
+          return formatter.resolvedOptions().locale + '|' + formatter.format(1234.567);
+        })()"#,
+    );
+    if cfg!(feature = "intl-all-locales") {
+        assert_eq!(fallback, "de-DE|1.234,567\u{a0}KWD");
+    } else {
+        assert_eq!(fallback, "en-US|KWD\u{a0}1,234.567");
+    }
 }
 
 #[test]
@@ -147,6 +232,7 @@ fn sign_display_matrix_includes_special_and_rounded_zero_values() {
 }
 
 #[test]
+#[cfg(feature = "intl-all-locales")]
 fn resolved_options_and_locale_negotiation_match_selected_configuration() {
     let mut runtime = runtime(false);
     assert_eq!(
@@ -313,7 +399,7 @@ fn bound_format_retains_native_state_without_exposing_handles() {
         eval(
             &mut runtime,
             r#"(function () {
-              var formatter = new Intl.NumberFormat('de-DE', {minimumFractionDigits:2});
+              var formatter = new Intl.NumberFormat('en-US', {minimumFractionDigits:2});
               globalThis.savedIntlFormat = formatter.format;
               return [formatter.format === formatter.format,
                 Object.getOwnPropertyNames(formatter).length,
@@ -326,7 +412,7 @@ fn bound_format_retains_native_state_without_exposing_handles() {
     assert_eq!(
         eval(
             &mut runtime,
-            "savedIntlFormat(1234.5).indexOf('1.234,50') >= 0 ? 'alive' : 'wrong'",
+            "savedIntlFormat(1234.5) === '1,234.50' ? 'alive' : 'wrong'",
         ),
         "alive"
     );

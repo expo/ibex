@@ -16,9 +16,9 @@ sha2 = "0.10"
 ring = { version = "0.17", optional = true }
 url = "2.5"
 serde_json = "1"
-# The normal dependency owns native link lines selected by binding-family
-# features. The build dependency below supplies headers and hermesc only.
-hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
+# This normal wrapper carries tier selection to hermes-lean-sys and forwards
+# only unselected metadata for this crate's build script.
+hermes-lean-sys-metadata = { path = "../hermes-lean-sys-metadata", optional = true, default-features = false }
 
 [dev-dependencies]
 ibex2-sqlite = { path = "../ibex2-sqlite" }
@@ -33,7 +33,6 @@ sha2 = "0.10"
 
 [build-dependencies]
 cc = "1"
-hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-features = false }
 
 # The transport off Apple platforms (LLP 0057 §3; OQ2 of LLP 0068, resolved
 # 2026-08-30): HTTP/1.1 over rustls with the webpki roots — pure Rust, no
@@ -64,11 +63,13 @@ webpki-roots = { version = "1", optional = true }
 
 [features]
 default = ["crypto", "websocket"]
-bindings = ["dep:hermes-lean-sys"]
-# Linux's JSI Intl shims and full locale data exceed LLP 0057.000 D5's
-# default-on budget. Selecting Intl also selects the bindings door; ICU link
-# lines and the trimmed/full data swap still come from hermes-lean-sys alone.
-intl = ["bindings", "hermes-lean-sys/icu-full-data"]
+bindings = ["dep:hermes-lean-sys-metadata"]
+# Linux's JSI Intl shims exceed LLP 0057.000 D5's default-on budget. The
+# ordinary Intl door selects the English ICU tier; callers that need every ICU
+# locale select the separate all-locales door. The wrapper forwards those
+# selections to hermes-lean-sys, which alone owns link lines and selected data.
+intl = ["bindings", "hermes-lean-sys-metadata/icu-en-data"]
+intl-all-locales = ["intl", "hermes-lean-sys-metadata/icu-full-data"]
 # Symmetric WebCrypto algorithms backed by the workspace's unmodified,
 # vendored ring. Randomness remains available without this feature.
 crypto = ["dep:ring"]

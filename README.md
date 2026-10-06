@@ -34,11 +34,13 @@ cargo test -p ibex2-runtime --all-features --no-fail-fast
 
 Linux Intl is a second, independent opt-in. Enable `ibex2/intl` (or the
 forwarding `ibex2-runtime/intl` feature) to compile the Intl scripts and C++
-shims and select static ICU. The `intl` feature implies `bindings`, but neither
-crate enables it by default:
+shims against the small English ICU data tier. The `intl` feature implies
+`bindings`, but neither crate enables it by default. Consumers that need ICU's
+other locales select the additional `intl-all-locales` feature:
 
 ```sh
 cargo test -p ibex2-runtime --no-default-features --features intl
+cargo test -p ibex2-runtime --no-default-features --features intl-all-locales
 ```
 
 `Groups::INTL` keeps its stable bit so stored group masks do not change, but
@@ -48,19 +50,27 @@ Without that feature it is absent from both `Groups::DEFAULT` and
 `Groups::ALL`; with it, the normal Linux profile installs it. The observable
 engine fallback when the group is not installed is platform-specific:
 
-| build / installed group | `typeof Intl` | `(1234.5).toLocaleString("de-DE")` |
-|---|---:|---:|
-| Linux, `intl` off (or group omitted) | `"undefined"` | `"1234.5"` |
-| Linux, `intl` on and `INTL` installed | `"object"` | `"1.234,5"` |
-| Apple, `INTL` unavailable | `"object"` | `"1.234,5"` |
+| build / installed group | `typeof Intl` | `(1234.5).toLocaleString("de-DE")` | resolved locale |
+|---|---:|---:|---:|
+| Linux, `intl` off (or group omitted) | `"undefined"` | `"1234.5"` | — |
+| Linux, `intl` on and `INTL` installed | `"object"` | `"1,234.5"` | `"en-US"` |
+| Linux, `intl-all-locales` on and `INTL` installed | `"object"` | `"1.234,5"` | `"de-DE"` |
+| Apple, `INTL` unavailable | `"object"` | `"1.234,5"` | OS supplied |
 
 Linux Hermes is built with engine Intl disabled and Unicode-lite disabled. Its
-basic Unicode backend always links ICU 74.2 code plus the receipt-bound
-root+en data archive; `intl` swaps only that data archive for full locale data
-and adds Ibex's selected ECMA-402 surface. Apple Hermes retains
+basic Unicode backend always links ICU 74.2 code plus the receipt-bound base
+archive, unchanged from v3. No data was added to that always-linked tier: the
+existing `en_US_POSIX` parent is required by Hermes when the process locale is
+`C`. `intl` swaps in the English archive and adds Ibex's selected ECMA-402
+surface; `intl-all-locales` swaps in full locale data. On the English tier
+`supportedLocalesOf` reports only
+available English requests, and an unsupported request such as `de-DE`
+resolves to the available default `en-US` locale instead of formatting with
+German-looking root fallback. It does not expose German or other absent locale
+data. Apple Hermes retains
 its operating-system-backed native implementation, so omitting Ibex's
-Linux-only group does not remove Apple's engine-owned `Intl`. Every Linux v3
-bundle carries matching ICU headers, shared code archives, and both data
+Linux-only group does not remove Apple's engine-owned `Intl`. Every Linux v4
+bundle carries matching ICU headers, shared code archives, and all three data
 variants, so no build compiles or links against a different system ICU.
 
 Windows Intl uses the same `intl` feature and `INTL` group, backed by the
@@ -95,8 +105,8 @@ environment rather than using the `bin\bash.exe` wrapper). See LLP 0057.000
 `hermes-lean-sys` resolves vanilla Hermes in this order: a complete local
 install selected by `HERMES_LEAN_SYS_DIR`; this checkout's layout when it
 actually contains the Cargo target (the Apple repository layout is macOS-only);
-then the SHA-256-pinned
-`hermes-vanilla-d412d3bd8512-v3` release bundle for the Cargo target. In
+then the SHA-256-pinned release bundle named by `hermes-lean-sys` for the Cargo
+target. In
 particular, an iOS cross build does not select the repository's macOS archive;
 it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
 
@@ -161,15 +171,17 @@ revision compiled into the dependency. Configure Cargo's separate `[net]`
 `offline = true` setting if Rust dependencies must also be resolved without
 the network.
 
-Each v3 bundle contains both source-capable `hermesvm_a` and bytecode-only
+Each v4 bundle contains both source-capable `hermesvm_a` and bytecode-only
 `hermesvmlean_a`. Enable exactly one `hermes-lean-sys` link feature: `link`
 for the full VM or `link-lean` for lean. Enabling both is a compile-time error.
 On Linux both VM features imply the independent `icu` feature, which is the
-one owner of ICU link lines and selects trimmed root+en data. `ibex2/intl`
-enables `icu-full-data`, swapping in `libicudata-full.a` while reusing the ICU
-code archives. A Hermes embedder may also select `icu-full-data` directly
-without Ibex's Intl shims; full data remains valid for the engine's basic
-Unicode backend.
+one owner of ICU link lines and selects the v3-compatible base data.
+`ibex2/intl` enables `icu-en-data`, swapping in `libicudata-en.a`;
+`ibex2/intl-all-locales` enables
+`icu-full-data`, swapping in `libicudata-full.a` while reusing the ICU code
+archives. Feature precedence is full, then English, then base. A Hermes
+embedder may select either data feature directly without Ibex's Intl shims;
+both remain valid for the engine's basic Unicode backend.
 The full identity remains `DEP_HERMES_LEAN_ARCHIVE` /
 `DEP_HERMES_LEAN_ENGINE_DIGEST`; lean is
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` / `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST`.
@@ -178,9 +190,9 @@ When one link feature is active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
 On Linux `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST` name the exact selected data variant;
 this is the data-variant half of R-e and is deliberately separate from the VM
-digest. Both available data identities are exported in every resolver-v2
-context. The bindings door exposes them as `ICU_DATA_*` and
-`ICU_FULL_DATA_*`, but exposes no selected identity because it links neither.
+digest. All three available data identities are exported in every resolver-v2
+context. The bindings door exposes them as `ICU_DATA_*`, `ICU_EN_DATA_*`, and
+`ICU_FULL_DATA_*`, but exposes no selected identity because it links none.
 Only the linking instance's `LINKED_ICU_DATA_*` says what the process links.
 The Rust constants are `ARCHIVE`, `ENGINE_DIGEST`, `LEAN_ARCHIVE`,
 `LEAN_ENGINE_DIGEST`, `LINKED_ARCHIVE`, and `LINKED_ENGINE_DIGEST`.
@@ -194,10 +206,10 @@ metadata is exported. A receipt that does not bind those bytes is refused.
 Old local layouts without a lean archive export no lean path, digest, or HBC
 version; they continue to support full-VM builds and fail with a targeted
 message only when `link-lean` is requested. The
-end-to-end lean proof can be run against a complete v3 bundle:
+end-to-end lean proof can be run against a complete v4 bundle:
 
 ```sh
-HERMES_LEAN_SYS_DIR=/path/to/extracted-v3-bundle \
+HERMES_LEAN_SYS_DIR=/path/to/extracted-v4-bundle \
   cargo test --locked --manifest-path crates/ibex2-lean-embedding/Cargo.toml
 ```
 

@@ -30,11 +30,20 @@ fn bindings_sys_and_linked_archive_have_one_digest() {
         assert_eq!(
             ibex2::bindings::ICU_DATA_ARCHIVE,
             hermes_lean_sys::ICU_DATA_ARCHIVE,
-            "bindings export the available trimmed data without selecting it"
+            "bindings export the available base data without selecting it"
         );
         assert_eq!(
             ibex2::bindings::ICU_DATA_DIGEST,
             hermes_lean_sys::ICU_DATA_DIGEST
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_EN_DATA_ARCHIVE,
+            hermes_lean_sys::ICU_EN_DATA_ARCHIVE,
+            "bindings export the available English data without selecting it"
+        );
+        assert_eq!(
+            ibex2::bindings::ICU_EN_DATA_DIGEST,
+            hermes_lean_sys::ICU_EN_DATA_DIGEST
         );
         assert_eq!(
             ibex2::bindings::ICU_FULL_DATA_ARCHIVE,
@@ -54,13 +63,17 @@ fn bindings_sys_and_linked_archive_have_one_digest() {
             Some(linked_archive)
         );
         assert_eq!(hermes_lean_sys::LINKED_ICU_DATA_DIGEST, Some(linked_digest));
-        let expected_archive = if cfg!(feature = "intl") {
+        let expected_archive = if cfg!(feature = "intl-all-locales") {
             hermes_lean_sys::ICU_FULL_DATA_ARCHIVE
+        } else if cfg!(feature = "intl") {
+            hermes_lean_sys::ICU_EN_DATA_ARCHIVE
         } else {
             hermes_lean_sys::ICU_DATA_ARCHIVE
         };
-        let expected_digest = if cfg!(feature = "intl") {
+        let expected_digest = if cfg!(feature = "intl-all-locales") {
             hermes_lean_sys::ICU_FULL_DATA_DIGEST
+        } else if cfg!(feature = "intl") {
+            hermes_lean_sys::ICU_EN_DATA_DIGEST
         } else {
             hermes_lean_sys::ICU_DATA_DIGEST
         };
@@ -70,6 +83,7 @@ fn bindings_sys_and_linked_archive_have_one_digest() {
         assert_eq!(format!("sha256-{:x}", Sha256::digest(data)), linked_digest);
     } else {
         assert_eq!(ibex2::bindings::ICU_DATA_ARCHIVE, None);
+        assert_eq!(ibex2::bindings::ICU_EN_DATA_ARCHIVE, None);
         assert_eq!(ibex2::bindings::ICU_FULL_DATA_ARCHIVE, None);
         assert_eq!(ibex2_runtime::LINKED_ICU_DATA_ARCHIVE, None);
         assert_eq!(hermes_lean_sys::LINKED_ICU_DATA_ARCHIVE, None);

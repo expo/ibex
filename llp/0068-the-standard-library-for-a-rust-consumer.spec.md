@@ -5,6 +5,8 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3/OQ2 fix round 2: complete English currency data preserves non-default fraction metadata and names; `ibex2` has no build-dependency on `hermes-lean-sys`, so only the linking instance selects an ICU tier)
+**Revised:** 2026-10-06 (§3/OQ2 fix round 1: the unchanged v3 base, separate English Intl, and full ICU tiers are selected independently; unavailable process locales fall back to guaranteed English and report the data actually present)
 **Revised:** 2026-10-06 (§3: `INTL` is also available on Windows under the same `intl` feature, backed by the OS `icu.dll` and refused unless a one-time OS probe passes; Windows host notes updated; LLP 0057.000 §5.1.1. I1 fix round 1: nothing imports `icu.dll`; its `unumf_*` entry points are bound from System32 by full path)
 **Revised:** 2026-10-06 (§3: `INTL` is also available on Windows under the same `intl` feature, backed by the OS `icu.dll` and refused unless a one-time OS probe passes; Windows host notes updated; LLP 0057.000 §5.1.1)
 **Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": capture unconditionally snapshots the current realm, so only trusted prelude work may precede it; a frozen `Array.prototype` is refused, but pre-capture application execution is an undetectable embedder error)
@@ -157,7 +159,7 @@ The groups are:
 | `ENV` | endowed `process.env` snapshot | grant-selected environment snapshot | — | core |
 | `SECRETS` | no JSI projection yet; named for the existing Rust binding | `secret.keep` library operations | — | core/platform backend |
 | `KV` | no JSI projection yet; named for the existing Rust binding | `storage.kv` library operations | — | core/platform backend |
-| `INTL` (Linux, Windows) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | off-by-default `intl` Cargo feature; it implies `bindings` and selects `hermes-lean-sys/icu-full-data`; VM link features already select `icu` with trimmed root+en data for basic Unicode. On Windows the same feature calls the OS ICU (no data, Windows 10 2004+; the `icu.dll`-only entry points are bound from System32 by full path, nothing imports `icu.dll`), `icu-full-data` is a no-op, and validation probes the OS once (LLP 0057.000 §5.1.1) |
+| `INTL` (Linux, Windows) | selected `Intl`, locale methods on Number/BigInt/String/Date | ICU-backed formatting/case operations | — | off-by-default `intl` Cargo feature implies `bindings` and selects `hermes-lean-sys/icu-en-data`; `intl-all-locales` implies `intl` and selects `icu-full-data`; VM link features select the unchanged v3 base through `icu` for basic Unicode. On Windows the same feature calls the OS ICU (no data, Windows 10 2004+; the `icu.dll`-only entry points are bound from System32 by full path, nothing imports `icu.dll`), the data-tier features are no-ops, and validation probes the OS once (LLP 0057.000 §5.1.1) |
 | `EVENTS` | `Event`, `EventTarget`, event subclasses, global error/rejection hooks, `self`, `navigator.userAgent` | JavaScript listener state; subscribed host deliveries use the shared task FIFO | `PURE` | core |
 | `WEBSOCKET` | grant-bound module `WebSocket` in the secure runtime; installer-endowed global in a borrowed runtime (`MessageEvent` and `CloseEvent` come from `EVENTS`) | admitted socket open/send/close, shared subscription FIFO | `PURE`, `EVENTS` | cargo feature and install group default on |
 
@@ -1288,20 +1290,26 @@ observed floor is glibc 2.39 / `GLIBCXX_3.4.30`, not musl or an older
 distribution. Because Hermes's non-lite PlatformUnicode backend and the
 bindings' Intl C++ both call ICU, `hermes-lean-sys` remains the single owner of
 Linux ICU link lines. `link` and `link-lean` select `icu`, shared ICU 74.2 code,
-and the 1,109,808-byte root+en data symbol. The off-by-default `ibex2/intl`
-feature selects `icu-full-data`, which swaps in full locale data without
-duplicating the code archives. The historical Unicode-lite/no-ICU arm64
-runtime measured 7,743,240 bytes, the root+en profile 10,954,672, and the
+and the unchanged 1,109,808-byte v3 base data symbol. No always-linked data was
+added. The off-by-default `ibex2/intl` feature selects the separate
+1,409,456-byte English archive, including complete `en`/`en_US` currency
+resources and supplemental currency metadata, and installs the shims against
+it; the separate
+`ibex2/intl-all-locales` feature selects `icu-full-data`, which swaps in full
+locale data without duplicating the code archives. The historical
+Unicode-lite/no-ICU arm64
+runtime measured 7,743,240 bytes, the v3 base profile 10,954,672, and the
 historical full-ICU baseline 42,346,424 (that baseline was ICU 72.1). The
 corresponding embeddings were 5,908,144, 9,119,576, and 40,314,704 bytes. Full
-data exceeds D5's 150 KiB default-on ceiling decisively; trimmed data is
+data exceeds D5's 150 KiB default-on ceiling decisively; the base data is
 default engine support because Unicode-lite breaks required basic JavaScript.
-Direct consumers may select `hermes-lean-sys/icu-full-data` without selecting
-`ibex2/intl`; this supplies full data to the same basic-Unicode backend without
-adding Ibex's Intl shims. The bindings feature context links no data and exports
-both available archive/digest pairs. Only the normal dependency that emits ICU
-link lines exports `LINKED_ICU_DATA_*`, so Cargo's resolver-v2 separation cannot
-make the reported selection disagree with the linked bytes.
+Direct consumers may select either optional data feature without selecting an
+Ibex Intl feature; this changes data for the same basic-Unicode backend without
+adding Ibex's Intl shims. The bindings feature receives all three available
+archive/digest pairs through a normal metadata wrapper and has no Hermes build
+dependency. The wrapper never forwards `LINKED_ICU_DATA_*`; only
+`hermes-lean-sys` emits that selected identity, so Cargo's resolver-v2
+separation cannot make the reported selection disagree with the linked bytes.
 
 The Linux VM is therefore built with `HERMES_ENABLE_INTL=false` and
 `HERMES_UNICODE_LITE=false`, using pinned static ICU 74.2. Before `INTL` is installed, JavaScript sees
@@ -1309,13 +1317,21 @@ The Linux VM is therefore built with `HERMES_ENABLE_INTL=false` and
 `(1234.5).toLocaleString("de-DE") === "1234.5"`, while non-ASCII uppercasing,
 NFC normalization, collation, and English epoch-date formatting remain
 correct. The linked VM identity has a separate ICU-data archive/digest so the
-default and `intl` resolver-v2 contexts name exactly the trimmed or full bytes
-they link. Requesting `Groups::INTL`
+default, `intl`, and `intl-all-locales` resolver-v2 contexts name exactly the
+base, English, or full bytes they link. Requesting `Groups::INTL`
 without the feature is rejected during group validation. With the feature and
 group selected, the engine-facing Ibex tier supplies the selected
 consumer-visible operations
 for Number/BigInt formatting, locale String case mapping, and Date/DateTime
-formatting with Rust-owned state and ICU computation. That implementation is
+formatting with Rust-owned state and ICU computation. On the English tier,
+`supportedLocalesOf` returns only requests supported by the English data,
+and an unsupported `de-DE` request resolves to the available default `en-US`
+locale and formats `1,234.5`. The all-locales tier supports and resolves
+`de-DE` and formats `1.234,5`; neither tier claims locale data it did not link.
+The base archive's `en_US_POSIX` resource is an internal English fallback
+for Hermes under the `C` process locale, not an additional non-English locale
+claim.
+That implementation is
 not part of `Host` and does not alter the no-engine Rust surface this document
 specifies. It is not a qualification of complete Intl. The unchanged consumer
 witness and packaged artifact separately passed for the published Snapback2

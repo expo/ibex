@@ -25,7 +25,7 @@ pub const LINKED_ENGINE_DIGEST: &str = env!("IBEX2_LINKED_ENGINE_DIGEST");
 pub const LINKED_ENGINE_ARCHIVE: &str = env!("IBEX2_LINKED_ENGINE_ARCHIVE");
 
 /// Linux ICU data archive linked beside [`LINKED_ENGINE_ARCHIVE`]. This is
-/// trimmed root+en by default and full only under the `intl` feature.
+/// base by default, English under `intl`, and full under `intl-all-locales`.
 pub const LINKED_ICU_DATA_ARCHIVE: Option<&str> = option_env!("IBEX2_LINKED_ICU_DATA_ARCHIVE");
 
 /// Digest of [`LINKED_ICU_DATA_ARCHIVE`], the data-variant half of the linked

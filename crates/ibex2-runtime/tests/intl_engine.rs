@@ -1,6 +1,6 @@
 //! The engine surface that remains when Ibex's optional INTL install group is
 //! omitted. Linux's non-lite Hermes profile exposes no `Intl` object but uses
-//! trimmed root+en ICU data for correct basic Unicode operations; Apple's
+//! base ICU data for correct basic Unicode operations; Apple's
 //! profile delegates to the operating system.
 #![cfg(any(target_os = "linux", windows, target_vendor = "apple"))]
 
@@ -84,16 +84,72 @@ fn opted_in_linux_group_supplies_intl_and_locale_methods() {
         .install_runtime(Groups::DEFAULT, &context)
         .expect("bindings with INTL");
 
+    let expected = if cfg!(feature = "intl-all-locales") {
+        "object|1.234,5"
+    } else {
+        "object|1,234.5"
+    };
     assert_eq!(
         runtime
             .eval("[typeof Intl, (1234.5).toLocaleString('de-DE')].join('|')")
             .expect("inspect opted-in Intl"),
-        "object|1.234,5"
+        expected
     );
     assert_eq!(
         runtime
             .eval("JSON.stringify(Intl.getCanonicalLocales(['EN-us', 'en-US']))")
             .expect("inspect locale canonicalization"),
         r#"["en-US"]"#
+    );
+}
+
+#[cfg(all(target_os = "linux", feature = "intl"))]
+#[test]
+fn selected_intl_reports_only_available_locale_data() {
+    set_stable_process_defaults();
+    let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = Context::new(GrantSet::none());
+    runtime
+        .install_runtime(Groups::DEFAULT, &context)
+        .expect("bindings with selected INTL data");
+
+    let expected = if cfg!(feature = "intl-all-locales") {
+        r#"{"numberSupported":["en-US","de-DE"],"dateSupported":["en-US","de-DE"],"numberLocale":"de-DE","dateLocale":"de-DE","number":"1.234,5"}"#
+    } else {
+        r#"{"numberSupported":["en-US"],"dateSupported":["en-US"],"numberLocale":"en-US","dateLocale":"en-US","number":"1,234.5"}"#
+    };
+    assert_eq!(
+        runtime
+            .eval(
+                r#"JSON.stringify({
+                  numberSupported: Intl.NumberFormat.supportedLocalesOf(["en-US", "de-DE"]),
+                  dateSupported: Intl.DateTimeFormat.supportedLocalesOf(["en-US", "de-DE"]),
+                  numberLocale: new Intl.NumberFormat("de-DE").resolvedOptions().locale,
+                  dateLocale: new Intl.DateTimeFormat("de-DE", {
+                    timeZone:"UTC", year:"numeric"
+                  }).resolvedOptions().locale,
+                  number: new Intl.NumberFormat("de-DE").format(1234.5)
+                })"#,
+            )
+            .expect("inspect selected locale negotiation"),
+        expected
+    );
+}
+
+#[cfg(all(target_os = "linux", feature = "intl-all-locales"))]
+#[test]
+fn all_locales_formats_german_with_german_separators() {
+    set_stable_process_defaults();
+    let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = Context::new(GrantSet::none());
+    runtime
+        .install_runtime(Groups::DEFAULT, &context)
+        .expect("bindings with all-locale INTL");
+
+    assert_eq!(
+        runtime
+            .eval("new Intl.NumberFormat('de-DE').format(1234.5)")
+            .expect("format German number"),
+        "1.234,5"
     );
 }

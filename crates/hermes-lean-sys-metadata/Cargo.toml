@@ -1,0 +1,15 @@
+[package]
+name = "hermes-lean-sys-metadata"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+links = "hermes_lean_bindings"
+publish = false
+
+[dependencies]
+hermes-lean-sys = { path = "../hermes-lean-sys", default-features = false }
+
+[features]
+default = []
+icu-en-data = ["hermes-lean-sys/icu-en-data"]
+icu-full-data = ["hermes-lean-sys/icu-full-data"]

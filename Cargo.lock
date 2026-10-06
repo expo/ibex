@@ -465,6 +465,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hermes-lean-sys-metadata"
+version = "0.1.0"
+dependencies = [
+ "hermes-lean-sys",
+]
+
+[[package]]
 name = "hmac-sha1-compact"
 version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -494,7 +501,7 @@ dependencies = [
  "cc",
  "form_urlencoded",
  "getrandom 0.2.17",
- "hermes-lean-sys",
+ "hermes-lean-sys-metadata",
  "ibex2-sqlite",
  "libc",
  "ring",
