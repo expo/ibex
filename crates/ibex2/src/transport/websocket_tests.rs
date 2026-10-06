@@ -885,6 +885,35 @@ fn local_tls() -> (
     (cert_bytes, Arc::new(client), Arc::new(server))
 }
 
+#[test]
+fn zero_from_write_tls_is_an_abnormal_close() {
+    let (_, client, server) = local_tls();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let tcp = listener.accept().unwrap().0;
+        tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let connection = rustls::ServerConnection::new(server).unwrap();
+        let mut wire = rustls::StreamOwned::new(connection, tcp);
+        server_handshake(&mut wire);
+        let _ = wire.read(&mut [0]);
+    });
+    let transport = TcpSocketTransport::with_tls_write_zero(client);
+    let url = url::Url::parse(&format!("wss://localhost:{port}/zero-write")).unwrap();
+    let mut socket = transport
+        .connect(&url, 1024, &AbortSignal::default())
+        .unwrap();
+    socket.send_text("unsent").unwrap();
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1006,
+            reason: String::new(),
+        }
+    );
+    peer.join().unwrap();
+}
+
 pub(crate) fn tls_echo_peer() -> (
     u16,
     Vec<u8>,
@@ -1023,6 +1052,46 @@ fn an_idle_connection_blocks_without_periodic_wakeups() {
         "an idle pump returned from readiness without a command or socket event"
     );
     drop(socket);
+}
+
+#[test]
+fn a_wake_wait_failure_closes_the_pump_without_spinning() {
+    let (port, _seen) = peer();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let mut socket = transport
+        .open_socket(
+            &url::Url::parse(&format!("ws://127.0.0.1:{port}/never")).unwrap(),
+            1024,
+            &AbortSignal::default(),
+            &[],
+        )
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !observer.parked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(observer.parked.load(Ordering::Acquire));
+    let started = std::time::Instant::now();
+    socket.wake.fail_waiter().unwrap();
+    let close_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while socket.sender.phase() != CLOSED && std::time::Instant::now() < close_deadline {
+        std::thread::yield_now();
+    }
+    assert_eq!(socket.sender.phase(), CLOSED);
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1006,
+            reason: String::new(),
+        }
+    );
+    let returns = observer.returns.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!observer.parked.load(Ordering::Acquire));
+    assert_eq!(observer.returns.load(Ordering::Acquire), returns);
 }
 
 #[test]

@@ -5,13 +5,15 @@
 //! without adding an executor or a readiness dependency.
 
 use std::io;
-use std::net::{TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone)]
 pub(super) struct Wake {
     socket: Arc<UdpSocket>,
+    #[cfg(test)]
+    waiter_failed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Wake {
@@ -28,10 +30,19 @@ impl Wake {
             }
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn fail_waiter(&self) -> io::Result<()> {
+        self.waiter_failed
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.notify()
+    }
 }
 
 pub(super) struct Waiter {
     socket: UdpSocket,
+    #[cfg(test)]
+    failed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Default)]
@@ -41,9 +52,16 @@ pub(super) struct Ready {
     pub(super) woken: bool,
 }
 
+fn bind_pair(address: IpAddr) -> io::Result<(UdpSocket, UdpSocket)> {
+    let address = SocketAddr::new(address, 0);
+    let receiver = UdpSocket::bind(address)?;
+    let sender = UdpSocket::bind(address)?;
+    Ok((receiver, sender))
+}
+
 pub(super) fn pair() -> io::Result<(Wake, Waiter)> {
-    let receiver = UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
-    let sender = UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+    let (receiver, sender) = bind_pair(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .or_else(|_| bind_pair(IpAddr::V6(Ipv6Addr::LOCALHOST)))?;
     sender.connect(receiver.local_addr()?)?;
     receiver.connect(sender.local_addr()?)?;
     // Exercise the exact connected loopback path before the pump can park on
@@ -70,11 +88,19 @@ pub(super) fn pair() -> io::Result<(Wake, Waiter)> {
     receiver.set_read_timeout(None)?;
     sender.set_nonblocking(true)?;
     receiver.set_nonblocking(true)?;
+    #[cfg(test)]
+    let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     Ok((
         Wake {
             socket: Arc::new(sender),
+            #[cfg(test)]
+            waiter_failed: Arc::clone(&failed),
         },
-        Waiter { socket: receiver },
+        Waiter {
+            socket: receiver,
+            #[cfg(test)]
+            failed,
+        },
     ))
 }
 
@@ -87,6 +113,10 @@ impl Waiter {
         timeout: Option<Duration>,
     ) -> io::Result<Ready> {
         let ready = platform::wait(tcp, &self.socket, read, write, timeout)?;
+        #[cfg(test)]
+        if self.failed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(io::Error::other("injected wake socket failure"));
+        }
         if ready.woken {
             let mut bytes = [0; 64];
             loop {
@@ -166,6 +196,9 @@ mod platform {
             };
             if result >= 0 {
                 let terminal = libc::POLLERR | libc::POLLHUP | libc::POLLNVAL;
+                if descriptors[1].revents & terminal != 0 {
+                    return Err(io::Error::other("the wake socket failed"));
+                }
                 return Ok(Ready {
                     socket_readable: descriptors[0].revents & (libc::POLLIN | terminal) != 0,
                     socket_writable: descriptors[0].revents & libc::POLLOUT != 0,
@@ -246,6 +279,9 @@ mod platform {
             }
         }
         let terminal = POLLERR | POLLHUP | POLLNVAL;
+        if descriptors[1].revents & terminal != 0 {
+            return Err(io::Error::other("the wake socket failed"));
+        }
         Ok(Ready {
             socket_readable: descriptors[0].revents & (POLLIN | terminal) != 0,
             socket_writable: descriptors[0].revents & POLLOUT != 0,

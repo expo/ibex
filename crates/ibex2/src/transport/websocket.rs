@@ -42,6 +42,8 @@ pub struct TcpSocketTransport {
     writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
     #[cfg(test)]
     pump_observer: Option<Arc<PumpObserver>>,
+    #[cfg(test)]
+    tls_write_zero: bool,
 }
 
 #[cfg(test)]
@@ -65,6 +67,7 @@ impl TcpSocketTransport {
             tls,
             writer_gate: None,
             pump_observer: None,
+            tls_write_zero: false,
         }
     }
 
@@ -74,6 +77,7 @@ impl TcpSocketTransport {
             tls: std::sync::OnceLock::new(),
             writer_gate: Some(gate),
             pump_observer: None,
+            tls_write_zero: false,
         }
     }
 
@@ -83,6 +87,7 @@ impl TcpSocketTransport {
             tls: std::sync::OnceLock::new(),
             writer_gate: None,
             pump_observer: Some(observer),
+            tls_write_zero: false,
         }
     }
 
@@ -97,6 +102,19 @@ impl TcpSocketTransport {
             tls,
             writer_gate: None,
             pump_observer: Some(observer),
+            tls_write_zero: false,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_tls_write_zero(config: Arc<rustls::ClientConfig>) -> Self {
+        let tls = std::sync::OnceLock::new();
+        tls.set(config).expect("a fresh TLS configuration");
+        Self {
+            tls,
+            writer_gate: None,
+            pump_observer: None,
+            tls_write_zero: true,
         }
     }
 
@@ -131,14 +149,18 @@ fn failed(what: impl std::fmt::Display) -> HostError {
 
 enum Wire {
     Plain(TcpStream),
-    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
+    Tls {
+        stream: Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
+        #[cfg(test)]
+        write_zero: bool,
+    },
 }
 
 impl Wire {
     fn tcp(&self) -> &TcpStream {
         match self {
             Self::Plain(tcp) => tcp,
-            Self::Tls(tls) => &tls.sock,
+            Self::Tls { stream, .. } => &stream.sock,
         }
     }
 }
@@ -147,7 +169,7 @@ impl Read for Wire {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Wire::Plain(s) => s.read(out),
-            Wire::Tls(s) => s.read(out),
+            Wire::Tls { stream, .. } => stream.read(out),
         }
     }
 }
@@ -155,13 +177,13 @@ impl Write for Wire {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         match self {
             Wire::Plain(s) => s.write(bytes),
-            Wire::Tls(s) => s.write(bytes),
+            Wire::Tls { stream, .. } => stream.write(bytes),
         }
     }
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             Wire::Plain(s) => s.flush(),
-            Wire::Tls(s) => s.flush(),
+            Wire::Tls { stream, .. } => stream.flush(),
         }
     }
 }
@@ -205,6 +227,9 @@ impl TcpSocketTransport {
             .map_err(failed)?
             .collect();
         signal.check()?;
+        // Establish the pump's wake mechanism before a server can observe a
+        // TCP connection or successful WebSocket upgrade.
+        let (wake, waiter) = readiness::pair().map_err(failed)?;
         let mut last = failed("no resolved address");
         let mut tcp = None;
         for address in addrs {
@@ -238,7 +263,11 @@ impl TcpSocketTransport {
             )
             .map_err(failed)?;
             let tls = rustls::ClientConnection::new(self.tls(), name).map_err(failed)?;
-            Wire::Tls(Box::new(rustls::StreamOwned::new(tls, tcp)))
+            Wire::Tls {
+                stream: Box::new(rustls::StreamOwned::new(tls, tcp)),
+                #[cfg(test)]
+                write_zero: self.tls_write_zero,
+            }
         } else {
             Wire::Plain(tcp)
         };
@@ -263,7 +292,6 @@ impl TcpSocketTransport {
         }));
         let (commands, outgoing) = mpsc::sync_channel(MAX_OUTBOUND_COMMANDS);
         let (requests, incoming) = mpsc::sync_channel(1);
-        let (wake, waiter) = readiness::pair().map_err(failed)?;
         let sender = Arc::new(TcpSender {
             commands,
             wake: wake.clone(),
@@ -692,16 +720,18 @@ enum ReadProgress {
     Blocked,
 }
 
-struct WriteProgress {
-    advanced: bool,
-    network_bytes: usize,
+enum WriteProgress {
+    Blocked,
+    Retry,
+    Network(usize),
+    Eof,
 }
 
 impl Wire {
     fn wants_write(&self) -> bool {
         match self {
             Self::Plain(_) => false,
-            Self::Tls(tls) => tls.conn.wants_write(),
+            Self::Tls { stream, .. } => stream.conn.wants_write(),
         }
     }
 
@@ -723,7 +753,7 @@ impl Wire {
                 }
                 Err(error) => Err(error),
             },
-            Self::Tls(tls) => match tls.conn.reader().read(&mut bytes[..wanted]) {
+            Self::Tls { stream: tls, .. } => match tls.conn.reader().read(&mut bytes[..wanted]) {
                 Ok(0) => Ok(ReadProgress::Eof),
                 Ok(count) => {
                     input.append(&bytes[..count]);
@@ -754,69 +784,52 @@ impl Wire {
 
     fn write_frame(&mut self, frame: &mut OutgoingFrame) -> std::io::Result<WriteProgress> {
         match self {
-            Self::Plain(_) if frame.at == frame.bytes.len() => Ok(WriteProgress {
-                advanced: false,
-                network_bytes: 0,
-            }),
+            Self::Plain(_) if frame.at == frame.bytes.len() => Ok(WriteProgress::Blocked),
             Self::Plain(tcp) => match tcp.write(&frame.bytes[frame.at..]) {
                 Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
                 Ok(count) => {
                     frame.at += count;
-                    Ok(WriteProgress {
-                        advanced: true,
-                        network_bytes: count,
-                    })
+                    Ok(WriteProgress::Network(count))
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(WriteProgress {
-                    advanced: false,
-                    network_bytes: 0,
-                }),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    Ok(WriteProgress::Blocked)
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
-                    Ok(WriteProgress {
-                        advanced: true,
-                        network_bytes: 0,
-                    })
+                    Ok(WriteProgress::Retry)
                 }
                 Err(error) => Err(error),
             },
-            Self::Tls(tls) => {
+            Self::Tls {
+                stream: tls,
+                #[cfg(test)]
+                write_zero,
+            } => {
                 if tls.conn.wants_write() {
+                    #[cfg(test)]
+                    if std::mem::take(write_zero) {
+                        return Ok(WriteProgress::Eof);
+                    }
                     return match tls.conn.write_tls(&mut tls.sock) {
-                        Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
-                        Ok(count) => Ok(WriteProgress {
-                            advanced: true,
-                            network_bytes: count,
-                        }),
+                        Ok(0) => Ok(WriteProgress::Eof),
+                        Ok(count) => Ok(WriteProgress::Network(count)),
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            Ok(WriteProgress {
-                                advanced: false,
-                                network_bytes: 0,
-                            })
+                            Ok(WriteProgress::Blocked)
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
-                            Ok(WriteProgress {
-                                advanced: true,
-                                network_bytes: 0,
-                            })
+                            Ok(WriteProgress::Retry)
                         }
                         Err(error) => Err(error),
                     };
                 }
                 if frame.at == frame.bytes.len() {
-                    return Ok(WriteProgress {
-                        advanced: false,
-                        network_bytes: 0,
-                    });
+                    return Ok(WriteProgress::Blocked);
                 }
                 let count = tls.conn.writer().write(&frame.bytes[frame.at..])?;
                 if count == 0 {
                     return Err(std::io::ErrorKind::WriteZero.into());
                 }
                 frame.at += count;
-                Ok(WriteProgress {
-                    advanced: true,
-                    network_bytes: 0,
-                })
+                Ok(WriteProgress::Retry)
             }
         }
     }
@@ -826,26 +839,27 @@ impl Wire {
     }
 
     fn write_tls_pending(&mut self) -> std::io::Result<WriteProgress> {
-        let Self::Tls(tls) = self else {
-            return Ok(WriteProgress {
-                advanced: false,
-                network_bytes: 0,
-            });
+        let Self::Tls {
+            stream: tls,
+            #[cfg(test)]
+            write_zero,
+        } = self
+        else {
+            return Ok(WriteProgress::Blocked);
         };
+        #[cfg(test)]
+        if std::mem::take(write_zero) {
+            return Ok(WriteProgress::Eof);
+        }
         match tls.conn.write_tls(&mut tls.sock) {
-            Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
-            Ok(count) => Ok(WriteProgress {
-                advanced: true,
-                network_bytes: count,
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(WriteProgress {
-                advanced: false,
-                network_bytes: 0,
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(WriteProgress {
-                advanced: true,
-                network_bytes: 0,
-            }),
+            Ok(0) => Ok(WriteProgress::Eof),
+            Ok(count) => Ok(WriteProgress::Network(count)),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Ok(WriteProgress::Blocked)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                Ok(WriteProgress::Retry)
+            }
             Err(error) => Err(error),
         }
     }
@@ -1277,20 +1291,29 @@ fn pump_loop(
         if writes_allowed {
             if let Some(outgoing) = frame.as_mut() {
                 match wire.write_frame(outgoing) {
-                    Ok(progress) => {
-                        if progress.network_bytes != 0 {
-                            last_write_progress = Some(Instant::now());
-                            #[cfg(test)]
-                            if let Some(observer) = &pump_observer {
-                                observer
-                                    .network_bytes
-                                    .fetch_add(progress.network_bytes, Ordering::AcqRel);
-                            }
-                        }
-                        if progress.advanced {
-                            continue;
-                        }
+                    Ok(WriteProgress::Eof) => {
+                        close_pump(
+                            &mut request,
+                            &requests,
+                            Received::Closed {
+                                code: 1006,
+                                reason: String::new(),
+                            },
+                            &state,
+                            &shutdown,
+                        );
+                        return;
                     }
+                    Ok(WriteProgress::Network(_bytes)) => {
+                        last_write_progress = Some(Instant::now());
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                        }
+                        continue;
+                    }
+                    Ok(WriteProgress::Retry) => continue,
+                    Ok(WriteProgress::Blocked) => {}
                     Err(error) => {
                         fail_pump(
                             &mut request,
@@ -1324,20 +1347,29 @@ fn pump_loop(
                 }
             } else if wire.wants_write() {
                 match wire.write_tls_pending() {
-                    Ok(progress) => {
-                        if progress.network_bytes != 0 {
-                            last_write_progress = Some(Instant::now());
-                            #[cfg(test)]
-                            if let Some(observer) = &pump_observer {
-                                observer
-                                    .network_bytes
-                                    .fetch_add(progress.network_bytes, Ordering::AcqRel);
-                            }
-                        }
-                        if progress.advanced {
-                            continue;
-                        }
+                    Ok(WriteProgress::Eof) => {
+                        close_pump(
+                            &mut request,
+                            &requests,
+                            Received::Closed {
+                                code: 1006,
+                                reason: String::new(),
+                            },
+                            &state,
+                            &shutdown,
+                        );
+                        return;
                     }
+                    Ok(WriteProgress::Network(_bytes)) => {
+                        last_write_progress = Some(Instant::now());
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                        }
+                        continue;
+                    }
+                    Ok(WriteProgress::Retry) => continue,
+                    Ok(WriteProgress::Blocked) => {}
                     Err(error) => {
                         fail_pump(
                             &mut request,
