@@ -443,6 +443,7 @@ struct Adapter::State {
   Groups groups = 0;
   uint32_t bytecode_version;
   std::shared_ptr<Lifetime> lifetime;
+  jsi::Value timer_dispatch;
   jsi::Value fetch_factory;
   jsi::Value websocket_factory;
   jsi::Value blob_helpers;
@@ -544,6 +545,7 @@ void Adapter::detach() {
   state_->subscriptions.clear();
   state_->lifetime->detach();
   state_->pending.clear();
+  state_->timer_dispatch = jsi::Value::undefined();
   state_->fetch_factory = jsi::Value::undefined();
   state_->websocket_factory = jsi::Value::undefined();
   state_->blob_helpers = jsi::Value::undefined();
@@ -1646,6 +1648,13 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
                                 state_->blob_helpers);
       auto buffer = std::make_shared<CompiledBytes>(script.bytes, script.len);
       auto value = rt.evaluateJavaScript(buffer, std::string(script.name) + ".js");
+      if (std::strcmp(script.name, "timers") == 0) {
+        if (!value.isObject() || !value.getObject(rt).isFunction(rt))
+          throw jsi::JSError(
+              rt, "timers binding did not return its private dispatcher");
+        state_->timer_dispatch = jsi::Value(rt, value);
+        continue;
+      }
       if (std::strcmp(script.name, "abort") == 0 && !abort_hooks.empty()) {
         auto hooks = rt.global().getProperty(rt, "__ibex2_abort");
         if (!hooks.isObject())
@@ -2105,6 +2114,18 @@ void Adapter::settle(uint64_t id, Ibex2AbiValue& value, bool is_error) {
   } else promise.resolve.call(rt, payload);
 }
 
+void Adapter::fire_timer(uint64_t id) {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  state_->require(rt);
+  if (!has(state_->groups, GROUP_TIMERS) ||
+      !state_->timer_dispatch.isObject() ||
+      !state_->timer_dispatch.getObject(rt).isFunction(rt))
+    throw std::logic_error("Ibex2 TIMERS group is not installed");
+  state_->timer_dispatch.getObject(rt).getFunction(rt).call(
+      rt, static_cast<double>(id));
+}
+
 uint64_t Adapter::subscribe(jsi::Function callback) {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
   state_->require(*runtime_);
@@ -2259,14 +2280,18 @@ bool Adapter::deliver_one() {
   unsigned long long id = 0;
   Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0, nullptr, 0};
   if (!ibex2_take_task(state_->queue, &kind, &id, &value, &is_error)) return false;
-  if (kind != 1 && kind != 3) {
+  if (kind != 1 && kind != 2 && kind != 3) {
     ibex2_host_release(&value);
-    throw jsi::JSError(*runtime_, "storage adapter received a non-settlement task");
+    throw jsi::JSError(*runtime_, "bindings adapter received an unknown task");
   }
   // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — borrowed-adapter task failures are reported like owning-pump failures
   try {
     if (kind == 3)
       deliver_event(id, value);
+    else if (kind == 2) {
+      ibex2_host_release(&value);
+      fire_timer(id);
+    }
     else
       settle(id, value, is_error != 0);
   } catch (const jsi::JSError& error) {

@@ -538,7 +538,6 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
     return entrance.status(IBEX2_STATUS_OK);
   }
   DriveGuard drive(rt->queue);
-  jsi::Runtime &runtime = *rt->runtime;
 
   // 1. PreCheckpoint.
   if (!checkpoint(*rt, entrance)) {
@@ -560,11 +559,7 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
   // 4. Run it.
   try {
     if (kind == 2) {
-      jsi::Value fire = runtime.global().getProperty(runtime, "__ibex2_fire_timer");
-      if (fire.isObject() && fire.getObject(runtime).isFunction(runtime)) {
-        fire.getObject(runtime).getFunction(runtime).call(
-            runtime, static_cast<double>(task_id));
-      }
+      rt->bindings->fire_timer(task_id);
     } else if (kind == 3) {
       rt->bindings->deliver_event(task_id, value);
     } else {

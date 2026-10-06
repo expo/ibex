@@ -131,6 +131,46 @@ fn the_global_object_accepts_new_properties() {
     );
 }
 
+#[test]
+fn application_cannot_reach_the_private_timer_dispatcher_after_harden() {
+    let mut rt = hardened();
+    assert_eq!(
+        eval(&mut rt, "String(typeof globalThis.__ibex2_fire_timer)"),
+        "undefined"
+    );
+}
+
+#[test]
+fn forged_headers_receivers_cannot_reach_native_handle_rows_after_harden() {
+    let mut rt = hardened();
+    assert_eq!(
+        eval(
+            &mut rt,
+            r#"(function () {
+              var victim = new Headers({secret: "value"});
+              var touched = 0;
+              var fake = {};
+              Object.defineProperty(fake, "_handle", {
+                get: function () { touched++; return victim._handle; }
+              });
+              function kind(method, receiver, args) {
+                try { Reflect.apply(method, receiver, args); return "none"; }
+                catch (error) { return error.constructor.name; }
+              }
+              var get = kind(Headers.prototype.get, fake, ["secret"]);
+              var iterator = victim.entries();
+              var next = Object.getPrototypeOf(iterator).next;
+              var iterate = kind(next, {
+                _headers: victim, _index: 0,
+                _pick: function (name, value) { return [name, value]; }
+              }, []);
+              return get + "|" + iterate + "|" + victim.get("secret") + "|" + touched;
+            })()"#
+        ),
+        "TypeError|TypeError|value|0"
+    );
+}
+
 /// The freeze has a budget in rules/RULES.md, and this is where the build
 /// refuses to exceed it. The MINIMUM of 20 fresh runtimes, not the median:
 /// `cargo test` runs this beside every other test binary on the machine, a

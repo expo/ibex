@@ -120,7 +120,6 @@ fn all_groups_preserve_the_shipping_global_insertion_order() {
         "setInterval",
         "clearTimeout",
         "clearInterval",
-        "__ibex2_fire_timer",
         "queueMicrotask",
         "performance",
         "URL",

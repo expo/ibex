@@ -966,7 +966,6 @@ pub const DEFAULT_ADDED_GLOBALS: &[&str] = &[
     "__ibex2_default",
     "__ibex2_dynamic_import",
     "__ibex2_export_all",
-    "__ibex2_fire_timer",
     "console",
     "setTimeout",
     "setInterval",
@@ -1014,27 +1013,27 @@ const GLOBAL_PARTITION: &[(Option<crate::bindings::Groups>, &[usize])] = &[
     (None, &[0, 1, 2]),
     (
         Some(crate::bindings::Groups::TIMERS),
-        &[3, 5, 6, 7, 8, 9, 10],
+        &[4, 5, 6, 7, 8, 9],
     ),
-    (Some(crate::bindings::Groups::CONSOLE), &[4]),
+    (Some(crate::bindings::Groups::CONSOLE), &[3]),
     (
         Some(crate::bindings::Groups::PURE),
-        &[11, 12, 13, 20, 21, 44],
+        &[10, 11, 12, 19, 20, 43],
     ),
-    (Some(crate::bindings::Groups::CRYPTO), &[14, 15, 16, 19]),
-    (Some(crate::bindings::Groups::ABORT), &[17, 18]),
+    (Some(crate::bindings::Groups::CRYPTO), &[13, 14, 15, 18]),
+    (Some(crate::bindings::Groups::ABORT), &[16, 17]),
     (
         Some(crate::bindings::Groups::EVENTS),
         &[
-            22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+            21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
         ],
     ),
-    (Some(crate::bindings::Groups::BLOB), &[38, 39, 40]),
+    (Some(crate::bindings::Groups::BLOB), &[37, 38, 39]),
     (
         Some(crate::bindings::Groups::BLOB.union(crate::bindings::Groups::FETCH)),
-        &[42, 43],
+        &[41, 42],
     ),
-    (Some(crate::bindings::Groups::INTL), &[41]),
+    (Some(crate::bindings::Groups::INTL), &[40]),
 ];
 
 /// The global names a module may see for one installed group set. Anything

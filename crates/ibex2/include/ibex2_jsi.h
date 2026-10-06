@@ -339,6 +339,10 @@ public:
   jsi::Object storage(const void* grants, const jsi::Function& sqlite_factory);
   // Takes/releases the ABI payload even if no promise is awaiting this id.
   void settle(uint64_t task_id, Ibex2AbiValue&, bool is_error);
+  // Invoke the private JavaScript timer callback for a host task the owning
+  // driver already admitted and reserved. The dispatcher is captured from
+  // timers.js during installation and is never published to application code.
+  void fire_timer(uint64_t task_id);
   // Register a JS callback for a future host-event source. The returned
   // identity is the one Rust carries in HostTask::Event.
   uint64_t subscribe(jsi::Function callback);
@@ -350,10 +354,9 @@ public:
   // without EVENTS these fall back to the host console reporter.
   void report_error(const jsi::Value& error);
   void report_error(const char* message);
-  // Takes at most one storage settlement or subscribed event. No timers or
-  // microtask checkpoints. Callback failures are reported through the EVENTS
-  // error path and do not escape. Returns true if a task was delivered; throws
-  // for a timer task, which belongs to an owning runtime's driver.
+  // Takes at most one storage settlement, timer callback, or subscribed event.
+  // It does not admit due timers or run a microtask checkpoint. Callback
+  // failures are reported through the EVENTS error path and do not escape.
   bool deliver_one();
   // Release WebSocket keepalive roots whose listener/queued-data condition
   // ended before an embedder explicitly requests collection.
