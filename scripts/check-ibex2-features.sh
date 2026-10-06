@@ -15,7 +15,9 @@ cargo check -p ibex2 --no-default-features --features crypto
 cargo check -p ibex2-runtime --no-default-features
 cargo check -p ibex2-runtime --no-default-features --features intl
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `pwd -W` (Git Bash/MSYS) yields a Windows path that the generated manifest
+# can hand to native Cargo on Windows; elsewhere it fails and `pwd` is used.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && { pwd -W 2>/dev/null || pwd; })"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/ibex2-icu-data-identity.XXXXXX")"
 trap 'rm -rf -- "$fixture_root"' EXIT
 mkdir -p "$fixture_root/src"
@@ -44,6 +46,8 @@ printf '%s\n' \
   '        assert_eq!(hermes_lean_sys::LINKED_ICU_DATA_DIGEST, hermes_lean_sys::ICU_FULL_DATA_DIGEST);' \
   '        assert_ne!(hermes_lean_sys::LINKED_ICU_DATA_DIGEST, hermes_lean_sys::ICU_DATA_DIGEST);' \
   '    }' \
+  '    #[cfg(windows)]' \
+  '    assert_eq!(hermes_lean_sys::LINKED_OS_ICU, Some("icu.dll"));' \
   '    #[cfg(not(target_os = "linux"))]' \
   '    {' \
   '        assert_eq!(ibex2::bindings::ICU_DATA_ARCHIVE, None);' \
