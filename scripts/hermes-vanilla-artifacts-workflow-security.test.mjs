@@ -58,6 +58,8 @@ const builders = [
   "macos_x86_64",
   "ios_device",
   "ios_simulator",
+  "tvos_device",
+  "tvos_simulator",
   "linux_x86_64",
   "linux_arm64",
   "windows_x64",
@@ -347,9 +349,23 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   assert.ok(commit);
   for (const workflow of [builderWorkflow, publisherWorkflow]) {
     assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v3$`, "m"));
-    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v3`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v4$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v4`, "m"));
   }
+});
+
+test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targets", () => {
+  const tvosDevice = jobBlocks(builderWorkflow).get("tvos_device");
+  const tvosSimulator = jobBlocks(builderWorkflow).get("tvos_simulator");
+  for (const job of [tvosDevice, tvosSimulator]) {
+    assert.match(job, /^    runs-on: macos-15-xlarge$/m);
+    assert.deepEqual(permissions(job), { contents: "read" });
+  }
+  assert.match(tvosDevice, /build-hermes-vanilla-release\.sh aarch64-apple-tvos /);
+  assert.match(tvosSimulator, /build-hermes-vanilla-release\.sh aarch64-apple-tvos-simulator /);
+  assert.match(releaseBuilder, /aarch64-apple-tvos\)\n(?:    .*\n)*    platform=appletvos; target_arches=arm64; deployment_target=15\.0; profile=min-size-release/);
+  assert.match(releaseBuilder, /aarch64-apple-tvos-simulator\)\n(?:    .*\n)*    platform=appletvsimulator; target_arches=arm64; deployment_target=15\.0; profile=min-size-release/);
+  assert.doesNotMatch(releaseBuilder, /platform=appletvsimulator; target_arches=[^;]*x86_64/);
 });
 
 test("release receipts bind both VM archives and keep the full VM as engine.binary", () => {

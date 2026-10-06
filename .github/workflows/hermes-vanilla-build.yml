@@ -1,4 +1,4 @@
-# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v3
+# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v4
 # receipt and exact vanilla dual-VM link closure without release or OIDC
 # authority. A default-branch workflow_run publisher consumes the handoff.
 name: Hermes vanilla release builder
@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: hermes-vanilla-d412d3bd8512-v3
+  group: hermes-vanilla-d412d3bd8512-v4
   cancel-in-progress: false
 
 permissions: {}
 
 env:
   HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
-  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v3
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v4
 
 jobs:
   macos_arm64:
@@ -195,6 +195,104 @@ jobs:
             "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
 
       - name: Upload inert iOS simulator handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  tvos_device:
+    name: Build tvOS device dual-VM bundle
+    runs-on: macos-15-xlarge
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and package tvOS device
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-aarch64-apple-tvos.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh aarch64-apple-tvos "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert tvOS device handoff
+        id: handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.asset_path }}
+          archive: false
+          if-no-files-found: error
+          overwrite: false
+
+      - name: Bind handoff to archive digest
+        env:
+          ARCHIVE_SHA256: ${{ steps.package.outputs.asset_sha256 }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.artifact-digest }}
+          HANDOFF_ID: ${{ steps.handoff.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$HANDOFF_DIGEST" == "$ARCHIVE_SHA256" ]]
+
+  tvos_simulator:
+    name: Build arm64 tvOS simulator dual-VM bundle
+    runs-on: macos-15-xlarge
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+      asset_sha256: ${{ steps.package.outputs.asset_sha256 }}
+      asset_size: ${{ steps.package.outputs.asset_size }}
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.handoff.outputs.artifact-digest }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build and package tvOS simulator
+        id: package
+        run: |
+          set -euo pipefail
+          asset_name=hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
+          asset_path="$RUNNER_TEMP/$asset_name"
+          scripts/build-hermes-vanilla-release.sh aarch64-apple-tvos-simulator "$asset_path"
+          asset_sha256="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          asset_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$asset_path")"
+          printf 'asset_name=%s\nasset_path=%s\nasset_sha256=%s\nasset_size=%s\n' \
+            "$asset_name" "$asset_path" "$asset_sha256" "$asset_size" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inert tvOS simulator handoff
         id: handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -1,5 +1,5 @@
 # @ref LLP 0067#5-the-engine-and-the-artifacts — only this default-branch
-# workflow may attest and publish the canonical v3 vanilla Hermes bundles.
+# workflow may attest and publish the canonical v4 vanilla Hermes bundles.
 name: Hermes vanilla release publisher
 
 on:
@@ -8,14 +8,14 @@ on:
     types: [completed]
 
 concurrency:
-  group: hermes-vanilla-d412d3bd8512-v3-publish
+  group: hermes-vanilla-d412d3bd8512-v4-publish
   cancel-in-progress: false
 
 permissions: {}
 
 env:
   HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
-  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v3
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v4
 
 jobs:
   publish:
@@ -42,6 +42,8 @@ jobs:
         "hermes-vanilla-x86_64-apple-darwin.tar.gz",
         "hermes-vanilla-aarch64-apple-ios.tar.gz",
         "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
+        "hermes-vanilla-aarch64-apple-tvos.tar.gz",
+        "hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz",
         "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
         "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
         "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz"]
@@ -105,7 +107,7 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PUBLISHER_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$HERMES_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$RELEASE_TAG" == "hermes-vanilla-${HERMES_COMMIT:0:12}-v3" ]]
+          [[ "$RELEASE_TAG" == "hermes-vanilla-${HERMES_COMMIT:0:12}-v4" ]]
           main_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           if [[ "$SOURCE_SHA" != "$main_sha" || "$PUBLISHER_SHA" != "$main_sha" ]]; then
             echo "::error::trigger, publisher, and current main must name the same commit"
@@ -122,9 +124,9 @@ jobs:
               pages = json.load(source)
           artifacts = [artifact for page in pages for artifact in page["artifacts"]]
           expected = json.loads(os.environ["EXPECTED_ARTIFACT_NAMES"])
-          if len(expected) != 7 or len(set(expected)) != 7:
-              raise SystemExit("publisher does not name seven unique handoffs")
-          if len(artifacts) != 7 or sorted(a["name"] for a in artifacts) != sorted(expected):
+          if len(expected) != 9 or len(set(expected)) != 9:
+              raise SystemExit("publisher does not name nine unique handoffs")
+          if len(artifacts) != 9 or sorted(a["name"] for a in artifacts) != sorted(expected):
               raise SystemExit("triggering run does not contain the exact handoff set")
           for artifact in artifacts:
               if artifact.get("expired") is not False:
@@ -216,6 +218,46 @@ jobs:
           ARTIFACTS_FILE: ${{ runner.temp }}/hermes-vanilla-artifacts.json
         run: python3 -c "$HANDOFF_VALIDATOR"
 
+      - name: Download tvOS device raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-aarch64-apple-tvos.tar.gz
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/tvos-device
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate tvOS device raw handoff
+        id: validate_tvos_device
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-aarch64-apple-tvos.tar.gz
+          EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-apple-tvos.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/tvos-device
+          ARTIFACTS_FILE: ${{ runner.temp }}/hermes-vanilla-artifacts.json
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
+      - name: Download tvOS simulator raw handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
+          path: ${{ runner.temp }}/hermes-vanilla-handoff/tvos-simulator
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Validate tvOS simulator raw handoff
+        id: validate_tvos_simulator
+        env:
+          EXPECTED_ARTIFACT_NAME: hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
+          EXPECTED_ASSET_NAME: hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
+          HANDOFF_DIR: ${{ runner.temp }}/hermes-vanilla-handoff/tvos-simulator
+          ARTIFACTS_FILE: ${{ runner.temp }}/hermes-vanilla-artifacts.json
+        run: python3 -c "$HANDOFF_VALIDATOR"
+
       - name: Download Linux x86_64 raw handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -304,6 +346,20 @@ jobs:
           subject-name: ${{ steps.validate_ios_simulator.outputs.asset_name }}
           subject-digest: sha256:${{ steps.validate_ios_simulator.outputs.asset_sha256 }}
 
+      - name: Attest tvOS device archive
+        id: attest_tvos_device
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_tvos_device.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_tvos_device.outputs.asset_sha256 }}
+
+      - name: Attest tvOS simulator archive
+        id: attest_tvos_simulator
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.validate_tvos_simulator.outputs.asset_name }}
+          subject-digest: sha256:${{ steps.validate_tvos_simulator.outputs.asset_sha256 }}
+
       - name: Attest Linux x86_64 archive
         id: attest_linux_x86_64
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -335,6 +391,10 @@ jobs:
           IOS_DEVICE_BUNDLE: ${{ steps.attest_ios_device.outputs.bundle-path }}
           IOS_SIMULATOR_NAME: ${{ steps.validate_ios_simulator.outputs.asset_name }}
           IOS_SIMULATOR_BUNDLE: ${{ steps.attest_ios_simulator.outputs.bundle-path }}
+          TVOS_DEVICE_NAME: ${{ steps.validate_tvos_device.outputs.asset_name }}
+          TVOS_DEVICE_BUNDLE: ${{ steps.attest_tvos_device.outputs.bundle-path }}
+          TVOS_SIMULATOR_NAME: ${{ steps.validate_tvos_simulator.outputs.asset_name }}
+          TVOS_SIMULATOR_BUNDLE: ${{ steps.attest_tvos_simulator.outputs.bundle-path }}
           LINUX_X86_64_NAME: ${{ steps.validate_linux_x86_64.outputs.asset_name }}
           LINUX_X86_64_BUNDLE: ${{ steps.attest_linux_x86_64.outputs.bundle-path }}
           LINUX_ARM64_NAME: ${{ steps.validate_linux_arm64.outputs.asset_name }}
@@ -357,6 +417,8 @@ jobs:
           retain macos-x86_64 "$MACOS_X86_64_NAME" "$MACOS_X86_64_BUNDLE"
           retain ios-device "$IOS_DEVICE_NAME" "$IOS_DEVICE_BUNDLE"
           retain ios-simulator "$IOS_SIMULATOR_NAME" "$IOS_SIMULATOR_BUNDLE"
+          retain tvos-device "$TVOS_DEVICE_NAME" "$TVOS_DEVICE_BUNDLE"
+          retain tvos-simulator "$TVOS_SIMULATOR_NAME" "$TVOS_SIMULATOR_BUNDLE"
           retain linux-x86_64 "$LINUX_X86_64_NAME" "$LINUX_X86_64_BUNDLE"
           retain linux-arm64 "$LINUX_ARM64_NAME" "$LINUX_ARM64_BUNDLE"
           retain windows-x64 "$WINDOWS_X64_NAME" "$WINDOWS_X64_BUNDLE"
@@ -366,8 +428,8 @@ jobs:
           import pathlib
           root = pathlib.Path(os.environ["RELEASE_DIR"])
           files = sorted(path for path in root.iterdir() if path.is_file())
-          if len(files) != 14 or any(path.is_symlink() for path in files):
-              raise SystemExit("release set is not seven archives plus seven Sigstore bundles")
+          if len(files) != 18 or any(path.is_symlink() for path in files):
+              raise SystemExit("release set is not nine archives plus nine Sigstore bundles")
           lines = []
           for path in files:
               hasher = hashlib.sha256()
@@ -385,7 +447,7 @@ jobs:
           DRAFT_MARKER_PREFIX: "<!-- ibex-hermes-vanilla-publisher:v1"
         run: |
           set -euo pipefail
-          test "$(find "$RELEASE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 15
+          test "$(find "$RELEASE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 19
           export DRAFT_MARKER="$DRAFT_MARKER_PREFIX source-sha=$SOURCE_SHA -->"
 
           require_absent_tag() {
@@ -431,7 +493,7 @@ jobs:
           require_absent_tag
           release_notes="$DRAFT_MARKER
 
-          Pinned vanilla Hermes $HERMES_COMMIT full-VM target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
+          Pinned vanilla Hermes $HERMES_COMMIT dual-VM target bundles. The default-branch publisher validated the successful main workflow_dispatch handoffs, attested each archive, and retained Sigstore bundles plus SHA256SUMS."
           # Create through the API and keep the returned id. Listing releases
           # right after creation can miss the new draft (read-after-write lag),
           # and gh's tag-based release commands resolve drafts by listing.
@@ -477,8 +539,8 @@ jobs:
                   for chunk in iter(lambda: source.read(1024 * 1024), b""):
                       hasher.update(chunk)
               local[path.name] = (path.stat().st_size, f"sha256:{hasher.hexdigest()}")
-          if len(local) != 15:
-              raise SystemExit("local release set is not exactly 15 files")
+          if len(local) != 19:
+              raise SystemExit("local release set is not exactly 19 files")
           with open(os.environ["REMOTE_ASSETS"], encoding="utf-8") as source:
               pages = json.load(source)
           remote = [asset for page in pages for asset in page]

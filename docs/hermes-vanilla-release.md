@@ -1,13 +1,14 @@
 # Vanilla Hermes release bundles
 
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
-The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v3`. It contains
-seven deterministic archives, `SHA256SUMS`, and one retained Sigstore bundle
+The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v4`. It contains
+nine deterministic archives, `SHA256SUMS`, and one retained Sigstore bundle
 beside each archive. The immutable v1 release contains only the full VM; v2
 added the lean VM but cannot gain the new Linux ICU profile, so v3 uses a new
-release namespace.
+release namespace. The immutable v3 release cannot gain tvOS bundles or the
+debugger-off Windows engine, so those changes use the v4 namespace.
 
-Each v3 archive contains both the full `hermesvm_a` and lean
+Each v4 archive contains both the full `hermesvm_a` and lean
 `hermesvmlean_a` target archives under `lib/`, the rest of their target link
 closure, host `hermesc` under `bin/`, public headers under `include/`, the
 upstream license, and a canonical `hermes-input-receipt.json`. Receipt v2 binds
@@ -51,18 +52,38 @@ retaining old version pins.
 
 ICU uses two make jobs; Hermes uses at most four Ninja jobs and a two-slot link
 pool. Hermes is configured with `HERMES_ENABLE_INTL=false`,
-`HERMES_UNICODE_LITE=false`, and `HERMES_USE_STATIC_ICU=true`. Apple is
-unchanged and keeps `HERMES_ENABLE_INTL=true`. Windows is also unchanged:
-the receipt records `HERMES_ENABLE_WIN10_ICU_FALLBACK=ON` plus the `icuuc` and
+`HERMES_UNICODE_LITE=false`, and `HERMES_USE_STATIC_ICU=true`. Apple keeps
+`HERMES_ENABLE_INTL=true`. Windows v4 disables the debugger and uses the same
+`release` receipt profile as Linux; as before, the receipt records
+`HERMES_ENABLE_WIN10_ICU_FALLBACK=ON` plus the `icuuc` and
 `icuin` import-library link directives, while pinned Hermes's CMake source
 selects its `USE_WIN10_ICU` declarations (marked `dllimport`) and reports
 "Using Windows 10 built-in ICU" when no separately installed ICU is found.
 Thus the Windows build continues to use the OS ICU DLL for its Unicode
-backend; v3 adds no packaged Windows ICU archive.
+backend; v4 adds no packaged Windows ICU archive.
+
+## Bundle set
+
+| Receipt target | Archive | Runner | Profile | v4 dry-run size |
+| --- | --- | --- | --- | ---: |
+| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15-xlarge` | `min-size-release` | not rebuilt in I3 |
+| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-large` | `min-size-release` | not rebuilt in I3 |
+| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15-xlarge` | `min-size-release` | not rebuilt in I3 |
+| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | not rebuilt in I3 |
+| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15-xlarge` | `min-size-release` | 6,365,983 B |
+| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | 6,364,463 B |
+| `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | not rebuilt in I3 |
+| `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | not rebuilt in I3 |
+| `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | not buildable on macOS |
+
+The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
+the iOS simulator bundle's `-simulator` spelling. They deliberately omit
+`universal`: Rust ships an arm64 tvOS Simulator standard library but no x86_64
+tvOS target. The Rust target `aarch64-apple-tvos-sim` maps to that receipt.
 
 ## Runners
 
-The macOS and iOS builder jobs run on GitHub's larger hosted macOS runners
+The macOS, iOS, and tvOS builder jobs run on GitHub's larger hosted macOS runners
 (`macos-15-xlarge`, Apple silicon; `macos-15-large`, Intel), which draw on the
 `expo` organization's dedicated larger-runner capacity rather than the shared
 standard pool. On 2026-10-05 the v3 build's standard `macos-15` jobs waited
@@ -179,7 +200,7 @@ non-fast-forward updates (force-pushes).
    in `.github/workflows/hermes-vanilla-build.yml` and
    `.github/workflows/hermes-vanilla-publish.yml`; the security test fails if
    they drift. Windows reads the same commit pin and therefore moves with every
-   pin bump, while retaining its supported Release+debugger, Intl-off
+   pin bump, while retaining its supported Release, debugger-off, Intl-off
    configuration.
 2. Run the local checks and, where the host supports them, packaging dry runs:
 
@@ -196,6 +217,11 @@ non-fast-forward updates (force-pushes).
      aarch64-apple-darwin /tmp/hermes-vanilla-aarch64-apple-darwin.tar.gz
    scripts/build-hermes-vanilla-release.sh \
      aarch64-apple-ios /tmp/hermes-vanilla-aarch64-apple-ios.tar.gz
+   scripts/build-hermes-vanilla-release.sh \
+     aarch64-apple-tvos /tmp/hermes-vanilla-aarch64-apple-tvos.tar.gz
+   scripts/build-hermes-vanilla-release.sh \
+     aarch64-apple-tvos-simulator \
+     /tmp/hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
    ```
 
 3. After review, push and merge the branch. The orchestrator then dispatches
@@ -207,7 +233,8 @@ non-fast-forward updates (force-pushes).
    by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
    them. It first looks for a release using the requested tag. With no release,
    it refuses any pre-existing tag ref and creates a commit-bound draft; any
-   existing release with that tag is refused. It uploads all 15 assets, fetches the remote asset list, and requires
+   existing release with that tag is refused. It uploads all 19 assets, fetches
+   the remote asset list, and requires
    the exact names, sizes, and SHA-256 digests before publishing the draft as a
    prerelease. A published release is never edited or deleted.
 
@@ -242,7 +269,7 @@ non-fast-forward updates (force-pushes).
    done
    test -n "$publisher_run_id"
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
-   gh release view hermes-vanilla-d412d3bd8512-v3 --repo "$repo"
+   gh release view hermes-vanilla-d412d3bd8512-v4 --repo "$repo"
    ```
 
 ### First publication (2026-10-04)
@@ -285,7 +312,7 @@ If the tag already exists, or a published release exists, don't delete either:
 increment the immutable release suffix (`-v4`, `-v5`, and so on).
 
 After publication the workflow re-reads the release. It requires it to be a
-non-draft, immutable prerelease with the exact 15-asset set and digests, and
+non-draft, immutable prerelease with the exact 19-asset set and digests, and
 its tag to name the authorized source commit directly. GitHub's update
 endpoint has no compare-and-swap, so a writer with `contents: write` could
 swap an asset between the draft check and publication. This final check turns
@@ -301,7 +328,7 @@ repository from satisfying this check.
 
 ```sh
 repo=expo/ibex
-tag=hermes-vanilla-d412d3bd8512-v3
+tag=hermes-vanilla-d412d3bd8512-v4
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
@@ -355,10 +382,11 @@ rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. The `l1g-a` pipeline branch stays
-on independently verified immutable v2 asset digests; this `l1g` consumer
-branch names v3 and rejects every `TODO_L1G_SHA256_*` pin until publication.
-It resolves a complete
+`hermes-lean-sys` is the supported consumer. The pipeline commits remain on
+independently verified immutable v3 asset digests. The separate v4 consumer
+commit names v4 and rejects every `TODO_I3_V4_SHA256_*` pin until publication
+and attestation; the orchestrator replaces those sentinels from the published
+`SHA256SUMS`. It resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
 the legacy repository layout (`hermes-headers` plus the platform static-library
@@ -368,8 +396,9 @@ its receipt. A legacy Apple or Windows repository-layout install may omit one;
 a Linux install must carry a canonical receipt because its ICU code, both data
 variants, and the pinned filter are build inputs. Unsupported
 triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
-`aarch64-apple-ios-sim` and
-`x86_64-apple-ios` both select the universal iOS Simulator archive.
+`aarch64-apple-ios-sim` and `x86_64-apple-ios` both select the universal iOS
+Simulator archive. `aarch64-apple-tvos` selects the tvOS device archive and
+`aarch64-apple-tvos-sim` selects the arm64 tvOS Simulator archive.
 
 The `link` feature emits the full VM's link line; `link-lean` emits the lean
 VM's link line, and the two features are mutually exclusive. On Linux either
@@ -395,7 +424,7 @@ identity; only the normal dependency that emits the link lines exports these
 `LINKED_ICU_DATA_*` values. This is R-e: a process never reports full while
 linking lean, or reports trimmed data while linking full data. Legacy local
 layouts may omit lean; they export no lean path, digest, or
-HBC version and fail only if `link-lean` is requested. Published v3 bundles
+HBC version and fail only if `link-lean` is requested. Published v4 bundles
 must carry and manifest both. Repository discovery uses the Apple layout only
 for macOS targets; iOS cross builds fall through to their pinned target bundle
 or an explicit complete `HERMES_LEAN_SYS_DIR`.
@@ -515,7 +544,7 @@ section, update the target table from that same downloaded checksum file:
 node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS"
 ```
 
-The script requires all seven archive checksums and rewrites the duplicate
+The script requires all nine archive checksums and rewrites the duplicate
 universal-simulator mappings consistently. Review the resulting source diff,
 then exercise cold-cache, warm-cache, offline-cache, mirror, and local-directory
 override cases on the follow-up lean-selection branch before landing consumer
