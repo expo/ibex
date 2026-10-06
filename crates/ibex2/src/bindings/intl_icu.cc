@@ -1,4 +1,4 @@
-// ICU computation backend for Ibex's Linux Intl bindings.
+// ICU computation backend for Ibex's Linux and Windows Intl bindings.
 //
 // The ECMAScript policy lives in Rust. This file deliberately exposes only
 // locale/metadata queries and an immutable skeleton formatter: ICU computes,
@@ -7,17 +7,7 @@
 // @ref LLP 0057#3-the-boundary — Rust owns semantics; native libraries are computation backends
 
 #if defined(_WIN32)
-// SPIKE (win-intl-spike): the Windows SDK's single <icu.h> declares the
-// same unversioned C API, backed by the OS icu.dll (no bundled ICU data).
-#include <sdkddkver.h>
-#include <icu.h>
-// Field-position results via UFormattedValue need NTDDI_WIN10_CO (Windows 11);
-// below that, fall back to the ICU 62 UFieldPositionIterator API.
-#if defined(NTDDI_WIN10_CO) && NTDDI_VERSION >= NTDDI_WIN10_CO
-#define IBEX2_ICU_HAS_FORMATTED_VALUE 1
-#else
-#define IBEX2_ICU_HAS_FORMATTED_VALUE 0
-#endif
+#include "intl_icu_windows.h"
 #else
 #include <unicode/ucurr.h>
 #include <unicode/uformattedvalue.h>
@@ -25,7 +15,6 @@
 #include <unicode/unumberformatter.h>
 #include <unicode/unumsys.h>
 #include <unicode/ustring.h>
-#define IBEX2_ICU_HAS_FORMATTED_VALUE 1
 #endif
 
 #include <algorithm>
@@ -155,7 +144,7 @@ Result *make_result(const Formatter *formatter, double number,
     unumf_formatDecimal(formatter->value, decimal, -1, raw.get(), &status);
   if (U_FAILURE(status)) return nullptr;
 
-#if IBEX2_ICU_HAS_FORMATTED_VALUE
+#if !defined(_WIN32)
   const UFormattedValue *formatted = unumf_resultAsValue(raw.get(), &status);
   int32_t length = 0;
   const UChar *text = ufmtval_getString(formatted, &length, &status);
@@ -178,9 +167,10 @@ Result *make_result(const Formatter *formatter, double number,
     }
   }
 #else
-  // SPIKE (win-intl-spike): Windows 10 2004..22H2 (NTDDI_WIN10_VB) export
-  // unumf_* but not ufmtval_*/ucfpos_* (those arrive with NTDDI_WIN10_CO,
-  // Windows 11). The ICU 62+ iterator API yields the same UNumberFormatFields.
+  // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — Windows 10 2004
+  // through 22H2 export `unumf_*` but not `ufmtval_*`/`ucfpos_*` (Windows 11),
+  // so Windows always takes ICU 62's field-position iterator. It yields the
+  // same UNumberFormatFields IDs and spans as the UFormattedValue walk above.
   int32_t length = unumf_resultToString(raw.get(), nullptr, 0, &status);
   if (status != U_BUFFER_OVERFLOW_ERROR && U_FAILURE(status)) return nullptr;
   status = U_ZERO_ERROR;

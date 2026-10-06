@@ -1,4 +1,5 @@
-// ICU computation backend for Ibex's Linux Intl.DateTimeFormat binding.
+// ICU computation backend for Ibex's Linux and Windows Intl.DateTimeFormat
+// binding.
 //
 // Rust chooses ECMA-402 policy and owns formatter state. This file is the
 // narrow native computation seam: CLDR pattern selection, calendar/time-zone
@@ -7,9 +8,7 @@
 // @ref LLP 0057#3-the-boundary — Rust owns semantics; ICU is the computation backend
 
 #if defined(_WIN32)
-// SPIKE (win-intl-spike): the Windows SDK's single <icu.h> declares the
-// same unversioned C API, backed by the OS icu.dll (no bundled ICU data).
-#include <icu.h>
+#include "intl_icu_windows.h"
 #else
 #include <unicode/ucal.h>
 #include <unicode/udat.h>
@@ -31,10 +30,21 @@
 
 namespace {
 
-// UDAT_RELATED_YEAR_FIELD is ICU @internal (value 34 since ICU 53). The
-// Windows SDK's <icu.h> strips internal API, so name the value directly.
-// SPIKE (win-intl-spike): found by compiling against the SDK header.
+// ICU's UDAT_RELATED_YEAR_FIELD ("r", the related Gregorian year of a
+// non-Gregorian calendar). It is tagged @internal, so the Windows SDK's
+// <icu.h>, which strips internal API, does not declare it; its value has been
+// 34 since ICU 53. Where ICU declares it the value is checked exactly; on
+// Windows it is checked to be the one slot between its stable neighbours.
 constexpr int32_t kRelatedYearField = 34;
+#if defined(_WIN32)
+static_assert(UDAT_TIMEZONE_ISO_LOCAL_FIELD + 1 == kRelatedYearField &&
+                  kRelatedYearField + 1 == UDAT_AM_PM_MIDNIGHT_NOON_FIELD,
+              "UDAT_RELATED_YEAR_FIELD is the slot between ISO-local zone and "
+              "midnight/noon");
+#else
+static_assert(kRelatedYearField == UDAT_RELATED_YEAR_FIELD,
+              "kRelatedYearField mirrors ICU's UDAT_RELATED_YEAR_FIELD");
+#endif
 
 template <typename T, typename F>
 T protect(T failure, F &&body) noexcept {

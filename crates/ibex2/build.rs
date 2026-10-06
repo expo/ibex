@@ -27,10 +27,14 @@ fn main() {
     }
     // @ref LLP 0057.000#51-included-gated-or-a-crate — D5/D6 require this
     // over-budget family to be absent unless the consumer opts in.
-    // SPIKE (win-intl-spike): Windows compiles the same C-API shims against the
-    // SDK's <icu.h>; the OS icu.dll link line comes from hermes-lean-sys `icu`.
+    // Windows compiles the same C-API shims against the SDK's <icu.h>
+    // (LLP 0057.000 §5.1.1); its OS icu.dll link line also comes from
+    // hermes-lean-sys `icu`.
     let intl_shims = has_intl && (target_os == "linux" || target_os == "windows");
     if intl_shims {
+        if target_os == "windows" {
+            println!("cargo:rerun-if-changed=src/bindings/intl_icu_windows.h");
+        }
         for source in [
             "src/bindings/intl_number_format.cc",
             "src/bindings/intl_icu.cc",
