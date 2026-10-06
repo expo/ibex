@@ -32,52 +32,52 @@ pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",
         asset: "hermes-vanilla-aarch64-apple-darwin.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_AARCH64_APPLE_DARWIN",
+        sha256: "457565d12cc1bdbf7a12b5ea72253742565b0a6837f44b28660049e2d9056299",
     },
     BundlePin {
         target: "x86_64-apple-darwin",
         asset: "hermes-vanilla-x86_64-apple-darwin.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_X86_64_APPLE_DARWIN",
+        sha256: "dabf946fc63e5d53eed2b73c45961ea01786e2218c5be45254a3ab687c887d7a",
     },
     BundlePin {
         target: "aarch64-apple-ios",
         asset: "hermes-vanilla-aarch64-apple-ios.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_AARCH64_APPLE_IOS",
+        sha256: "7695d42dde77aa400f849e185dd3542d57fe970bf0ba33dd547ea7bd49617a3c",
     },
     BundlePin {
         target: "aarch64-apple-ios-sim",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
+        sha256: "aaf9efb864104deec6909e7e8e835a5900719a8b9aa4d8fe34b27497e0cd076d",
     },
     BundlePin {
         target: "x86_64-apple-ios",
         asset: "hermes-vanilla-universal-apple-ios-simulator.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_UNIVERSAL_APPLE_IOS_SIMULATOR",
+        sha256: "aaf9efb864104deec6909e7e8e835a5900719a8b9aa4d8fe34b27497e0cd076d",
     },
     BundlePin {
         target: "aarch64-apple-tvos",
         asset: "hermes-vanilla-aarch64-apple-tvos.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_AARCH64_APPLE_TVOS",
+        sha256: "22f5045fbe6a262b5e2ab6931230cb92c2b8bba50169f2219b13c71f64eadce0",
     },
     BundlePin {
         target: "aarch64-apple-tvos-sim",
         asset: "hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_AARCH64_APPLE_TVOS_SIMULATOR",
+        sha256: "abb8c3d08d36d55a9ba04f94cbc9221eb8b45d619b1b1029c51696a639c3bc97",
     },
     BundlePin {
         target: "x86_64-unknown-linux-gnu",
         asset: "hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_X86_64_UNKNOWN_LINUX_GNU",
+        sha256: "5000324acd01cd2cc218682e4fec114632dd3b8c703f6a8eeca546f6744e17e2",
     },
     BundlePin {
         target: "aarch64-unknown-linux-gnu",
         asset: "hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_AARCH64_UNKNOWN_LINUX_GNU",
+        sha256: "f7fc2621bf2c9396c7afd5d4e5128c1dd16c96bade14ff8c13934ef6489e6eb8",
     },
     BundlePin {
         target: "x86_64-pc-windows-msvc",
         asset: "hermes-vanilla-x86_64-pc-windows-msvc.tar.gz",
-        sha256: "TODO_I3_V4_SHA256_X86_64_PC_WINDOWS_MSVC",
+        sha256: "1ae9d648aad5fa4f568288260a8a359badc3f748782752c450f7dee34b2e7522",
     },
 ];
 
