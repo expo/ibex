@@ -25,6 +25,7 @@ hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-featur
 [dev-dependencies]
 ibex2-sqlite = { path = "../ibex2-sqlite" }
 # Exercise the portable transport on Apple too, without linking it in Apple builds.
+mio = { version = "1", features = ["os-poll", "net"] }
 socket2 = "0.6"
 libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
@@ -41,6 +42,7 @@ cc = "1"
 # system TLS, nothing a builder without -dev packages lacks. Redirects and
 # the rest of `fetch` stay above it, in Rust, as on Apple.
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
+mio = { version = "1", features = ["os-poll", "net"] }
 socket2 = "0.6"
 libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
@@ -57,6 +59,7 @@ webpki-roots = "1"
 windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_SystemServices", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_System_WindowsProgramming"] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
+mio = { version = "1", features = ["os-poll", "net"], optional = true }
 socket2 = { version = "0.6", optional = true }
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
@@ -82,6 +85,7 @@ crypto-asymmetric = ["crypto"]
 # remain present when this is off; only the transport implementation is cut.
 websocket = []
 test-support = [
+    "dep:mio",
     "dep:socket2",
     "dep:ureq",
     "dep:rustls",
