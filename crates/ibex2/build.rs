@@ -34,6 +34,7 @@ fn main() {
     if intl_shims {
         if target_os == "windows" {
             println!("cargo:rerun-if-changed=src/bindings/intl_icu_windows.h");
+            delay_load_os_icu();
         }
         for source in [
             "src/bindings/intl_number_format.cc",
@@ -137,6 +138,26 @@ fn main() {
     if let Some(lean_bytecode_version) = lean_bytecode_version {
         println!("cargo:rustc-env=IBEX2_BINDINGS_LEAN_BYTECODE_VERSION={lean_bytecode_version}");
     }
+}
+
+/// Make this package's own test and example links load the OS ICU lazily.
+///
+/// @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — `hermes-lean-sys`
+/// owns the `icu.dll` import, but a delay-load is a flag on the final link,
+/// and Cargo does not pass a library's link arguments to its dependents. So
+/// each package that links the shims into an executable forwards the DLL that
+/// `hermes-lean-sys` names. An embedder outside this workspace adds the same
+/// two arguments to its own final link (README).
+fn delay_load_os_icu() {
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+        return;
+    }
+    let dll = required("DEP_HERMES_LEAN_OS_ICU_DLL");
+    println!("cargo:rustc-link-arg=/DELAYLOAD:{dll}");
+    println!("cargo:rustc-link-arg=delayimp.lib");
+    // A test or example that never reaches the shims imports nothing from
+    // the DLL; the linker's "nothing to delay-load" note is then expected.
+    println!("cargo:rustc-link-arg=/IGNORE:4199");
 }
 
 fn build_platform_backends(is_apple: bool) {

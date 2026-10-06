@@ -550,6 +550,14 @@ pub unsafe extern "C" fn ibex2_host_call(
     }
 
     let state = crate::task::clone_queue(state);
+    // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the shims' icu.dll
+    // is delay-loaded; no Intl operation may reach it unless the probe passed.
+    #[cfg(all(feature = "intl", windows))]
+    if crate::host_opcodes::is_intl(op) {
+        if let Err(reason) = crate::stdlib::intl_os::available() {
+            return fail(out, &format!("Intl is unavailable: {reason}"));
+        }
+    }
     #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
     if let Some(result) = crate::stdlib::intl::dispatch(op, &args, state.as_deref()) {
         return match result {

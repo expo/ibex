@@ -23,6 +23,21 @@ fn main() {
         // @ref LLP 0068#proposed-windows-cli-stack-reserve — CLI policy, never an embedder's stack
         println!("cargo:rustc-link-arg-bin=ibex2=/STACK:8388608");
     }
+    if target_os == "windows"
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+        && std::env::var_os("CARGO_FEATURE_INTL").is_some()
+    {
+        // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the shims'
+        // OS icu.dll is loaded on first use, after Groups::validate's probe,
+        // so an `intl` binary still starts on a Windows without it. Cargo
+        // cannot forward a library's link arguments, so the final link adds it.
+        let dll = required("DEP_HERMES_LEAN_OS_ICU_DLL");
+        println!("cargo:rustc-link-arg=/DELAYLOAD:{dll}");
+        println!("cargo:rustc-link-arg=delayimp.lib");
+        // A test or example that never reaches the shims imports nothing from
+        // the DLL; the linker's "nothing to delay-load" note is then expected.
+        println!("cargo:rustc-link-arg=/IGNORE:4199");
+    }
     if target_vendor == "apple" {
         shim.flag("-stdlib=libc++");
     }

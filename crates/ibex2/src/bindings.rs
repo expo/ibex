@@ -54,6 +54,19 @@ pub const LEAN_BYTECODE_VERSION: Option<&str> = option_env!("IBEX2_BINDINGS_LEAN
 pub const SQLITE_SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/sqlite.js");
 pub const TYPESCRIPT: &str = include_str!("bindings/storage.d.ts");
 
+/// Windows: what this process observes of the operating system's ICU, which
+/// backs the `INTL` group there. `Err` names why `INTL` is unavailable.
+#[cfg(all(windows, feature = "intl"))]
+pub use crate::stdlib::intl_os::{os_icu, OsIcu};
+/// The `icu.dll` entry points the Windows `INTL` probe requires, and the
+/// Windows 11-only ones the shims must never import. Exposed for the
+/// import-table witness in `ibex2-runtime`'s tests.
+#[cfg(all(windows, feature = "intl"))]
+#[doc(hidden)]
+pub use crate::stdlib::intl_os::{
+    SHIM_ENTRY_POINTS as OS_ICU_ENTRY_POINTS, WINDOWS_11_ONLY as OS_ICU_WINDOWS_11_ONLY,
+};
+
 /// Named projections of the Rust standard library into a JavaScript runtime.
 ///
 /// Cargo features decide what code is linked; this set independently decides
@@ -100,8 +113,8 @@ impl Groups {
             | Self::WEBSOCKET.0,
     );
 
-    /// Every group linked into this build. Linux Intl exists only when its
-    /// over-budget Cargo feature is selected.
+    /// Every group linked into this build. Linux and Windows Intl exist only
+    /// when their over-budget Cargo feature is selected.
     #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
     pub const ALL: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
     /// Every group linked into this build.
@@ -164,6 +177,15 @@ impl Groups {
         }
         #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
         if self.contains(Self::INTL) {
+            return Err(GroupError {
+                group: Self::INTL,
+                missing: Self::INTL,
+            });
+        }
+        // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — linked is not
+        // enough on Windows: the OS must provide the ICU the shims call.
+        #[cfg(all(windows, feature = "intl"))]
+        if self.contains(Self::INTL) && crate::stdlib::intl_os::available().is_err() {
             return Err(GroupError {
                 group: Self::INTL,
                 missing: Self::INTL,
@@ -239,9 +261,18 @@ pub struct GroupError {
 impl fmt::Display for GroupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.group == Groups::INTL && self.missing == Groups::INTL {
+            #[cfg(all(windows, feature = "intl"))]
             return write!(
                 f,
-                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux"
+                "binding group INTL is unavailable; this Windows lacks the OS ICU it uses: {}",
+                crate::stdlib::intl_os::available()
+                    .err()
+                    .unwrap_or("the ICU probe failed")
+            );
+            #[cfg(not(all(windows, feature = "intl")))]
+            return write!(
+                f,
+                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux or Windows"
             );
         }
         write!(
@@ -685,7 +716,7 @@ mod tests {
         if !available {
             assert_eq!(
                 result.unwrap_err().to_string(),
-                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux"
+                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux or Windows"
             );
         }
     }

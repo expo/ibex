@@ -58,6 +58,9 @@ namespace ibex2::intl_datetime {
 std::vector<facebook::jsi::Value> factory_arguments(facebook::jsi::Runtime&,
     std::shared_ptr<ibex2::jsi_adapter::Lifetime>);
 }
+#if defined(_WIN32)
+extern "C" int ibex2_intl_os_icu_available();
+#endif
 #endif
 
 namespace ibex2::jsi_adapter {
@@ -579,6 +582,13 @@ void validate_groups_impl(Groups groups) {
 #if !defined(IBEX2_JSI_HAS_INTL)
   if (has(groups, GROUP_INTL))
     throw std::invalid_argument("Ibex2 INTL bindings are unavailable in this build");
+#elif defined(_WIN32)
+  // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the same probe as
+  // Groups::validate: the OS must export the ICU the shims call.
+  if (has(groups, GROUP_INTL) && ibex2_intl_os_icu_available() == 0)
+    throw std::invalid_argument(
+        "Ibex2 INTL bindings are unavailable: this Windows lacks the OS ICU "
+        "they use (icu.dll from Windows 10 version 2004 or later)");
 #endif
 }
 

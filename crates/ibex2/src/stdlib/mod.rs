@@ -16,6 +16,8 @@ pub(crate) mod intl;
 pub(crate) mod intl_case;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl_datetime;
+#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+pub(crate) mod intl_os;
 pub mod multipart;
 pub mod subtle;
 #[cfg(feature = "bindings")]

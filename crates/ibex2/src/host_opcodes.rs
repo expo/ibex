@@ -69,7 +69,10 @@ pub(crate) mod inline {
     pub(crate) const SQLITE_RESULT: u32 = 80;
 }
 
-#[cfg_attr(not(all(feature = "intl", any(target_os = "linux", windows))), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "intl", any(target_os = "linux", windows))),
+    allow(dead_code)
+)]
 pub(crate) mod intl_number {
     pub(crate) const CREATE: u32 = 90;
     pub(crate) const FORMAT: u32 = 91;
@@ -82,12 +85,26 @@ pub(crate) mod intl_number {
     pub(crate) const CANONICAL_LOCALE: u32 = 99;
 }
 
-#[cfg_attr(not(all(feature = "intl", any(target_os = "linux", windows))), allow(dead_code))]
+#[cfg_attr(
+    not(all(feature = "intl", any(target_os = "linux", windows))),
+    allow(dead_code)
+)]
 pub(crate) mod intl_case {
     pub(crate) const MAP: u32 = 97;
 }
 
-#[cfg_attr(not(all(feature = "intl", any(target_os = "linux", windows))), allow(dead_code))]
+/// Whether `op` is one of the Intl families' operations (number format and
+/// case 90–99, date-time format 130–137).
+#[cfg(all(feature = "intl", windows))]
+pub(crate) const fn is_intl(op: u32) -> bool {
+    (op >= intl_number::CREATE && op <= intl_number::CANONICAL_LOCALE)
+        || (op >= intl_datetime::CREATE && op <= intl_datetime::CANONICAL_TIME_ZONE)
+}
+
+#[cfg_attr(
+    not(all(feature = "intl", any(target_os = "linux", windows))),
+    allow(dead_code)
+)]
 pub(crate) mod intl_datetime {
     pub(crate) const CREATE: u32 = 130;
     pub(crate) const FORMAT: u32 = 131;
