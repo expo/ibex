@@ -57,6 +57,7 @@ pub struct TcpSocketTransport {
 struct PumpObserver {
     parked: std::sync::atomic::AtomicBool,
     exited: std::sync::atomic::AtomicBool,
+    terminal_draining: std::sync::atomic::AtomicBool,
     returns: AtomicUsize,
     network_bytes: AtomicUsize,
     write_blocked: std::sync::atomic::AtomicBool,
@@ -581,6 +582,7 @@ struct SendState {
 struct TerminalLatch {
     result: Result<Received, HostError>,
     delivered: bool,
+    deliverable: bool,
     peer_close: bool,
 }
 
@@ -987,7 +989,7 @@ fn parse_available(
     command_count: &AtomicUsize,
     state: &Mutex<SendState>,
     limit: usize,
-    close_sent: bool,
+    close_started: bool,
     frames_left: &mut usize,
 ) -> Result<Parse, HostError> {
     loop {
@@ -1032,7 +1034,7 @@ fn parse_available(
             if so_far.saturating_add(length) > limit as u64 {
                 input.discard(head);
                 let mut send = state.lock().expect("WebSocket sender poisoned");
-                if send.admission == AdmissionState::Open && !close_sent {
+                if !close_started {
                     replace_controls_with_close(
                         controls,
                         command_count,
@@ -1063,14 +1065,14 @@ fn parse_available(
                         payload.clone()
                     };
                     let mut send = state.lock().expect("WebSocket sender poisoned");
-                    if !close_sent {
+                    if !close_started {
                         replace_controls_with_close(controls, command_count, echo)?;
                     }
                     send.admission = AdmissionState::Closed;
                     return Ok(Parse::Received(Received::Closed { code, reason }));
                 }
                 0x9 => {
-                    if !close_sent {
+                    if !close_started {
                         reserve_control(command_count)?;
                         controls.push_back(Control {
                             opcode: 0xA,
@@ -1108,7 +1110,7 @@ fn parse_control_prefix(
     controls: &mut std::collections::VecDeque<Control>,
     command_count: &AtomicUsize,
     state: &Mutex<SendState>,
-    close_sent: bool,
+    close_started: bool,
     frames_left: &mut usize,
 ) -> Result<ControlParse, HostError> {
     let mut progressed = false;
@@ -1163,14 +1165,14 @@ fn parse_control_prefix(
                 let (code, reason) = parse_close_payload(&payload)?;
                 let echo = if code == 1005 { Vec::new() } else { payload };
                 let mut send = state.lock().expect("WebSocket sender poisoned");
-                if !close_sent {
+                if !close_started {
                     replace_controls_with_close(controls, command_count, echo)?;
                 }
                 send.admission = AdmissionState::Closed;
                 return Ok(ControlParse::Closed(Received::Closed { code, reason }));
             }
             0x9 => {
-                if !close_sent {
+                if !close_started {
                     reserve_control(command_count)?;
                     controls.push_back(Control {
                         opcode: 0xA,
@@ -1246,41 +1248,88 @@ fn finish_data(
     state.queued_messages = state.queued_messages.saturating_sub(1);
 }
 
+fn latch_terminal(
+    result: Result<Received, HostError>,
+    deliverable: bool,
+    state: &Mutex<SendState>,
+) {
+    let peer_close = matches!(
+        &result,
+        Ok(Received::Closed { code, .. }) if *code != 1006
+    );
+    let mut send = state.lock().expect("WebSocket sender poisoned");
+    send.admission = AdmissionState::Closed;
+    if let Some(terminal) = send.terminal.as_mut() {
+        if terminal.peer_close || !peer_close {
+            terminal.deliverable |= deliverable;
+            return;
+        }
+    }
+    send.terminal = Some(TerminalLatch {
+        result,
+        delivered: false,
+        deliverable,
+        peer_close,
+    });
+}
+
+fn deliver_terminal(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    state: &Mutex<SendState>,
+) {
+    // Admission holds this same state lock through queue insertion. Once the
+    // pump owns it, every request which observed OPEN is either active or
+    // visible in `requests`, so a racing EOF cannot turn into channel closure.
+    let delivery = {
+        let mut send = state.lock().expect("WebSocket sender poisoned");
+        let terminal = send.terminal.as_mut();
+        let Some(terminal) =
+            terminal.filter(|terminal| terminal.deliverable && !terminal.delivered)
+        else {
+            return;
+        };
+        let pending = request
+            .take()
+            .map(|(request, _)| request)
+            .or_else(|| requests.try_recv().ok());
+        terminal.delivered = pending.is_some();
+        pending.map(|pending| (pending, terminal.result.clone()))
+    };
+    let Some((request, result)) = delivery else {
+        return;
+    };
+    let _ = request.reply.send(result);
+}
+
+fn defer_terminal(result: Result<Received, HostError>, state: &Mutex<SendState>) {
+    latch_terminal(result, false, state);
+}
+
+fn release_terminal(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    state: &Mutex<SendState>,
+) {
+    if let Some(terminal) = state
+        .lock()
+        .expect("WebSocket sender poisoned")
+        .terminal
+        .as_mut()
+    {
+        terminal.deliverable = true;
+    }
+    deliver_terminal(request, requests, state);
+}
+
 fn publish_terminal(
     request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
     requests: &mpsc::Receiver<ReceiveRequest>,
     result: Result<Received, HostError>,
     state: &Mutex<SendState>,
 ) {
-    // Admission holds this same state lock through queue insertion. Once the
-    // pump owns it, every request which observed OPEN is either active or
-    // visible in `requests`, so a racing EOF cannot turn into channel closure.
-    let peer_close = matches!(
-        &result,
-        Ok(Received::Closed { code, .. }) if *code != 1006
-    );
-    let (pending, result) = {
-        let mut send = state.lock().expect("WebSocket sender poisoned");
-        send.admission = AdmissionState::Closed;
-        if let Some(terminal) = &send.terminal {
-            if terminal.peer_close || !peer_close {
-                return;
-            }
-        }
-        let pending = request
-            .take()
-            .map(|(request, _)| request)
-            .or_else(|| requests.try_recv().ok());
-        send.terminal = Some(TerminalLatch {
-            result: result.clone(),
-            delivered: pending.is_some(),
-            peer_close,
-        });
-        (pending, result)
-    };
-    if let Some(request) = pending {
-        let _ = request.reply.send(result);
-    }
+    latch_terminal(result, true, state);
+    deliver_terminal(request, requests, state);
 }
 
 fn fail_pump(
@@ -1317,6 +1366,7 @@ enum WriteSide {
 struct CloseState {
     read: ReadSide,
     write: WriteSide,
+    close_started: bool,
     close_sent: bool,
     close_received: bool,
     finish_after_close_sent: bool,
@@ -1327,6 +1377,7 @@ impl CloseState {
         Self {
             read: ReadSide::Open,
             write: WriteSide::Open,
+            close_started: false,
             close_sent: false,
             close_received: false,
             finish_after_close_sent: false,
@@ -1347,6 +1398,28 @@ struct TerminalDrain {
     data_left: usize,
 }
 
+fn begin_terminal_drain(
+    close: &mut CloseState,
+    drain: &mut TerminalDrain,
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    #[cfg(test)] observer: Option<&PumpObserver>,
+) {
+    if close.read != ReadSide::Open {
+        return;
+    }
+    if let Some((_, operation)) = request.as_mut() {
+        if let Some((opcode, message)) = operation.message.take() {
+            drain.fragmented = Some(opcode);
+            drain.message_len = message.len() as u64;
+        }
+    }
+    close.read = ReadSide::Closing;
+    #[cfg(test)]
+    if let Some(observer) = observer {
+        observer.terminal_draining.store(true, Ordering::Release);
+    }
+}
+
 enum DrainParse {
     NeedData(usize),
     Progress,
@@ -1363,7 +1436,7 @@ fn parse_terminal_drain(
     command_count: &AtomicUsize,
     state: &Mutex<SendState>,
     limit: usize,
-    close_sent: bool,
+    close_started: bool,
     frames_left: &mut usize,
 ) -> Result<DrainParse, HostError> {
     let mut progressed = false;
@@ -1416,7 +1489,7 @@ fn parse_terminal_drain(
             match opcode {
                 0x8 => {
                     let (code, reason) = parse_close_payload(&payload)?;
-                    if !close_sent {
+                    if !close_started {
                         let echo = if code == 1005 { Vec::new() } else { payload };
                         replace_controls_with_close(controls, command_count, echo)?;
                     }
@@ -1424,7 +1497,7 @@ fn parse_terminal_drain(
                         AdmissionState::Closed;
                     return Ok(DrainParse::Closed(Received::Closed { code, reason }));
                 }
-                0x9 if !close_sent => {
+                0x9 if !close_started => {
                     reserve_control(command_count)?;
                     controls.push_back(Control {
                         opcode: 0xA,
@@ -1457,7 +1530,7 @@ fn parse_terminal_drain(
         if drain.message_len > limit as u64 {
             input.discard(head);
             let mut send = state.lock().expect("WebSocket sender poisoned");
-            if send.admission == AdmissionState::Open && !close_sent {
+            if !close_started {
                 replace_controls_with_close(
                     controls,
                     command_count,
@@ -1518,9 +1591,58 @@ fn abandon_active(active: &mut Option<ActiveData>, command_count: &AtomicUsize) 
     }
 }
 
-fn drain_commands(commands: &mpsc::Receiver<Command>, command_count: &AtomicUsize) {
-    while commands.try_recv().is_ok() {
+fn is_close_frame(frame: &Option<OutgoingFrame>) -> bool {
+    matches!(
+        frame,
+        Some(OutgoingFrame {
+            kind: FrameKind::Control { opcode: 0x8 },
+            ..
+        })
+    )
+}
+
+fn discard_unsent_close_frame(
+    frame: &mut Option<OutgoingFrame>,
+    wire: &Wire,
+    command_count: &AtomicUsize,
+) {
+    let unsent_close = matches!(
+        frame,
+        Some(OutgoingFrame {
+            at: 0,
+            kind: FrameKind::Control { opcode: 0x8 },
+            ..
+        })
+    ) && !wire.wants_write();
+    if unsent_close {
+        frame.take();
         command_count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn drain_commands(
+    commands: &mpsc::Receiver<Command>,
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    mut retain_close: bool,
+) {
+    retain_close &= !controls.iter().any(|control| control.opcode == 0x8);
+    while let Ok(command) = commands.try_recv() {
+        match command {
+            Command::Control {
+                opcode: 0x8,
+                payload,
+            } if retain_close => {
+                controls.push_back(Control {
+                    opcode: 0x8,
+                    payload,
+                });
+                retain_close = false;
+            }
+            Command::Data { .. } | Command::Control { .. } => {
+                command_count.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
     }
 }
 
@@ -1587,9 +1709,16 @@ fn pump_loop(
             return;
         }
 
-        let stop_data = close.read == ReadSide::Done || close.finish_after_close_sent;
-        if close.close_sent || stop_data {
-            drain_commands(&commands, &command_count);
+        let stop_data = close.read != ReadSide::Open || close.finish_after_close_sent;
+        if close.close_sent {
+            drain_commands(&commands, &mut controls, &command_count, false);
+        } else if stop_data {
+            drain_commands(
+                &commands,
+                &mut controls,
+                &command_count,
+                !is_close_frame(&frame),
+            );
         }
         if stop_data && frame.is_none() {
             abandon_active(&mut active, &command_count);
@@ -1620,7 +1749,7 @@ fn pump_loop(
 
         let mut read_wanted = 0;
         let mut read_frames = MAX_READ_FRAMES_PER_TURN;
-        if close.read != ReadSide::Done {
+        if close.read == ReadSide::Open {
             if let Some((_, operation)) = request.as_mut() {
                 match parse_available(
                     operation,
@@ -1629,20 +1758,38 @@ fn pump_loop(
                     &command_count,
                     &state,
                     limit,
-                    close.close_sent,
+                    close.close_started,
                     &mut read_frames,
                 ) {
                     Ok(Parse::Received(received)) => {
-                        if matches!(received, Received::Closed { .. }) {
-                            close.receive_close();
-                            publish_terminal(&mut request, &requests, Ok(received), &state);
-                        } else {
-                            if matches!(received, Received::TooLarge) {
+                        match received {
+                            received @ Received::Closed { .. } => {
+                                close.receive_close();
+                                if close.close_sent || close.write == WriteSide::Done {
+                                    publish_terminal(&mut request, &requests, Ok(received), &state);
+                                } else {
+                                    defer_terminal(Ok(received), &state);
+                                }
+                            }
+                            Received::TooLarge => {
+                                discard_unsent_close_frame(&mut frame, &wire, &command_count);
                                 close.read = ReadSide::Done;
                                 close.finish_after_close_sent = true;
+                                if close.close_sent || close.write == WriteSide::Done {
+                                    publish_terminal(
+                                        &mut request,
+                                        &requests,
+                                        Ok(Received::TooLarge),
+                                        &state,
+                                    );
+                                } else {
+                                    defer_terminal(Ok(Received::TooLarge), &state);
+                                }
                             }
-                            let (finished, _) = request.take().unwrap();
-                            let _ = finished.reply.send(Ok(received));
+                            received => {
+                                let (finished, _) = request.take().unwrap();
+                                let _ = finished.reply.send(Ok(received));
+                            }
                         }
                         reschedule_read = true;
                     }
@@ -1656,71 +1803,84 @@ fn pump_loop(
             }
         }
 
+        if close.read == ReadSide::Closing && !reschedule_read {
+            match parse_terminal_drain(
+                &mut terminal_drain,
+                &mut input,
+                &mut controls,
+                &command_count,
+                &state,
+                limit,
+                close.close_started,
+                &mut read_frames,
+            ) {
+                Ok(DrainParse::NeedData(wanted)) => read_wanted = wanted,
+                Ok(DrainParse::Progress | DrainParse::Yield) => reschedule_read = true,
+                Ok(DrainParse::Closed(received)) => {
+                    close.receive_close();
+                    if close.close_sent || close.write == WriteSide::Done {
+                        publish_terminal(&mut request, &requests, Ok(received), &state);
+                    } else {
+                        defer_terminal(Ok(received), &state);
+                    }
+                    reschedule_read = true;
+                }
+                Ok(DrainParse::TooLarge) => {
+                    discard_unsent_close_frame(&mut frame, &wire, &command_count);
+                    close.read = ReadSide::Done;
+                    close.finish_after_close_sent = true;
+                    if close.close_sent || close.write == WriteSide::Done {
+                        publish_terminal(&mut request, &requests, Ok(Received::TooLarge), &state);
+                    } else {
+                        defer_terminal(Ok(Received::TooLarge), &state);
+                    }
+                    reschedule_read = true;
+                }
+                Err(error) => {
+                    fail_pump(&mut request, &requests, error, &state, &shutdown);
+                    return;
+                }
+            }
+        }
+
         let background_read = close.read == ReadSide::Closing
             || close.close_sent
             || command_count.load(Ordering::Acquire) != 0
             || frame.is_some()
             || wire.wants_write()
             || active.is_some();
-        if request.is_none() && close.read != ReadSide::Done && !reschedule_read && background_read
+        if request.is_none() && close.read == ReadSide::Open && !reschedule_read && background_read
         {
             let mut frames = MAX_READ_FRAMES_PER_TURN;
-            if close.read == ReadSide::Closing {
-                match parse_terminal_drain(
-                    &mut terminal_drain,
-                    &mut input,
-                    &mut controls,
-                    &command_count,
-                    &state,
-                    limit,
-                    close.close_sent,
-                    &mut frames,
-                ) {
-                    Ok(DrainParse::NeedData(wanted)) => read_wanted = wanted,
-                    Ok(DrainParse::Progress | DrainParse::Yield) => reschedule_read = true,
-                    Ok(DrainParse::Closed(received)) => {
-                        close.receive_close();
-                        publish_terminal(&mut request, &requests, Ok(received), &state);
-                        reschedule_read = true;
-                    }
-                    Ok(DrainParse::TooLarge) => {
-                        close.read = ReadSide::Done;
-                        close.finish_after_close_sent = true;
-                        publish_terminal(&mut request, &requests, Ok(Received::TooLarge), &state);
-                        reschedule_read = true;
-                    }
-                    Err(error) => {
-                        fail_pump(&mut request, &requests, error, &state, &shutdown);
-                        return;
-                    }
+            match parse_control_prefix(
+                &mut input,
+                &mut controls,
+                &command_count,
+                &state,
+                close.close_started,
+                &mut frames,
+            ) {
+                Ok(ControlParse::NeedData(wanted)) => read_wanted = wanted,
+                Ok(ControlParse::Data) => {
+                    // Preserve receive backpressure and the binary
+                    // head-only contract until demand is posted.
+                    read_ready = false;
                 }
-            } else {
-                match parse_control_prefix(
-                    &mut input,
-                    &mut controls,
-                    &command_count,
-                    &state,
-                    close.close_sent,
-                    &mut frames,
-                ) {
-                    Ok(ControlParse::NeedData(wanted)) => read_wanted = wanted,
-                    Ok(ControlParse::Data) => {
-                        // Preserve receive backpressure and the binary
-                        // head-only contract until demand is posted.
-                        read_ready = false;
-                    }
-                    Ok(ControlParse::Progress | ControlParse::Yield) => {
-                        reschedule_read = true;
-                    }
-                    Ok(ControlParse::Closed(received)) => {
-                        close.receive_close();
+                Ok(ControlParse::Progress | ControlParse::Yield) => {
+                    reschedule_read = true;
+                }
+                Ok(ControlParse::Closed(received)) => {
+                    close.receive_close();
+                    if close.close_sent || close.write == WriteSide::Done {
                         publish_terminal(&mut request, &requests, Ok(received), &state);
-                        reschedule_read = true;
+                    } else {
+                        defer_terminal(Ok(received), &state);
                     }
-                    Err(error) => {
-                        fail_pump(&mut request, &requests, error, &state, &shutdown);
-                        return;
-                    }
+                    reschedule_read = true;
+                }
+                Err(error) => {
+                    fail_pump(&mut request, &requests, error, &state, &shutdown);
+                    return;
                 }
             }
         }
@@ -1747,7 +1907,14 @@ fn pump_loop(
                     }
                     close.read = ReadSide::Done;
                     if !close.close_received {
-                        publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+                        let admitted_close =
+                            state.lock().expect("WebSocket sender poisoned").admission
+                                == AdmissionState::Closing;
+                        if admitted_close && !close.close_sent && close.write == WriteSide::Open {
+                            defer_terminal(Ok(abnormal_close()), &state);
+                        } else {
+                            publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+                        }
                     }
                     reschedule_read = true;
                 }
@@ -1758,6 +1925,13 @@ fn pump_loop(
         // above one turn to retain a Close, then stop because no reply can be
         // put on the wire.
         if close.write == WriteSide::Done {
+            begin_terminal_drain(
+                &mut close,
+                &mut terminal_drain,
+                &mut request,
+                #[cfg(test)]
+                pump_observer.as_deref(),
+            );
             if close.read == ReadSide::Closing && !close.close_received {
                 continue;
             }
@@ -1767,7 +1941,7 @@ fn pump_loop(
             return;
         }
 
-        let stop_data = close.read == ReadSide::Done || close.finish_after_close_sent;
+        let stop_data = close.read != ReadSide::Open || close.finish_after_close_sent;
         if stop_data && frame.is_none() {
             abandon_active(&mut active, &command_count);
         }
@@ -1882,11 +2056,20 @@ fn pump_loop(
                     Wire::Plain(_) => write_ready,
                     Wire::Tls { conn, .. } => !conn.wants_write() || write_ready,
                 };
+                let close_frame = matches!(&outgoing.kind, FrameKind::Control { opcode: 0x8 });
+                let at_before = outgoing.at;
                 match can_attempt.then(|| wire.write_frame(outgoing)).transpose() {
                     Ok(None) => {}
                     Ok(Some(WriteProgress::Eof)) => {
                         close.write = WriteSide::Done;
-                        publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(Ok(abnormal_close()), &state);
                     }
                     Ok(Some(WriteProgress::Network(_bytes))) => {
                         stall_deadline = Some(Instant::now() + WRITE_STALL_TIMEOUT);
@@ -1906,15 +2089,23 @@ fn pump_loop(
                     }
                     Err(error) => {
                         close.write = WriteSide::Done;
-                        publish_terminal(
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
                             &mut request,
-                            &requests,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(
                             Err(HostError::Failed(format!(
                                 "the socket write failed: {error}"
                             ))),
                             &state,
                         );
                     }
+                }
+                if close_frame && outgoing.at != at_before {
+                    close.close_started = true;
                 }
                 if close.write == WriteSide::Open && wire.frame_flushed(outgoing) {
                     let completed = frame.take().unwrap();
@@ -1928,10 +2119,12 @@ fn pump_loop(
                         FrameKind::Data { .. } => {}
                         FrameKind::Control { opcode: 0x8 } => {
                             command_count.fetch_sub(1, Ordering::AcqRel);
+                            close.close_started = true;
                             close.close_sent = true;
                             drop_controls(&mut controls, &command_count);
                             abandon_active(&mut active, &command_count);
-                            drain_commands(&commands, &command_count);
+                            drain_commands(&commands, &mut controls, &command_count, false);
+                            release_terminal(&mut request, &requests, &state);
                         }
                         FrameKind::Control { .. } => {
                             command_count.fetch_sub(1, Ordering::AcqRel);
@@ -1943,7 +2136,14 @@ fn pump_loop(
                 match wire.write_tls_pending() {
                     Ok(WriteProgress::Eof) => {
                         close.write = WriteSide::Done;
-                        publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(Ok(abnormal_close()), &state);
                     }
                     Ok(WriteProgress::Network(_bytes)) => {
                         stall_deadline = Some(Instant::now() + WRITE_STALL_TIMEOUT);
@@ -1963,9 +2163,14 @@ fn pump_loop(
                     }
                     Err(error) => {
                         close.write = WriteSide::Done;
-                        publish_terminal(
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
                             &mut request,
-                            &requests,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(
                             Err(HostError::Failed(format!(
                                 "the socket write failed: {error}"
                             ))),
@@ -1977,9 +2182,17 @@ fn pump_loop(
         }
 
         if close.write == WriteSide::Done {
+            begin_terminal_drain(
+                &mut close,
+                &mut terminal_drain,
+                &mut request,
+                #[cfg(test)]
+                pump_observer.as_deref(),
+            );
             if close.read == ReadSide::Closing && !close.close_received {
                 continue;
             }
+            publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
             let _ = stop_polling_tcp(&poll, &mut wire, &mut tcp_registered);
             let _ = shutdown.shutdown(Shutdown::Both);
             return;
@@ -1989,7 +2202,10 @@ fn pump_loop(
             stall_deadline = None;
         }
         if (close.finish_after_close_sent && close.close_sent && !pending_write)
-            || (close.read == ReadSide::Done && !pending_write && controls.is_empty())
+            || (close.read == ReadSide::Done
+                && !pending_write
+                && controls.is_empty()
+                && command_count.load(Ordering::Acquire) == 0)
         {
             let _ = stop_polling_tcp(&poll, &mut wire, &mut tcp_registered);
             let _ = shutdown.shutdown(Shutdown::Both);
@@ -2047,11 +2263,25 @@ fn pump_loop(
                     read_ready |= event.is_readable();
                     write_ready |= event.is_writable();
                     if event.is_read_closed() && close.read != ReadSide::Done {
-                        close.read = ReadSide::Closing;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
                         read_ready = true;
                     }
                     if event.is_write_closed() {
                         close.write = WriteSide::Done;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        read_ready = true;
                     }
                     if event.is_error() {
                         // The next nonblocking operation obtains the concrete
@@ -2116,12 +2346,17 @@ impl Socket {
         self.signal.check()?;
         let mut state = self.sender.state.lock().expect("WebSocket sender poisoned");
         if let Some(terminal) = state.terminal.as_mut() {
-            if !terminal.delivered {
+            if terminal.deliverable && !terminal.delivered {
                 terminal.delivered = true;
                 return terminal.result.clone();
             }
         }
-        if state.admission == AdmissionState::Closed {
+        if state.admission == AdmissionState::Closed
+            && state
+                .terminal
+                .as_ref()
+                .is_none_or(|terminal| terminal.deliverable)
+        {
             return Ok(abnormal_close());
         }
         let (reply, received) = mpsc::sync_channel(1);
@@ -2151,7 +2386,7 @@ impl Socket {
                 self.signal.check()?;
                 let mut state = self.sender.state.lock().expect("WebSocket sender poisoned");
                 if let Some(terminal) = state.terminal.as_mut() {
-                    if !terminal.delivered {
+                    if terminal.deliverable && !terminal.delivered {
                         terminal.delivered = true;
                         return terminal.result.clone();
                     }

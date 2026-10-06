@@ -139,5 +139,11 @@ deadline fired while the small-window peer was still draining them. The client
 now requests a one-fragment native send buffer, bounding the data ahead of a
 control frame on every backend.
 
-Close-lifecycle review fixes and repeated Linux/Windows qualification remain
-in progress; this issue stays open.
+The close-lifecycle review fixes now keep generated terminal Close frames ahead
+of terminal delivery, supersede an admitted but unstarted local Close with
+1009, retain admitted Close commands when terminal state discards queued data,
+and give the terminal-drain parser exclusive ownership once reading or writing
+closes. Pump regressions cover the watch drop path, demand and terminal 1009,
+Close admission plus FIN, and a peer Close behind unread data when writing
+dies. Repeated Linux and Windows qualification remain in progress; this issue
+stays open.
