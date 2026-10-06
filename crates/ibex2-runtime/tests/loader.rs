@@ -90,7 +90,9 @@ fn windows_cli_keeps_engine_errors_and_async_pump_budget() {
 #[test]
 fn the_cli_keeps_non_ascii_string_literals() {
     let p = Project::new("cli literals");
-    let literals = r#"["é", "İ", "é", "\u{1F600}", "😀", "😀"]"#;
+    // JavaScript escapes (BMP, non-Latin-1, surrogate pair) and raw UTF-8, which
+    // the loader's TypeScript codegen and hermesc treat differently.
+    let literals = r#"["\u00e9", "\u0130", "é", "\u{1F600}", "\uD83D\uDE00", "😀"]"#;
     let units = "const units = (s) => Array.from({ length: s.length }, (_, i) => \
                  s.charCodeAt(i).toString(16)).join(' ');";
     p.file(

@@ -144,3 +144,53 @@ fn the_default_locale_resolves_on_first_use_from_captured_intrinsics() {
         "abc:ABC"
     );
 }
+
+/// The default locale costs no `NumberFormat` construction at install and
+/// exactly one on the first locale-less call. The script is evaluated again
+/// against a counting `Intl.NumberFormat` (and a stand-in native) so the count
+/// is the script's own; the eager implementation constructed one at install.
+#[test]
+fn the_default_locale_is_constructed_once_and_not_at_install() {
+    let mut runtime = runtime(false);
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../ibex2/src/bindings/intl_case.js"
+    ))
+    .expect("intl_case.js source");
+    eval(
+        &mut runtime,
+        r#"(function () {
+          globalThis.__constructed = 0;
+          function Spy() { globalThis.__constructed++; }
+          Spy.prototype.resolvedOptions = function () { return { locale: "en-US" }; };
+          Intl.NumberFormat = Spy;
+          globalThis.__ibex2_intl_case = function (mode, locale, value) {
+            return mode + ":" + locale + ":" + value;
+          };
+          return "";
+        })()"#,
+    );
+    eval(&mut runtime, &source);
+    assert_eq!(eval(&mut runtime, "String(globalThis.__constructed)"), "0");
+    assert_eq!(
+        eval(
+            &mut runtime,
+            "'Ab'.toLocaleUpperCase() + '|' + globalThis.__constructed"
+        ),
+        "upper:en-US:Ab|1"
+    );
+    assert_eq!(
+        eval(
+            &mut runtime,
+            "'Ab'.toLocaleLowerCase([]) + '|' + globalThis.__constructed"
+        ),
+        "lower:en-US:Ab|1"
+    );
+    assert_eq!(
+        eval(
+            &mut runtime,
+            "'Ab'.toLocaleLowerCase('tr') + '|' + globalThis.__constructed"
+        ),
+        "lower:tr:Ab|1"
+    );
+}
