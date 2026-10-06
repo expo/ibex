@@ -85,6 +85,15 @@ receive calls, and exact deadline regressions for silent plaintext, partial
 TLS, and pong-flood peers. The measured failures occur at about 505 ms and the
 idle pump still returns zero times over 150 ms.
 
+Fix round 2 (`de4f64a`) creates and validates the wake pair before TCP connect,
+falls back from IPv4 to IPv6 loopback binding, treats wake-socket terminal
+readiness as a fatal pump error on `poll` and `WSAPoll`, and maps a zero-length
+rustls socket write to abnormal close 1006. The focused Apple portable suite
+passes 14/14; the injected wake failure terminates promptly with no repeated
+readiness returns, and idle still records zero returns over 150 ms. The
+identical stripped probe is 2,128,616 bytes, +67,192 over the shared-lock parent
+and +17,072 over fix round 1, within the 150 KiB mechanism budget.
+
 Linux's full `ibex2` and `ibex2-runtime` suites plus strict clippy passed at
 `7e3cb6d`. Windows is pending with the orchestrator; no Windows pass is claimed
 here.
