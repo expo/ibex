@@ -1311,12 +1311,8 @@ void remove_global(jsi::Runtime& rt, const jsi::Object& global,
 }
 
 uint64_t websocket_handle(jsi::Runtime& rt, const jsi::Value& value) {
-  if (!value.isNumber()) throw jsi::JSError(rt, "invalid WebSocket handle");
-  double number = value.asNumber();
-  uint64_t handle = static_cast<uint64_t>(number);
-  if (number < 1 || number > 9007199254740991.0 || number != handle)
-    throw jsi::JSError(rt, "invalid WebSocket handle");
-  return handle;
+  return primitive_integer(
+      rt, value, 1.0, kMaxSafeInteger, "WebSocket handle");
 }
 
 void websocket_result(jsi::Runtime& rt, int status, char* error,
@@ -1464,7 +1460,8 @@ jsi::Object Adapter::websocket_hooks(const void* grants) {
         if (count != 3 || !args[2].isString())
           throw jsi::JSError(r, "WebSocket close needs its arguments");
         uint64_t handle = websocket_handle(r, args[0]);
-        int code = static_cast<int>(args[1].asNumber());
+        const int code = static_cast<int>(primitive_integer(
+            r, args[1], 0.0, 4999.0, "WebSocket close code"));
         std::string reason = args[2].getString(r).utf8(r);
         char* error = nullptr;
         int status = ibex2_websocket_close(
@@ -2068,12 +2065,14 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
       jsi::PropNameID::forAscii(rt, "sqliteOwn"), 3,
       [state](jsi::Runtime& r, const jsi::Value&, const jsi::Value* args, size_t count) {
         state->require(r);
-        if (count != 3 || !args[0].isNumber() || !args[1].isNumber() || !args[2].isObject())
+        if (count != 3 || !args[0].isNumber() || !args[2].isObject())
           throw jsi::JSError(r, "SQLite owner needs a handle, kind, and object");
+        const int kind = static_cast<int>(primitive_integer(
+            r, args[1], 0.0, 1.0, "SQLite owner kind"));
         set_native_state_once(r, args[2].getObject(r),
             std::make_shared<SqliteOwner>(ibex2_sqlite_owner_create(
                 state->queue, args[0].asNumber(),
-                static_cast<int>(args[1].asNumber()))),
+                kind)),
             "SQLite owner");
         return jsi::Value::undefined();
       });

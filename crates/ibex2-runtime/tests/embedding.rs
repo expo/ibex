@@ -63,6 +63,11 @@ extern "C" {
         len: usize,
         error: *mut *mut c_char,
     ) -> i32;
+    fn bindings_consumer_publish_numeric_probes(
+        handle: *mut c_void,
+        grants: *const c_void,
+        error: *mut *mut c_char,
+    ) -> i32;
     fn bindings_consumer_harden(
         handle: *mut c_void,
         bytes: *const u8,
@@ -308,6 +313,25 @@ impl BareConsumer {
             )
         };
         if installed == 1 {
+            Ok(())
+        } else {
+            Err(take(error))
+        }
+    }
+
+    fn publish_numeric_probes(&self) -> Result<(), String> {
+        let mut error = std::ptr::null_mut();
+        let published = unsafe {
+            bindings_consumer_publish_numeric_probes(
+                self.handle,
+                self.context
+                    .as_ref()
+                    .expect("live borrowed context")
+                    .grants_ptr(),
+                &mut error,
+            )
+        };
+        if published == 1 {
             Ok(())
         } else {
             Err(take(error))
@@ -576,6 +600,63 @@ fn borrowed_runtime_keeps_a_global_websocket_bound_to_its_endowment() {
     deliver_one();
     deliver_one();
     assert_eq!(consumer.eval("borrowedLog.join('|')"), "error:3|close:1006");
+}
+
+#[cfg(feature = "websocket")]
+#[test]
+fn binding_native_integer_arguments_are_checked_before_conversion() {
+    let context = Context::new(GrantSet::none());
+    let consumer = BareConsumer::from_context(Groups::DEFAULT, context);
+    consumer
+        .publish_numeric_probes()
+        .expect("publish the exact binding-native closures");
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("harden before the probe application runs");
+
+    let output = consumer.eval(
+        r#"
+        (function () {
+          function kind(call) {
+            try { call(); return "none"; }
+            catch (error) { return error.constructor.name; }
+          }
+          var invalid = [NaN, Infinity, -Infinity, 0.5, 9007199254740992, -1];
+          return JSON.stringify({
+            closeCodes: invalid.map(function (value) {
+              return kind(function () { __test_websocket_close(1, value, ""); });
+            }),
+            closeHandles: invalid.concat([0]).map(function (value) {
+              return kind(function () { __test_websocket_close(value, 1000, ""); });
+            }),
+            sqliteKinds: invalid.map(function (value) {
+              return kind(function () { __test_sqlite_own(1, value, {}); });
+            }),
+            types: [
+              kind(function () { __test_websocket_close(1, "1000", ""); }),
+              kind(function () { __test_sqlite_own(1, "0", {}); })
+            ]
+          });
+        })()
+        "#,
+    );
+    let result: serde_json::Value = serde_json::from_str(&output).expect("probe JSON");
+    assert_eq!(
+        result["closeCodes"],
+        serde_json::json!(vec!["RangeError"; 6])
+    );
+    assert_eq!(
+        result["closeHandles"],
+        serde_json::json!(vec!["RangeError"; 7])
+    );
+    assert_eq!(
+        result["sqliteKinds"],
+        serde_json::json!(vec!["RangeError"; 6])
+    );
+    assert_eq!(
+        result["types"],
+        serde_json::json!(["TypeError", "TypeError"])
+    );
 }
 
 #[test]

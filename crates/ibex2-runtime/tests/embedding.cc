@@ -7,6 +7,14 @@
 #include <type_traits>
 
 using namespace facebook;
+namespace ibex2::jsi_adapter {
+struct AdapterTestAccess {
+  static jsi::Object websocket_hooks(Adapter &adapter, const void *grants) {
+    return adapter.websocket_hooks(grants);
+  }
+};
+} // namespace ibex2::jsi_adapter
+
 namespace {
 struct Bytes : jsi::Buffer {
   std::vector<uint8_t> bytes;
@@ -161,6 +169,41 @@ int bindings_consumer_install_storage(
         .getObject(rt).getFunction(rt);
     rt.global().setProperty(
         rt, "storage", c->adapter->storage(grants, sqlite_factory));
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+int bindings_consumer_publish_numeric_probes(
+    void *handle, const void *grants, char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr || c->runtime == nullptr) return 0;
+    auto &rt = *c->runtime;
+    auto websocket =
+        ibex2::jsi_adapter::AdapterTestAccess::websocket_hooks(
+            *c->adapter, grants);
+    rt.global().setProperty(
+        rt, "__test_websocket_close",
+        websocket.getProperty(rt, "close"));
+
+    auto factory = jsi::Function::createFromHostFunction(
+        rt, jsi::PropNameID::forAscii(rt, "numericProbeSqliteFactory"), 2,
+        [](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+           size_t count) -> jsi::Value {
+          if (count != 2 || !args[1].isObject() ||
+              !args[1].getObject(r).isFunction(r))
+            throw jsi::JSError(r, "SQLite retain probe was not supplied");
+          r.global().setProperty(r, "__test_sqlite_own",
+                                 jsi::Value(r, args[1]));
+          auto make_sqlite = jsi::Function::createFromHostFunction(
+              r, jsi::PropNameID::forAscii(r, "numericProbeMakeSqlite"), 1,
+              [](jsi::Runtime &, const jsi::Value &, const jsi::Value *,
+                 size_t) -> jsi::Value { return jsi::Value::undefined(); });
+          return jsi::Value(r, std::move(make_sqlite));
+        });
+    c->adapter->storage(grants, factory);
     return 1;
   } catch (const std::exception &e) {
     if (error != nullptr) *error = copy(e.what());
