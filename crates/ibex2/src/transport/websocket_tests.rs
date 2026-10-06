@@ -496,6 +496,9 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
     let (reported, report) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
+        socket2::SockRef::from(&stream)
+            .set_recv_buffer_size(FRAGMENT)
+            .unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
@@ -507,21 +510,38 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
         stream.write_all(&frame(true, 0x8, &close)).unwrap();
         stream.shutdown(Shutdown::Write).unwrap();
         close_sent.send(()).unwrap();
-        reported.send(client_frame(&mut stream)).unwrap();
+        let mut data_before_close = 0usize;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).expect("the client sent a frame");
+            if opcode == 0x8 {
+                reported.send((payload, data_before_close)).unwrap();
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
+            data_before_close += payload.len();
+        }
     });
 
-    let mut socket = open_on(
-        &TcpSocketTransport::new(),
-        port,
-        "/close-fin",
-        &AbortSignal::default(),
-    )
-    .unwrap();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let mut socket = open_on(&transport, port, "/close-fin", &AbortSignal::default()).unwrap();
     assert_eq!(socket.next().unwrap(), text("first"));
+    let payload = vec![7; 8 << 20];
+    socket.send_binary(&payload).unwrap();
+    let write_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while observer.network_bytes.load(Ordering::Acquire) == 0
+        && std::time::Instant::now() < write_deadline
+    {
+        std::thread::yield_now();
+    }
+    assert!(
+        observer.network_bytes.load(Ordering::Acquire) > 0,
+        "the terminal event must race a write already in progress"
+    );
     close_now.send(()).unwrap();
     close_observed.recv().unwrap();
-    // Give poll/WSAPoll time to observe the terminal state while receive
-    // demand is paused. The peer's buffered Close must remain unread.
+    // Give mio time to observe and drain terminal readiness while receive
+    // demand is paused. The parsed Close must survive pump exit.
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(
         socket.next().unwrap(),
@@ -530,14 +550,16 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
             reason: "between".into(),
         }
     );
-    let (_, opcode, payload) = report
+    let (close_payload, data_before_close) = report
         .recv_timeout(Duration::from_secs(3))
-        .expect("the peer received the close reply")
-        .expect("the client sent a frame");
-    assert_eq!(opcode, 0x8);
+        .expect("the peer received the close reply");
     assert_eq!(
-        payload,
+        close_payload,
         [3001u16.to_be_bytes().as_slice(), b"between"].concat()
+    );
+    assert!(
+        data_before_close < payload.len(),
+        "the buffered Close reply followed the whole queued message"
     );
     peer.join().unwrap();
 }
