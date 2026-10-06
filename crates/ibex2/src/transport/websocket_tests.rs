@@ -529,14 +529,14 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
     let payload = vec![7; 8 << 20];
     socket.send_binary(&payload).unwrap();
     let write_deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while observer.network_bytes.load(Ordering::Acquire) == 0
+    while !observer.write_blocked.load(Ordering::Acquire)
         && std::time::Instant::now() < write_deadline
     {
         std::thread::yield_now();
     }
     assert!(
-        observer.network_bytes.load(Ordering::Acquire) > 0,
-        "the terminal event must race a write already in progress"
+        observer.write_blocked.load(Ordering::Acquire),
+        "the terminal event must race a write blocked in the kernel"
     );
     close_now.send(()).unwrap();
     close_observed.recv().unwrap();
@@ -560,6 +560,90 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
     assert!(
         data_before_close < payload.len(),
         "the buffered Close reply followed the whole queued message"
+    );
+    peer.join().unwrap();
+}
+
+#[test]
+fn a_peer_close_survives_a_following_reset_during_a_blocked_send() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (reset_now, reset_requested) = channel();
+    let (close_sent, close_observed) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        socket2::SockRef::from(&stream)
+            .set_recv_buffer_size(FRAGMENT)
+            .unwrap();
+        server_handshake(&mut stream);
+        reset_requested.recv().unwrap();
+        let mut close = 3002u16.to_be_bytes().to_vec();
+        close.extend_from_slice(b"keep me");
+        stream.write_all(&frame(true, 0x8, &close)).unwrap();
+        close_sent.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        socket2::SockRef::from(&stream)
+            .set_linger(Some(Duration::ZERO))
+            .unwrap();
+    });
+
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let mut socket = open_on(&transport, port, "/close-reset", &AbortSignal::default()).unwrap();
+    socket.send_binary(&vec![6; 8 << 20]).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(observer.write_blocked.load(Ordering::Acquire));
+    reset_now.send(()).unwrap();
+    close_observed.recv().unwrap();
+    wait_for_pump_exit(&observer, "close followed by reset");
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 3002,
+            reason: "keep me".into(),
+        }
+    );
+    peer.join().unwrap();
+}
+
+#[test]
+fn too_large_close_is_not_followed_by_queued_pongs() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (reported, report) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        server_handshake(&mut stream);
+        let mut inbound = frame(true, 0x9, b"first");
+        inbound.extend(frame(true, 0x9, b"second"));
+        inbound.extend(frame(true, 0x1, &[b'x'; 128]));
+        stream.write_all(&inbound).unwrap();
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).expect("the client sent 1009");
+            if opcode == 0x8 {
+                assert_eq!(payload, 1009u16.to_be_bytes());
+                break;
+            }
+            assert_eq!(opcode, 0xA, "only pre-Close pongs may precede 1009");
+        }
+        stream
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        reported.send(client_frame(&mut stream)).unwrap();
+    });
+
+    let url = url::Url::parse(&format!("ws://127.0.0.1:{port}/too-large-pongs")).unwrap();
+    let mut socket = TcpSocketTransport::new()
+        .connect(&url, 64, &AbortSignal::default())
+        .unwrap();
+    assert_eq!(socket.next().unwrap(), Incoming::TooLarge);
+    assert_eq!(
+        report.recv_timeout(Duration::from_secs(2)).unwrap(),
+        None,
+        "queued pongs followed the 1009 Close"
     );
     peer.join().unwrap();
 }
@@ -752,6 +836,90 @@ fn control_frames_overtake_a_large_send_to_a_slow_reader() {
     );
 }
 
+#[test]
+fn an_admitted_local_close_does_not_suppress_ping_or_peer_close() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (start_control, control_started) = channel();
+    let (reported, report) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        socket2::SockRef::from(&stream)
+            .set_recv_buffer_size(FRAGMENT)
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        server_handshake(&mut stream);
+        control_started.recv().unwrap();
+        stream.write_all(&frame(true, 0x9, b"still open")).unwrap();
+
+        let mut data_before_pong = 0usize;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
+            if opcode == 0xA {
+                assert_eq!(payload, b"still open");
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2));
+            data_before_pong += payload.len();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        let mut close = 3003u16.to_be_bytes().to_vec();
+        close.extend_from_slice(b"peer wins");
+        stream.write_all(&frame(true, 0x8, &close)).unwrap();
+        let mut data_before_close = data_before_pong;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
+            if opcode == 0x8 {
+                reported
+                    .send((payload, data_before_pong, data_before_close))
+                    .unwrap();
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2));
+            data_before_close += payload.len();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    });
+
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let mut socket = open_on(
+        &transport,
+        port,
+        "/local-close-control",
+        &AbortSignal::default(),
+    )
+    .unwrap();
+    let payload = vec![4; 8 << 20];
+    socket.send_binary(&payload).unwrap();
+    socket.close(3000, "local").unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(observer.write_blocked.load(Ordering::Acquire));
+    start_control.send(()).unwrap();
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 3003,
+            reason: "peer wins".into(),
+        }
+    );
+    let (close_payload, before_pong, before_close) =
+        report.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(
+        close_payload,
+        [3003u16.to_be_bytes().as_slice(), b"peer wins"].concat()
+    );
+    assert!(before_pong < payload.len());
+    assert!(before_close < payload.len());
+    peer.join().unwrap();
+}
+
 #[cfg(test)]
 fn stalled_peer(
     secure: bool,
@@ -915,27 +1083,34 @@ fn local_tls() -> (
 
 #[test]
 fn zero_from_write_tls_is_an_abnormal_close() {
-    struct ZeroWriter;
-    impl Write for ZeroWriter {
-        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-            Ok(0)
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (_, client, server) = local_tls();
+    let peer = std::thread::spawn(move || {
+        let tcp = listener.accept().unwrap().0;
+        tcp.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let connection = rustls::ServerConnection::new(server).unwrap();
+        let mut wire = rustls::StreamOwned::new(connection, tcp);
+        server_handshake(&mut wire);
+        let mut byte = [0; 1];
+        let _ = wire.read(&mut byte);
+    });
 
-    let (_, client, _) = local_tls();
-    let name = rustls::pki_types::ServerName::try_from("localhost".to_string()).unwrap();
-    let mut connection = rustls::ClientConnection::new(client, name).unwrap();
-    assert!(
-        connection.wants_write(),
-        "the real rustls path has TLS bytes pending"
+    let transport = TcpSocketTransport::with_tls_zero_socket_writes(client);
+    let url = url::Url::parse(&format!("wss://localhost:{port}/zero-write")).unwrap();
+    let mut socket = transport
+        .connect(&url, 1024, &AbortSignal::default())
+        .unwrap();
+    socket.send_text("drive rustls through the pump").unwrap();
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1006,
+            reason: String::new(),
+        }
     );
-    assert!(matches!(
-        write_tls_progress(&mut connection, &mut ZeroWriter).unwrap(),
-        WriteProgress::Eof
-    ));
+    drop(socket);
+    peer.join().unwrap();
 }
 
 pub(crate) fn tls_echo_peer() -> (
