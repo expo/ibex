@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": capture unconditionally snapshots the current realm, so only trusted prelude work may precede it; a frozen `Array.prototype` is refused, but pre-capture application execution is an undetectable embedder error)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `own` exposes only a frozen live `aborted`/`reason` view; that view still carries inspection authority invisible to the harden walk and must not reach application code)
 **Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": `alive` and callback exceptions are contained per hook on pending and already-aborted delivery, so later algorithms and public dispatch still run)
 **Revised:** 2026-10-06 (§3 "Deferred intrinsic integrity baseline": an explicit install option plus one-shot capture lets a trusted embedder establish SQLite's complete intrinsic/property baseline after its prelude; harden and SQLite refuse while capture is owed)
@@ -545,8 +546,10 @@ This subsection is normative for
 `InstallOptions::defer_intrinsic_snapshot` and
 `Adapter::capture_intrinsics()` / `Hermes::capture_intrinsics()`. It exists for
 a caller-owned runtime whose trusted prelude intentionally finishes the realm's
-standard intrinsic surface after Ibex bindings are installed. It is not a way
-for application code to bless its own mutations.
+standard intrinsic surface after Ibex bindings are installed. The call is an
+unconditional snapshot of the realm as it stands; it cannot distinguish trusted
+prelude work from application mutations and is not a safe way for application
+code to bless its own changes.
 
 By default the `Adapter` constructor captures the 18 global constructors used
 by SQLite (`Object`, `Function`, `Array`, `Promise`, `WeakMap`, `Reflect`,
@@ -563,26 +566,32 @@ has completed successfully. The adapter is now in an explicit "capture owed"
 state. The embedder evaluates only its trusted prelude and calls
 `capture_intrinsics()`; that call reconstructs the complete baseline from the
 realm's current state and succeeds exactly once. It is refused before a
-successful opted-in install, when the option was false, and after the one
-successful capture. `Adapter::harden` and `Hermes::harden` refuse before
-evaluating the freeze while capture is owed, and a SQLite open refuses before
-native work. Thus the supported lifecycle is auditable:
+successful opted-in install, when the option was false, after the one successful
+capture, and when the constructor-captured `Object.isFrozen` reports the current
+`Array.prototype` frozen. The last check makes direct `HARDEN_SOURCE` evaluation
+followed by capture fail; it is a freeze-order check, not a code-provenance
+check. `Adapter::harden` and `Hermes::harden` refuse before evaluating the freeze
+while capture is owed, and a SQLite open refuses before native work. Thus the
+supported lifecycle is auditable:
 
 ```text
 construct Adapter
   -> install_with(..., defer_intrinsic_snapshot = true)
-  -> evaluate trusted embedder prelude
+  -> evaluate only the trusted embedder prelude
+     (do not run app code or pump microtasks/timers that can run it)
   -> capture_intrinsics() exactly once
   -> harden()
   -> application code
 ```
 
-Decision C already forbids application code before `harden`. Since `harden`
-refuses an uncaptured deferred baseline and capture is one-shot, capture after
-conforming application code is impossible; a second call after hardening is
-refused. Directly evaluating `HARDEN_SOURCE`, or evaluating application code in
-the trusted-prelude interval, is outside this lifecycle and cannot turn that
-code into trusted bootstrap.
+Decision C forbids application code before `harden`, but the API cannot enforce
+the identity of evaluated code. Anything the embedder evaluates, or allows a
+microtask or timer pump to evaluate, before capture becomes part of the trusted
+baseline. Running application code in this interval is therefore an embedder
+error that `capture_intrinsics()` cannot detect. A conforming embedder runs only
+its trusted prelude and does not pump an app-capable queue. Directly evaluating
+`HARDEN_SOURCE` before capture is also outside the lifecycle and is detected by
+the frozen-`Array.prototype` refusal; a second capture remains refused.
 
 `accept_trusted_intrinsic_property(object, name)` remains the narrower tool for
 Ibex's own known replacements. It updates the recorded value/getter/setter of a

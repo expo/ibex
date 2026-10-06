@@ -1784,7 +1784,7 @@ fn freezing_modified_intrinsics_does_not_satisfy_the_installation_contract() {
 }
 
 #[test]
-fn deferred_intrinsic_capture_accepts_the_complete_trusted_prelude_baseline() {
+fn deferred_intrinsic_capture_follows_prelude_capture_harden_sqlite_order() {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let root = std::env::temp_dir().join(format!(
         "ibex2-deferred-integrity-{}-{}",
@@ -1808,6 +1808,14 @@ fn deferred_intrinsic_capture_accepts_the_complete_trusted_prelude_baseline() {
         Groups::PURE | Groups::CRYPTO | Groups::ABORT,
         context,
     );
+    consumer
+        .install_storage()
+        .expect("storage is materialized while capture is owed");
+    let error = consumer
+        .eval_result("storage.sqlite.open('app:/data/trusted.db')")
+        .unwrap_err();
+    assert!(error.contains("capture_intrinsics() before use"), "{error}");
+    assert!(!root.join("data/trusted.db").exists());
     consumer.eval(
         r#"
         Number.prototype.toLocaleString = function () { return "trusted-number"; };
@@ -1822,22 +1830,24 @@ fn deferred_intrinsic_capture_accepts_the_complete_trusted_prelude_baseline() {
         .capture_intrinsics()
         .expect("trusted prelude establishes the complete baseline");
     consumer
-        .install_storage()
-        .expect("storage is materialized after the trusted baseline capture");
-    consumer
         .harden(ibex2::bindings::HARDEN_BYTECODE)
         .expect("captured deferred baseline hardens");
     consumer.eval(
         r#"
         globalThis.result = "";
+        var appMutation;
+        try {
+          Object.defineProperty(Array.prototype, "appMutation", { value: function () {} });
+          appMutation = "accepted";
+        } catch (error) { appMutation = error.name; }
         storage.sqlite.open("app:/data/trusted.db").then(async function (db) {
           await db.execute("CREATE TABLE accepted(value TEXT)");
           await db.close();
-          result = (1).toLocaleString() + "|" + [1].trustedArrayMethod();
+          result = (1).toLocaleString() + "|" + [1].trustedArrayMethod() + "|" + appMutation;
         }, function (error) { result = String(error); });
         "#,
     );
-    assert_eq!(consumer.finish(), "trusted-number|trusted-array");
+    assert_eq!(consumer.finish(), "trusted-number|trusted-array|TypeError");
     assert!(root.join("data/trusted.db").exists());
     drop(consumer);
     std::fs::remove_dir_all(root).unwrap();
@@ -1864,31 +1874,37 @@ fn default_intrinsic_capture_still_refuses_replacements_and_added_properties() {
 }
 
 #[test]
-fn deferred_intrinsic_capture_is_required_once_and_cannot_follow_app_code() {
-    let consumer = BareConsumer::from_context_with_deferred_intrinsics(
+fn deferred_intrinsic_capture_is_one_shot_and_refuses_a_frozen_realm() {
+    let frozen = BareConsumer::from_context_with_deferred_intrinsics(
         Groups::empty(),
         Context::new(GrantSet::none()),
     );
-    let error = consumer
-        .harden(ibex2::bindings::HARDEN_BYTECODE)
-        .unwrap_err();
+    let error = frozen.harden(ibex2::bindings::HARDEN_BYTECODE).unwrap_err();
     assert!(
         error.contains("deferred intrinsic snapshot is captured"),
         "{error}"
     );
     assert_eq!(
-        consumer.eval("String(Object.isFrozen(Array.prototype))"),
+        frozen.eval("String(Object.isFrozen(Array.prototype))"),
         "false"
     );
-    consumer.capture_intrinsics().expect("first capture");
-    consumer
-        .harden(ibex2::bindings::HARDEN_BYTECODE)
-        .expect("capture satisfies harden");
+    frozen.eval(ibex2::bindings::HARDEN_SOURCE);
     assert_eq!(
-        consumer.eval("globalThis.appRan = true; String(appRan)"),
+        frozen.eval("String(Object.isFrozen(Array.prototype))"),
         "true"
     );
-    let error = consumer.capture_intrinsics().unwrap_err();
+    let error = frozen.capture_intrinsics().unwrap_err();
+    assert!(error.contains("after intrinsics are frozen"), "{error}");
+
+    let captured = BareConsumer::from_context_with_deferred_intrinsics(
+        Groups::empty(),
+        Context::new(GrantSet::none()),
+    );
+    captured.capture_intrinsics().expect("first capture");
+    captured
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("capture satisfies harden");
+    let error = captured.capture_intrinsics().unwrap_err();
     assert!(error.contains("already captured"), "{error}");
 
     let ordinary = BareConsumer::new(Groups::empty());

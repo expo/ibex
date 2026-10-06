@@ -135,8 +135,11 @@ pub enum DynamicCode {
 /// installed. The trusted embedder then runs its prelude and calls
 /// [`Hermes::capture_intrinsics`] exactly once before [`Hermes::harden`]. Both
 /// hardening and SQLite refuse while the baseline is absent. The default is
-/// false. Application code may run only after hardening, so capture cannot be
-/// moved after application code within the supported lifecycle.
+/// false. Capture is an unconditional snapshot of the realm as it stands:
+/// everything the embedder runs first is trusted as part of the baseline. The
+/// embedder must run only its trusted prelude in this interval, without
+/// evaluating application code or pumping a microtask/timer source that can run
+/// it. The API cannot detect that provenance.
 ///
 /// CONTRACT: trusted embedder bootstrap only. Application code must never reach
 /// either object or any member. Between installation and hardening, and before
@@ -628,9 +631,12 @@ impl Hermes {
 
     /// Capture the complete intrinsic-integrity baseline after a trusted
     /// prelude when [`InstallOptions::defer_intrinsic_snapshot`] was selected.
-    /// This succeeds exactly once, after installation and before hardening.
-    /// The default installation path already captured at construction and
-    /// therefore refuses this method.
+    /// This is an unconditional snapshot of the current realm; the embedder is
+    /// responsible for running no application code or app-capable task pump
+    /// first. It succeeds exactly once, after installation and before hardening,
+    /// and refuses when `Array.prototype` is already frozen. The default
+    /// installation path already captured at construction and therefore refuses
+    /// this method.
     // @ref LLP 0068#deferred-intrinsic-integrity-baseline — one auditable transition from trusted prelude to fixed baseline
     pub fn capture_intrinsics(&mut self) -> Result<(), JsError> {
         let mut out: *mut c_char = std::ptr::null_mut();

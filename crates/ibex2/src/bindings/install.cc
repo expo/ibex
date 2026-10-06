@@ -439,6 +439,7 @@ struct Adapter::State {
   jsi::Value event_listener_change_hook;
   jsi::Value rejection_unhandled;
   jsi::Value rejection_handled;
+  jsi::Function intrinsic_frozen;
   std::unique_ptr<Integrity> integrity;
   bool intrinsic_snapshot_deferred = false;
   // Trusted-bootstrap globals and the identities published under them (the
@@ -450,6 +451,8 @@ struct Adapter::State {
         std::shared_ptr<Lifetime> lifetime_value)
       : queue(value), bytecode_version(version),
         lifetime(std::move(lifetime_value)),
+        intrinsic_frozen(rt.global().getPropertyAsObject(rt, "Object")
+                             .getPropertyAsFunction(rt, "isFrozen")),
         integrity(std::make_unique<Integrity>(rt)) {}
   const void* require(jsi::Runtime& rt) const {
     return lifetime->require(rt);
@@ -486,6 +489,12 @@ void Adapter::capture_intrinsics() {
     throw std::logic_error("the intrinsic snapshot was not deferred");
   if (state_->integrity)
     throw std::logic_error("the deferred intrinsic snapshot was already captured");
+  auto array_prototype = runtime_->global()
+                             .getPropertyAsObject(*runtime_, "Array")
+                             .getPropertyAsObject(*runtime_, "prototype");
+  if (state_->intrinsic_frozen.call(*runtime_, array_prototype).getBool())
+    throw std::logic_error(
+        "the deferred intrinsic snapshot cannot be captured after intrinsics are frozen");
   state_->integrity = std::make_unique<Integrity>(*runtime_);
 }
 void Adapter::detach() {
@@ -1769,7 +1778,9 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       // Installation itself may make narrow trusted intrinsic replacements.
       // Discard the constructor-time baseline only after all installation
       // mutations succeed; capture_intrinsics() will record the embedder's
-      // complete post-prelude baseline before hardening and application code.
+      // complete post-prelude baseline before hardening. The API snapshots the
+      // realm unconditionally; the embedder is responsible for running only
+      // its trusted prelude in the interval.
       state_->integrity.reset();
       state_->intrinsic_snapshot_deferred = true;
     }

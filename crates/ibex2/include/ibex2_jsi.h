@@ -100,8 +100,11 @@ struct CompiledScript {
 /// scripts have installed. The trusted embedder must run its prelude and then
 /// call `Adapter::capture_intrinsics()` exactly once before hardening. Hardening
 /// and SQLite operations refuse while that baseline is absent. The default is
-/// false and preserves construction-time capture. Application code may run only
-/// after hardening, so a conforming embedder cannot move capture after it.
+/// false and preserves construction-time capture. Capture is an unconditional
+/// snapshot of the realm as it stands: everything the embedder runs first is
+/// trusted as part of the baseline. The embedder must run only its trusted
+/// prelude in this interval, without evaluating application code or pumping a
+/// microtask/timer source that can run it. The API cannot detect that provenance.
 ///
 /// CONTRACT: trusted embedder bootstrap only. Application code must never reach
 /// either object or any member. Between installation and hardening, and before
@@ -263,8 +266,11 @@ public:
   // capture_intrinsics() instead.
   void accept_trusted_intrinsic_property(jsi::Object, const char* name);
   // Complete a deferred intrinsic snapshot exactly once, after install_with
-  // and the trusted embedder prelude but before hardening. Throws if deferral
-  // was not requested, installation is incomplete, or capture already ran.
+  // and the trusted embedder prelude but before hardening. This unconditionally
+  // trusts the current realm; the API cannot distinguish prelude from app code.
+  // Throws if deferral was not requested, installation is incomplete, capture
+  // already ran, or Array.prototype is already frozen (including after direct
+  // evaluation of HARDEN_SOURCE).
   // @ref LLP 0068#deferred-intrinsic-integrity-baseline — capture the trusted prelude's complete property sets and identities
   void capture_intrinsics();
   // Install exactly `groups`. `scripts` must be the compiled results of
