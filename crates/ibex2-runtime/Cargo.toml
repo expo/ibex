@@ -64,3 +64,6 @@ loader = [
     "dep:oxc_transformer",
 ]
 websocket = ["ibex2/websocket"]
+# Native-only assertions used by this crate's unit tests. This feature is
+# intentionally absent from `default`, so release binaries carry no test seam.
+test-support = ["ibex2/test-support"]

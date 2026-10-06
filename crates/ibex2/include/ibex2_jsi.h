@@ -343,9 +343,11 @@ public:
   // driver already admitted and reserved. The dispatcher is captured from
   // timers.js during installation and is never published to application code.
   void fire_timer(uint64_t task_id);
-  // Test instrumentation: copy the captured dispatcher so a harness can prove
-  // its exact identity is absent from application-reachable properties.
-  jsi::Value timer_dispatch_for_test() const;
+#if defined(IBEX2_TEST_SUPPORT)
+  // Native-only test assertion. The dispatcher identity never crosses into
+  // JavaScript or a production build.
+  void assert_timer_dispatch_unreachable_for_test() const;
+#endif
   // Register a JS callback for a future host-event source. The returned
   // identity is the one Rust carries in HostTask::Event.
   uint64_t subscribe(jsi::Function callback);

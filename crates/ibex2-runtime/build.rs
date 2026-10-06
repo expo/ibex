@@ -16,6 +16,9 @@ fn main() {
         .include(&headers)
         .include("../ibex2/include")
         .std("c++17");
+    if std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {
+        shim.define("IBEX2_TEST_SUPPORT", None);
+    }
     if target_os == "windows" {
         shim.flag("/EHsc").define("NOMINMAX", None);
     }

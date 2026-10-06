@@ -22,6 +22,9 @@ fn main() {
         .file("src/bindings/install.cc")
         .include(&headers)
         .std("c++17");
+    if std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {
+        installer.define("IBEX2_TEST_SUPPORT", None);
+    }
     if target_os == "windows" {
         installer.flag("/EHsc").define("NOMINMAX", None);
     }

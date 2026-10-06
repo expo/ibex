@@ -7,6 +7,7 @@
 #endif
 #include <cstring>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <stdexcept>
@@ -1199,7 +1200,9 @@ constexpr const char* kFetchPrimitiveMembers[] = {
     "fetch", "responseField", "responseRead", "fetchControl",
     "textEncode", "textDecode", "textEncodeInto", "headersFree"};
 
-// Bounds the walk on a pathological graph; reaching it refuses (fails closed).
+// Bounds the production guard on a pathological graph; reaching it refuses
+// (fails closed). Tests use a much smaller object limit and an explicit edge
+// limit below so the privacy witness remains a fast regression.
 constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 
 // Walk what harden.js freezes and refuse if any recorded identity is in it.
@@ -1222,16 +1225,24 @@ constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 // @ref LLP 0068#opt-in-abort-hooks-protocol — I4 applies the same reachability proof to the abort hooks
 void require_unreachable(
     jsi::Runtime& rt, const Reachability& walk,
-    const std::vector<std::pair<std::string, jsi::Value>>& identities) {
+    const std::vector<std::pair<std::string, jsi::Value>>& identities,
+    size_t max_objects = kMaxReachabilityObjects,
+    size_t max_edges = std::numeric_limits<size_t>::max()) {
   try {
     auto global = rt.global();
     auto seen = walk.set.callAsConstructor(rt).getObject(rt);
     std::vector<jsi::Value> pending;
+    size_t edges = 0;
     auto expand = [&](const jsi::Object& object) {
       for (const auto* list : {&walk.names, &walk.symbols}) {
         auto keys = list->call(rt, object).getObject(rt).getArray(rt);
         const size_t count = keys.size(rt);
         for (size_t i = 0; i < count; ++i) {
+          if (edges >= max_edges)
+            throw std::runtime_error(
+                "refusing to harden: the global object graph has too many "
+                "edges to prove trusted-bootstrap outputs unreachable");
+          ++edges;
           auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
           if (!raw.isObject()) continue;
           auto descriptor = raw.getObject(rt);
@@ -1255,6 +1266,11 @@ void require_unreachable(
           }
         }
       }
+      if (edges >= max_edges)
+        throw std::runtime_error(
+            "refusing to harden: the global object graph has too many edges "
+            "to prove trusted-bootstrap outputs unreachable");
+      ++edges;
       pending.push_back(walk.prototype.call(rt, object));
     };
     walk.add.callWithThis(rt, seen, global);
@@ -1266,7 +1282,7 @@ void require_unreachable(
       if (!value.isObject()) continue;
       if (walk.has.callWithThis(rt, seen, value).getBool()) continue;
       walk.add.callWithThis(rt, seen, value);
-      if (++visited > kMaxReachabilityObjects)
+      if (++visited > max_objects)
         throw std::runtime_error(
             "refusing to harden: the global object graph is too large to "
             "prove trusted-bootstrap outputs unreachable");
@@ -2126,14 +2142,20 @@ void Adapter::fire_timer(uint64_t id) {
       rt, static_cast<double>(id));
 }
 
-jsi::Value Adapter::timer_dispatch_for_test() const {
+#if defined(IBEX2_TEST_SUPPORT)
+void Adapter::assert_timer_dispatch_unreachable_for_test() const {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
   auto& rt = *runtime_;
   if (!state_->timer_dispatch.isObject() ||
       !state_->timer_dispatch.getObject(rt).isFunction(rt))
     throw std::logic_error("Ibex2 TIMERS group is not installed");
-  return jsi::Value(rt, state_->timer_dispatch);
+  Reachability walk(rt);
+  std::vector<std::pair<std::string, jsi::Value>> identities;
+  identities.emplace_back(
+      "the private timer dispatcher", jsi::Value(rt, state_->timer_dispatch));
+  require_unreachable(rt, walk, identities, 4096, 65536);
 }
+#endif
 
 uint64_t Adapter::subscribe(jsi::Function callback) {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");

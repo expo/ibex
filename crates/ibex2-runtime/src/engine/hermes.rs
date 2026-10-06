@@ -87,7 +87,11 @@ extern "C" {
     fn ibex2_hermes_test_unsubscribe(handle: *mut c_void, subscription: u64);
     #[cfg(test)]
     fn ibex2_hermes_test_websocket_keepalive_count(handle: *mut c_void) -> usize;
-    fn ibex2_hermes_test_expose_timer_dispatch(handle: *mut c_void) -> c_int;
+    #[cfg(all(test, feature = "test-support"))]
+    fn ibex2_hermes_test_assert_timer_dispatch_unreachable(
+        handle: *mut c_void,
+        out_error: *mut *mut c_char,
+    ) -> c_int;
 }
 
 /// Whether JavaScript may compile source of its own.
@@ -740,12 +744,19 @@ impl Hermes {
         state.live_headers()
     }
 
-    /// Publish the private timer dispatcher under a test-only global so a
-    /// trusted pre-harden probe can capture its exact identity and delete it.
-    #[doc(hidden)]
-    pub fn expose_timer_dispatch_for_test(&mut self) -> bool {
-        // SAFETY: the runtime and its adapter are live on the owner thread.
-        unsafe { ibex2_hermes_test_expose_timer_dispatch(self.handle) != 0 }
+    #[cfg(all(test, feature = "test-support"))]
+    pub(crate) fn assert_timer_dispatch_unreachable_for_test(&mut self) -> Result<(), String> {
+        let mut out: *mut c_char = std::ptr::null_mut();
+        // SAFETY: the runtime and adapter are live on the owner thread. The
+        // native fixture retains and compares the private identity internally.
+        if unsafe { ibex2_hermes_test_assert_timer_dispatch_unreachable(self.handle, &mut out) }
+            == 0
+        {
+            Ok(())
+        } else {
+            Err(take_c_string(out)
+                .unwrap_or_else(|| "timer-dispatch privacy traversal failed".into()))
+        }
     }
 
     /// Number of Rust-side `CryptoKey` handles held by this runtime.

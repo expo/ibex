@@ -632,19 +632,30 @@ size_t ibex2_hermes_test_websocket_keepalive_count(void *handle) {
   return rt->bindings->websocket_keepalive_count_for_test();
 }
 
-int ibex2_hermes_test_expose_timer_dispatch(void *handle) {
+#if defined(IBEX2_TEST_SUPPORT)
+int ibex2_hermes_test_assert_timer_dispatch_unreachable(void *handle,
+                                                        char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
-  if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
-    return 0;
+  if (out_error != nullptr) *out_error = nullptr;
+  if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
+    if (out_error != nullptr)
+      *out_error = dup_c_string(
+          "timer-dispatch privacy test requires a live runtime");
+    return 1;
+  }
   try {
-    rt->runtime->global().setProperty(
-        *rt->runtime, "__ibex2_test_timer_dispatch",
-        rt->bindings->timer_dispatch_for_test());
+    rt->bindings->assert_timer_dispatch_unreachable_for_test();
+    return 0;
+  } catch (const std::exception &error) {
+    if (out_error != nullptr) *out_error = dup_c_string(error.what());
     return 1;
   } catch (...) {
-    return 0;
+    if (out_error != nullptr)
+      *out_error = dup_c_string("timer-dispatch privacy traversal failed");
+    return 1;
   }
 }
+#endif
 
 /// Block until a host task is ready, or the timeout elapses.
 ///

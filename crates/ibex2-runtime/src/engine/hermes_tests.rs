@@ -2385,6 +2385,28 @@ fn pump_for(rt: &mut Hermes, millis: u64) {
     rt.pump().unwrap();
 }
 
+#[cfg(feature = "test-support")]
+#[test]
+fn private_timer_dispatcher_is_unreachable_from_the_hardened_global_graph() {
+    let mut rt = timer_rt();
+    rt.harden().expect("harden");
+    rt.assert_timer_dispatch_unreachable_for_test()
+        .expect("private dispatcher reached from globalThis after hardening");
+
+    rt.eval(
+        "globalThis.__timerFired = false; setTimeout(function () { __timerFired = true; }, 0);",
+    )
+    .unwrap();
+    for _ in 0..100 {
+        rt.pump().expect("owning timer pump");
+        if rt.eval("String(globalThis.__timerFired)").unwrap() == "true" {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    panic!("the owning pump did not fire setTimeout after hardening");
+}
+
 #[test]
 fn timer_exceptions_are_dispatched_to_onerror() {
     let mut rt = timer_rt();

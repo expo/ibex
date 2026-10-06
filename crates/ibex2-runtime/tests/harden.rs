@@ -132,54 +132,6 @@ fn the_global_object_accepts_new_properties() {
 }
 
 #[test]
-fn application_cannot_reach_the_private_timer_dispatcher_after_harden() {
-    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    install_runtime(&mut rt);
-    assert!(rt.expose_timer_dispatch_for_test());
-    eval(
-        &mut rt,
-        r#"
-        globalThis.__timerDispatcherAbsent = (function (dispatcher) {
-          delete globalThis.__ibex2_test_timer_dispatch;
-          return function () {
-            var targets = [setTimeout, clearTimeout, Function.prototype, globalThis];
-            var labels = ["setTimeout", "clearTimeout", "Function.prototype", "globalThis"];
-            for (var i = 0; i < targets.length; i++) {
-              var names = Object.getOwnPropertyNames(targets[i]);
-              for (var j = 0; j < names.length; j++) {
-                var descriptor = Object.getOwnPropertyDescriptor(targets[i], names[j]);
-                if (descriptor.value === dispatcher || descriptor.get === dispatcher ||
-                    descriptor.set === dispatcher) {
-                  return labels[i] + "." + names[j];
-                }
-              }
-            }
-            return "absent";
-          };
-        })(globalThis.__ibex2_test_timer_dispatch);
-        "#,
-    );
-    rt.harden().expect("harden");
-    assert_eq!(
-        eval(&mut rt, "globalThis.__timerDispatcherAbsent()"),
-        "absent"
-    );
-
-    eval(
-        &mut rt,
-        "globalThis.__timerFired = false; setTimeout(function () { __timerFired = true; }, 0);",
-    );
-    for _ in 0..100 {
-        rt.pump().expect("owning timer pump");
-        if eval(&mut rt, "String(globalThis.__timerFired)") == "true" {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    panic!("the owning pump did not fire setTimeout after hardening");
-}
-
-#[test]
 fn forged_headers_receivers_cannot_reach_native_handle_rows_after_harden() {
     let mut rt = hardened();
     assert_eq!(
