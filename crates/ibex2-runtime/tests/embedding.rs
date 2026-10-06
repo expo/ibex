@@ -63,7 +63,13 @@ extern "C" {
         len: usize,
         error: *mut *mut c_char,
     ) -> i32;
-    fn bindings_consumer_publish_numeric_probes(
+    #[cfg(feature = "websocket")]
+    fn bindings_consumer_publish_websocket_numeric_probe(
+        handle: *mut c_void,
+        grants: *const c_void,
+        error: *mut *mut c_char,
+    ) -> i32;
+    fn bindings_consumer_publish_sqlite_numeric_probe(
         handle: *mut c_void,
         grants: *const c_void,
         error: *mut *mut c_char,
@@ -319,10 +325,30 @@ impl BareConsumer {
         }
     }
 
-    fn publish_numeric_probes(&self) -> Result<(), String> {
+    #[cfg(feature = "websocket")]
+    fn publish_websocket_numeric_probe(&self) -> Result<(), String> {
         let mut error = std::ptr::null_mut();
         let published = unsafe {
-            bindings_consumer_publish_numeric_probes(
+            bindings_consumer_publish_websocket_numeric_probe(
+                self.handle,
+                self.context
+                    .as_ref()
+                    .expect("live borrowed context")
+                    .grants_ptr(),
+                &mut error,
+            )
+        };
+        if published == 1 {
+            Ok(())
+        } else {
+            Err(take(error))
+        }
+    }
+
+    fn publish_sqlite_numeric_probe(&self) -> Result<(), String> {
+        let mut error = std::ptr::null_mut();
+        let published = unsafe {
+            bindings_consumer_publish_sqlite_numeric_probe(
                 self.handle,
                 self.context
                     .as_ref()
@@ -343,11 +369,18 @@ impl BareConsumer {
         drop(self.context.take());
     }
 
-    fn step(&self, deliver: bool) -> i32 {
+    fn step_result(&self, deliver: bool) -> Result<i32, String> {
         let mut out = std::ptr::null_mut();
         let result = unsafe { storage_consumer_step(self.handle, deliver, &mut out) };
-        assert!(result >= 0, "{}", take(out));
-        result
+        if result >= 0 {
+            Ok(result)
+        } else {
+            Err(take(out))
+        }
+    }
+
+    fn step(&self, deliver: bool) -> i32 {
+        self.step_result(deliver).unwrap()
     }
 
     fn collect_garbage(&self) {
@@ -602,14 +635,38 @@ fn borrowed_runtime_keeps_a_global_websocket_bound_to_its_endowment() {
     assert_eq!(consumer.eval("borrowedLog.join('|')"), "error:3|close:1006");
 }
 
+#[test]
+fn borrowed_adapter_refuses_a_timer_task() {
+    let consumer = BareConsumer::new(Groups::CONSOLE | Groups::TIMERS);
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("harden before application code");
+    consumer.eval(
+        "globalThis.borrowedTimerFired = false; setTimeout(function () { borrowedTimerFired = true; }, 0);",
+    );
+    let state = consumer
+        .context
+        .as_ref()
+        .expect("live borrowed context")
+        .state_ptr()
+        .cast::<ibex2::task::RuntimeState>();
+    let admitted = unsafe { ibex2::task::borrow_state(state) }
+        .expect("live borrowed state")
+        .admit_due_timers();
+    assert_eq!(admitted, 1, "the test must hand deliver_one a timer task");
+    let error = consumer.step_result(true).unwrap_err();
+    assert!(error.contains("non-settlement task"), "{error}");
+    assert_eq!(consumer.eval("String(borrowedTimerFired)"), "false");
+}
+
 #[cfg(feature = "websocket")]
 #[test]
-fn binding_native_integer_arguments_are_checked_before_conversion() {
+fn websocket_native_integer_arguments_are_checked_before_conversion() {
     let context = Context::new(GrantSet::none());
     let consumer = BareConsumer::from_context(Groups::DEFAULT, context);
     consumer
-        .publish_numeric_probes()
-        .expect("publish the exact binding-native closures");
+        .publish_websocket_numeric_probe()
+        .expect("publish the exact WebSocket binding-native closure");
     consumer
         .harden(ibex2::bindings::HARDEN_BYTECODE)
         .expect("harden before the probe application runs");
@@ -629,13 +686,7 @@ fn binding_native_integer_arguments_are_checked_before_conversion() {
             closeHandles: invalid.concat([0]).map(function (value) {
               return kind(function () { __test_websocket_close(value, 1000, ""); });
             }),
-            sqliteKinds: invalid.map(function (value) {
-              return kind(function () { __test_sqlite_own(1, value, {}); });
-            }),
-            types: [
-              kind(function () { __test_websocket_close(1, "1000", ""); }),
-              kind(function () { __test_sqlite_own(1, "0", {}); })
-            ]
+            type: kind(function () { __test_websocket_close(1, "1000", ""); })
           });
         })()
         "#,
@@ -649,14 +700,37 @@ fn binding_native_integer_arguments_are_checked_before_conversion() {
         result["closeHandles"],
         serde_json::json!(vec!["RangeError"; 7])
     );
-    assert_eq!(
-        result["sqliteKinds"],
-        serde_json::json!(vec!["RangeError"; 6])
+    assert_eq!(result["type"], "TypeError");
+}
+
+#[test]
+fn sqlite_native_integer_arguments_are_checked_before_conversion() {
+    let context = Context::new(GrantSet::none());
+    let consumer = BareConsumer::from_context(Groups::empty(), context);
+    consumer
+        .publish_sqlite_numeric_probe()
+        .expect("publish the exact SQLite binding-native closure");
+    consumer
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("harden before the probe application runs");
+
+    let output = consumer.eval(
+        r#"
+        (function () {
+          function kind(value) {
+            try { __test_sqlite_own(1, value, {}); return "none"; }
+            catch (error) { return error.constructor.name; }
+          }
+          return JSON.stringify({
+            invalid: [NaN, Infinity, -Infinity, 0.5, 9007199254740992, -1].map(kind),
+            type: kind("0")
+          });
+        })()
+        "#,
     );
-    assert_eq!(
-        result["types"],
-        serde_json::json!(["TypeError", "TypeError"])
-    );
+    let result: serde_json::Value = serde_json::from_str(&output).expect("probe JSON");
+    assert_eq!(result["invalid"], serde_json::json!(vec!["RangeError"; 6]));
+    assert_eq!(result["type"], "TypeError");
 }
 
 #[test]
@@ -1983,6 +2057,7 @@ fn freezing_modified_intrinsics_does_not_satisfy_the_installation_contract() {
 
 #[test]
 fn deferred_intrinsic_capture_follows_prelude_capture_harden_sqlite_order() {
+    const ABORT_HOOKS: &str = "__exact2_private_abort_hooks";
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let root = std::env::temp_dir().join(format!(
         "ibex2-deferred-integrity-{}-{}",
@@ -2002,9 +2077,12 @@ fn deferred_intrinsic_capture_follows_prelude_capture_harden_sqlite_order() {
     context
         .set_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider))
         .unwrap();
-    let consumer = BareConsumer::from_context_with_deferred_intrinsics(
+    let consumer = BareConsumer::from_context_with_options(
         Groups::PURE | Groups::CRYPTO | Groups::ABORT,
         context,
+        None,
+        Some(ABORT_HOOKS),
+        true,
     );
     consumer
         .install_storage()
@@ -2014,16 +2092,23 @@ fn deferred_intrinsic_capture_follows_prelude_capture_harden_sqlite_order() {
         .unwrap_err();
     assert!(error.contains("capture_intrinsics() before use"), "{error}");
     assert!(!root.join("data/trusted.db").exists());
-    consumer.eval(
+    consumer.eval(&format!(
         r#"
-        Number.prototype.toLocaleString = function () { return "trusted-number"; };
-        Object.defineProperty(Array.prototype, "trustedArrayMethod", {
-          value: function () { return "trusted-array"; },
+        globalThis.exact2AbortSubscribe = (function (hooks) {{
+          var subscribe = hooks.subscribe;
+          delete globalThis.{ABORT_HOOKS};
+          return function (signal, callback) {{
+            return subscribe(signal, callback);
+          }};
+        }})(globalThis.{ABORT_HOOKS});
+        Number.prototype.toLocaleString = function () {{ return "trusted-number"; }};
+        Object.defineProperty(Array.prototype, "trustedArrayMethod", {{
+          value: function () {{ return "trusted-array"; }},
           writable: true,
           configurable: true
-        });
+        }});
         "#,
-    );
+    ));
     consumer
         .capture_intrinsics()
         .expect("trusted prelude establishes the complete baseline");
@@ -2033,6 +2118,12 @@ fn deferred_intrinsic_capture_follows_prelude_capture_harden_sqlite_order() {
     consumer.eval(
         r#"
         globalThis.result = "";
+        var controller = new AbortController();
+        var abortDeliveries = 0;
+        exact2AbortSubscribe(controller.signal, function () { abortDeliveries++; });
+        controller.abort();
+        var random = new Uint8Array(8);
+        crypto.getRandomValues(random);
         var appMutation;
         try {
           Object.defineProperty(Array.prototype, "appMutation", { value: function () {} });
@@ -2041,11 +2132,21 @@ fn deferred_intrinsic_capture_follows_prelude_capture_harden_sqlite_order() {
         storage.sqlite.open("app:/data/trusted.db").then(async function (db) {
           await db.execute("CREATE TABLE accepted(value TEXT)");
           await db.close();
-          result = (1).toLocaleString() + "|" + [1].trustedArrayMethod() + "|" + appMutation;
+          result = [
+            typeof globalThis.__exact2_private_abort_hooks,
+            abortDeliveries,
+            random.byteLength,
+            (1).toLocaleString(),
+            [1].trustedArrayMethod(),
+            appMutation
+          ].join("|");
         }, function (error) { result = String(error); });
         "#,
     );
-    assert_eq!(consumer.finish(), "trusted-number|trusted-array|TypeError");
+    assert_eq!(
+        consumer.finish(),
+        "undefined|1|8|trusted-number|trusted-array|TypeError"
+    );
     assert!(root.join("data/trusted.db").exists());
     drop(consumer);
     std::fs::remove_dir_all(root).unwrap();

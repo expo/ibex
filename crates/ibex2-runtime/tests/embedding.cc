@@ -175,7 +175,7 @@ int bindings_consumer_install_storage(
     return 0;
   }
 }
-int bindings_consumer_publish_numeric_probes(
+int bindings_consumer_publish_websocket_numeric_probe(
     void *handle, const void *grants, char **error) {
   try {
     auto *c = static_cast<Consumer *>(handle);
@@ -187,6 +187,20 @@ int bindings_consumer_publish_numeric_probes(
     rt.global().setProperty(
         rt, "__test_websocket_close",
         websocket.getProperty(rt, "close"));
+
+    return 1;
+  } catch (const std::exception &e) {
+    if (error != nullptr) *error = copy(e.what());
+    return 0;
+  }
+}
+
+int bindings_consumer_publish_sqlite_numeric_probe(
+    void *handle, const void *grants, char **error) {
+  try {
+    auto *c = static_cast<Consumer *>(handle);
+    if (c == nullptr || c->adapter == nullptr || c->runtime == nullptr) return 0;
+    auto &rt = *c->runtime;
 
     auto factory = jsi::Function::createFromHostFunction(
         rt, jsi::PropNameID::forAscii(rt, "numericProbeSqliteFactory"), 2,
