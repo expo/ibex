@@ -9,6 +9,12 @@ use ibex2::grant::GrantSet;
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 use std::sync::Once;
 
+/// Whether the linked ICU carries every locale: Linux's `intl-all-locales` data
+/// tier, or Windows, whose OS ICU always does. Linux's default English tier
+/// reports and falls back to English only.
+#[cfg(any(target_os = "linux", windows))]
+const ALL_LOCALES: bool = cfg!(any(feature = "intl-all-locales", windows));
+
 fn set_stable_process_defaults() {
     static DEFAULTS: Once = Once::new();
     DEFAULTS.call_once(|| {
@@ -84,7 +90,7 @@ fn opted_in_linux_group_supplies_intl_and_locale_methods() {
         .install_runtime(Groups::DEFAULT, &context)
         .expect("bindings with INTL");
 
-    let expected = if cfg!(feature = "intl-all-locales") {
+    let expected = if ALL_LOCALES {
         "object|1.234,5"
     } else {
         "object|1,234.5"
@@ -113,7 +119,7 @@ fn selected_intl_reports_only_available_locale_data() {
         .install_runtime(Groups::DEFAULT, &context)
         .expect("bindings with selected INTL data");
 
-    let expected = if cfg!(feature = "intl-all-locales") {
+    let expected = if ALL_LOCALES {
         r#"{"numberSupported":["en-US","de-DE"],"dateSupported":["en-US","de-DE"],"numberLocale":"de-DE","dateLocale":"de-DE","number":"1.234,5"}"#
     } else {
         r#"{"numberSupported":["en-US"],"dateSupported":["en-US"],"numberLocale":"en-US","dateLocale":"en-US","number":"1,234.5"}"#

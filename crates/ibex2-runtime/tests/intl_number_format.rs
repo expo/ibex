@@ -3,6 +3,11 @@
 
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 
+/// Whether the linked ICU carries every locale: Linux's `intl-all-locales` data
+/// tier, or Windows, whose OS ICU always does. Linux's default English tier
+/// reports and falls back to English only.
+const ALL_LOCALES: bool = cfg!(any(feature = "intl-all-locales", windows));
+
 fn runtime(hardened: bool) -> Hermes {
     let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
     let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
@@ -26,7 +31,7 @@ fn non_english_process_locale_falls_back_to_available_number_data() {
     const CHILD: &str = "IBEX2_INTL_NUMBER_NON_ENGLISH_CHILD";
     if std::env::var_os(CHILD).is_some() {
         let mut runtime = runtime(false);
-        let expected = if cfg!(feature = "intl-all-locales") {
+        let expected = if ALL_LOCALES {
             "de-DE|1.234,5"
         } else {
             "en-US|1,234.5"
@@ -133,7 +138,7 @@ fn formats_complete_english_currency_data_and_metadata() {
           return formatter.resolvedOptions().locale + '|' + formatter.format(1234.567);
         })()"#,
     );
-    if cfg!(feature = "intl-all-locales") {
+    if ALL_LOCALES {
         assert_eq!(fallback, "de-DE|1.234,567\u{a0}KWD");
     } else {
         assert_eq!(fallback, "en-US|KWD\u{a0}1,234.567");
@@ -232,7 +237,7 @@ fn sign_display_matrix_includes_special_and_rounded_zero_values() {
 }
 
 #[test]
-#[cfg(feature = "intl-all-locales")]
+#[cfg(any(feature = "intl-all-locales", windows))]
 fn resolved_options_and_locale_negotiation_match_selected_configuration() {
     let mut runtime = runtime(false);
     assert_eq!(

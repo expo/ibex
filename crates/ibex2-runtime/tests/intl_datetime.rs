@@ -5,6 +5,11 @@
 
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 
+/// Whether the linked ICU carries every locale: Linux's `intl-all-locales` data
+/// tier, or Windows, whose OS ICU always does. Linux's default English tier
+/// reports and falls back to English only.
+const ALL_LOCALES: bool = cfg!(any(feature = "intl-all-locales", windows));
+
 /// The space before the day period in an en-US `timeStyle` pattern. CLDR 42+
 /// (Linux's pinned ICU 74) uses U+202F. Windows' OS ICU carries Microsoft's
 /// modified CLDR 42, whose `udat_open` style patterns keep an ASCII space
@@ -35,7 +40,7 @@ fn non_english_process_locale_falls_back_to_available_datetime_data() {
     const CHILD: &str = "IBEX2_INTL_DATETIME_NON_ENGLISH_CHILD";
     if std::env::var_os(CHILD).is_some() {
         let mut runtime = runtime();
-        let expected = if cfg!(feature = "intl-all-locales") {
+        let expected = if ALL_LOCALES {
             "de-DE|1970"
         } else {
             "en-US|1970"
@@ -139,7 +144,7 @@ fn locale_extensions_calendars_numbering_and_hour_cycles_are_effective() {
         "true|false|h23|false|gregory|latn|UTC|12\u{202f}AM|24"
     );
 
-    #[cfg(feature = "intl-all-locales")]
+    #[cfg(any(feature = "intl-all-locales", windows))]
     {
         assert_eq!(
             eval(
@@ -201,7 +206,7 @@ fn styles_time_zones_and_date_prototype_methods_share_the_binding() {
 #[test]
 fn supported_locales_and_resolved_options_are_real() {
     let mut runtime = runtime();
-    let expected_supported = if cfg!(feature = "intl-all-locales") {
+    let expected_supported = if ALL_LOCALES {
         r#"["en-US","de-DE"]"#
     } else {
         r#"["en-US"]"#
@@ -336,7 +341,7 @@ fn time_zone_names_are_ascii_case_insensitive_and_canonical() {
         "America/New_York|UTC"
     );
 
-    #[cfg(feature = "intl-all-locales")]
+    #[cfg(any(feature = "intl-all-locales", windows))]
     assert_eq!(
         eval(
             &mut runtime,
