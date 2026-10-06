@@ -335,6 +335,13 @@ impl TcpSocketTransport {
         }
         let tcp = tcp.ok_or(last)?;
         tcp.set_nodelay(true).map_err(failed)?;
+        // A Close or Pong cannot overtake bytes already accepted by TCP. Keep
+        // the native send queue near one WebSocket fragment so a large data
+        // send cannot bury a later control frame behind Linux's multi-megabyte
+        // autotuned send buffer.
+        socket2::SockRef::from(&tcp)
+            .set_send_buffer_size(FRAGMENT)
+            .map_err(failed)?;
         // Aborting wakes Poll even when the connection is completely idle.
         // Shutdown is retained as a second, idempotent way to make socket I/O
         // observe cancellation if it races the wake.
@@ -1488,7 +1495,11 @@ fn stop_polling_tcp(poll: &Poll, wire: &mut Wire, registered: &mut bool) -> Resu
     Ok(())
 }
 
-fn poll_writes_only(poll: &Poll, wire: &mut Wire, write_only: &mut bool) -> Result<(), HostError> {
+fn poll_writes_only(
+    poll: &Poll,
+    wire: &mut Wire,
+    write_only: &mut bool,
+) -> Result<bool, HostError> {
     if !*write_only {
         poll.registry()
             .reregister(wire.tcp_mut(), SOCKET_TOKEN, Interest::WRITABLE)
@@ -1496,8 +1507,9 @@ fn poll_writes_only(poll: &Poll, wire: &mut Wire, write_only: &mut bool) -> Resu
                 HostError::Failed(format!("the socket readiness registration failed: {error}"))
             })?;
         *write_only = true;
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 fn abandon_active(active: &mut Option<ActiveData>, command_count: &AtomicUsize) {
@@ -1993,9 +2005,20 @@ fn pump_loop(
             continue;
         }
         if close.read == ReadSide::Done {
-            if let Err(error) = poll_writes_only(&poll, &mut wire, &mut write_only) {
-                fail_pump(&mut request, &requests, error, &state, &shutdown);
-                return;
+            match poll_writes_only(&poll, &mut wire, &mut write_only) {
+                Ok(true) => {
+                    // mio readiness is edge-triggered on epoll. The socket may
+                    // already be writable when EPOLL_CTL_MOD changes the
+                    // interest set, so probe it before waiting for an edge
+                    // which need not recur.
+                    write_ready = true;
+                    continue;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    fail_pump(&mut request, &requests, error, &state, &shutdown);
+                    return;
+                }
             }
         }
         #[cfg(test)]
@@ -2012,6 +2035,11 @@ fn pump_loop(
         }
         match waited {
             Ok(()) => {
+                // Waker and socket readiness can be coalesced. After every
+                // wake, retry nonblocking I/O and drain it to WouldBlock so a
+                // readiness edge cannot be consumed only by the poll call.
+                read_ready = true;
+                write_ready = true;
                 for event in &events {
                     if event.token() != SOCKET_TOKEN {
                         continue;

@@ -125,3 +125,19 @@ Clippy commands, formatting, and `ref-check` pass. The exact `ibex2
 --all-features` command has only the declared macOS Keychain environment
 failure; with that one fixture skipped, 238 library tests and every integration
 test pass. Linux and Windows remain pending from the orchestrator.
+
+## 2026-10-06: Linux fix round 2
+
+Linux epoll exposed two readiness assumptions. The pump could wait for a new
+writable edge after changing the registered interest even when the socket was
+already writable at `EPOLL_CTL_MOD`; it now probes nonblocking I/O immediately
+after re-registration and every poll wake, then continues each ready direction
+through `WouldBlock`. More importantly, Linux's autotuned TCP send buffer had
+already accepted roughly 2.5 MiB before `WouldBlock`. A Close generated after
+that point could not overtake those kernel bytes, and the 500 ms test stall
+deadline fired while the small-window peer was still draining them. The client
+now requests a one-fragment native send buffer, bounding the data ahead of a
+control frame on every backend.
+
+Close-lifecycle review fixes and repeated Linux/Windows qualification remain
+in progress; this issue stays open.
