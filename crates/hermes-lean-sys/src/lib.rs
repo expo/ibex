@@ -41,11 +41,17 @@ pub const LINKED_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_LINKED_ARCHIVE
 /// Digest of [`LINKED_ARCHIVE`], naming the archive this feature context links.
 pub const LINKED_ENGINE_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LINKED_ENGINE_DIGEST");
 
-/// Receipt-bound trimmed root+en ICU data archive available on Linux.
+/// Receipt-bound base ICU data archive available on Linux.
 pub const ICU_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_DATA_ARCHIVE");
 
 /// Digest of [`ICU_DATA_ARCHIVE`].
 pub const ICU_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_DATA_DIGEST");
+
+/// Receipt-bound English Intl ICU data archive available on Linux.
+pub const ICU_EN_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_EN_DATA_ARCHIVE");
+
+/// Digest of [`ICU_EN_DATA_ARCHIVE`].
+pub const ICU_EN_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_EN_DATA_DIGEST");
 
 /// Receipt-bound full ICU data archive available on Linux.
 pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_FULL_DATA_ARCHIVE");
@@ -53,7 +59,7 @@ pub const ICU_FULL_DATA_ARCHIVE: Option<&str> = option_env!("HERMES_LEAN_ICU_FUL
 /// Digest of [`ICU_FULL_DATA_ARCHIVE`].
 pub const ICU_FULL_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_ICU_FULL_DATA_DIGEST");
 
-/// ICU data archive selected by `icu` or `icu-full-data` on Linux.
+/// ICU data archive selected by `icu`, `icu-en-data`, or `icu-full-data` on Linux.
 pub const LINKED_ICU_DATA_ARCHIVE: Option<&str> =
     option_env!("HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE");
 

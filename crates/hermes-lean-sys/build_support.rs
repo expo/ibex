@@ -88,8 +88,10 @@ struct InstallLayout {
     icu_i18n_archive: Option<PathBuf>,
     icu_uc_archive: Option<PathBuf>,
     icu_data_archive: Option<PathBuf>,
+    icu_en_data_archive: Option<PathBuf>,
     icu_full_data_archive: Option<PathBuf>,
     icu_trimmed_filter: Option<PathBuf>,
+    icu_en_filter: Option<PathBuf>,
     origin: InstallOrigin,
     requires_receipt: bool,
     target: String,
@@ -105,8 +107,10 @@ pub(crate) struct EngineInstall {
     pub icu_i18n_archive: Option<PathBuf>,
     pub icu_uc_archive: Option<PathBuf>,
     pub icu_data_archive: Option<PathBuf>,
+    pub icu_en_data_archive: Option<PathBuf>,
     pub icu_full_data_archive: Option<PathBuf>,
     pub icu_trimmed_filter: Option<PathBuf>,
+    pub icu_en_filter: Option<PathBuf>,
     pub hermesc: PathBuf,
 }
 
@@ -142,8 +146,10 @@ pub(crate) fn watched_inputs(install: &EngineInstall, target: &str) -> Vec<PathB
         &install.icu_i18n_archive,
         &install.icu_uc_archive,
         &install.icu_data_archive,
+        &install.icu_en_data_archive,
         &install.icu_full_data_archive,
         &install.icu_trimmed_filter,
+        &install.icu_en_filter,
     ]
     .into_iter()
     .flatten()
@@ -392,8 +398,10 @@ pub(crate) fn resolve_engine_directory(
         icu_i18n_archive: target_layout.icu_i18n_archive,
         icu_uc_archive: target_layout.icu_uc_archive,
         icu_data_archive: target_layout.icu_data_archive,
+        icu_en_data_archive: target_layout.icu_en_data_archive,
         icu_full_data_archive: target_layout.icu_full_data_archive,
         icu_trimmed_filter: target_layout.icu_trimmed_filter,
+        icu_en_filter: target_layout.icu_en_filter,
         hermesc,
     })
 }
@@ -442,9 +450,12 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
         icu_i18n_archive: linux_icu.then(|| lib_root.join("libicui18n.a")),
         icu_uc_archive: linux_icu.then(|| lib_root.join("libicuuc.a")),
         icu_data_archive: linux_icu.then(|| lib_root.join("libicudata.a")),
+        icu_en_data_archive: linux_icu.then(|| lib_root.join("libicudata-en.a")),
         icu_full_data_archive: linux_icu.then(|| lib_root.join("libicudata-full.a")),
         icu_trimmed_filter: linux_icu
             .then(|| root.join("share").join("icu").join("filters-root-en.json")),
+        icu_en_filter: linux_icu
+            .then(|| root.join("share").join("icu").join("filters-en-intl.json")),
         root,
         include_dir,
         vm_archive: lib_root.join(archive),
@@ -508,9 +519,11 @@ fn validate_layout(layout: &InstallLayout, require_lean: bool) -> Result<(), Str
     for (label, path) in [
         ("ICU i18n code archive", &layout.icu_i18n_archive),
         ("ICU Unicode code archive", &layout.icu_uc_archive),
-        ("trimmed ICU data archive", &layout.icu_data_archive),
+        ("base ICU data archive", &layout.icu_data_archive),
+        ("English-Intl ICU data archive", &layout.icu_en_data_archive),
         ("full ICU data archive", &layout.icu_full_data_archive),
-        ("trimmed ICU data filter", &layout.icu_trimmed_filter),
+        ("base ICU data filter", &layout.icu_trimmed_filter),
+        ("English-Intl ICU data filter", &layout.icu_en_filter),
     ] {
         if let Some(path) = path {
             required.push((label, path, false));
@@ -675,7 +688,7 @@ fn validate_receipt(
     let Some(receipt) = read_receipt_claims(layout)? else {
         if layout.target.ends_with("-unknown-linux-gnu") {
             return Err(format!(
-                "Linux Hermes install {} has no canonical receipt binding its ICU code and trimmed/full data archives",
+                "Linux Hermes install {} has no canonical receipt binding its ICU code and base/English-Intl/full data archives",
                 layout.root.display()
             ));
         }
@@ -811,9 +824,14 @@ fn validate_linux_icu_receipt(
             icu.code_archives.get(1),
         ),
         (
-            "trimmed ICU data archive",
+            "base ICU data archive",
             layout.icu_data_archive.as_ref(),
             Some(&icu.trimmed_data_archive),
+        ),
+        (
+            "English-Intl ICU data archive",
+            layout.icu_en_data_archive.as_ref(),
+            Some(&icu.en_data_archive),
         ),
         (
             "full ICU data archive",
@@ -852,27 +870,39 @@ fn validate_linux_icu_receipt(
         }
     }
 
-    let filter = layout
-        .icu_trimmed_filter
-        .as_ref()
-        .ok_or("Linux layout has no trimmed ICU data filter")?;
-    let relative = relative_install_path(&layout.root, filter)?;
-    if relative != icu.trimmed_filter_path {
-        return Err(format!(
-            "{} records trimmed ICU filter {}, but hermes-lean-sys selected {}",
-            receipt_path.display(),
-            icu.trimmed_filter_path,
-            relative
-        ));
-    }
-    let actual = digest_file(filter)?;
-    if actual != icu.trimmed_filter_digest {
-        return Err(format!(
-            "{} records trimmed ICU filter digest {}, but selected filter has {}",
-            receipt_path.display(),
-            icu.trimmed_filter_digest,
-            actual
-        ));
+    for (label, selected, claimed_path, claimed_digest) in [
+        (
+            "base ICU data filter",
+            layout.icu_trimmed_filter.as_ref(),
+            &icu.trimmed_filter_path,
+            &icu.trimmed_filter_digest,
+        ),
+        (
+            "English-Intl ICU data filter",
+            layout.icu_en_filter.as_ref(),
+            &icu.en_filter_path,
+            &icu.en_filter_digest,
+        ),
+    ] {
+        let selected = selected.ok_or_else(|| format!("Linux layout has no {label}"))?;
+        let relative = relative_install_path(&layout.root, selected)?;
+        if &relative != claimed_path {
+            return Err(format!(
+                "{} records {label} {}, but hermes-lean-sys selected {}",
+                receipt_path.display(),
+                claimed_path,
+                relative
+            ));
+        }
+        let actual = digest_file(selected)?;
+        if &actual != claimed_digest {
+            return Err(format!(
+                "{} records {label} digest {}, but selected filter has {}",
+                receipt_path.display(),
+                claimed_digest,
+                actual
+            ));
+        }
     }
     Ok(())
 }
@@ -1826,6 +1856,7 @@ mod internal_tests {
         let files = [
             ("lib/libhermesvm_a.a", b"engine".as_slice()),
             ("lib/libicudata-full.a", b"full data".as_slice()),
+            ("lib/libicudata-en.a", b"English data".as_slice()),
             ("lib/libicudata.a", b"trimmed data".as_slice()),
             ("lib/libicui18n.a", b"i18n code".as_slice()),
             ("lib/libicuuc.a", b"unicode code".as_slice()),
@@ -1840,6 +1871,11 @@ mod internal_tests {
             include_bytes!("../../scripts/icu74-filter-root-en.json"),
         )
         .expect("pinned filter");
+        fs::write(
+            root.join("share/icu/filters-en-intl.json"),
+            include_bytes!("../../scripts/icu74-filter-en-intl.json"),
+        )
+        .expect("pinned English-Intl filter");
 
         let digest = |path: &str| digest_file(&root.join(path)).expect("fixture digest");
         let engine_digest = digest("lib/libhermesvm_a.a");
@@ -1873,6 +1909,7 @@ mod internal_tests {
             },
             "archives": [
                 { "path": "lib/libhermesvm_a.a", "digest": digest("lib/libhermesvm_a.a") },
+                { "path": "lib/libicudata-en.a", "digest": digest("lib/libicudata-en.a") },
                 { "path": "lib/libicudata-full.a", "digest": digest("lib/libicudata-full.a") },
                 { "path": "lib/libicudata.a", "digest": digest("lib/libicudata.a") },
                 { "path": "lib/libicui18n.a", "digest": digest("lib/libicui18n.a") },
@@ -1895,6 +1932,13 @@ mod internal_tests {
                         "filter": {
                             "path": "share/icu/filters-root-en.json",
                             "digest": receipt_schema::ICU_TRIMMED_FILTER_DIGEST
+                        }
+                    },
+                    "en": {
+                        "archive": "lib/libicudata-en.a",
+                        "filter": {
+                            "path": "share/icu/filters-en-intl.json",
+                            "digest": receipt_schema::ICU_EN_FILTER_DIGEST
                         }
                     },
                     "full": { "archive": "lib/libicudata-full.a" }
@@ -1924,7 +1968,7 @@ mod internal_tests {
     }
 
     #[test]
-    fn linux_layout_and_receipt_require_and_authenticate_both_icu_data_variants() {
+    fn linux_layout_and_receipt_require_and_authenticate_all_icu_data_variants() {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let (layout, engine_digest) = write_linux_v3_fixture(temporary.path());
         validate_layout(&layout, false).expect("complete Linux layout");
@@ -1935,7 +1979,7 @@ mod internal_tests {
             &engine_digest,
             "99",
         )
-        .expect("receipt authenticates both ICU data variants");
+        .expect("receipt authenticates all ICU data variants");
 
         fs::write(
             temporary.path().join("lib/libicudata-full.a"),
@@ -1953,8 +1997,15 @@ mod internal_tests {
         assert!(error.contains("full ICU data archive digest"), "{error}");
 
         fs::remove_file(temporary.path().join("lib/libicudata-full.a")).expect("remove full data");
-        let error = validate_layout(&layout, false).expect_err("both data variants are required");
+        let error = validate_layout(&layout, false).expect_err("all data variants are required");
         assert!(error.contains("full ICU data archive"), "{error}");
+
+        fs::write(temporary.path().join("lib/libicudata-full.a"), b"full data")
+            .expect("restore full data");
+        fs::remove_file(temporary.path().join("lib/libicudata-en.a"))
+            .expect("remove English-Intl data");
+        let error = validate_layout(&layout, false).expect_err("English tier is required");
+        assert!(error.contains("English-Intl ICU data archive"), "{error}");
     }
 
     #[test]

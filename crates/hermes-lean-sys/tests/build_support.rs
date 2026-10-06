@@ -50,8 +50,10 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         icu_i18n_archive: Some(root.join("lib/libicui18n.a")),
         icu_uc_archive: Some(root.join("lib/libicuuc.a")),
         icu_data_archive: Some(root.join("lib/libicudata.a")),
+        icu_en_data_archive: Some(root.join("lib/libicudata-en.a")),
         icu_full_data_archive: Some(root.join("lib/libicudata-full.a")),
         icu_trimmed_filter: Some(root.join("share/icu/filters-root-en.json")),
+        icu_en_filter: Some(root.join("share/icu/filters-en-intl.json")),
         hermesc: root.join("bin/hermesc"),
     };
     let paths = watched_inputs(&install, "x86_64-unknown-linux-gnu");
@@ -68,8 +70,10 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         root.join("lib/libicui18n.a"),
         root.join("lib/libicuuc.a"),
         root.join("lib/libicudata.a"),
+        root.join("lib/libicudata-en.a"),
         root.join("lib/libicudata-full.a"),
         root.join("share/icu/filters-root-en.json"),
+        root.join("share/icu/filters-en-intl.json"),
         root.join("lib/libtinfo.a"),
     ] {
         assert!(
@@ -387,8 +391,10 @@ fn rerun_paths_name_only_existing_inputs_and_the_root() {
         icu_i18n_archive: None,
         icu_uc_archive: None,
         icu_data_archive: None,
+        icu_en_data_archive: None,
         icu_full_data_archive: None,
         icu_trimmed_filter: None,
+        icu_en_filter: None,
         hermesc: root.join("bin/hermesc"),
     };
     let paths = rerun_paths(&install, "aarch64-apple-darwin");

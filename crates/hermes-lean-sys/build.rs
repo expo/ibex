@@ -8,6 +8,7 @@ use std::path::Path;
 const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
 const LINUX_ICU_DATA: &str = "icudata";
+const LINUX_ICU_EN_DATA: &str = "icudata-en";
 const LINUX_ICU_FULL_DATA: &str = "icudata-full";
 /// The Windows SDK's frozen ICU import libraries (`icuuc.dll`/`icuin.dll`,
 /// forwarders into the OS `icu.dll`) and the OS ICU DLL itself.
@@ -40,6 +41,7 @@ fn main() {
     let links_full_runtime = std::env::var_os("CARGO_FEATURE_LINK").is_some();
     let links_lean_runtime = std::env::var_os("CARGO_FEATURE_LINK_LEAN").is_some();
     let links_icu = std::env::var_os("CARGO_FEATURE_ICU").is_some();
+    let links_en_icu_data = std::env::var_os("CARGO_FEATURE_ICU_EN_DATA").is_some();
     let links_full_icu_data = std::env::var_os("CARGO_FEATURE_ICU_FULL_DATA").is_some();
 
     // @ref LLP 0057.000#l1--the-bindings-door — R-e permits exactly one
@@ -63,7 +65,11 @@ fn main() {
     });
     let icu_data_digest = install.icu_data_archive.as_ref().map(|archive| {
         digest_file(archive)
-            .unwrap_or_else(|error| panic!("cannot hash trimmed ICU data archive: {error}"))
+            .unwrap_or_else(|error| panic!("cannot hash base ICU data archive: {error}"))
+    });
+    let icu_en_data_digest = install.icu_en_data_archive.as_ref().map(|archive| {
+        digest_file(archive)
+            .unwrap_or_else(|error| panic!("cannot hash English-Intl ICU data archive: {error}"))
     });
     let icu_full_data_digest = install.icu_full_data_archive.as_ref().map(|archive| {
         digest_file(archive)
@@ -93,6 +99,15 @@ fn main() {
             archive.display()
         );
         println!("cargo:rustc-env=HERMES_LEAN_ICU_DATA_DIGEST={digest}");
+    }
+    if let (Some(archive), Some(digest)) = (&install.icu_en_data_archive, &icu_en_data_digest) {
+        metadata("icu_en_data_archive", &archive.display().to_string());
+        metadata("icu_en_data_digest", digest);
+        println!(
+            "cargo:rustc-env=HERMES_LEAN_ICU_EN_DATA_ARCHIVE={}",
+            archive.display()
+        );
+        println!("cargo:rustc-env=HERMES_LEAN_ICU_EN_DATA_DIGEST={digest}");
     }
     if let (Some(archive), Some(digest)) = (&install.icu_full_data_archive, &icu_full_data_digest) {
         metadata("icu_full_data_archive", &archive.display().to_string());
@@ -164,15 +179,26 @@ fn main() {
                     .expect("Linux install has a full ICU data digest"),
                 LINUX_ICU_FULL_DATA,
             )
+        } else if links_en_icu_data {
+            (
+                install
+                    .icu_en_data_archive
+                    .as_ref()
+                    .expect("Linux install has English-Intl ICU data"),
+                icu_en_data_digest
+                    .as_deref()
+                    .expect("Linux install has an English-Intl ICU data digest"),
+                LINUX_ICU_EN_DATA,
+            )
         } else {
             (
                 install
                     .icu_data_archive
                     .as_ref()
-                    .expect("Linux install has trimmed ICU data"),
+                    .expect("Linux install has base ICU data"),
                 icu_data_digest
                     .as_deref()
-                    .expect("Linux install has a trimmed ICU data digest"),
+                    .expect("Linux install has a base ICU data digest"),
                 LINUX_ICU_DATA,
             )
         };

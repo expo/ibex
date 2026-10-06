@@ -6,6 +6,8 @@ pub(crate) const SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465
 pub(crate) const ICU_SOURCE_COMMIT: &str = "2d029329c82c7792b985024b2bdab5fc7278fbc8";
 pub(crate) const ICU_TRIMMED_FILTER_DIGEST: &str =
     "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702";
+pub(crate) const ICU_EN_FILTER_DIGEST: &str =
+    "sha256-796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715";
 pub(crate) const EMPTY_PATCH_SET: &str =
     "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -35,9 +37,12 @@ pub(crate) struct CanonicalReceipt {
 pub(crate) struct CanonicalIcuReceipt {
     pub(crate) code_archives: Vec<String>,
     pub(crate) trimmed_data_archive: String,
+    pub(crate) en_data_archive: String,
     pub(crate) full_data_archive: String,
     pub(crate) trimmed_filter_path: String,
     pub(crate) trimmed_filter_digest: String,
+    pub(crate) en_filter_path: String,
+    pub(crate) en_filter_digest: String,
 }
 
 impl CanonicalReceipt {
@@ -260,6 +265,10 @@ fn validate_icu(
         data.get("trimmed"),
         "v2 receipt ICU metadata has no trimmed data object",
     )?;
+    let en = object(
+        data.get("en"),
+        "v2 receipt ICU metadata has no English-Intl data object",
+    )?;
     let full = object(
         data.get("full"),
         "v2 receipt ICU metadata has no full data object",
@@ -272,16 +281,22 @@ fn validate_icu(
         full.get("archive"),
         "v2 receipt ICU full data has no archive",
     )?;
+    let en_data_archive = string(
+        en.get("archive"),
+        "v2 receipt ICU English-Intl data has no archive",
+    )?;
     if trimmed_data_archive.rsplit('/').next() != Some("libicudata.a")
+        || en_data_archive.rsplit('/').next() != Some("libicudata-en.a")
         || full_data_archive.rsplit('/').next() != Some("libicudata-full.a")
     {
         return Err(
-            "v2 receipt ICU data variants must name libicudata.a and libicudata-full.a".into(),
+            "v2 receipt ICU data variants must name libicudata.a, libicudata-en.a, and libicudata-full.a".into(),
         );
     }
-    for archive in code_archives
-        .iter()
-        .chain([&trimmed_data_archive, &full_data_archive])
+    for archive in
+        code_archives
+            .iter()
+            .chain([&trimmed_data_archive, &en_data_archive, &full_data_archive])
     {
         validate_path(archive)?;
         if !archives.iter().any(|(path, _)| path == archive) {
@@ -310,12 +325,34 @@ fn validate_icu(
         ));
     }
 
+    let en_filter = object(
+        en.get("filter"),
+        "v2 receipt ICU English-Intl data has no filter object",
+    )?;
+    let en_filter_path = string(
+        en_filter.get("path"),
+        "v2 receipt ICU English-Intl data filter has no path",
+    )?;
+    validate_path(&en_filter_path)?;
+    let en_filter_digest = digest(
+        en_filter.get("digest"),
+        "v2 receipt ICU English-Intl data filter has no digest",
+    )?;
+    if en_filter_digest != ICU_EN_FILTER_DIGEST {
+        return Err(format!(
+            "v2 receipt ICU English-Intl filter digest is not pinned digest {ICU_EN_FILTER_DIGEST}"
+        ));
+    }
+
     Ok(CanonicalIcuReceipt {
         code_archives,
         trimmed_data_archive,
+        en_data_archive,
         full_data_archive,
         trimmed_filter_path,
         trimmed_filter_digest,
+        en_filter_path,
+        en_filter_digest,
     })
 }
 
@@ -512,12 +549,13 @@ mod tests {
     }
 
     #[test]
-    fn linux_icu_metadata_binds_both_data_variants_and_the_filter() {
+    fn linux_icu_metadata_binds_all_data_variants_and_filters() {
         let mut document = document();
         document["target"] = Value::String("aarch64-unknown-linux-gnu".into());
         let archives = document["archives"].as_array_mut().expect("archives");
         for (path, byte) in [
             ("lib/libicudata-full.a", '6'),
+            ("lib/libicudata-en.a", 'a'),
             ("lib/libicudata.a", '7'),
             ("lib/libicui18n.a", '8'),
             ("lib/libicuuc.a", '9'),
@@ -549,6 +587,13 @@ mod tests {
                         "digest": ICU_TRIMMED_FILTER_DIGEST
                     }
                 },
+                "en": {
+                    "archive": "lib/libicudata-en.a",
+                    "filter": {
+                        "path": "share/icu/filters-en-intl.json",
+                        "digest": ICU_EN_FILTER_DIGEST
+                    }
+                },
                 "full": { "archive": "lib/libicudata-full.a" }
             }
         });
@@ -565,5 +610,13 @@ mod tests {
         assert!(validate(&document, None)
             .unwrap_err()
             .contains("trimmed filter digest"));
+
+        document["icu"]["data"]["trimmed"]["filter"]["digest"] =
+            Value::String(ICU_TRIMMED_FILTER_DIGEST.into());
+        document["icu"]["data"]["en"]["filter"]["digest"] =
+            Value::String(format!("sha256-{}", "0".repeat(64)));
+        assert!(validate(&document, None)
+            .unwrap_err()
+            .contains("English-Intl filter digest"));
     }
 }
