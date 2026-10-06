@@ -1267,9 +1267,6 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
     let mut snapshots = Vec::with_capacity(archives.len());
     let mut file_names = BTreeSet::new();
     let mut libraries = BTreeSet::new();
-    let mut snapshot_identity = Sha256::new();
-    identity_field(&mut snapshot_identity, b"hermes-lean-sys-snapshot-v1");
-    identity_field(&mut snapshot_identity, arch.as_bytes());
     for archive in archives {
         let file_name = archive
             .source
@@ -1310,9 +1307,6 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
         } else {
             false
         };
-        identity_field(&mut snapshot_identity, archive.library.as_bytes());
-        identity_field(&mut snapshot_identity, file_name.as_bytes());
-        identity_field(&mut snapshot_identity, actual.as_bytes());
         snapshots.push(SnapshotArchive {
             archive: archive.clone(),
             file_name,
@@ -1320,11 +1314,10 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
             authenticated,
         });
     }
-    let snapshot_dir = out_dir.join(format!(
-        "hermes-lean-sys-snapshot-{arch}-{:x}",
-        snapshot_identity.finalize()
-    ));
-    publish_private_directory(snapshot_temp, &snapshot_dir)?;
+    // The verified snapshots stay in the private (0700) temporary directory and
+    // are never published: lipo reads them there, and the directory is removed
+    // when this function returns.
+    let snapshot_dir = snapshot_temp.path();
 
     let mut inspected = Vec::with_capacity(snapshots.len());
     for snapshot in snapshots {
@@ -1381,13 +1374,16 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
     for inspected in &inspected {
         let staged = snapshot_dir.join(&inspected.snapshot.file_name);
         let destination = link_temp.path().join(&inspected.snapshot.file_name);
-        if inspected.is_fat() {
+        let linked_digest = if inspected.is_fat() {
+            // lipo writes into the private snapshot directory; the closure gets
+            // a copy taken through one no-follow handle, hashed as it is copied.
+            let thinned = snapshot_dir.join(format!("{}.thin", inspected.snapshot.file_name));
             let output = std::process::Command::new(lipo)
                 .arg("-thin")
                 .arg(arch)
                 .arg(&staged)
                 .arg("-output")
-                .arg(&destination)
+                .arg(&thinned)
                 .output()
                 .map_err(|error| lipo_launch_error(&staged, error))?;
             if !output.status.success() {
@@ -1398,6 +1394,7 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
                     String::from_utf8_lossy(&output.stderr).trim()
                 ));
             }
+            let digest = copy_regular_archive_while_hashing(&thinned, &destination)?;
             let derivative_architectures = lipo_architectures(lipo, &destination)?;
             if derivative_architectures != [arch] {
                 return Err(format!(
@@ -1406,15 +1403,10 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
                     derivative_architectures.join(", ")
                 ));
             }
+            digest
         } else {
-            fs::copy(&staged, &destination).map_err(|error| {
-                format!(
-                    "cannot copy verified thin Apple Simulator archive {} into the link closure: {error}",
-                    inspected.snapshot.archive.source.display()
-                )
-            })?;
-        }
-        let linked_digest = digest_file(&destination)?;
+            copy_regular_archive_while_hashing(&staged, &destination)?
+        };
         if !inspected.is_fat() && linked_digest != inspected.snapshot.source_digest {
             return Err(format!(
                 "byte-preserving Apple Simulator closure copy {} has digest {}, expected {}",

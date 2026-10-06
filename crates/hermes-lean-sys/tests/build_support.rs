@@ -137,6 +137,32 @@ fn real_universal_archive_is_thinned_and_rustc_links_both_simulator_architecture
             digest_file(&first[0].linked).expect("derivative digest"),
             first[0].derivative_digest.as_deref().unwrap()
         );
+        // The derivative must define the native symbol, not merely mention it:
+        // a staticlib may legally leave an extern unresolved.
+        let symbols = Command::new("nm")
+            .arg("-g")
+            .arg(&first[0].linked)
+            .output()
+            .expect("run nm");
+        assert!(symbols.status.success(), "nm failed");
+        assert!(
+            String::from_utf8_lossy(&symbols.stdout).contains("T _tiny_answer"),
+            "derivative does not define tiny_answer: {}",
+            String::from_utf8_lossy(&symbols.stdout)
+        );
+        // Only the current closure is left under OUT_DIR, so nothing else can
+        // satisfy `-l tiny`; the unpublished snapshot is gone.
+        let staging: Vec<_> = fs::read_dir(&out)
+            .expect("staging parent")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("utf8")
+            })
+            .collect();
+        assert_eq!(staging.len(), 1, "only the closure remains: {staging:?}");
         rustc_links_staticlib(target, &first[0].linked, "tiny", "tiny_answer");
     }
 }
@@ -378,6 +404,8 @@ fn test_install(root: &Path, archives: &[LinkArchive], authenticate: bool) -> En
         icu_uc_archive: None,
         icu_data_archive: None,
         icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
         icu_trimmed_filter: None,
         hermesc: root.join("bin/hermesc"),
         authenticated_archive_digests,
@@ -472,6 +500,8 @@ fn arm64_only_tvos_simulator_archive_is_not_thinned() {
         icu_uc_archive: None,
         icu_data_archive: None,
         icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
         icu_trimmed_filter: None,
         hermesc: temporary.path().join("hermesc"),
         authenticated_archive_digests: [(source.clone(), digest.clone())].into_iter().collect(),
@@ -526,6 +556,8 @@ fn simulator_thinning_refuses_an_unauthenticated_input_before_lipo() {
         icu_uc_archive: None,
         icu_data_archive: None,
         icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
         icu_trimmed_filter: None,
         hermesc: temporary.path().join("hermesc"),
         authenticated_archive_digests: Default::default(),
@@ -572,6 +604,8 @@ fn missing_lipo_names_xcode_command_line_tools() {
         icu_uc_archive: None,
         icu_data_archive: None,
         icu_full_data_archive: None,
+        icu_en_data_archive: None,
+        icu_en_filter: None,
         icu_trimmed_filter: None,
         hermesc: temporary.path().join("hermesc"),
         authenticated_archive_digests: [(source.clone(), digest)].into_iter().collect(),
