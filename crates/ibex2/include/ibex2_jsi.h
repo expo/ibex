@@ -74,13 +74,26 @@ struct CompiledScript {
 /// is found after installation and spends the runtime). The option requires the
 /// GROUP_FETCH group.
 ///
+/// `abort_hooks`, when set, names a global with the same name rules and
+/// collisions. It requires GROUP_ABORT and publishes the frozen hook object
+/// created by the abort binding, with exactly `{ own, subscribe }`. `own(signal)`
+/// returns the binding's private state for an Ibex AbortSignal and throws a
+/// TypeError for any other value. `subscribe(signal, callback[, alive])`
+/// registers an abort algorithm, returns an idempotent unsubscribe function,
+/// and invokes `callback` synchronously before the public `abort` event is
+/// dispatched. If the signal is already aborted it invokes `callback`
+/// synchronously and returns a no-op unsubscribe function. The optional `alive`
+/// predicate is checked before delivery and lets an internal consumer discard
+/// a stale hook. Because abort algorithms run before event dispatch, an
+/// application listener's `stopImmediatePropagation()` cannot suppress them.
+///
 /// CONTRACT: trusted embedder bootstrap only. Application code must never reach
-/// the object or any of its members. Between installation and hardening, and
-/// before any application code, the bootstrap captures the object, deletes the
-/// global, and wraps the members in closures it publishes instead. It then
+/// either object or any member. Between installation and hardening, and before
+/// any application code, the bootstrap captures each requested object, deletes
+/// its global, and wraps the members in closures it publishes instead. It then
 /// hardens through `Adapter::harden()`, never by evaluating HARDEN_SOURCE
-/// directly. That refuses (and freezes nothing) while the global is still
-/// present or while the object or any member is reachable from
+/// directly. That refuses (and freezes nothing) while a chosen global is still
+/// present or while a published object or member is reachable from
 /// what the freeze walks: the global object's own string- and symbol-keyed
 /// properties, its prototype chain, and transitively each reached object's own
 /// data values, accessor functions (never invoked), and prototype. Values held
@@ -170,6 +183,8 @@ struct CompiledScript {
 // @ref LLP 0068#opt-in-fetch-primitives-protocol — the normative L1e handoff protocol
 struct InstallOptions {
   const char* fetch_primitives = nullptr;
+  // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms are a trusted-bootstrap handoff, never an application global
+  const char* abort_hooks = nullptr;
 };
 
 Ibex2AbiValue to_abi(jsi::Runtime&, const jsi::Value&, std::vector<std::string>&);
@@ -235,28 +250,33 @@ public:
                const CompiledScript* scripts, size_t script_count);
   // The same one-shot, atomic installation with explicitly requested trusted-
   // bootstrap outputs. Existing install() is exactly the empty-options case.
-  // A caller that sets InstallOptions::fetch_primitives must harden through
-  // Adapter::harden() so the fetch-primitives guard runs before the freeze.
+  // A caller that requests a trusted-bootstrap output must harden through
+  // Adapter::harden() so its reachability guard runs before the freeze.
   // @ref LLP 0057.000#l1--the-bindings-door — L1e keeps fetch ownership with embedders without creating a second authority path
   void install_with(Groups groups, const Ibex2Bindings* bindings,
                     const CompiledScript* scripts, size_t script_count,
                     const InstallOptions& options);
-  // The fetch-primitives harden guard. A no-op unless install_with published
-  // fetch primitives; otherwise throws (std::runtime_error) if the chosen
-  // global is still present, or if the published object or any of its eight
-  // member functions is reachable from what HARDEN_SOURCE freezes: the global
+  // Compatibility name for the complete trusted-bootstrap harden guard. A
+  // no-op unless install_with published fetch primitives or abort hooks;
+  // otherwise throws (std::runtime_error) if a chosen global is still present,
+  // or if a published object or member is reachable from what HARDEN_SOURCE
+  // freezes: the global
   // object's own string- and symbol-keyed properties, its prototype chain,
   // and transitively each reached object's own data values, accessor
   // functions (never invoked), and prototype. Values held only in closures,
   // native state, collection entries, or behind concealing Proxy traps are
   // not visible to this walk, exactly as they are not visible to the freeze.
   void verify_fetch_primitives_unreachable();
+  // The complete trusted-bootstrap guard used by harden(): fetch primitives
+  // and abort hooks, when requested. Prefer this over the compatibility-named
+  // entry point above when checking explicitly; both run the complete guard.
+  void verify_trusted_bootstrap_unreachable();
   // The post-install hardening step through the adapter: validates `script`
   // as this runtime's Hermes bytecode (the header checks install() applies),
-  // runs verify_fetch_primitives_unreachable(), and only then evaluates it.
+  // runs verify_trusted_bootstrap_unreachable(), and only then evaluates it.
   // `script` is HARDEN_SOURCE compiled by this engine's hermesc -- in Rust,
   // ibex2::bindings::HARDEN_BYTECODE (path: HARDEN_BYTECODE_PATH). A caller
-  // that requested fetch primitives through install_with MUST harden with
+  // that requested a trusted-bootstrap output through install_with MUST harden with
   // this method rather than evaluating HARDEN_SOURCE itself; evaluating it
   // directly skips the guard. For a plain install() it is equivalent to
   // evaluating the bytecode. Throws, and freezes nothing, on refusal.

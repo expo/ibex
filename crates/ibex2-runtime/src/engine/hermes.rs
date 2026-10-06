@@ -52,9 +52,10 @@ extern "C" {
         scripts: *const CompiledScript,
         script_count: usize,
         fetch_primitives: *const c_char,
+        abort_hooks: *const c_char,
         out_error: *mut *mut c_char,
     ) -> c_int;
-    fn ibex2_hermes_verify_fetch_primitives(
+    fn ibex2_hermes_verify_trusted_bootstrap(
         handle: *mut c_void,
         out_error: *mut *mut c_char,
     ) -> c_int;
@@ -108,9 +109,20 @@ pub enum DynamicCode {
 /// is found after installation and spends the runtime). The option requires the
 /// [`crate::bindings::Groups::FETCH`] group.
 ///
+/// `abort_hooks`, when set, follows the same name and collision rules, requires
+/// [`crate::bindings::Groups::ABORT`], and publishes the frozen hook object
+/// created by `abort.js`, with exactly `{ own, subscribe }`. `own(signal)`
+/// returns the binding's private state for an Ibex AbortSignal and throws a
+/// `TypeError` for another value. `subscribe(signal, callback[, alive])`
+/// registers an abort algorithm and returns an idempotent unsubscribe function.
+/// It invokes `callback` synchronously before the public abort event, or
+/// immediately when the signal is already aborted. The optional `alive`
+/// predicate is checked before delivery. An application listener's
+/// `stopImmediatePropagation()` therefore cannot suppress this subscription.
+///
 /// CONTRACT: trusted embedder bootstrap only. Application code must never reach
-/// the object or any of its members. Between installation and hardening, and
-/// before any application code, the bootstrap captures the object, deletes the
+/// either object or any member. Between installation and hardening, and before
+/// any application code, the bootstrap captures each object, deletes its
 /// global, and wraps the members in closures it publishes instead. It then
 /// hardens through [`Hermes::harden`], which refuses (and freezes nothing)
 /// while the global is still present or while the object or any member is
@@ -210,18 +222,20 @@ pub enum DynamicCode {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InstallOptions<'a> {
     pub fetch_primitives: Option<&'a str>,
+    // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms cross only into trusted bootstrap
+    pub abort_hooks: Option<&'a str>,
 }
 
-/// The one accepted spelling of a fetch-primitives global: an ASCII JavaScript
-/// identifier, `[A-Za-z_$][A-Za-z0-9_$]*`. The C++ adapter applies the same
-/// rule and builds every property key for the name with `PropNameID::forAscii`,
-/// so the Rust string, the C++ string, and the JavaScript key are one byte
-/// sequence.
-fn fetch_primitives_name(name: &str) -> Result<CString, JsError> {
+/// The one accepted spelling of a trusted-bootstrap global: an ASCII
+/// JavaScript identifier, `[A-Za-z_$][A-Za-z0-9_$]*`. The C++ adapter applies
+/// the same rule and builds every property key for the name with
+/// `PropNameID::forAscii`, so the Rust string, the C++ string, and the
+/// JavaScript key are one byte sequence.
+fn bootstrap_output_name(kind: &str, name: &str) -> Result<CString, JsError> {
     if name.is_empty() {
-        return Err(JsError::Thrown(
-            "fetch primitives require a non-empty global name".into(),
-        ));
+        return Err(JsError::Thrown(format!(
+            "{kind} require a non-empty global name"
+        )));
     }
     let start = |byte: u8| byte.is_ascii_alphabetic() || byte == b'_' || byte == b'$';
     let bytes = name.as_bytes();
@@ -230,11 +244,10 @@ fn fetch_primitives_name(name: &str) -> Result<CString, JsError> {
             .iter()
             .all(|&byte| start(byte) || byte.is_ascii_digit())
     {
-        return Err(JsError::Thrown(
-            "fetch primitives global name must be an ASCII JavaScript identifier \
+        return Err(JsError::Thrown(format!(
+            "{kind} global name must be an ASCII JavaScript identifier \
              ([A-Za-z_$][A-Za-z0-9_$]*)"
-                .into(),
-        ));
+        )));
     }
     Ok(CString::new(name).expect("an ASCII identifier contains no NUL"))
 }
@@ -452,9 +465,18 @@ impl Hermes {
                 "fetch primitives require the FETCH group".into(),
             ));
         }
+        if options.abort_hooks.is_some() && !groups.contains(crate::bindings::Groups::ABORT) {
+            return Err(JsError::Thrown(
+                "abort hooks require the ABORT group".into(),
+            ));
+        }
         let fetch_primitives = options
             .fetch_primitives
-            .map(fetch_primitives_name)
+            .map(|name| bootstrap_output_name("fetch primitives", name))
+            .transpose()?;
+        let abort_hooks = options
+            .abort_hooks
+            .map(|name| bootstrap_output_name("abort hooks", name))
             .transpose()?;
         let scripts = crate::bindings::compiled_scripts(groups)
             .map_err(|error| JsError::Thrown(error.to_string()))?;
@@ -475,14 +497,19 @@ impl Hermes {
         // SAFETY: the runtime is live; every byte/name span is static and the
         // context's Arc-backed endowment supplies the state and authority.
         let status = unsafe {
-            if let Some(name) = &fetch_primitives {
+            if fetch_primitives.is_some() || abort_hooks.is_some() {
                 ibex2_hermes_install_groups_with_options(
                     self.handle,
                     groups.bits(),
                     context.bindings_ptr(),
                     compiled.as_ptr(),
                     compiled.len(),
-                    name.as_ptr(),
+                    fetch_primitives
+                        .as_ref()
+                        .map_or(std::ptr::null(), |name| name.as_ptr()),
+                    abort_hooks
+                        .as_ref()
+                        .map_or(std::ptr::null(), |name| name.as_ptr()),
                     &mut out,
                 )
             } else {
@@ -535,8 +562,16 @@ impl Hermes {
                 "fetch primitives require the FETCH group".into(),
             ));
         }
+        if options.abort_hooks.is_some() && !groups.contains(crate::bindings::Groups::ABORT) {
+            return Err(JsError::Thrown(
+                "abort hooks require the ABORT group".into(),
+            ));
+        }
         if let Some(name) = options.fetch_primitives {
-            fetch_primitives_name(name)?;
+            bootstrap_output_name("fetch primitives", name)?;
+        }
+        if let Some(name) = options.abort_hooks {
+            bootstrap_output_name("abort hooks", name)?;
         }
         groups
             .validate()
@@ -560,24 +595,24 @@ impl Hermes {
     /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
     /// bindings are installed and before any module code runs.
     ///
-    /// When [`InstallOptions::fetch_primitives`] published an object, this
-    /// first runs the adapter's fetch-primitives guard (the same check as the
-    /// C++ `Adapter::harden`) and refuses, without freezing anything, if the
-    /// chosen global is still present or if the object or any of its member
-    /// functions is reachable from what the freeze walks: the global object's
-    /// own string- and symbol-keyed properties, its prototype chain, and
-    /// transitively every reached object's own data values, accessor
-    /// functions (never invoked), and prototype. A value held only in a
-    /// closure, native state, a collection entry, or behind a concealing
-    /// Proxy is invisible to that walk, as it is to the freeze itself.
+    /// When [`InstallOptions`] published fetch primitives or abort hooks, this
+    /// first runs the adapter's trusted-bootstrap guard (the same check as the
+    /// C++ `Adapter::harden`) and refuses, without freezing anything, if a
+    /// chosen global is still present or if a published object or member is
+    /// reachable from what the freeze walks: the global object's own string-
+    /// and symbol-keyed properties, its prototype chain, and transitively
+    /// every reached object's own data values, accessor functions (never
+    /// invoked), and prototype. A value held only in a closure, native state,
+    /// a collection entry, or behind a concealing Proxy is invisible to that
+    /// walk, as it is to the freeze itself.
     // @ref LLP 0068#opt-in-fetch-primitives-protocol — one guard for both doors; the walk mirrors harden.js
     pub fn harden(&mut self) -> Result<(), JsError> {
         let mut out: *mut c_char = std::ptr::null_mut();
         // SAFETY: the runtime is live; `out` receives a malloc'd message we
         // take ownership of on refusal.
-        if unsafe { ibex2_hermes_verify_fetch_primitives(self.handle, &mut out) } != 0 {
+        if unsafe { ibex2_hermes_verify_trusted_bootstrap(self.handle, &mut out) } != 0 {
             return Err(JsError::Thrown(take_c_string(out).unwrap_or_else(|| {
-                "could not verify that the fetch primitives are unreachable".into()
+                "could not verify that trusted-bootstrap outputs are unreachable".into()
             })));
         }
         self.eval_bytes(crate::bindings::HARDEN_BYTECODE)

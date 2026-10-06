@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Opt-in abort hooks protocol": an ABORT-only embedder may request the frozen private hook object under an ASCII-identifier name; hardening applies the same object/member reachability guard as fetch primitives)
 **Revised:** 2026-10-05 (§3/OQ2 fix round 1: bindings export both available ICU-data identities but no selected one; the linking instance alone exports `LINKED_ICU_DATA_*`; full data without Ibex Intl remains a supported Hermes configuration)
 **Revised:** 2026-10-05 (§3/OQ2 round 2: Linux VM links require pinned ICU 74.2 with trimmed root+en data; `intl` selects full data through `icu-full-data`; basic Unicode behavior and the separate linked data identity are recorded)
 **Revised:** 2026-10-05 (§3/OQ2: Linux Intl is an off-by-default Cargo feature and install group; VM link features no longer imply ICU; absent-group Linux and Apple engine behavior and D5 size evidence are recorded)
@@ -215,6 +216,15 @@ names. Trusted bootstrap captures the object, deletes `globalThis[name]`, and
 hardens through `Hermes::harden` or, for a caller-owned runtime,
 `Adapter::harden` — both run one guard before the freeze. The full protocol is
 normative and lives in "Opt-in fetch primitives protocol" below.
+
+An embedder that installs `ABORT` while retaining its own fetch may likewise
+set Rust or C++ `InstallOptions::abort_hooks` to an embedder-chosen name. The
+same install publishes the frozen abort binding's existing `{ own, subscribe }`
+hook object there instead of discarding `__ibex2_abort`. This is another
+trusted-bootstrap handoff: capture it, delete the chosen global, expose only
+closures that use it, and call `Hermes::harden` or `Adapter::harden`. The same
+guard refuses while the object or either member is reachable. The normative
+shape and ordering are in "Opt-in abort hooks protocol" below.
 
 Here `compiled_scripts` is the name/byte-span array produced from that exact
 `bindings::scripts(groups)` order. The adapter checks the dependency graph,
@@ -453,6 +463,53 @@ globalThis.embedderFetch = (function (p) {
 })(globalThis.__embedder_fetch_primitives);
 // then: runtime.harden()? in Rust, or adapter.harden(harden_bytecode) in C++
 ```
+
+#### Opt-in abort hooks protocol
+
+This subsection is normative for `InstallOptions::abort_hooks` (Rust
+`Hermes::install_with` / `install_runtime_with`; C++
+`Adapter::install_with`). It follows the fetch-primitives handoff's name,
+collision, lifecycle, and reachability rules: the name is an ASCII JavaScript
+identifier, must be absent from the global and its prototype chain before
+installation, must not be taken by an installed binding, and must differ from
+the fetch-primitives name when both outputs are requested. The option requires
+`ABORT`. Plain `install` requests neither output; installing `ABORT` without
+this option and without `FETCH` continues to delete `__ibex2_abort`.
+
+The published value is the abort binding's existing hook object, frozen, with
+exactly these members:
+
+```text
+{
+  own(signal) -> privateAbortState,
+  subscribe(signal, callback[, alive]) -> unsubscribe
+}
+```
+
+`own` accepts only an `AbortSignal` created by this binding and throws a
+`TypeError` otherwise. Its returned record is trusted binding state; embedders
+must not expose or mutate it. `subscribe` validates the signal through `own`.
+If it is already aborted, `callback()` runs synchronously and a no-op
+unsubscribe function is returned. Otherwise the callback is registered as an
+abort algorithm and the returned idempotent function removes that
+registration. When supplied, `alive()` is checked before callback delivery and
+lets a trusted internal consumer discard a stale registration.
+
+Abort algorithms run synchronously after every dependent signal has been
+marked aborted and before any public `abort` event is dispatched. Consequently
+an application listener — including one registered first and calling
+`stopImmediatePropagation()` — cannot prevent the subscribed algorithm from
+running. The callback receives no event; it reads any required reason through
+the trusted signal/state it already captured. Callback exceptions are reported
+by the binding and do not stop later abort algorithms.
+
+The bootstrap captures this object from its chosen global, deletes that global,
+and retains the object and members only in closures before hardening. The
+adapter records the object, `own`, and `subscribe` identities. `Hermes::harden`
+and `Adapter::harden` refuse, freezing nothing, while the chosen global remains
+or any recorded identity is reachable from the same graph described by the
+fetch-primitives protocol. Evaluating `HARDEN_SOURCE` directly skips this guard
+and is unsupported after requesting abort hooks.
 
 ## 4. Exact 2
 

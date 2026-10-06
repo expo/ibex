@@ -44,6 +44,16 @@ extern "C" {
         fetch_primitives: *const c_char,
         error: *mut *mut c_char,
     ) -> i32;
+    fn bindings_consumer_install_with_options(
+        handle: *mut c_void,
+        bindings: *const ibex2::bindings::Ibex2Bindings,
+        groups: u16,
+        scripts: *const CompiledScript,
+        script_count: usize,
+        fetch_primitives: *const c_char,
+        abort_hooks: *const c_char,
+        error: *mut *mut c_char,
+    ) -> i32;
     fn bindings_consumer_harden(
         handle: *mut c_void,
         bytes: *const u8,
@@ -141,6 +151,14 @@ impl BareConsumer {
         context: Context,
         fetch_primitives: Option<&str>,
     ) -> Self {
+        Self::from_context_with_outputs(groups, context, fetch_primitives, None)
+    }
+    fn from_context_with_outputs(
+        groups: Groups,
+        context: Context,
+        fetch_primitives: Option<&str>,
+        abort_hooks: Option<&str>,
+    ) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "ibex2-groups-{}-{}",
@@ -156,17 +174,24 @@ impl BareConsumer {
         let mut error = std::ptr::null_mut();
         let fetch_primitives = fetch_primitives
             .map(|name| CString::new(name).expect("primitive name contains no NUL"));
-        let handle = if let Some(name) = &fetch_primitives {
+        let abort_hooks =
+            abort_hooks.map(|name| CString::new(name).expect("abort-hook name contains no NUL"));
+        let handle = if fetch_primitives.is_some() || abort_hooks.is_some() {
             let handle = unsafe { bindings_consumer_create_uninstalled(context.state_ptr()) };
             assert!(!handle.is_null(), "uninstalled borrowed runtime");
             let installed = unsafe {
-                bindings_consumer_install_with_fetch_primitives(
+                bindings_consumer_install_with_options(
                     handle,
                     context.bindings_ptr(),
                     groups.bits(),
                     scripts.as_ptr(),
                     scripts.len(),
-                    name.as_ptr(),
+                    fetch_primitives
+                        .as_ref()
+                        .map_or(std::ptr::null(), |name| name.as_ptr()),
+                    abort_hooks
+                        .as_ref()
+                        .map_or(std::ptr::null(), |name| name.as_ptr()),
                     &mut error,
                 )
             };
@@ -507,6 +532,88 @@ fn fetch_group_does_not_install_timers_or_crypto() {
     .filter(|name| !baseline.contains(name))
     .collect();
     assert_eq!(added, expected);
+}
+
+#[test]
+fn abort_hooks_are_opt_in_frozen_and_run_before_public_abort_listeners() {
+    const NAME: &str = "__exact_ibex2_abort_hooks";
+    let groups = Groups::PURE | Groups::ABORT;
+    let ordinary = BareConsumer::new(groups);
+    assert_eq!(
+        ordinary.eval("typeof globalThis.__ibex2_abort"),
+        "undefined"
+    );
+    assert!(!global_names(&ordinary).contains(NAME));
+
+    let consumer = BareConsumer::from_context_with_outputs(
+        groups,
+        Context::new(GrantSet::none()),
+        None,
+        Some(NAME),
+    );
+    assert_eq!(
+        consumer.eval(&format!(
+            r#"
+            (function (hooks) {{
+              var order = [];
+              var controller = new AbortController();
+              controller.signal.addEventListener("abort", function (event) {{
+                order.push("app");
+                event.stopImmediatePropagation();
+              }});
+              hooks.subscribe(controller.signal, function () {{ order.push("hook"); }});
+              controller.abort();
+              return [
+                Object.isFrozen(hooks),
+                Object.keys(hooks).sort().join(","),
+                order.join(",")
+              ].join("|");
+            }})(globalThis.{NAME})
+            "#
+        )),
+        "true|own,subscribe|hook,app"
+    );
+}
+
+#[test]
+fn adapter_harden_refuses_reachable_abort_hooks_and_members() {
+    const NAME: &str = "__exact_ibex2_abort_hooks";
+    let make = || {
+        BareConsumer::from_context_with_outputs(
+            Groups::PURE | Groups::ABORT,
+            Context::new(GrantSet::none()),
+            None,
+            Some(NAME),
+        )
+    };
+
+    let object = make();
+    assert!(object
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .unwrap_err()
+        .contains(&format!(
+            "refusing to harden while abort hooks global \"{NAME}\" is present"
+        )));
+    object.eval(&format!(
+        "globalThis.abortAlias = globalThis.{NAME}; delete globalThis.{NAME}"
+    ));
+    assert!(object
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .unwrap_err()
+        .contains("the abort hooks object is still reachable"));
+    assert_eq!(object.eval("delete globalThis.abortAlias; 'gone'"), "gone");
+    object
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .expect("the captured object may remain only in a closure or native root");
+
+    let member = make();
+    member.eval(&format!(
+        "globalThis.abortMember = globalThis.{NAME}.subscribe; delete globalThis.{NAME}"
+    ));
+    assert!(member
+        .harden(ibex2::bindings::HARDEN_BYTECODE)
+        .unwrap_err()
+        .contains("abort hooks member subscribe is still reachable"));
 }
 
 #[test]

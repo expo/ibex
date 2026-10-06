@@ -106,6 +106,7 @@ fn install_with_primitives(grants: GrantSet) -> Hermes {
             &context,
             InstallOptions {
                 fetch_primitives: Some(PRIMITIVES_GLOBAL),
+                ..InstallOptions::default()
             },
         )
         .expect("install fetch primitives");
@@ -274,6 +275,7 @@ fn fetch_primitives_require_the_fetch_group() {
             &context,
             InstallOptions {
                 fetch_primitives: Some(PRIMITIVES_GLOBAL),
+                ..InstallOptions::default()
             },
         )
         .unwrap_err();
@@ -569,6 +571,7 @@ fn install_runtime_with_publishes_the_same_guarded_object() {
             &context,
             InstallOptions {
                 fetch_primitives: Some(PRIMITIVES_GLOBAL),
+                ..InstallOptions::default()
             },
         )
         .expect("runtime bootstrap with primitives");
@@ -616,6 +619,7 @@ fn fetch_primitive_names_are_unused_ascii_identifiers() {
             let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
             let options = InstallOptions {
                 fetch_primitives: Some(name),
+                ..InstallOptions::default()
             };
             let error = if runtime_path {
                 runtime.install_runtime_with(FETCH_GROUPS, &context, options)
@@ -637,6 +641,7 @@ fn fetch_primitive_names_are_unused_ascii_identifiers() {
                     &context,
                     InstallOptions {
                         fetch_primitives: Some("$valid_Name1"),
+                        ..InstallOptions::default()
                     },
                 )
                 .expect("a valid name still installs");
@@ -649,6 +654,7 @@ fn fetch_primitive_names_are_unused_ascii_identifiers() {
             &context,
             InstallOptions {
                 fetch_primitives: Some(""),
+                ..InstallOptions::default()
             },
         )
         .unwrap_err()
@@ -672,6 +678,7 @@ fn fetch_primitive_names_are_unused_ascii_identifiers() {
                 &context,
                 InstallOptions {
                     fetch_primitives: Some(name),
+                    ..InstallOptions::default()
                 },
             )
             .unwrap_err()
@@ -819,6 +826,7 @@ fn released_and_foreign_handles_are_refused_on_the_runtime_path() {
             &context,
             InstallOptions {
                 fetch_primitives: Some(PRIMITIVES_GLOBAL),
+                ..InstallOptions::default()
             },
         )
         .unwrap();

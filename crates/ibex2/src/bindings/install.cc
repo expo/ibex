@@ -359,8 +359,8 @@ struct Integrity {
   }
 };
 
-// The reflective intrinsics the fetch-primitives reachability walk uses,
-// captured when install_with publishes the object -- before the embedder's
+// The reflective intrinsics the trusted-bootstrap reachability walk uses,
+// captured when install_with publishes an object -- before the embedder's
 // bootstrap runs between install and harden -- so that bootstrap cannot change
 // what the walk sees by replacing Object.getOwnPropertyNames or Set.prototype.
 struct Reachability {
@@ -405,6 +405,11 @@ struct WebSocketOwner final : jsi::NativeState {
 };
 
 struct Adapter::State {
+  struct BootstrapOutput {
+    std::string kind;
+    std::string name;
+    std::vector<std::pair<std::string, jsi::Value>> identities;
+  };
   struct Pending { jsi::Function resolve; jsi::Function reject; };
   struct EventSubscription {
     void* rust;
@@ -435,11 +440,10 @@ struct Adapter::State {
   jsi::Value rejection_unhandled;
   jsi::Value rejection_handled;
   std::unique_ptr<Integrity> integrity;
-  // L1e: the chosen global name and the identities published under it (the
+  // Trusted-bootstrap globals and the identities published under them (the
   // object first, then each member), kept so the harden guard can prove that
   // none of them is still reachable from what harden.js freezes.
-  std::string fetch_primitives_name;
-  std::vector<std::pair<std::string, jsi::Value>> fetch_primitive_identities;
+  std::vector<BootstrapOutput> bootstrap_outputs;
   std::unique_ptr<Reachability> reachability;
   State(jsi::Runtime& rt, const void* value, uint32_t version,
         std::shared_ptr<Lifetime> lifetime_value)
@@ -492,7 +496,7 @@ void Adapter::detach() {
   state_->rejection_unhandled = jsi::Value::undefined();
   state_->rejection_handled = jsi::Value::undefined();
   state_->integrity.reset();
-  state_->fetch_primitive_identities.clear();
+  state_->bootstrap_outputs.clear();
   state_->reachability.reset();
   state_->queue = nullptr;
   runtime_ = nullptr;
@@ -663,10 +667,10 @@ uint64_t primitive_integer(jsi::Runtime& rt, const jsi::Value& value,
 
 constexpr double kMaxSafeInteger = 9007199254740991.0;
 
-// The only accepted spelling of a fetch-primitives global. Restricting it to an
-// ASCII identifier makes the Rust string, this C++ string, and the JavaScript
-// property key the same bytes, so publication, the collision checks, and the
-// harden guard can never disagree about which property they mean.
+// The only accepted spelling of a trusted-bootstrap global. Restricting it to
+// an ASCII identifier makes the Rust string, this C++ string, and the
+// JavaScript property key the same bytes, so publication, collision checks,
+// and the harden guard can never disagree about which property they mean.
 bool is_ascii_identifier(const std::string& name) {
   auto start = [](char c) {
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
@@ -678,8 +682,8 @@ bool is_ascii_identifier(const std::string& name) {
   return true;
 }
 
-// Every lookup of the chosen name goes through this one key construction.
-jsi::PropNameID fetch_primitives_key(jsi::Runtime& rt, const std::string& name) {
+// Every lookup of a chosen name goes through this one key construction.
+jsi::PropNameID bootstrap_output_key(jsi::Runtime& rt, const std::string& name) {
   return jsi::PropNameID::forAscii(rt, name);
 }
 
@@ -1120,6 +1124,7 @@ constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 // object reachable only from somewhere other than the global object. Those
 // stay the trusted bootstrap's obligation.
 // @ref LLP 0068#opt-in-fetch-primitives-protocol — L1e: the harden guard proves the bootstrap handoff did not leave a path to the primitives
+// @ref LLP 0068#opt-in-abort-hooks-protocol — I4 applies the same reachability proof to the abort hooks
 void require_unreachable(
     jsi::Runtime& rt, const Reachability& walk,
     const std::vector<std::pair<std::string, jsi::Value>>& identities) {
@@ -1169,7 +1174,7 @@ void require_unreachable(
       if (++visited > kMaxReachabilityObjects)
         throw std::runtime_error(
             "refusing to harden: the global object graph is too large to "
-            "prove the fetch primitives unreachable");
+            "prove trusted-bootstrap outputs unreachable");
       auto object = value.getObject(rt);
       for (const auto& [label, identity] : identities) {
         if (jsi::Object::strictEquals(rt, object, identity.getObject(rt)))
@@ -1181,7 +1186,7 @@ void require_unreachable(
     }
   } catch (const jsi::JSIException& error) {
     throw std::runtime_error(
-        std::string("refusing to harden: could not prove the fetch primitives "
+        std::string("refusing to harden: could not prove trusted-bootstrap outputs "
                     "unreachable: ") + error.what());
   }
 }
@@ -1475,26 +1480,43 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
       throw std::invalid_argument("Ibex2 bindings do not belong to this runtime state");
     validate_groups(groups);
     std::string fetch_primitives;
+    std::string abort_hooks;
     std::unique_ptr<Reachability> reachability;
-    if (options.fetch_primitives != nullptr) {
-      fetch_primitives = options.fetch_primitives;
-      if (fetch_primitives.empty())
-        throw std::invalid_argument("fetch primitives require a non-empty global name");
-      if (!is_ascii_identifier(fetch_primitives))
+    auto read_bootstrap_name = [&](const char* option, const char* kind,
+                                   Groups required) {
+      if (option == nullptr) return std::string{};
+      std::string name(option);
+      if (name.empty())
         throw std::invalid_argument(
-            "fetch primitives global name must be an ASCII JavaScript "
+            std::string(kind) + " require a non-empty global name");
+      if (!is_ascii_identifier(name))
+        throw std::invalid_argument(
+            std::string(kind) + " global name must be an ASCII JavaScript "
             "identifier ([A-Za-z_$][A-Za-z0-9_$]*)");
-      if (!has(groups, GROUP_FETCH))
-        throw std::invalid_argument("fetch primitives require the FETCH group");
+      if (!has(groups, required))
+        throw std::invalid_argument(
+            std::string(kind) + " require the " +
+            (required == GROUP_FETCH ? "FETCH" : "ABORT") + " group");
       // hasProperty follows the global's prototype chain, so inherited names
       // such as `toString` or `__proto__` collide as well.
-      if (rt.global().hasProperty(rt, fetch_primitives_key(rt, fetch_primitives)))
-        throw std::invalid_argument("fetch primitives global already exists");
+      if (rt.global().hasProperty(rt, bootstrap_output_key(rt, name)))
+        throw std::invalid_argument(
+            std::string(kind) + " global already exists");
+      return name;
+    };
+    fetch_primitives = read_bootstrap_name(
+        options.fetch_primitives, "fetch primitives", GROUP_FETCH);
+    abort_hooks = read_bootstrap_name(
+        options.abort_hooks, "abort hooks", GROUP_ABORT);
+    if (!fetch_primitives.empty() && fetch_primitives == abort_hooks)
+      throw std::invalid_argument(
+          "trusted-bootstrap outputs require distinct global names");
+    if (!fetch_primitives.empty() || !abort_hooks.empty())
       reachability = std::make_unique<Reachability>(rt);
-    }
     auto expected = expected_scripts(groups);
     if (script_count != expected.size() || (script_count != 0 && scripts == nullptr))
       throw std::invalid_argument("Ibex2 binding bytecode count does not match groups");
+    jsi::Value published_abort_hooks = jsi::Value::undefined();
     for (size_t i = 0; i < script_count; ++i) {
       if (scripts[i].name == nullptr || scripts[i].bytes == nullptr ||
           std::strcmp(scripts[i].name, expected[i]) != 0)
@@ -1534,6 +1556,19 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
                                 state_->blob_helpers);
       auto buffer = std::make_shared<CompiledBytes>(script.bytes, script.len);
       auto value = rt.evaluateJavaScript(buffer, std::string(script.name) + ".js");
+      if (std::strcmp(script.name, "abort") == 0 && !abort_hooks.empty()) {
+        auto hooks = rt.global().getProperty(rt, "__ibex2_abort");
+        if (!hooks.isObject())
+          throw jsi::JSError(rt, "abort binding did not publish its hooks");
+        auto object = hooks.getObject(rt);
+        for (const char* member : {"own", "subscribe"}) {
+          auto function = object.getProperty(rt, member);
+          if (!function.isObject() || !function.getObject(rt).isFunction(rt))
+            throw jsi::JSError(rt, "abort binding published invalid hooks");
+        }
+        freeze(rt, object);
+        published_abort_hooks = jsi::Value(rt, object);
+      }
       if (std::strcmp(script.name, "blob") == 0) {
         if (!value.isObject())
           throw jsi::JSError(rt, "Blob binding did not evaluate to helpers");
@@ -1679,24 +1714,41 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
     }
     if (has(groups, GROUP_ENV))
       global.setProperty(rt, "process", make_process(rt, grants));
-    if (!fetch_primitives.empty()) {
-      if (global.hasProperty(rt, fetch_primitives_key(rt, fetch_primitives)))
+    auto publish_bootstrap_output = [&](const char* kind,
+                                        const std::string& name,
+                                        jsi::Object object,
+                                        const auto& members) {
+      if (global.hasProperty(rt, bootstrap_output_key(rt, name)))
         throw std::invalid_argument(
-            "fetch primitives global collides with an installed binding");
+            std::string(kind) + " global collides with an installed binding");
+      State::BootstrapOutput output{kind, name, {}};
+      output.identities.emplace_back(
+          std::string("the ") + kind + " object", jsi::Value(rt, object));
+      for (const char* member : members)
+        output.identities.emplace_back(
+            std::string(kind) + " member " + member,
+            object.getProperty(rt, member));
+      global.setProperty(rt, bootstrap_output_key(rt, name),
+                         jsi::Value(rt, object));
+      state_->bootstrap_outputs.push_back(std::move(output));
+    };
+    if (!fetch_primitives.empty()) {
       auto primitives =
           make_fetch_primitives(rt, *this, state_->lifetime, grants);
-      auto& identities = state_->fetch_primitive_identities;
-      identities.emplace_back("the fetch primitives object",
-                              jsi::Value(rt, primitives));
-      for (const char* member : kFetchPrimitiveMembers)
-        identities.emplace_back(
-            std::string("fetch primitives member ") + member,
-            primitives.getProperty(rt, member));
-      global.setProperty(rt, fetch_primitives_key(rt, fetch_primitives),
-                         std::move(primitives));
-      state_->fetch_primitives_name = fetch_primitives;
-      state_->reachability = std::move(reachability);
+      publish_bootstrap_output(
+          "fetch primitives", fetch_primitives, std::move(primitives),
+          kFetchPrimitiveMembers);
     }
+    if (!abort_hooks.empty()) {
+      if (!published_abort_hooks.isObject())
+        throw jsi::JSError(rt, "abort binding hooks were not retained");
+      constexpr const char* members[] = {"own", "subscribe"};
+      publish_bootstrap_output(
+          "abort hooks", abort_hooks,
+          published_abort_hooks.getObject(rt), members);
+    }
+    if (!state_->bootstrap_outputs.empty())
+      state_->reachability = std::move(reachability);
 
     state_->install_status = InstallStatus::Installed;
   } catch (const std::exception& error) {
@@ -1715,16 +1767,21 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
 }
 
 void Adapter::verify_fetch_primitives_unreachable() {
+  verify_trusted_bootstrap_unreachable();
+}
+
+void Adapter::verify_trusted_bootstrap_unreachable() {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
   auto& rt = *runtime_;
-  const auto& name = state_->fetch_primitives_name;
-  if (name.empty()) return;
-  if (rt.global().hasProperty(rt, fetch_primitives_key(rt, name)))
-    throw std::runtime_error(
-        "refusing to harden while fetch primitives global \"" + name +
-        "\" is present");
-  require_unreachable(rt, *state_->reachability,
-                      state_->fetch_primitive_identities);
+  if (state_->bootstrap_outputs.empty()) return;
+  for (const auto& output : state_->bootstrap_outputs) {
+    if (rt.global().hasProperty(rt, bootstrap_output_key(rt, output.name)))
+      throw std::runtime_error(
+          "refusing to harden while " + output.kind + " global \"" +
+          output.name + "\" is present");
+  }
+  for (const auto& output : state_->bootstrap_outputs)
+    require_unreachable(rt, *state_->reachability, output.identities);
 }
 
 void Adapter::harden(const CompiledScript& script) {
@@ -1734,7 +1791,7 @@ void Adapter::harden(const CompiledScript& script) {
   if (script.bytes == nullptr)
     throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
   validate_bytecode(script, state_->bytecode_version);
-  verify_fetch_primitives_unreachable();
+  verify_trusted_bootstrap_unreachable();
   rt.evaluateJavaScript(std::make_shared<CompiledBytes>(script.bytes, script.len),
                         "harden.js");
 }
