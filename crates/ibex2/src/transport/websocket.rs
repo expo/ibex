@@ -656,7 +656,7 @@ struct Control {
 }
 
 enum Parse {
-    NeedData,
+    NeedData(usize),
     Received(Received),
 }
 
@@ -679,10 +679,11 @@ impl Wire {
         }
     }
 
-    fn read_into(&mut self, input: &mut Input) -> std::io::Result<ReadProgress> {
+    fn read_into(&mut self, input: &mut Input, wanted: usize) -> std::io::Result<ReadProgress> {
         let mut bytes = [0; 16 << 10];
+        let wanted = wanted.min(bytes.len());
         match self {
-            Self::Plain(tcp) => match tcp.read(&mut bytes) {
+            Self::Plain(tcp) => match tcp.read(&mut bytes[..wanted]) {
                 Ok(0) => Ok(ReadProgress::Eof),
                 Ok(count) => {
                     input.append(&bytes[..count]);
@@ -696,7 +697,7 @@ impl Wire {
                 }
                 Err(error) => Err(error),
             },
-            Self::Tls(tls) => match tls.conn.reader().read(&mut bytes) {
+            Self::Tls(tls) => match tls.conn.reader().read(&mut bytes[..wanted]) {
                 Ok(0) => Ok(ReadProgress::Eof),
                 Ok(count) => {
                     input.append(&bytes[..count]);
@@ -835,16 +836,16 @@ fn parse_available(
     loop {
         let bytes = input.available();
         if bytes.len() < 2 {
-            return Ok(Parse::NeedData);
+            return Ok(Parse::NeedData(2 - bytes.len()));
         }
         let (fin, opcode) = (bytes[0] & 0x80 != 0, bytes[0] & 0x0f);
         if bytes[0] & 0x70 != 0 || bytes[1] & 0x80 != 0 {
             return Err(protocol("reserved bits, or a masked server frame"));
         }
         let (head, length) = match bytes[1] & 0x7f {
-            126 if bytes.len() < 4 => return Ok(Parse::NeedData),
+            126 if bytes.len() < 4 => return Ok(Parse::NeedData(4 - bytes.len())),
             126 => (4, u16::from_be_bytes([bytes[2], bytes[3]]) as u64),
-            127 if bytes.len() < 10 => return Ok(Parse::NeedData),
+            127 if bytes.len() < 10 => return Ok(Parse::NeedData(10 - bytes.len())),
             127 => (10, u64::from_be_bytes(bytes[2..10].try_into().unwrap())),
             length => (2, length as u64),
         };
@@ -885,8 +886,9 @@ fn parse_available(
         let Ok(length) = usize::try_from(length) else {
             return Err(protocol("a frame length that does not fit this platform"));
         };
-        if input.available().len() < head.saturating_add(length) {
-            return Ok(Parse::NeedData);
+        let frame_length = head.saturating_add(length);
+        if input.available().len() < frame_length {
+            return Ok(Parse::NeedData(frame_length - input.available().len()));
         }
         input.discard(head);
         let payload = input.take(length);
@@ -929,11 +931,13 @@ fn parse_available(
                     }));
                 }
                 0x9 => {
-                    reserve_control(command_count)?;
-                    controls.push_back(Control {
-                        opcode: 0xA,
-                        payload,
-                    });
+                    if state.lock().expect("WebSocket sender poisoned").phase == OPEN {
+                        reserve_control(command_count)?;
+                        controls.push_back(Control {
+                            opcode: 0xA,
+                            payload,
+                        });
+                    }
                 }
                 0xA => {}
                 _ => return Err(protocol("an unknown control opcode")),
@@ -1048,6 +1052,7 @@ fn pump_loop(
             }
         }
 
+        let mut read_wanted = 0;
         if let Some((_, operation)) = request.as_mut() {
             match parse_available(
                 operation,
@@ -1062,7 +1067,7 @@ fn pump_loop(
                     let _ = finished.reply.send(Ok(received));
                     continue;
                 }
-                Ok(Parse::NeedData) => {}
+                Ok(Parse::NeedData(wanted)) => read_wanted = wanted,
                 Err(error) => {
                     fail_pump(&mut request, error, &state, &shutdown);
                     return;
@@ -1071,7 +1076,7 @@ fn pump_loop(
         }
 
         if request.is_some() {
-            match wire.read_into(&mut input) {
+            match wire.read_into(&mut input, read_wanted) {
                 Ok(ReadProgress::Bytes) => continue,
                 Ok(ReadProgress::Eof) => {
                     state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
