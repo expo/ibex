@@ -374,6 +374,9 @@ test("release receipts bind both VM archives and keep the full VM as engine.bina
   assert.match(windowsReleaseBuilder, /--target hermesvmlean_a/);
   assert.match(windowsReleaseBuilder, /--lean-engine-archive=lib\/hermesvmlean_a\.lib/);
   for (const producer of [localWindowsBuilder, windowsReleaseBuilder]) {
+    assert.match(producer, /(?:--profile=release|"--profile=release")/);
+    assert.match(producer, /-DHERMES_ENABLE_DEBUGGER=OFF/);
+    assert.doesNotMatch(producer, /release-debugger|-DHERMES_ENABLE_DEBUGGER=ON/);
     assert.match(producer, /-DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON/);
     assert.match(producer, /link-directive=rustc-link-lib=icuuc/);
     assert.match(producer, /link-directive=rustc-link-lib=icuin/);

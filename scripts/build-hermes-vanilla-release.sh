@@ -19,6 +19,8 @@ usage() {
     '  x86_64-apple-darwin' \
     '  aarch64-apple-ios' \
     '  universal-apple-ios-simulator' \
+    '  aarch64-apple-tvos' \
+    '  aarch64-apple-tvos-simulator' \
     '  x86_64-unknown-linux-gnu' \
     '  aarch64-unknown-linux-gnu'
 }
@@ -55,6 +57,12 @@ case "$target" in
   universal-apple-ios-simulator)
     [[ "$host_os" == Darwin ]] || { echo "$target requires a macOS host" >&2; exit 2; }
     platform=iphonesimulator; target_arches='arm64;x86_64'; deployment_target=15.0; profile=min-size-release ;;
+  aarch64-apple-tvos)
+    [[ "$host_os" == Darwin ]] || { echo "$target requires a macOS host" >&2; exit 2; }
+    platform=appletvos; target_arches=arm64; deployment_target=15.0; profile=min-size-release ;;
+  aarch64-apple-tvos-simulator)
+    [[ "$host_os" == Darwin ]] || { echo "$target requires a macOS host" >&2; exit 2; }
+    platform=appletvsimulator; target_arches=arm64; deployment_target=15.0; profile=min-size-release ;;
   x86_64-unknown-linux-gnu)
     [[ "$host_os" == Linux && "$host_arch" == x86_64 ]] \
       || { echo "$target requires an x86_64 Linux host" >&2; exit 2; } ;;
@@ -111,11 +119,10 @@ git -C "$source_dir" reset --hard "$commit"
 git -C "$source_dir" clean -ffdx
 
 jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-(( jobs <= 16 )) || jobs=16
+(( jobs <= 4 )) || jobs=4
 generator=(-G 'Unix Makefiles')
 command -v ninja >/dev/null 2>&1 && generator=(-G Ninja)
 if [[ "$host_os" == Linux ]]; then
-  (( jobs <= 4 )) || jobs=4
   generator=(-G Ninja)
 fi
 
