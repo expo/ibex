@@ -73,9 +73,14 @@ The identical slow-reader fixture measured the old design at 10.219 s and all
 8 MiB before pong; the pump measured 8.8 ms and 16 KiB before pong, then
 45.9 ms and 240 KiB before the close reply. An idle pump stayed inside one
 readiness wait for 150 ms with zero returns. The focused Apple portable suite
-passes 10/10, including plaintext/TLS conversations, ping flood, close
-ordering, legacy receive behavior, and the 500 ms test write-stall bound.
+initially passed 10/10, including plaintext/TLS conversations, ping flood,
+close ordering, legacy receive behavior, and the 500 ms test write-stall bound.
+Fix round 1 passes 12/12: it adds bounded inbound turns, checked wake delivery
+and setup validation, absolute EINTR deadlines, Close+FIN retention between
+receive calls, and exact deadline regressions for silent plaintext, partial
+TLS, and pong-flood peers. The measured failures occur at about 505 ms and the
+idle pump still returns zero times over 150 ms.
 
-No Linux or Windows execution is claimed from this lane: the Unix `poll(2)`
-branch was exercised on macOS; the Linux and `WSAPoll` branches were checked by
-inspection. The orchestrator owns those two platform runs.
+Linux's full `ibex2` and `ibex2-runtime` suites plus strict clippy passed at
+`7e3cb6d`. Windows is pending with the orchestrator; no Windows pass is claimed
+here.

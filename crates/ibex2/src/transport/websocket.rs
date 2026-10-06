@@ -27,6 +27,7 @@ const MAX_OUTBOUND_BYTES: usize = 16 << 20;
 const MAX_OUTBOUND_MESSAGES: usize = 256;
 // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — data and control frames share one bounded command channel
 const MAX_OUTBOUND_COMMANDS: usize = MAX_OUTBOUND_MESSAGES + 16;
+const MAX_READ_FRAMES_PER_TURN: usize = 32;
 const OPEN: u8 = 1;
 const CLOSING: u8 = 2;
 const CLOSED: u8 = 3;
@@ -48,6 +49,7 @@ pub struct TcpSocketTransport {
 struct PumpObserver {
     parked: std::sync::atomic::AtomicBool,
     returns: AtomicUsize,
+    network_bytes: AtomicUsize,
 }
 
 impl TcpSocketTransport {
@@ -79,6 +81,20 @@ impl TcpSocketTransport {
     fn with_pump_observer(observer: Arc<PumpObserver>) -> Self {
         Self {
             tls: std::sync::OnceLock::new(),
+            writer_gate: None,
+            pump_observer: Some(observer),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_tls_and_pump_observer(
+        config: Arc<rustls::ClientConfig>,
+        observer: Arc<PumpObserver>,
+    ) -> Self {
+        let tls = std::sync::OnceLock::new();
+        tls.set(config).expect("a fresh TLS configuration");
+        Self {
+            tls,
             writer_gate: None,
             pump_observer: Some(observer),
         }
@@ -424,6 +440,7 @@ struct SendState {
 enum CommandQueueError {
     Full,
     Closed,
+    Wake(std::io::Error),
 }
 
 impl CommandQueueError {
@@ -431,6 +448,9 @@ impl CommandQueueError {
         match self {
             Self::Full => HostError::Failed("the socket's outbound command queue is full".into()),
             Self::Closed => HostError::Failed("the socket is closed".into()),
+            Self::Wake(error) => {
+                HostError::Failed(format!("the socket wake notification failed: {error}"))
+            }
         }
     }
 }
@@ -450,8 +470,13 @@ impl TcpSender {
         }
         match self.commands.try_send(command) {
             Ok(()) => {
-                self.wake.notify();
-                Ok(())
+                if let Err(error) = self.wake.notify() {
+                    state.phase = CLOSED;
+                    let _ = self.shutdown.shutdown(Shutdown::Both);
+                    Err(CommandQueueError::Wake(error))
+                } else {
+                    Ok(())
+                }
             }
             Err(mpsc::TrySendError::Full(_)) => {
                 self.command_count.fetch_sub(1, Ordering::AcqRel);
@@ -503,7 +528,7 @@ impl TcpSender {
                 // a full implementation buffer fails the connection without
                 // synchronously throwing into script.
                 CommandQueueError::Full => Ok(()),
-                CommandQueueError::Closed => Err(error.host_error()),
+                CommandQueueError::Closed | CommandQueueError::Wake(_) => Err(error.host_error()),
             };
         }
         state.queued_bytes = state.queued_bytes.saturating_add(payload.len());
@@ -658,6 +683,7 @@ struct Control {
 enum Parse {
     NeedData(usize),
     Received(Received),
+    Yield,
 }
 
 enum ReadProgress {
@@ -832,8 +858,12 @@ fn parse_available(
     command_count: &AtomicUsize,
     state: &Arc<Mutex<SendState>>,
     limit: usize,
+    frames_left: &mut usize,
 ) -> Result<Parse, HostError> {
     loop {
+        if *frames_left == 0 {
+            return Ok(Parse::Yield);
+        }
         let bytes = input.available();
         if bytes.len() < 2 {
             return Ok(Parse::NeedData(2 - bytes.len()));
@@ -892,6 +922,7 @@ fn parse_available(
         }
         input.discard(head);
         let payload = input.take(length);
+        *frames_left -= 1;
         if opcode >= 8 {
             match opcode {
                 0x8 => {
@@ -1004,6 +1035,32 @@ fn fail_pump(
     let _ = shutdown.shutdown(Shutdown::Both);
 }
 
+fn close_pump(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    received: Received,
+    state: &Mutex<SendState>,
+    shutdown: &TcpStream,
+) {
+    // Admission holds this same state lock through queue insertion. Once the
+    // pump owns it, every request which observed OPEN is either active or
+    // visible in `requests`, so a racing EOF cannot turn into channel closure.
+    let pending = {
+        let mut send = state.lock().expect("WebSocket sender poisoned");
+        send.phase = CLOSED;
+        let pending = request
+            .take()
+            .map(|(request, _)| request)
+            .or_else(|| requests.try_recv().ok());
+        drop(send);
+        pending
+    };
+    if let Some(request) = pending {
+        let _ = request.reply.send(Ok(received));
+    }
+    let _ = shutdown.shutdown(Shutdown::Both);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn pump_loop(
     mut wire: Wire,
@@ -1029,6 +1086,7 @@ fn pump_loop(
     let mut last_write_progress: Option<Instant> = None;
 
     loop {
+        let mut reschedule_read = false;
         if let Err(error) = signal.check() {
             fail_pump(&mut request, error, &state, &shutdown);
             return;
@@ -1053,6 +1111,7 @@ fn pump_loop(
         }
 
         let mut read_wanted = 0;
+        let mut read_frames = MAX_READ_FRAMES_PER_TURN;
         if let Some((_, operation)) = request.as_mut() {
             match parse_available(
                 operation,
@@ -1061,13 +1120,15 @@ fn pump_loop(
                 &command_count,
                 &state,
                 limit,
+                &mut read_frames,
             ) {
                 Ok(Parse::Received(received)) => {
                     let (finished, _) = request.take().unwrap();
                     let _ = finished.reply.send(Ok(received));
-                    continue;
+                    reschedule_read = true;
                 }
                 Ok(Parse::NeedData(wanted)) => read_wanted = wanted,
+                Ok(Parse::Yield) => reschedule_read = true,
                 Err(error) => {
                     fail_pump(&mut request, error, &state, &shutdown);
                     return;
@@ -1075,11 +1136,10 @@ fn pump_loop(
             }
         }
 
-        if request.is_some() {
+        if request.is_some() && !reschedule_read {
             match wire.read_into(&mut input, read_wanted) {
-                Ok(ReadProgress::Bytes) => continue,
+                Ok(ReadProgress::Bytes) => reschedule_read = true,
                 Ok(ReadProgress::Eof) => {
-                    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
                     let received = if signal.aborted() {
                         Err(signal.check().unwrap_err())
                     } else {
@@ -1088,10 +1148,12 @@ fn pump_loop(
                             reason: String::new(),
                         })
                     };
-                    if let Some((finished, _)) = request.take() {
-                        let _ = finished.reply.send(received);
+                    match received {
+                        Ok(received) => {
+                            close_pump(&mut request, &requests, received, &state, &shutdown)
+                        }
+                        Err(error) => fail_pump(&mut request, error, &state, &shutdown),
                     }
-                    let _ = shutdown.shutdown(Shutdown::Both);
                     return;
                 }
                 Ok(ReadProgress::Blocked) => {}
@@ -1100,14 +1162,16 @@ fn pump_loop(
                     return;
                 }
                 Err(_) => {
-                    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
-                    if let Some((finished, _)) = request.take() {
-                        let _ = finished.reply.send(Ok(Received::Closed {
+                    close_pump(
+                        &mut request,
+                        &requests,
+                        Received::Closed {
                             code: 1006,
                             reason: String::new(),
-                        }));
-                    }
-                    let _ = shutdown.shutdown(Shutdown::Both);
+                        },
+                        &state,
+                        &shutdown,
+                    );
                     return;
                 }
             }
@@ -1216,6 +1280,12 @@ fn pump_loop(
                     Ok(progress) => {
                         if progress.network_bytes != 0 {
                             last_write_progress = Some(Instant::now());
+                            #[cfg(test)]
+                            if let Some(observer) = &pump_observer {
+                                observer
+                                    .network_bytes
+                                    .fetch_add(progress.network_bytes, Ordering::AcqRel);
+                            }
                         }
                         if progress.advanced {
                             continue;
@@ -1257,6 +1327,12 @@ fn pump_loop(
                     Ok(progress) => {
                         if progress.network_bytes != 0 {
                             last_write_progress = Some(Instant::now());
+                            #[cfg(test)]
+                            if let Some(observer) = &pump_observer {
+                                observer
+                                    .network_bytes
+                                    .fetch_add(progress.network_bytes, Ordering::AcqRel);
+                            }
                         }
                         if progress.advanced {
                             continue;
@@ -1295,6 +1371,19 @@ fn pump_loop(
             last_write_progress = None;
             None
         };
+        // Read/parse work is deliberately bounded. Service writes and their
+        // no-progress deadline first, then consume the next inbound batch
+        // without entering the readiness wait while bytes are already local.
+        if reschedule_read {
+            continue;
+        }
+        // Command admission increments before notifying. Recheck immediately
+        // before parking so an already-visible command never depends on its
+        // datagram. A command racing this load is covered by the validated
+        // loopback wake; fatal send errors fail and shut down the connection.
+        if command_count.load(Ordering::Acquire) != 0 && !pending_write {
+            continue;
+        }
         #[cfg(test)]
         if let Some(observer) = &pump_observer {
             observer.parked.store(true, Ordering::Release);
@@ -1312,12 +1401,21 @@ fn pump_loop(
         }
         match waited {
             Ok(ready) => {
-                // With no read interest, a TCP read indication can only be a
-                // terminal poll condition. Do not spin forever on an idle
-                // connection whose peer disappeared between receive calls.
+                // With write-only interest, a read indication can only be a
+                // terminal poll condition. When neither direction is wanted,
+                // readiness omits the TCP descriptor and preserves buffered
+                // input for the next receive request instead.
                 if ready.socket_readable && request.is_none() {
-                    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
-                    let _ = shutdown.shutdown(Shutdown::Both);
+                    close_pump(
+                        &mut request,
+                        &requests,
+                        Received::Closed {
+                            code: 1006,
+                            reason: String::new(),
+                        },
+                        &state,
+                        &shutdown,
+                    );
                     return;
                 }
                 let _ = (ready.socket_writable, ready.woken);
@@ -1371,21 +1469,38 @@ enum Received {
 
 impl Socket {
     fn receive(&mut self, binary_payload: bool) -> Result<Received, HostError> {
-        if self.sender.phase() == CLOSED {
+        self.signal.check()?;
+        let mut state = self.sender.state.lock().expect("WebSocket sender poisoned");
+        if state.phase == CLOSED {
             return Ok(Received::Closed {
                 code: 1006,
                 reason: String::new(),
             });
         }
-        self.signal.check()?;
         let (reply, received) = mpsc::sync_channel(1);
-        self.requests
+        if self
+            .requests
             .send(ReceiveRequest {
                 binary_payload,
                 reply,
             })
-            .map_err(|_| HostError::Failed("the socket is closed".into()))?;
-        self.wake.notify();
+            .is_err()
+        {
+            state.phase = CLOSED;
+            return Ok(Received::Closed {
+                code: 1006,
+                reason: String::new(),
+            });
+        }
+        if let Err(error) = self.wake.notify() {
+            state.phase = CLOSED;
+            drop(state);
+            let _ = self.shutdown.shutdown(Shutdown::Both);
+            return Err(HostError::Failed(format!(
+                "the socket wake notification failed: {error}"
+            )));
+        }
+        drop(state);
         received.recv().map_err(|_| {
             self.signal.check().err().unwrap_or_else(|| {
                 HostError::Failed("the socket closed before delivering a message".into())
@@ -1439,7 +1554,7 @@ impl Drop for Socket {
         }
         self.sender.mark_closed();
         let _ = self.shutdown.shutdown(Shutdown::Both);
-        self.wake.notify();
+        let _ = self.wake.notify();
     }
 }
 

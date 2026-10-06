@@ -15,12 +15,17 @@ pub(super) struct Wake {
 }
 
 impl Wake {
-    pub(super) fn notify(&self) {
-        match self.socket.send(&[1]) {
-            Ok(_) => {}
-            // One unread datagram is enough to keep the wake socket readable.
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-            Err(_) => {}
+    pub(super) fn notify(&self) -> io::Result<()> {
+        loop {
+            match self.socket.send(&[1]) {
+                Ok(1) => return Ok(()),
+                Ok(_) => return Err(io::ErrorKind::WriteZero.into()),
+                // A full local datagram queue already makes the wake socket
+                // readable, so it has fulfilled this notification.
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
         }
     }
 }
@@ -41,6 +46,28 @@ pub(super) fn pair() -> io::Result<(Wake, Waiter)> {
     let sender = UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     sender.connect(receiver.local_addr()?)?;
     receiver.connect(sender.local_addr()?)?;
+    // Exercise the exact connected loopback path before the pump can park on
+    // it. A local firewall/filter therefore refuses the connection here
+    // instead of silently stranding a later command.
+    receiver.set_read_timeout(Some(Duration::from_secs(1)))?;
+    loop {
+        match sender.send(&[1]) {
+            Ok(1) => break,
+            Ok(_) => return Err(io::ErrorKind::WriteZero.into()),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    let mut byte = [0];
+    loop {
+        match receiver.recv(&mut byte) {
+            Ok(1) => break,
+            Ok(_) => return Err(io::ErrorKind::UnexpectedEof.into()),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    receiver.set_read_timeout(None)?;
     sender.set_nonblocking(true)?;
     receiver.set_nonblocking(true)?;
     Ok((
@@ -92,7 +119,7 @@ mod platform {
     use std::io;
     use std::net::{TcpStream, UdpSocket};
     use std::os::fd::AsRawFd;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     pub(super) fn wait(
         tcp: &TcpStream,
@@ -114,14 +141,27 @@ mod platform {
                 revents: 0,
             },
         ];
+        let started = Instant::now();
         loop {
+            for descriptor in &mut descriptors {
+                descriptor.revents = 0;
+            }
+            let active = if read || write {
+                &mut descriptors[..]
+            } else {
+                // Terminal flags are reported even when `events` is zero.
+                // Omit the TCP descriptor while receive demand is paused so
+                // Close+FIN remains available for the next requested read.
+                &mut descriptors[1..]
+            };
+            let remaining = timeout.map(|limit| limit.saturating_sub(started.elapsed()));
             // SAFETY: both entries contain live descriptors for the duration
-            // of the call, and the array length is exact.
+            // of the call, and the selected slice length is exact.
             let result = unsafe {
                 libc::poll(
-                    descriptors.as_mut_ptr(),
-                    descriptors.len() as libc::nfds_t,
-                    timeout_millis(timeout),
+                    active.as_mut_ptr(),
+                    active.len() as libc::nfds_t,
+                    timeout_millis(remaining),
                 )
             };
             if result >= 0 {
@@ -136,6 +176,8 @@ mod platform {
             if error.kind() != io::ErrorKind::Interrupted {
                 return Err(error);
             }
+            // `remaining` is derived from the original absolute deadline, so
+            // repeated signals cannot restart and extend a bounded wait.
         }
     }
 }
@@ -146,7 +188,7 @@ mod platform {
     use std::io;
     use std::net::{TcpStream, UdpSocket};
     use std::os::windows::io::AsRawSocket;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use windows_sys::Win32::Networking::WinSock::{
         WSAGetLastError, WSAPoll, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, SOCKET_ERROR,
         WSAPOLLFD,
@@ -171,18 +213,37 @@ mod platform {
                 revents: 0,
             },
         ];
-        // SAFETY: both entries contain live SOCKETs for the duration of the
-        // call, and Winsock has already been initialized by `std::net`.
-        let result = unsafe {
-            WSAPoll(
-                descriptors.as_mut_ptr(),
-                descriptors.len() as u32,
-                timeout_millis(timeout),
-            )
-        };
-        if result == SOCKET_ERROR {
+        let started = Instant::now();
+        loop {
+            for descriptor in &mut descriptors {
+                descriptor.revents = 0;
+            }
+            let active = if read || write {
+                &mut descriptors[..]
+            } else {
+                // As with poll(2), terminal flags need no requested event.
+                // Excluding the TCP socket preserves unread Close+FIN until
+                // the next receive request on Windows as well.
+                &mut descriptors[1..]
+            };
+            let remaining = timeout.map(|limit| limit.saturating_sub(started.elapsed()));
+            // SAFETY: both entries contain live SOCKETs for the duration of
+            // the call, and Winsock has already been initialized by `std::net`.
+            let result = unsafe {
+                WSAPoll(
+                    active.as_mut_ptr(),
+                    active.len() as u32,
+                    timeout_millis(remaining),
+                )
+            };
+            if result != SOCKET_ERROR {
+                break;
+            }
             // SAFETY: valid immediately after the failed Winsock call.
-            return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
+            let error = io::Error::from_raw_os_error(unsafe { WSAGetLastError() });
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
         }
         let terminal = POLLERR | POLLHUP | POLLNVAL;
         Ok(Ready {

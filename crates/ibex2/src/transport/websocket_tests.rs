@@ -208,6 +208,24 @@ fn wait(seen: &Receiver<String>) -> String {
         .expect("the peer reports")
 }
 
+fn server_handshake<W: Read + Write + ?Sized>(wire: &mut W) {
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        wire.read_exact(&mut byte).unwrap();
+        head.push(byte[0]);
+    }
+    let head = String::from_utf8(head).unwrap();
+    let key = head
+        .lines()
+        .find_map(|line| line.strip_prefix("Sec-WebSocket-Key: "))
+        .unwrap()
+        .trim();
+    let accept = crate::stdlib::websocket::accept_key(key);
+    write!(wire, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").unwrap();
+    wire.flush().unwrap();
+}
+
 /// The whole conversation, on whichever transport: shared by the Rust
 /// transport's test and the Darwin one's.
 pub(crate) fn conversation(transport: &dyn SocketTransport) {
@@ -469,6 +487,61 @@ fn the_rust_transport_holds_the_whole_conversation() {
 }
 
 #[test]
+fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (close_now, close_requested) = channel();
+    let (close_sent, close_observed) = channel();
+    let (reported, report) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        server_handshake(&mut stream);
+        stream.write_all(&frame(true, 1, b"first")).unwrap();
+        close_requested.recv().unwrap();
+        let mut close = 3001u16.to_be_bytes().to_vec();
+        close.extend_from_slice(b"between");
+        stream.write_all(&frame(true, 0x8, &close)).unwrap();
+        stream.shutdown(Shutdown::Write).unwrap();
+        close_sent.send(()).unwrap();
+        reported.send(client_frame(&mut stream)).unwrap();
+    });
+
+    let mut socket = open_on(
+        &TcpSocketTransport::new(),
+        port,
+        "/close-fin",
+        &AbortSignal::default(),
+    )
+    .unwrap();
+    assert_eq!(socket.next().unwrap(), text("first"));
+    close_now.send(()).unwrap();
+    close_observed.recv().unwrap();
+    // Give poll/WSAPoll time to observe the terminal state while receive
+    // demand is paused. The peer's buffered Close must remain unread.
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 3001,
+            reason: "between".into(),
+        }
+    );
+    let (_, opcode, payload) = report
+        .recv_timeout(Duration::from_secs(3))
+        .expect("the peer received the close reply")
+        .expect("the client sent a frame");
+    assert_eq!(opcode, 0x8);
+    assert_eq!(
+        payload,
+        [3001u16.to_be_bytes().as_slice(), b"between"].concat()
+    );
+    peer.join().unwrap();
+}
+
+#[test]
 fn a_ping_flood_from_a_non_reading_peer_fails_cleanly() {
     const PINGS: usize = 4_096;
 
@@ -651,78 +724,130 @@ fn control_frames_overtake_a_large_send_to_a_slow_reader() {
     );
 }
 
-#[test]
-fn a_stalled_write_to_a_non_reading_peer_fails_within_the_stall_bound() {
+#[cfg(test)]
+fn stalled_peer(
+    secure: bool,
+    flood_pongs: bool,
+) -> (
+    TcpSocketTransport,
+    String,
+    Sender<()>,
+    Arc<PumpObserver>,
+    std::thread::JoinHandle<()>,
+) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (release_peer, released) = channel();
-    let peer = std::thread::spawn(move || {
-        let mut stream = listener.accept().unwrap().0;
-        let mut head = Vec::new();
-        let mut byte = [0u8; 1];
-        while !head.ends_with(b"\r\n\r\n") {
-            stream.read_exact(&mut byte).unwrap();
-            head.push(byte[0]);
-        }
-        let head = String::from_utf8(head).unwrap();
-        let key = head
-            .lines()
-            .find_map(|line| line.strip_prefix("Sec-WebSocket-Key: "))
-            .unwrap()
-            .trim();
-        let accept = crate::stdlib::websocket::accept_key(key);
-        write!(
-            stream,
-            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+    let observer = Arc::new(PumpObserver::default());
+    let (transport, server) = if secure {
+        let (_, client, server) = local_tls();
+        (
+            TcpSocketTransport::with_tls_and_pump_observer(client, Arc::clone(&observer)),
+            Some(server),
         )
-        .unwrap();
-        // Never read again. Let the client's large write fill the buffers and
-        // stall first, then ask to close: a reader starved by the stalled
-        // writer cannot see it. Then hold the connection open.
-        std::thread::sleep(Duration::from_millis(300));
-        let _ = stream.write_all(&frame(true, 0x8, &1000u16.to_be_bytes()));
-        let _ = released.recv_timeout(Duration::from_secs(10));
+    } else {
+        (
+            TcpSocketTransport::with_pump_observer(Arc::clone(&observer)),
+            None,
+        )
+    };
+    let peer = std::thread::spawn(move || {
+        let tcp = listener.accept().unwrap().0;
+        socket2::SockRef::from(&tcp)
+            .set_recv_buffer_size(1024)
+            .unwrap();
+        tcp.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+        let hold = |wire: &mut (dyn ReadWrite + '_)| {
+            server_handshake(wire);
+            if flood_pongs {
+                let pong = frame(true, 0xA, &[7; 125]);
+                while wire.write_all(&pong).is_ok() {}
+            } else {
+                // After the handshake, neither read nor write until the
+                // client's own no-progress deadline has failed the socket.
+                let _ = released.recv_timeout(Duration::from_secs(5));
+            }
+        };
+        if let Some(server) = server {
+            let connection = rustls::ServerConnection::new(server).unwrap();
+            let mut wire = rustls::StreamOwned::new(connection, tcp);
+            hold(&mut wire);
+        } else {
+            let mut wire = tcp;
+            hold(&mut wire);
+        }
     });
 
-    let mut socket = open_on(
-        &TcpSocketTransport::new(),
-        port,
-        "/stall",
-        &AbortSignal::default(),
+    let scheme = if secure { "wss" } else { "ws" };
+    (
+        transport,
+        format!("{scheme}://localhost:{port}/stall"),
+        release_peer,
+        observer,
+        peer,
     )
-    .unwrap();
-    // Several MiB cannot fit in the kernel buffers of a peer that never reads,
-    // so the writer stalls inside a frame.
+}
+
+#[cfg(test)]
+trait ReadWrite: Read + Write {}
+#[cfg(test)]
+impl<T: Read + Write> ReadWrite for T {}
+
+#[cfg(test)]
+fn assert_stall_deadline(secure: bool, flood_pongs: bool) {
+    let (transport, url, release_peer, observer, peer) = stalled_peer(secure, flood_pongs);
+    let mut socket = transport
+        .connect(
+            &url::Url::parse(&url).unwrap(),
+            1024,
+            &AbortSignal::default(),
+        )
+        .unwrap();
     socket.send_binary(&vec![5u8; 8 * 1024 * 1024]).unwrap();
-    let (reported, report) = channel();
-    let reader = std::thread::spawn(move || {
-        let started = std::time::Instant::now();
-        let mut last = None;
-        for _ in 0..4 {
-            match socket.next() {
-                Ok(Incoming::Closed { .. }) | Err(_) => {
-                    last = Some(started.elapsed());
-                    break;
-                }
-                Ok(_) => continue,
-            }
-        }
-        let _ = reported.send(last);
-    });
-    // The bound is 500 ms in tests; allow generous scheduling slack.
-    let finished = report.recv_timeout(Duration::from_secs(10));
-    let _ = release_peer.send(());
-    peer.join().unwrap();
-    // A reader still blocked behind a stalled writer would never be joined;
-    // fail instead of hanging the suite.
-    let elapsed = finished
-        .expect("next() must finish while the peer keeps the connection open")
-        .expect("the socket must report a close or a failure");
-    reader.join().unwrap();
+    let started = std::time::Instant::now();
+    let error = socket
+        .next()
+        .expect_err("the client's no-progress deadline must fail the socket");
+    let elapsed = started.elapsed();
     assert!(
-        elapsed < Duration::from_secs(8),
-        "a stalled write pinned the reader for {elapsed:?}"
+        error
+            .to_string()
+            .contains("the socket write made no progress before its deadline"),
+        "unexpected stalled-write failure: {error}"
     );
+    assert!(
+        elapsed >= WRITE_STALL_TIMEOUT && elapsed < Duration::from_secs(3),
+        "the {:?} stall fired after {elapsed:?}, expected near {WRITE_STALL_TIMEOUT:?}",
+        if secure { "TLS" } else { "plaintext" }
+    );
+    assert!(
+        observer.network_bytes.load(Ordering::Acquire) > 0,
+        "the test must partially write the frame before it stalls"
+    );
+    eprintln!(
+        "{} stalled write failed after {elapsed:?} with {} network bytes written{}",
+        if secure { "TLS" } else { "plaintext" },
+        observer.network_bytes.load(Ordering::Acquire),
+        if flood_pongs {
+            " during a pong flood"
+        } else {
+            ""
+        }
+    );
+    let _ = release_peer.send(());
+    drop(socket);
+    peer.join().unwrap();
+}
+
+#[test]
+fn silent_peer_stalls_plaintext_and_partial_tls_writes_at_the_deadline() {
+    assert_stall_deadline(false, false);
+    assert_stall_deadline(true, false);
+}
+
+#[test]
+fn pong_flood_cannot_starve_the_stalled_write_deadline() {
+    assert_stall_deadline(false, true);
 }
 
 const LOCAL_CERT: &str = "MIIBcDCCARagAwIBAgIJAL/L9Qemvq28MAoGCCqGSM49BAMCMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDAeFw0yNjEwMDQxMzQ2MTBaFw0yNzEwMDQxMzQ2MTBaMBQxEjAQBgNVBAMMCWxvY2FsaG9zdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABB+9b/H/REalNbaY5CeIowEsLfdmeVL8M/iQgCo4BrJM+IgYXRIUDI6EdvgZkkyBFTr8dIRFr/5u/AX/0vRU3p2jUTBPMBoGA1UdEQQTMBGCCWxvY2FsaG9zdIcEfwAAATAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAKBggqhkjOPQQDAgNIADBFAiBU7Mu0QDVetJW9tm7u7aoPrVQcEqkO0IUkZ0aMgPA6GwIhAPMuBqpj21v+kfb7/bCjL94nmzgQkNzpdDPei6+PzVpa";
