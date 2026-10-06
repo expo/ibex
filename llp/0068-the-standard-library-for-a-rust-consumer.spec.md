@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 Decision C: the completed intrinsic-capture audit is a closed record; a new unhardened-runtime finding opens a new issue)
 **Revised:** 2026-10-06 (§3 "Native wrapper ownership" fix round 1: JS-thread fetch header snapshots; constructor-only transactional `Headers`; all native-state attachments refuse displacement)
 **Revised:** 2026-10-06 (§3 "Native wrapper ownership": `Headers` rows follow JavaScript collection through private JSI native state, explicit fetch release is idempotent, teardown is weak-state safe, and the sibling registry audit is recorded)
 **Revised:** 2026-10-06 (§3/OQ2 fix round 2: complete English currency data preserves non-default fraction metadata and names; `ibex2` has no build-dependency on `hermes-lean-sys`, so only the linking instance selects an ICU tier)
@@ -179,8 +180,10 @@ an equivalent freeze before evaluating application code. The
 `bindings::HARDEN_BYTECODE_PATH` constant exposes the compiled artifact to
 build systems. The `isTrusted`, brand-registry, and private-state guarantees
 hold only in a hardened runtime. Findings that depend on an unhardened runtime
-belong in `issues/20261004-binding-intrinsic-capture-audit.md`; they are not
-fixed one by one into an unsupported second security posture.
+are recorded in
+`issues/closed/20261004-binding-intrinsic-capture-audit.md`; a new finding opens
+a new issue rather than reopening that audit, and is not fixed one by one into
+an unsupported second security posture.
 
 R-e resolves both VM archives without making compiler selection depend on a
 feature context. `link` emits the full source-capable VM and `link-lean` emits

@@ -2126,6 +2126,15 @@ void Adapter::fire_timer(uint64_t id) {
       rt, static_cast<double>(id));
 }
 
+jsi::Value Adapter::timer_dispatch_for_test() const {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  if (!state_->timer_dispatch.isObject() ||
+      !state_->timer_dispatch.getObject(rt).isFunction(rt))
+    throw std::logic_error("Ibex2 TIMERS group is not installed");
+  return jsi::Value(rt, state_->timer_dispatch);
+}
+
 uint64_t Adapter::subscribe(jsi::Function callback) {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
   state_->require(*runtime_);
@@ -2280,18 +2289,14 @@ bool Adapter::deliver_one() {
   unsigned long long id = 0;
   Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0, nullptr, 0};
   if (!ibex2_take_task(state_->queue, &kind, &id, &value, &is_error)) return false;
-  if (kind != 1 && kind != 2 && kind != 3) {
+  if (kind != 1 && kind != 3) {
     ibex2_host_release(&value);
-    throw jsi::JSError(*runtime_, "bindings adapter received an unknown task");
+    throw jsi::JSError(*runtime_, "storage adapter received a non-settlement task");
   }
   // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — borrowed-adapter task failures are reported like owning-pump failures
   try {
     if (kind == 3)
       deliver_event(id, value);
-    else if (kind == 2) {
-      ibex2_host_release(&value);
-      fire_timer(id);
-    }
     else
       settle(id, value, is_error != 0);
   } catch (const jsi::JSError& error) {

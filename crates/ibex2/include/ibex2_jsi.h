@@ -343,6 +343,9 @@ public:
   // driver already admitted and reserved. The dispatcher is captured from
   // timers.js during installation and is never published to application code.
   void fire_timer(uint64_t task_id);
+  // Test instrumentation: copy the captured dispatcher so a harness can prove
+  // its exact identity is absent from application-reachable properties.
+  jsi::Value timer_dispatch_for_test() const;
   // Register a JS callback for a future host-event source. The returned
   // identity is the one Rust carries in HostTask::Event.
   uint64_t subscribe(jsi::Function callback);
@@ -354,9 +357,10 @@ public:
   // without EVENTS these fall back to the host console reporter.
   void report_error(const jsi::Value& error);
   void report_error(const char* message);
-  // Takes at most one storage settlement, timer callback, or subscribed event.
-  // It does not admit due timers or run a microtask checkpoint. Callback
-  // failures are reported through the EVENTS error path and do not escape.
+  // Takes at most one storage settlement or subscribed event. A timer task is
+  // refused: timer admission and firing belong to the owning runtime's pump.
+  // It does not run a microtask checkpoint. Callback failures are reported
+  // through the EVENTS error path and do not escape.
   bool deliver_one();
   // Release WebSocket keepalive roots whose listener/queued-data condition
   // ended before an embedder explicitly requests collection.

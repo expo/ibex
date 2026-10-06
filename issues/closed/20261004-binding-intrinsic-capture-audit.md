@@ -5,7 +5,7 @@
 **Author:** Codex, directed by Charlie Cheever
 **Date:** 2026-10-04
 **Related:** LLP 0068 §3 Decision C
-**Resolution:** Hid Headers handles and iterator state, made timer delivery adapter-private, captured the optional abort timer at install, and recorded every remaining post-harden observation point below.
+**Resolution:** Hid Headers handles and iterator state, made timer delivery private to the owning pump while borrowed adapters continue to refuse timer tasks, captured the optional abort timer at install, and recorded every remaining post-harden observation point below.
 
 Decision C requires every embedder using the bindings door to evaluate
 `ibex2::bindings::HARDEN_SOURCE` (or perform an equivalent freeze) before
@@ -29,7 +29,7 @@ harden; it does not by itself mean that private host authority is reachable.
 | --- | --- | --- |
 | `harden.js` | No | It runs before application code and captures the descriptor and freeze operations it uses. |
 | `domexception.js` | Yes, for Web-IDL string conversion | The conversions are the public API's specified observation point and expose no private handle. |
-| `timers.js` | Yes | Removed the global timer-dispatch helper, retained it only on the adapter, and invoke callbacks with captured `Reflect.apply`. |
+| `timers.js` | Yes | Removed the global timer-dispatch helper, retained it only on the adapter for the owning pump, kept borrowed `deliver_one` limited to settlements/events, and invoke callbacks with captured `Reflect.apply`. |
 | `intl_case.js` | Yes, for public coercion and locale iteration | These are specified input observations; native hooks and primordials are captured before hardening. |
 | `sqlite.js` | Yes, for row/result inspection | The raw host object and owner handle stay closure-private; `.then` is read only from the host-created internal promise. |
 | `abort.js` | Yes | Captured the optional timer function at install so an application cannot add one later; signals, algorithms, and event hooks remain in private weak maps/closures. |
@@ -48,8 +48,10 @@ harden; it does not by itself mean that private host authority is reachable.
 
 ## Verification
 
-Regression coverage now attempts post-harden timer-dispatch access, forged
-Headers receiver/iterator access, and late installation of `setTimeout` for
+Regression coverage now compares the exact captured timer-dispatch identity
+against post-harden properties, proves the owning pump still fires timers and
+the borrowed adapter refuses them, attempts forged Headers receiver/iterator
+access, and attempts late installation of `setTimeout` for
 `AbortSignal.timeout`. Existing WPT suites continue to cover required
 iterators, coercions, callbacks, promise behavior, and event dispatch. The D5
 freeze-budget test remains below its 2 ms limit.

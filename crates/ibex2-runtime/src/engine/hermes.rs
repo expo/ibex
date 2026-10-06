@@ -87,6 +87,7 @@ extern "C" {
     fn ibex2_hermes_test_unsubscribe(handle: *mut c_void, subscription: u64);
     #[cfg(test)]
     fn ibex2_hermes_test_websocket_keepalive_count(handle: *mut c_void) -> usize;
+    fn ibex2_hermes_test_expose_timer_dispatch(handle: *mut c_void) -> c_int;
 }
 
 /// Whether JavaScript may compile source of its own.
@@ -737,6 +738,14 @@ impl Hermes {
         let state =
             unsafe { ibex2_hermes_state(self.handle).as_ref() }.expect("live Hermes runtime state");
         state.live_headers()
+    }
+
+    /// Publish the private timer dispatcher under a test-only global so a
+    /// trusted pre-harden probe can capture its exact identity and delete it.
+    #[doc(hidden)]
+    pub fn expose_timer_dispatch_for_test(&mut self) -> bool {
+        // SAFETY: the runtime and its adapter are live on the owner thread.
+        unsafe { ibex2_hermes_test_expose_timer_dispatch(self.handle) != 0 }
     }
 
     /// Number of Rust-side `CryptoKey` handles held by this runtime.

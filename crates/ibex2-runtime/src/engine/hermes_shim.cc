@@ -632,6 +632,20 @@ size_t ibex2_hermes_test_websocket_keepalive_count(void *handle) {
   return rt->bindings->websocket_keepalive_count_for_test();
 }
 
+int ibex2_hermes_test_expose_timer_dispatch(void *handle) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
+    return 0;
+  try {
+    rt->runtime->global().setProperty(
+        *rt->runtime, "__ibex2_test_timer_dispatch",
+        rt->bindings->timer_dispatch_for_test());
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
 /// Block until a host task is ready, or the timeout elapses.
 ///
 /// A real embedder calls this instead of spinning: it wakes when there is work
