@@ -21,7 +21,7 @@ const ASSET: &str = "hermes-vanilla-test-target.tar.gz";
 const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
 #[test]
-fn target_to_asset_mapping_includes_ios_simulator_aliases() {
+fn target_to_asset_mapping_includes_apple_simulator_aliases() {
     assert_eq!(
         pin_for_target("aarch64-apple-ios-sim")
             .expect("arm simulator pin")
@@ -34,8 +34,44 @@ fn target_to_asset_mapping_includes_ios_simulator_aliases() {
             .asset,
         "hermes-vanilla-universal-apple-ios-simulator.tar.gz"
     );
+    assert_eq!(
+        pin_for_target("aarch64-apple-tvos")
+            .expect("tvOS device pin")
+            .asset,
+        "hermes-vanilla-aarch64-apple-tvos.tar.gz"
+    );
+    assert_eq!(
+        pin_for_target("aarch64-apple-tvos-sim")
+            .expect("tvOS simulator pin")
+            .asset,
+        "hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz"
+    );
     let error = pin_for_target("riscv64-unknown-linux-gnu").expect_err("unsupported target");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
+}
+
+#[test]
+fn repository_installs_keep_macos_and_tvos_targets_separate() {
+    let temporary = tempfile::tempdir().expect("temporary repository");
+    for relative in [
+        "ios/Frameworks-vanilla",
+        "tvos/Frameworks-vanilla",
+        "tvos-simulator/Frameworks-vanilla",
+    ] {
+        fs::create_dir_all(temporary.path().join(relative)).expect("repository install");
+    }
+    assert_eq!(
+        repository_install_root(temporary.path(), "aarch64-apple-darwin"),
+        Some(temporary.path().join("ios/Frameworks-vanilla"))
+    );
+    assert_eq!(
+        repository_install_root(temporary.path(), "aarch64-apple-tvos"),
+        Some(temporary.path().join("tvos/Frameworks-vanilla"))
+    );
+    assert_eq!(
+        repository_install_root(temporary.path(), "aarch64-apple-tvos-sim"),
+        Some(temporary.path().join("tvos-simulator/Frameworks-vanilla"))
+    );
 }
 
 #[test]
@@ -96,7 +132,7 @@ fn pin_table_digest_parser_accepts_only_sha256_hex() {
     );
     assert!(parse_pin_sha256("abc").is_err());
     assert!(parse_pin_sha256(&"g".repeat(64)).is_err());
-    let placeholder = parse_pin_sha256("TODO_L1G_SHA256_TEST").expect_err("sentinel");
+    let placeholder = parse_pin_sha256("TODO_I3_V4_SHA256_TEST").expect_err("sentinel");
     assert!(
         placeholder.contains("awaiting publication"),
         "{placeholder}"

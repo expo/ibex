@@ -53,7 +53,7 @@ const table = source.slice(tableStart, tableEnd + 3).replace(
   },
 );
 
-if (assets.size !== 7) die(`pin table names ${assets.size} unique assets; expected 7`);
+if (assets.size !== 9) die(`pin table names ${assets.size} unique assets; expected 9`);
 for (const asset of checksums.keys()) {
   if (!assets.has(asset)) die(`${checksumsPath} contains unexpected archive ${asset}`);
 }

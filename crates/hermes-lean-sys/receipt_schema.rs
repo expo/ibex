@@ -12,11 +12,13 @@ pub(crate) const EMPTY_PATCH_SET: &str =
     "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /// Translate Rust target aliases to the exact target identifier carried by
-/// the selected published bundle. Both simulator architectures consume the
-/// same universal release artifact and therefore the same receipt identity.
+/// the selected published bundle. The iOS simulator architectures consume the
+/// same universal artifact; the arm64 tvOS simulator uses the publisher's
+/// `-simulator` receipt identity.
 pub(crate) fn bundle_target_for_rust_target(target: &str) -> &str {
     match target {
         "aarch64-apple-ios-sim" | "x86_64-apple-ios" => "universal-apple-ios-simulator",
+        "aarch64-apple-tvos-sim" => "aarch64-apple-tvos-simulator",
         target => target,
     }
 }
@@ -470,6 +472,14 @@ mod tests {
         assert_eq!(
             bundle_target_for_rust_target("aarch64-apple-ios"),
             "aarch64-apple-ios"
+        );
+        assert_eq!(
+            bundle_target_for_rust_target("aarch64-apple-tvos-sim"),
+            "aarch64-apple-tvos-simulator"
+        );
+        assert_eq!(
+            bundle_target_for_rust_target("aarch64-apple-tvos"),
+            "aarch64-apple-tvos"
         );
     }
 

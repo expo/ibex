@@ -439,9 +439,10 @@ data tier while linking another. Legacy local
 layouts may omit lean; they export no lean path, digest, or
 HBC version and fail only if `link-lean` is requested. Published v4 bundles
 must carry and manifest all three ICU data archives. Repository discovery uses
-the Apple layout only
-for macOS targets; iOS cross builds fall through to their pinned target bundle
-or an explicit complete `HERMES_LEAN_SYS_DIR`.
+`ios/Frameworks-vanilla` only for macOS; tvOS device and Simulator installs
+use `tvos/Frameworks-vanilla` and `tvos-simulator/Frameworks-vanilla` so they
+cannot be mistaken for the host engine. iOS cross builds fall through to their
+pinned target bundle or an explicit complete `HERMES_LEAN_SYS_DIR`.
 
 Two consumption modes are supported:
 
