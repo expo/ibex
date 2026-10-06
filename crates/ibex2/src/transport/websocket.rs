@@ -1,8 +1,8 @@
 //! A WebSocket client off Apple (RFC 6455): TCP from the standard
 //! library, TLS from the same rustls and trust store as `RustlsHttpTransport`.
-//! One bounded writer queue serializes every masked client frame and accounts
-//! queued data; the reader joins fragments and admits control replies without
-//! ever blocking behind that writer.
+//! One readiness-driven I/O pump owns each socket and rustls connection. It
+//! multiplexes the bounded outbound queue with requested receives, so control
+//! frames remain live while a large data message drains.
 //! @ref LLP 0057#3-the-boundary — the platform owns the socket and TLS
 
 use crate::boundary::HostError;
@@ -13,10 +13,13 @@ use crate::stdlib::websocket::{
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
     mpsc, Arc, Mutex,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+#[path = "websocket_ready.rs"]
+mod readiness;
 
 const MAX_HEAD: usize = 16 << 10;
 const FRAGMENT: usize = 16 << 10;
@@ -95,49 +98,12 @@ enum Wire {
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
-/// rustls keeps read and write protocol state in one connection, so the two
-/// socket halves cannot use independent `StreamOwned`s. Give a queued writer
-/// priority over the receive loop instead: otherwise a timed-out reader can
-/// immediately reacquire an unfair platform mutex forever. Linux's mutex does
-/// exactly that under contention; Darwin happened to hand the lock over.
-/// @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — portable framing has one serialized rustls connection
-struct SharedWire {
-    wire: Mutex<Wire>,
-    writer_waiting: AtomicBool,
-}
-
-impl SharedWire {
-    fn new(wire: Wire) -> Self {
-        Self {
-            wire: Mutex::new(wire),
-            writer_waiting: AtomicBool::new(false),
+impl Wire {
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Self::Plain(tcp) => tcp,
+            Self::Tls(tls) => &tls.sock,
         }
-    }
-
-    fn read(&self, out: &mut [u8]) -> std::io::Result<usize> {
-        loop {
-            while self.writer_waiting.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
-            let mut wire = self.wire.lock().expect("socket wire poisoned");
-            // Close the check-to-lock race. A writer which announced itself
-            // while this reader acquired the mutex gets the next turn.
-            if self.writer_waiting.load(Ordering::Acquire) {
-                drop(wire);
-                continue;
-            }
-            return wire.read(out);
-        }
-    }
-
-    fn write(
-        &self,
-        operation: impl FnOnce(&mut Wire) -> std::io::Result<()>,
-    ) -> std::io::Result<()> {
-        self.writer_waiting.store(true, Ordering::Release);
-        let result = operation(&mut self.wire.lock().expect("socket wire poisoned"));
-        self.writer_waiting.store(false, Ordering::Release);
-        result
     }
 }
 
@@ -245,59 +211,55 @@ impl TcpSocketTransport {
                 Err(aborted) => aborted,
                 Ok(()) => e,
             })?;
-        // Windows clones do not share these timeout options. Configure the
-        // retained I/O handle, not a handle used only to shut it down.
-        let tcp = match &wire {
-            Wire::Plain(tcp) => tcp,
-            Wire::Tls(tls) => &tls.sock,
-        };
-        tcp.set_read_timeout(Some(Duration::from_millis(25)))
-            .map_err(failed)?;
-        // A writer holds the shared wire while a frame drains. If the peer
-        // stops reading, that write must not block forever: the stall is
-        // bounded, and then the connection fails like any other write error.
-        tcp.set_write_timeout(Some(WRITE_STALL_TIMEOUT))
-            .map_err(failed)?;
-        let wire = Arc::new(SharedWire::new(wire));
+        // After the bounded blocking handshake, one pump owns the retained
+        // handle and drives both directions from readiness. Socket timeout
+        // options are deliberately cleared: the no-progress deadline below
+        // is the only write-stall clock, and an idle read blocks in poll.
+        wire.tcp().set_read_timeout(None).map_err(failed)?;
+        wire.tcp().set_write_timeout(None).map_err(failed)?;
+        wire.tcp().set_nonblocking(true).map_err(failed)?;
         let buffered_amount = Arc::new(AtomicUsize::new(0));
+        let command_count = Arc::new(AtomicUsize::new(0));
         let send_state = Arc::new(Mutex::new(SendState {
             phase: OPEN,
             queued_bytes: 0,
             queued_messages: 0,
         }));
         let (commands, outgoing) = mpsc::sync_channel(MAX_OUTBOUND_COMMANDS);
+        let (requests, incoming) = mpsc::sync_channel(1);
+        let (wake, waiter) = readiness::pair().map_err(failed)?;
         let sender = Arc::new(TcpSender {
             commands,
+            wake: wake.clone(),
+            command_count: Arc::clone(&command_count),
             buffered: Arc::clone(&buffered_amount),
             state: Arc::clone(&send_state),
             shutdown: shutdown.try_clone().map_err(failed)?,
         });
-        let writer_wire = Arc::clone(&wire);
-        let writer_shutdown = shutdown.try_clone().map_err(failed)?;
+        let pump_shutdown = shutdown.try_clone().map_err(failed)?;
+        let pump_signal = signal.clone();
         #[cfg(test)]
         let writer_gate = self.writer_gate.clone();
         std::thread::spawn(move || {
-            #[cfg(test)]
-            if let Some(gate) = writer_gate {
-                let (lock, ready) = &*gate;
-                let mut open = lock.lock().expect("WebSocket writer gate poisoned");
-                while !*open {
-                    open = ready.wait(open).expect("WebSocket writer gate poisoned");
-                }
-            }
-            writer_loop(
+            pump_loop(
+                wire,
+                buffered,
+                max_message,
                 outgoing,
-                writer_wire,
-                writer_shutdown,
+                incoming,
+                waiter,
+                pump_shutdown,
                 buffered_amount,
+                command_count,
                 send_state,
+                pump_signal,
+                #[cfg(test)]
+                writer_gate,
             )
         });
         Ok(Socket {
-            wire,
-            buffered,
-            at: 0,
-            limit: max_message,
+            requests,
+            wake,
             shutdown,
             signal: signal.clone(),
             _registration: registration,
@@ -395,10 +357,8 @@ fn handshake(
 }
 
 struct Socket {
-    wire: Arc<SharedWire>,
-    buffered: Vec<u8>,
-    at: usize,
-    limit: usize,
+    requests: mpsc::SyncSender<ReceiveRequest>,
+    wake: readiness::Wake,
     shutdown: TcpStream,
     signal: AbortSignal,
     _registration: AbortRegistration,
@@ -424,6 +384,8 @@ enum Command {
 
 struct TcpSender {
     commands: mpsc::SyncSender<Command>,
+    wake: readiness::Wake,
+    command_count: Arc<AtomicUsize>,
     buffered: Arc<AtomicUsize>,
     state: Arc<Mutex<SendState>>,
     shutdown: TcpStream,
@@ -451,9 +413,24 @@ impl CommandQueueError {
 
 impl TcpSender {
     fn queue(&self, state: &mut SendState, command: Command) -> Result<(), CommandQueueError> {
+        if self
+            .command_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < MAX_OUTBOUND_COMMANDS).then_some(count + 1)
+            })
+            .is_err()
+        {
+            state.phase = CLOSED;
+            let _ = self.shutdown.shutdown(Shutdown::Both);
+            return Err(CommandQueueError::Full);
+        }
         match self.commands.try_send(command) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.wake.notify();
+                Ok(())
+            }
             Err(mpsc::TrySendError::Full(_)) => {
+                self.command_count.fetch_sub(1, Ordering::AcqRel);
                 // A peer that does not read can prevent even a close frame
                 // from draining. Fail abruptly instead of adding an unbounded
                 // control-frame escape hatch beside the data quotas.
@@ -462,6 +439,7 @@ impl TcpSender {
                 Err(CommandQueueError::Full)
             }
             Err(mpsc::TrySendError::Disconnected(_)) => {
+                self.command_count.fetch_sub(1, Ordering::AcqRel);
                 state.phase = CLOSED;
                 let _ = self.shutdown.shutdown(Shutdown::Both);
                 Err(CommandQueueError::Closed)
@@ -509,51 +487,12 @@ impl TcpSender {
         Ok(())
     }
 
-    fn control(&self, opcode: u8, payload: Vec<u8>) -> Result<(), HostError> {
-        let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase == OPEN {
-            self.queue(&mut state, Command::Control { opcode, payload })
-                .map_err(CommandQueueError::host_error)?;
-        }
-        Ok(())
-    }
-
     fn mark_closed(&self) {
         self.state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
     }
 
     fn phase(&self) -> u8 {
         self.state.lock().expect("WebSocket sender poisoned").phase
-    }
-
-    fn peer_close(&self, payload: Vec<u8>) {
-        let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase == OPEN {
-            state.phase = CLOSING;
-            let _ = self.queue(
-                &mut state,
-                Command::Control {
-                    opcode: 0x8,
-                    payload,
-                },
-            );
-        }
-        state.phase = CLOSED;
-    }
-
-    fn fail_too_large(&self) {
-        let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase != OPEN {
-            return;
-        }
-        state.phase = CLOSING;
-        let _ = self.queue(
-            &mut state,
-            Command::Control {
-                opcode: 0x8,
-                payload: 1009u16.to_be_bytes().to_vec(),
-            },
-        );
     }
 }
 
@@ -598,61 +537,6 @@ fn saturating_add(amount: &AtomicUsize, bytes: usize) {
     });
 }
 
-fn writer_loop(
-    commands: mpsc::Receiver<Command>,
-    wire: Arc<SharedWire>,
-    shutdown: TcpStream,
-    buffered: Arc<AtomicUsize>,
-    state: Arc<Mutex<SendState>>,
-) {
-    let mut close_written = false;
-    while let Ok(command) = commands.recv() {
-        let (result, accounted, closing) = match command {
-            Command::Data {
-                opcode,
-                payload,
-                accounted,
-            } if !close_written => (write_message(&wire, opcode, &payload), accounted, false),
-            Command::Data { .. } => {
-                // A data command that lost a race with a written close is
-                // discarded and remains in bufferedAmount permanently.
-                continue;
-            }
-            Command::Control { opcode, payload } => {
-                let result = write_one(&wire, true, opcode, &payload);
-                (result, 0, opcode == 0x8)
-            }
-        };
-        if result.is_err() {
-            state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
-            let _ = shutdown.shutdown(Shutdown::Both);
-            return;
-        }
-        if accounted != 0 {
-            buffered.fetch_sub(accounted, Ordering::AcqRel);
-            let mut state = state.lock().expect("WebSocket sender poisoned");
-            state.queued_bytes = state.queued_bytes.saturating_sub(accounted);
-            state.queued_messages = state.queued_messages.saturating_sub(1);
-        }
-        if closing {
-            close_written = true;
-        }
-    }
-}
-
-fn write_message(wire: &SharedWire, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
-    if payload.is_empty() {
-        return write_one(wire, true, opcode, payload);
-    }
-    // One fragment per turn on the wire. Only this writer thread sends, so
-    // fragments stay contiguous on the wire; the reader may run in between.
-    for (index, chunk) in payload.chunks(FRAGMENT).enumerate() {
-        let fin = (index + 1) * FRAGMENT >= payload.len();
-        write_one(wire, fin, if index == 0 { opcode } else { 0 }, chunk)?;
-    }
-    Ok(())
-}
-
 /// How long one frame may wait for a peer that is not reading before the
 /// connection fails. Short in unit tests so the stall path is exercised.
 #[cfg(not(test))]
@@ -660,12 +544,755 @@ const WRITE_STALL_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(test)]
 const WRITE_STALL_TIMEOUT: Duration = Duration::from_millis(500);
 
-fn write_one(wire: &SharedWire, fin: bool, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
-    let frame = masked_frame(fin, opcode, payload)?;
-    wire.write(|wire| {
-        wire.write_all(&frame)?;
-        wire.flush()
-    })
+struct ReceiveRequest {
+    binary_payload: bool,
+    reply: mpsc::SyncSender<Result<Received, HostError>>,
+}
+
+struct ReceiveOperation {
+    binary_payload: bool,
+    message: Option<(u8, Vec<u8>)>,
+}
+
+struct Input {
+    bytes: Vec<u8>,
+    at: usize,
+}
+
+impl Input {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, at: 0 }
+    }
+
+    fn available(&self) -> &[u8] {
+        &self.bytes[self.at..]
+    }
+
+    fn append(&mut self, bytes: &[u8]) {
+        if self.at == self.bytes.len() {
+            self.bytes.clear();
+            self.at = 0;
+        } else if self.at > 0 && self.at >= self.bytes.len() / 2 {
+            self.bytes.drain(..self.at);
+            self.at = 0;
+        }
+        self.bytes.extend_from_slice(bytes);
+    }
+
+    fn take(&mut self, count: usize) -> Vec<u8> {
+        let start = self.at;
+        self.at += count;
+        self.bytes[start..start + count].to_vec()
+    }
+
+    fn discard(&mut self, count: usize) {
+        self.at += count;
+    }
+}
+
+struct ActiveData {
+    opcode: u8,
+    payload: Vec<u8>,
+    accounted: usize,
+    next: usize,
+}
+
+impl ActiveData {
+    fn frame(&mut self) -> std::io::Result<(Vec<u8>, bool)> {
+        if self.payload.is_empty() {
+            return masked_frame(true, self.opcode, &[]).map(|frame| (frame, true));
+        }
+        let start = self.next;
+        let end = start.saturating_add(FRAGMENT).min(self.payload.len());
+        self.next = end;
+        let final_fragment = end == self.payload.len();
+        masked_frame(
+            final_fragment,
+            if start == 0 { self.opcode } else { 0 },
+            &self.payload[start..end],
+        )
+        .map(|frame| (frame, final_fragment))
+    }
+}
+
+enum FrameKind {
+    Data { final_fragment: bool },
+    Control { opcode: u8 },
+}
+
+struct OutgoingFrame {
+    bytes: Vec<u8>,
+    at: usize,
+    kind: FrameKind,
+}
+
+struct Control {
+    opcode: u8,
+    payload: Vec<u8>,
+}
+
+enum Parse {
+    NeedData,
+    Received(Received),
+}
+
+enum ReadProgress {
+    Bytes,
+    Eof,
+    Blocked,
+}
+
+struct WriteProgress {
+    advanced: bool,
+    network_bytes: usize,
+}
+
+impl Wire {
+    fn wants_write(&self) -> bool {
+        match self {
+            Self::Plain(_) => false,
+            Self::Tls(tls) => tls.conn.wants_write(),
+        }
+    }
+
+    fn read_into(&mut self, input: &mut Input) -> std::io::Result<ReadProgress> {
+        let mut bytes = [0; 16 << 10];
+        match self {
+            Self::Plain(tcp) => match tcp.read(&mut bytes) {
+                Ok(0) => Ok(ReadProgress::Eof),
+                Ok(count) => {
+                    input.append(&bytes[..count]);
+                    Ok(ReadProgress::Bytes)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    Ok(ReadProgress::Blocked)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                    Ok(ReadProgress::Bytes)
+                }
+                Err(error) => Err(error),
+            },
+            Self::Tls(tls) => match tls.conn.reader().read(&mut bytes) {
+                Ok(0) => Ok(ReadProgress::Eof),
+                Ok(count) => {
+                    input.append(&bytes[..count]);
+                    Ok(ReadProgress::Bytes)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    match tls.conn.read_tls(&mut tls.sock) {
+                        Ok(0) => Ok(ReadProgress::Eof),
+                        Ok(_) => {
+                            tls.conn.process_new_packets().map_err(|error| {
+                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+                            })?;
+                            Ok(ReadProgress::Bytes)
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            Ok(ReadProgress::Blocked)
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                            Ok(ReadProgress::Bytes)
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                Err(error) => Err(error),
+            },
+        }
+    }
+
+    fn write_frame(&mut self, frame: &mut OutgoingFrame) -> std::io::Result<WriteProgress> {
+        match self {
+            Self::Plain(_) if frame.at == frame.bytes.len() => Ok(WriteProgress {
+                advanced: false,
+                network_bytes: 0,
+            }),
+            Self::Plain(tcp) => match tcp.write(&frame.bytes[frame.at..]) {
+                Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
+                Ok(count) => {
+                    frame.at += count;
+                    Ok(WriteProgress {
+                        advanced: true,
+                        network_bytes: count,
+                    })
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(WriteProgress {
+                    advanced: false,
+                    network_bytes: 0,
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                    Ok(WriteProgress {
+                        advanced: true,
+                        network_bytes: 0,
+                    })
+                }
+                Err(error) => Err(error),
+            },
+            Self::Tls(tls) => {
+                if tls.conn.wants_write() {
+                    return match tls.conn.write_tls(&mut tls.sock) {
+                        Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
+                        Ok(count) => Ok(WriteProgress {
+                            advanced: true,
+                            network_bytes: count,
+                        }),
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            Ok(WriteProgress {
+                                advanced: false,
+                                network_bytes: 0,
+                            })
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                            Ok(WriteProgress {
+                                advanced: true,
+                                network_bytes: 0,
+                            })
+                        }
+                        Err(error) => Err(error),
+                    };
+                }
+                if frame.at == frame.bytes.len() {
+                    return Ok(WriteProgress {
+                        advanced: false,
+                        network_bytes: 0,
+                    });
+                }
+                let count = tls.conn.writer().write(&frame.bytes[frame.at..])?;
+                if count == 0 {
+                    return Err(std::io::ErrorKind::WriteZero.into());
+                }
+                frame.at += count;
+                Ok(WriteProgress {
+                    advanced: true,
+                    network_bytes: 0,
+                })
+            }
+        }
+    }
+
+    fn frame_flushed(&self, frame: &OutgoingFrame) -> bool {
+        frame.at == frame.bytes.len() && !self.wants_write()
+    }
+
+    fn write_tls_pending(&mut self) -> std::io::Result<WriteProgress> {
+        let Self::Tls(tls) = self else {
+            return Ok(WriteProgress {
+                advanced: false,
+                network_bytes: 0,
+            });
+        };
+        match tls.conn.write_tls(&mut tls.sock) {
+            Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(count) => Ok(WriteProgress {
+                advanced: true,
+                network_bytes: count,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(WriteProgress {
+                advanced: false,
+                network_bytes: 0,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(WriteProgress {
+                advanced: true,
+                network_bytes: 0,
+            }),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn parse_available(
+    operation: &mut ReceiveOperation,
+    input: &mut Input,
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    state: &Arc<Mutex<SendState>>,
+    limit: usize,
+) -> Result<Parse, HostError> {
+    loop {
+        let bytes = input.available();
+        if bytes.len() < 2 {
+            return Ok(Parse::NeedData);
+        }
+        let (fin, opcode) = (bytes[0] & 0x80 != 0, bytes[0] & 0x0f);
+        if bytes[0] & 0x70 != 0 || bytes[1] & 0x80 != 0 {
+            return Err(protocol("reserved bits, or a masked server frame"));
+        }
+        let (head, length) = match bytes[1] & 0x7f {
+            126 if bytes.len() < 4 => return Ok(Parse::NeedData),
+            126 => (4, u16::from_be_bytes([bytes[2], bytes[3]]) as u64),
+            127 if bytes.len() < 10 => return Ok(Parse::NeedData),
+            127 => (10, u64::from_be_bytes(bytes[2..10].try_into().unwrap())),
+            length => (2, length as u64),
+        };
+        if opcode >= 8 && (!fin || length > 125) {
+            return Err(protocol("a fragmented or long control frame"));
+        }
+        // Preserve the receive-only API exact2 already consumes: the first
+        // binary frame's declared length returns before its payload is read or
+        // allocated. Event consumers use the payload-bearing path below.
+        if opcode == 0x2 && operation.message.is_none() && !operation.binary_payload {
+            input.discard(head);
+            return Ok(Parse::Received(Received::BinaryLength(length as usize)));
+        }
+        if opcode < 8 {
+            match (opcode, &operation.message) {
+                (0x1, None) | (0x2, None) => {}
+                (0x0, Some(_)) => {}
+                _ => return Err(protocol("a frame out of sequence")),
+            }
+            let so_far = operation
+                .message
+                .as_ref()
+                .map_or(0, |(_, message)| message.len()) as u64;
+            if so_far.saturating_add(length) > limit as u64 {
+                input.discard(head);
+                let mut send = state.lock().expect("WebSocket sender poisoned");
+                if send.phase == OPEN {
+                    reserve_control(command_count)?;
+                    send.phase = CLOSING;
+                    controls.push_front(Control {
+                        opcode: 0x8,
+                        payload: 1009u16.to_be_bytes().to_vec(),
+                    });
+                }
+                return Ok(Parse::Received(Received::TooLarge));
+            }
+        }
+        let Ok(length) = usize::try_from(length) else {
+            return Err(protocol("a frame length that does not fit this platform"));
+        };
+        if input.available().len() < head.saturating_add(length) {
+            return Ok(Parse::NeedData);
+        }
+        input.discard(head);
+        let payload = input.take(length);
+        if opcode >= 8 {
+            match opcode {
+                0x8 => {
+                    let code = match payload.len() {
+                        0 => 1005,
+                        1 => return Err(protocol("a one-byte close")),
+                        _ => u16::from_be_bytes([payload[0], payload[1]]),
+                    };
+                    if code != 1005
+                        && (!(1000..=4999).contains(&code)
+                            || matches!(code, 1004 | 1005 | 1006 | 1015))
+                    {
+                        return Err(protocol("an invalid close code"));
+                    }
+                    let reason = std::str::from_utf8(payload.get(2..).unwrap_or(&[]))
+                        .map_err(|_| protocol("a close reason that is not UTF-8"))?;
+                    let echo = if code == 1005 {
+                        vec![]
+                    } else {
+                        payload.clone()
+                    };
+                    let mut send = state.lock().expect("WebSocket sender poisoned");
+                    if send.phase == OPEN {
+                        command_count.fetch_sub(controls.len(), Ordering::AcqRel);
+                        controls.clear();
+                        reserve_control(command_count)?;
+                        send.phase = CLOSING;
+                        controls.push_front(Control {
+                            opcode: 0x8,
+                            payload: echo,
+                        });
+                    }
+                    send.phase = CLOSED;
+                    return Ok(Parse::Received(Received::Closed {
+                        code,
+                        reason: reason.to_string(),
+                    }));
+                }
+                0x9 => {
+                    reserve_control(command_count)?;
+                    controls.push_back(Control {
+                        opcode: 0xA,
+                        payload,
+                    });
+                }
+                0xA => {}
+                _ => return Err(protocol("an unknown control opcode")),
+            }
+            continue;
+        }
+        if matches!(opcode, 0x1 | 0x2) {
+            operation.message = Some((opcode, Vec::new()));
+        }
+        let (_, whole) = operation.message.as_mut().unwrap();
+        whole.extend_from_slice(&payload);
+        if fin {
+            let (kind, bytes) = operation.message.take().unwrap();
+            let received = if kind == 0x1 {
+                Received::Text(
+                    String::from_utf8(bytes)
+                        .map_err(|_| protocol("a text message that is not UTF-8"))?,
+                )
+            } else {
+                Received::Binary(bytes)
+            };
+            return Ok(Parse::Received(received));
+        }
+    }
+}
+
+fn reserve_control(command_count: &AtomicUsize) -> Result<(), HostError> {
+    command_count
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < MAX_OUTBOUND_COMMANDS).then_some(count + 1)
+        })
+        .map(|_| ())
+        .map_err(|_| HostError::Failed("the socket's outbound command queue is full".into()))
+}
+
+fn finish_data(
+    active: &mut Option<ActiveData>,
+    buffered: &AtomicUsize,
+    command_count: &AtomicUsize,
+    state: &Mutex<SendState>,
+) {
+    let Some(data) = active.take() else {
+        return;
+    };
+    if data.accounted != 0 {
+        buffered.fetch_sub(data.accounted, Ordering::AcqRel);
+    }
+    command_count.fetch_sub(1, Ordering::AcqRel);
+    let mut state = state.lock().expect("WebSocket sender poisoned");
+    state.queued_bytes = state.queued_bytes.saturating_sub(data.accounted);
+    state.queued_messages = state.queued_messages.saturating_sub(1);
+}
+
+fn fail_pump(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    error: HostError,
+    state: &Mutex<SendState>,
+    shutdown: &TcpStream,
+) {
+    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
+    if let Some((request, _)) = request.take() {
+        let _ = request.reply.send(Err(error));
+    }
+    let _ = shutdown.shutdown(Shutdown::Both);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pump_loop(
+    mut wire: Wire,
+    buffered_input: Vec<u8>,
+    limit: usize,
+    commands: mpsc::Receiver<Command>,
+    requests: mpsc::Receiver<ReceiveRequest>,
+    waiter: readiness::Waiter,
+    shutdown: TcpStream,
+    buffered: Arc<AtomicUsize>,
+    command_count: Arc<AtomicUsize>,
+    state: Arc<Mutex<SendState>>,
+    signal: AbortSignal,
+    #[cfg(test)] writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
+) {
+    let mut input = Input::new(buffered_input);
+    let mut request: Option<(ReceiveRequest, ReceiveOperation)> = None;
+    let mut controls = std::collections::VecDeque::new();
+    let mut active: Option<ActiveData> = None;
+    let mut frame: Option<OutgoingFrame> = None;
+    let mut close_written = false;
+    let mut last_write_progress: Option<Instant> = None;
+
+    loop {
+        if let Err(error) = signal.check() {
+            fail_pump(&mut request, error, &state, &shutdown);
+            return;
+        }
+        if close_written {
+            while commands.try_recv().is_ok() {
+                command_count.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+        if request.is_none() {
+            match requests.try_recv() {
+                Ok(next) => {
+                    let operation = ReceiveOperation {
+                        binary_payload: next.binary_payload,
+                        message: None,
+                    };
+                    request = Some((next, operation));
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
+        }
+
+        if let Some((_, operation)) = request.as_mut() {
+            match parse_available(
+                operation,
+                &mut input,
+                &mut controls,
+                &command_count,
+                &state,
+                limit,
+            ) {
+                Ok(Parse::Received(received)) => {
+                    let (finished, _) = request.take().unwrap();
+                    let _ = finished.reply.send(Ok(received));
+                    continue;
+                }
+                Ok(Parse::NeedData) => {}
+                Err(error) => {
+                    fail_pump(&mut request, error, &state, &shutdown);
+                    return;
+                }
+            }
+        }
+
+        if request.is_some() {
+            match wire.read_into(&mut input) {
+                Ok(ReadProgress::Bytes) => continue,
+                Ok(ReadProgress::Eof) => {
+                    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
+                    let received = if signal.aborted() {
+                        Err(signal.check().unwrap_err())
+                    } else {
+                        Ok(Received::Closed {
+                            code: 1006,
+                            reason: String::new(),
+                        })
+                    };
+                    if let Some((finished, _)) = request.take() {
+                        let _ = finished.reply.send(received);
+                    }
+                    let _ = shutdown.shutdown(Shutdown::Both);
+                    return;
+                }
+                Ok(ReadProgress::Blocked) => {}
+                Err(_) if signal.aborted() => {
+                    fail_pump(&mut request, signal.check().unwrap_err(), &state, &shutdown);
+                    return;
+                }
+                Err(_) => {
+                    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
+                    if let Some((finished, _)) = request.take() {
+                        let _ = finished.reply.send(Ok(Received::Closed {
+                            code: 1006,
+                            reason: String::new(),
+                        }));
+                    }
+                    let _ = shutdown.shutdown(Shutdown::Both);
+                    return;
+                }
+            }
+        }
+
+        if frame.is_none() && !wire.wants_write() {
+            if let Some(control) = controls.pop_front() {
+                match masked_frame(true, control.opcode, &control.payload) {
+                    Ok(bytes) => {
+                        frame = Some(OutgoingFrame {
+                            bytes,
+                            at: 0,
+                            kind: FrameKind::Control {
+                                opcode: control.opcode,
+                            },
+                        });
+                    }
+                    Err(error) => {
+                        fail_pump(
+                            &mut request,
+                            HostError::Failed(error.to_string()),
+                            &state,
+                            &shutdown,
+                        );
+                        return;
+                    }
+                }
+            } else if !close_written {
+                if active.is_none() {
+                    match commands.try_recv() {
+                        Ok(Command::Data {
+                            opcode,
+                            payload,
+                            accounted,
+                        }) => {
+                            active = Some(ActiveData {
+                                opcode,
+                                payload,
+                                accounted,
+                                next: 0,
+                            });
+                        }
+                        Ok(Command::Control { opcode, payload }) => {
+                            match masked_frame(true, opcode, &payload) {
+                                Ok(bytes) => {
+                                    frame = Some(OutgoingFrame {
+                                        bytes,
+                                        at: 0,
+                                        kind: FrameKind::Control { opcode },
+                                    });
+                                }
+                                Err(error) => {
+                                    fail_pump(
+                                        &mut request,
+                                        HostError::Failed(error.to_string()),
+                                        &state,
+                                        &shutdown,
+                                    );
+                                    return;
+                                }
+                            }
+                        }
+                        Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => {}
+                    }
+                }
+                if frame.is_none() {
+                    if let Some(data) = active.as_mut() {
+                        match data.frame() {
+                            Ok((bytes, final_fragment)) => {
+                                frame = Some(OutgoingFrame {
+                                    bytes,
+                                    at: 0,
+                                    kind: FrameKind::Data { final_fragment },
+                                });
+                            }
+                            Err(error) => {
+                                fail_pump(
+                                    &mut request,
+                                    HostError::Failed(error.to_string()),
+                                    &state,
+                                    &shutdown,
+                                );
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let writes_allowed = {
+            #[cfg(test)]
+            {
+                writer_gate
+                    .as_ref()
+                    .is_none_or(|gate| *gate.0.lock().expect("WebSocket writer gate poisoned"))
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+        if writes_allowed {
+            if let Some(outgoing) = frame.as_mut() {
+                match wire.write_frame(outgoing) {
+                    Ok(progress) => {
+                        if progress.network_bytes != 0 {
+                            last_write_progress = Some(Instant::now());
+                        }
+                        if progress.advanced {
+                            continue;
+                        }
+                    }
+                    Err(error) => {
+                        fail_pump(
+                            &mut request,
+                            HostError::Failed(format!("the socket write failed: {error}")),
+                            &state,
+                            &shutdown,
+                        );
+                        return;
+                    }
+                }
+                if wire.frame_flushed(outgoing) {
+                    let completed = frame.take().unwrap();
+                    match completed.kind {
+                        FrameKind::Data { final_fragment } if final_fragment => {
+                            finish_data(&mut active, &buffered, &command_count, &state);
+                        }
+                        FrameKind::Data { .. } => {}
+                        FrameKind::Control { opcode: 0x8 } => {
+                            command_count.fetch_sub(1, Ordering::AcqRel);
+                            close_written = true;
+                            if active.take().is_some() {
+                                command_count.fetch_sub(1, Ordering::AcqRel);
+                            }
+                        }
+                        FrameKind::Control { .. } => {
+                            command_count.fetch_sub(1, Ordering::AcqRel);
+                        }
+                    }
+                    last_write_progress = None;
+                    continue;
+                }
+            } else if wire.wants_write() {
+                match wire.write_tls_pending() {
+                    Ok(progress) => {
+                        if progress.network_bytes != 0 {
+                            last_write_progress = Some(Instant::now());
+                        }
+                        if progress.advanced {
+                            continue;
+                        }
+                    }
+                    Err(error) => {
+                        fail_pump(
+                            &mut request,
+                            HostError::Failed(format!("the socket write failed: {error}")),
+                            &state,
+                            &shutdown,
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
+        let pending_write = frame.is_some() || wire.wants_write();
+        let timeout = if pending_write {
+            let last = *last_write_progress.get_or_insert_with(Instant::now);
+            let elapsed = last.elapsed();
+            if elapsed >= WRITE_STALL_TIMEOUT {
+                fail_pump(
+                    &mut request,
+                    HostError::Failed(
+                        "the socket write made no progress before its deadline".into(),
+                    ),
+                    &state,
+                    &shutdown,
+                );
+                return;
+            }
+            Some(WRITE_STALL_TIMEOUT - elapsed)
+        } else {
+            last_write_progress = None;
+            None
+        };
+        match waiter.wait(
+            wire.tcp(),
+            request.is_some(),
+            pending_write && writes_allowed,
+            timeout,
+        ) {
+            Ok(ready) => {
+                // With no read interest, a TCP read indication can only be a
+                // terminal poll condition. Do not spin forever on an idle
+                // connection whose peer disappeared between receive calls.
+                if ready.socket_readable && request.is_none() {
+                    state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
+                    let _ = shutdown.shutdown(Shutdown::Both);
+                    return;
+                }
+                let _ = (ready.socket_writable, ready.woken);
+            }
+            Err(error) => {
+                fail_pump(
+                    &mut request,
+                    HostError::Failed(format!("the socket readiness wait failed: {error}")),
+                    &state,
+                    &shutdown,
+                );
+                return;
+            }
+        }
+    }
 }
 
 fn masked_frame(fin: bool, opcode: u8, payload: &[u8]) -> std::io::Result<Vec<u8>> {
@@ -703,45 +1330,6 @@ enum Received {
 }
 
 impl Socket {
-    /// Exactly `n` bytes, or `None` at the end of the connection.
-    fn take(&mut self, n: usize) -> Result<Option<Vec<u8>>, HostError> {
-        let mut out = Vec::with_capacity(n);
-        let from_buffer = (self.buffered.len() - self.at).min(n);
-        out.extend_from_slice(&self.buffered[self.at..self.at + from_buffer]);
-        self.at += from_buffer;
-        if self.at == self.buffered.len() {
-            self.buffered.clear();
-            self.at = 0;
-        }
-        let mut chunk = [0u8; 16 << 10];
-        while out.len() < n {
-            let want = (n - out.len()).min(chunk.len());
-            let read = self.wire.read(&mut chunk[..want]);
-            match read {
-                // An abort shuts the connection down: that end is ours.
-                Ok(0) => return self.signal.check().map(|()| None),
-                Ok(k) => out.extend_from_slice(&chunk[..k]),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    // Reading and writing share rustls's connection state.
-                    // Yield after releasing the lock so an outbound burst is
-                    // not starved by this receive loop immediately relocking.
-                    std::thread::yield_now();
-                    continue;
-                }
-                Err(_) if self.signal.aborted() => return Err(self.signal.check().unwrap_err()),
-                // A reset is the far side going away: 1006, as a browser says.
-                Err(_) => return Ok(None),
-            }
-        }
-        Ok(Some(out))
-    }
-
     fn receive(&mut self, binary_payload: bool) -> Result<Received, HostError> {
         if self.sender.phase() == CLOSED {
             return Ok(Received::Closed {
@@ -749,123 +1337,20 @@ impl Socket {
                 reason: String::new(),
             });
         }
-        let mut message: Option<(u8, Vec<u8>)> = None;
-        loop {
-            self.signal.check()?;
-            let Some(head) = self.take(2)? else {
-                self.sender.mark_closed();
-                return Ok(Received::Closed {
-                    code: 1006,
-                    reason: String::new(),
-                });
-            };
-            let (fin, opcode) = (head[0] & 0x80 != 0, head[0] & 0x0f);
-            if head[0] & 0x70 != 0 || head[1] & 0x80 != 0 {
-                return Err(protocol("reserved bits, or a masked server frame"));
-            }
-            let len = match head[1] & 0x7f {
-                126 => match self.take(2)? {
-                    Some(b) => u16::from_be_bytes([b[0], b[1]]) as u64,
-                    None => {
-                        self.sender.mark_closed();
-                        return Ok(Received::Closed {
-                            code: 1006,
-                            reason: String::new(),
-                        });
-                    }
-                },
-                127 => match self.take(8)? {
-                    Some(b) => u64::from_be_bytes(b.try_into().unwrap()),
-                    None => {
-                        self.sender.mark_closed();
-                        return Ok(Received::Closed {
-                            code: 1006,
-                            reason: String::new(),
-                        });
-                    }
-                },
-                n => n as u64,
-            };
-            if opcode >= 8 {
-                if !fin || len > 125 {
-                    return Err(protocol("a fragmented or long control frame"));
-                }
-                let Some(payload) = self.take(len as usize)? else {
-                    self.sender.mark_closed();
-                    return Ok(Received::Closed {
-                        code: 1006,
-                        reason: String::new(),
-                    });
-                };
-                match opcode {
-                    0x8 => {
-                        let code = match payload.len() {
-                            0 => 1005,
-                            1 => return Err(protocol("a one-byte close")),
-                            _ => u16::from_be_bytes([payload[0], payload[1]]),
-                        };
-                        if code != 1005
-                            && (!(1000..=4999).contains(&code)
-                                || matches!(code, 1004 | 1005 | 1006 | 1015))
-                        {
-                            return Err(protocol("an invalid close code"));
-                        }
-                        let reason = std::str::from_utf8(payload.get(2..).unwrap_or(&[]))
-                            .map_err(|_| protocol("a close reason that is not UTF-8"))?;
-                        let echo = if code == 1005 {
-                            vec![]
-                        } else {
-                            payload.clone()
-                        };
-                        self.sender.peer_close(echo);
-                        return Ok(Received::Closed {
-                            code,
-                            reason: reason.to_string(),
-                        });
-                    }
-                    0x9 => self.sender.control(0xA, payload)?,
-                    0xA => {}
-                    _ => return Err(protocol("an unknown control opcode")),
-                }
-                continue;
-            }
-            // Preserve the receive-only API exact2 already consumes: the
-            // first binary frame's declared length is returned immediately,
-            // before its payload is read or allocated. Event consumers use
-            // the payload-bearing path below instead.
-            if opcode == 0x2 && message.is_none() && !binary_payload {
-                return Ok(Received::BinaryLength(len as usize));
-            }
-            match (opcode, &message) {
-                (0x1, None) | (0x2, None) => message = Some((opcode, Vec::new())),
-                (0x0, Some(_)) => {}
-                _ => return Err(protocol("a frame out of sequence")),
-            }
-            let so_far = message.as_ref().map_or(0, |(_, bytes)| bytes.len()) as u64;
-            if so_far + len > self.limit as u64 {
-                self.sender.fail_too_large();
-                return Ok(Received::TooLarge);
-            }
-            let Some(payload) = self.take(len as usize)? else {
-                self.sender.mark_closed();
-                return Ok(Received::Closed {
-                    code: 1006,
-                    reason: String::new(),
-                });
-            };
-            let (_, whole) = message.as_mut().unwrap();
-            whole.extend_from_slice(&payload);
-            if fin {
-                let (kind, bytes) = message.take().unwrap();
-                return if kind == 0x1 {
-                    String::from_utf8(bytes)
-                        .map(Received::Text)
-                        .map_err(|_| protocol("a text message that is not UTF-8"))
-                } else {
-                    Ok(Received::Binary(bytes))
-                };
-            }
-        }
+        self.signal.check()?;
+        let (reply, received) = mpsc::sync_channel(1);
+        self.requests
+            .send(ReceiveRequest {
+                binary_payload,
+                reply,
+            })
+            .map_err(|_| HostError::Failed("the socket is closed".into()))?;
+        self.wake.notify();
+        received.recv().map_err(|_| {
+            self.signal.check().err().unwrap_or_else(|| {
+                HostError::Failed("the socket closed before delivering a message".into())
+            })
+        })?
     }
 }
 
@@ -914,6 +1399,7 @@ impl Drop for Socket {
         }
         self.sender.mark_closed();
         let _ = self.shutdown.shutdown(Shutdown::Both);
+        self.wake.notify();
     }
 }
 

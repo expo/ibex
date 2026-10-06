@@ -708,11 +708,11 @@ fn the_rust_transport_echoes_and_closes_over_local_tls() {
     peer.join().unwrap();
 }
 
-/// Go through the production connection path, then inspect and read the socket
-/// actually retained by Wire. Configuring a shutdown clone instead regresses
-/// both progress and the writer bound on Windows.
+/// Go through the production connection path, then inspect and read a clone of
+/// the retained socket. Nonblocking mode is a property of the underlying
+/// socket on every supported platform, including Windows' duplicated handle.
 #[test]
-fn retained_plain_and_tls_sockets_have_bounded_frame_io() {
+fn retained_plain_and_tls_sockets_are_nonblocking_after_the_handshake() {
     for secure in [false, true] {
         let (transport, url, peer) = if secure {
             let (port, _, client, peer) = tls_echo_peer();
@@ -737,40 +737,14 @@ fn retained_plain_and_tls_sockets_have_bounded_frame_io() {
                 &[],
             )
             .unwrap();
-        {
-            let wire = socket.wire.wire.lock().unwrap();
-            let tcp = match &*wire {
-                Wire::Plain(tcp) => tcp,
-                Wire::Tls(tls) => &tls.sock,
-            };
-            // An OS may round options to its timer granularity. Neither the
-            // old 15 s read nor an unbounded write fits these retained bounds.
-            let read = tcp.read_timeout().unwrap().expect("bounded read");
-            let write = tcp.write_timeout().unwrap().expect("bounded write");
-            assert!((Duration::from_millis(25)..Duration::from_millis(125)).contains(&read));
-            assert!(
-                (WRITE_STALL_TIMEOUT..WRITE_STALL_TIMEOUT + Duration::from_millis(100))
-                    .contains(&write)
-            );
-        }
-        // The peer remains open and waits for our first frame. Keep a generous
-        // watchdog so a lost read bound fails instead of hanging the suite.
-        let shutdown = socket.shutdown.try_clone().unwrap();
-        let (done, finished) = channel();
-        let watchdog = std::thread::spawn(move || {
-            if finished.recv_timeout(Duration::from_secs(2)).is_err() {
-                let _ = shutdown.shutdown(Shutdown::Both);
-            }
-        });
-        let idle = socket.wire.read(&mut [0; 1]);
-        let _ = done.send(());
-        watchdog.join().unwrap();
+        let mut retained = socket.shutdown.try_clone().unwrap();
+        assert_eq!(retained.read_timeout().unwrap(), None);
+        assert_eq!(retained.write_timeout().unwrap(), None);
+        let idle = retained.read(&mut [0; 1]);
         assert!(
-            matches!(idle, Err(ref error) if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock)),
-            "idle retained Wire did not time out: {idle:?}"
+            matches!(idle, Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "idle retained socket was not nonblocking: {idle:?}"
         );
-        // A receive slice is not a failed conversation: writing and receiving
-        // after it must still work, including the shared rustls state.
         socket.send_text("after idle").unwrap();
         assert_eq!(socket.next().unwrap(), text("after idle"));
         socket.close(1000, "done").unwrap();
