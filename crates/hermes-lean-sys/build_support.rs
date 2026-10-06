@@ -1439,7 +1439,12 @@ pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
         "hermes-lean-sys-link-{arch}-{:x}",
         closure_identity.finalize()
     ));
+    seal_read_only(link_temp.path())?;
     publish_private_directory(link_temp, &closure_dir)?;
+    // Only the published closure is linked. Earlier snapshots and closures
+    // (a mutable local override can produce a new one on every rebuild) are
+    // pruned so OUT_DIR holds one closure per architecture.
+    prune_simulator_staging(out_dir, arch, &closure_dir)?;
 
     let prepared = inspected
         .into_iter()
@@ -1569,6 +1574,97 @@ fn copy_regular_archive_while_hashing(source: &Path, destination: &Path) -> Resu
         )
     })?;
     Ok(format!("sha256-{:x}", digest.finalize()))
+}
+
+/// Make every file in a private staging directory read-only before it is
+/// published. The directory itself is `tempfile`'s owner-only (0700) directory,
+/// so other accounts cannot reach it; a process running as the same account can
+/// already replace the toolchain, Cargo home and target directory, and is outside
+/// this crate's threat model. Read-only files only stop accidental rewrites.
+fn seal_read_only(directory: &Path) -> Result<(), String> {
+    let entries = fs::read_dir(directory).map_err(|error| {
+        format!(
+            "cannot list Apple Simulator staging {}: {error}",
+            directory.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "cannot list Apple Simulator staging {}: {error}",
+                directory.display()
+            )
+        })?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| {
+            format!(
+                "cannot inspect staged archive {}: {error}",
+                entry.path().display()
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(format!(
+                "Apple Simulator staging {} contains a non-regular entry {}",
+                directory.display(),
+                entry.path().display()
+            ));
+        }
+        let mut permissions = metadata.permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(entry.path(), permissions).map_err(|error| {
+            format!(
+                "cannot seal staged archive {}: {error}",
+                entry.path().display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Remove this crate's earlier snapshot and link-closure directories for
+/// `arch`, keeping only `keep`. Snapshots are not needed once the closure is
+/// published. Read-only files inside are removable because removal depends on
+/// the (owner-writable) parent directory.
+fn prune_simulator_staging(out_dir: &Path, arch: &str, keep: &Path) -> Result<(), String> {
+    let snapshot_prefix = format!("hermes-lean-sys-snapshot-{arch}-");
+    let link_prefix = format!("hermes-lean-sys-link-{arch}-");
+    let entries = fs::read_dir(out_dir).map_err(|error| {
+        format!(
+            "cannot list Apple Simulator staging parent {}: {error}",
+            out_dir.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "cannot list Apple Simulator staging parent {}: {error}",
+                out_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if path == keep {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !(name.starts_with(&snapshot_prefix) || name.starts_with(&link_prefix)) {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+        let removed = if metadata.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        removed.map_err(|error| {
+            format!(
+                "cannot prune stale Apple Simulator staging {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn publish_private_directory(

@@ -167,6 +167,7 @@ fn fat_member_becoming_thin_cannot_select_the_stale_derivative() {
         Path::new("lipo"),
     )
     .expect("first fat closure");
+    let first_derivative = fs::read(&first[1].linked).expect("old derivative");
 
     let replacement = make_thin_archive(&lib, "replacement", "member_answer", 99, "arm64");
     fs::copy(&replacement, &archives[1].source).expect("replace member with thin archive");
@@ -197,9 +198,27 @@ fn fat_member_becoming_thin_cannot_select_the_stale_derivative() {
         fs::read(&archives[1].source).expect("new source member")
     );
     assert_ne!(
-        fs::read(&first[1].linked).expect("old derivative"),
+        first_derivative,
         fs::read(&second[1].linked).expect("new thin member")
     );
+    // Earlier closures and every snapshot are pruned; what links is read-only.
+    assert!(!first_dir.exists(), "stale closure must be pruned");
+    let staging: Vec<_> = fs::read_dir(&out)
+        .expect("staging parent")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .into_string()
+                .expect("utf8")
+        })
+        .filter(|name| name.starts_with("hermes-lean-sys-"))
+        .collect();
+    assert_eq!(staging.len(), 1, "one closure remains: {staging:?}");
+    assert!(second.iter().all(|archive| fs::metadata(&archive.linked)
+        .expect("linked metadata")
+        .permissions()
+        .readonly()));
 }
 
 #[cfg(target_os = "macos")]
