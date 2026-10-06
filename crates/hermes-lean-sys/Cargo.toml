@@ -15,6 +15,9 @@ link = ["icu"]
 # Link the precompiled-bytecode-only VM instead of the full source-capable VM.
 # This is mutually exclusive with `link`.
 link-lean = ["icu"]
+# On Windows, `icu` links the operating system's `icu.dll` through the SDK
+# import library and is still the sole owner of ICU link lines there; there is
+# no data archive, so `icu-full-data` is a no-op (LLP 0057.000 §5.1.1).
 # The sole owner of Linux ICU link lines. By default this selects the trimmed
 # root+en data archive required by Hermes's platform_unicode backend. The JSI
 # Intl shims also enable it when they are used without a VM in this graph.

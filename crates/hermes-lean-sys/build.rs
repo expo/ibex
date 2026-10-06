@@ -9,6 +9,9 @@ const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
 const LINUX_ICU_DATA: &str = "icudata";
 const LINUX_ICU_FULL_DATA: &str = "icudata-full";
+/// The Windows SDK import library for the OS ICU and the DLL it names.
+const WINDOWS_OS_ICU_LIB: &str = "icu";
+const WINDOWS_OS_ICU_DLL: &str = "icu.dll";
 
 fn main() {
     for name in [
@@ -181,12 +184,17 @@ fn main() {
         emit_linux_icu_link_lines(&install.lib_root, library);
     }
     if links_icu && target_os == "windows" {
-        // SPIKE (win-intl-spike): Windows has no bundled ICU. `icu` links the
-        // operating system's icu.dll through the SDK import library. The
-        // legacy icuuc/icuin DLLs the Hermes bundle imports are frozen
-        // forwarders that lack the unumf_/ufmtval_/ucfpos_ number C API.
-        metadata("linked_icu", "windows-os-icu.dll");
-        println!("cargo:rustc-link-lib=dylib=icu");
+        // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — Windows has no
+        // bundled ICU and no data archive, so there is no LINKED_ICU_DATA_*
+        // identity to claim. `icu` links the OS `icu.dll` through the SDK
+        // import library; `icu-full-data` selects nothing more. The legacy
+        // `icuuc`/`icuin` libraries the Hermes VM imports (above) are frozen
+        // forwarders that never gained the `unumf_*` number C API. Unused
+        // import libraries add no import, so a build without Ibex's Intl shims
+        // still imports only what Hermes needs.
+        metadata("os_icu_dll", WINDOWS_OS_ICU_DLL);
+        println!("cargo:rustc-env=HERMES_LEAN_LINKED_OS_ICU={WINDOWS_OS_ICU_DLL}");
+        println!("cargo:rustc-link-lib=dylib={WINDOWS_OS_ICU_LIB}");
     }
 }
 
