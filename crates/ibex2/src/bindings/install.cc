@@ -439,7 +439,9 @@ struct Adapter::State {
   jsi::Value event_listener_change_hook;
   jsi::Value rejection_unhandled;
   jsi::Value rejection_handled;
-  jsi::Function intrinsic_frozen;
+  // `Object.isFrozen` as it was at construction; a jsi::Value so detach() can
+  // release it with the other roots.
+  jsi::Value intrinsic_frozen;
   // %Object.prototype%, %Function.prototype%, and %Array.prototype% as they were
   // when the adapter was constructed, before any bootstrap ran. A bootstrap can
   // replace the globals that name them, but not these identities, so capture
@@ -506,9 +508,10 @@ void Adapter::capture_intrinsics() {
   if (state_->hardened)
     throw std::logic_error(
         "the deferred intrinsic snapshot cannot be captured after intrinsics are frozen");
+  auto is_frozen = state_->intrinsic_frozen.asObject(*runtime_).asFunction(*runtime_);
   auto witnesses = state_->freeze_witnesses.asObject(*runtime_).asArray(*runtime_);
   for (size_t i = 0; i < witnesses.size(*runtime_); ++i) {
-    if (state_->intrinsic_frozen.call(*runtime_, witnesses.getValueAtIndex(*runtime_, i))
+    if (is_frozen.call(*runtime_, witnesses.getValueAtIndex(*runtime_, i))
             .getBool())
       throw std::logic_error(
           "the deferred intrinsic snapshot cannot be captured after intrinsics are frozen");
@@ -537,6 +540,8 @@ void Adapter::detach() {
   state_->event_listener_change_hook = jsi::Value::undefined();
   state_->rejection_unhandled = jsi::Value::undefined();
   state_->rejection_handled = jsi::Value::undefined();
+  state_->intrinsic_frozen = jsi::Value::undefined();
+  state_->freeze_witnesses = jsi::Value::undefined();
   state_->integrity.reset();
   state_->bootstrap_outputs.clear();
   state_->reachability.reset();
