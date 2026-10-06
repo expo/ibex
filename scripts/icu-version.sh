@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
 
 # The sole Linux ICU source authority for Ibex 2. Linux builders verify this
-# exact tag resolution and the checked-in trimmed-data filter before building.
+# exact tag resolution and both checked-in filtered-data profiles before building.
 IBEX_ICU_VERSION="${IBEX_ICU_VERSION:-74.2}"
 IBEX_ICU_SOURCE_REF="${IBEX_ICU_SOURCE_REF:-release-74-2}"
 IBEX_ICU_SOURCE_COMMIT="${IBEX_ICU_SOURCE_COMMIT:-2d029329c82c7792b985024b2bdab5fc7278fbc8}"
 IBEX_ICU_TRIMMED_FILTER_SHA256="${IBEX_ICU_TRIMMED_FILTER_SHA256:-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702}"
+IBEX_ICU_EN_FILTER_SHA256="${IBEX_ICU_EN_FILTER_SHA256:-796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715}"
 IBEX_ICU_TRIMMED_DATA_BYTES="${IBEX_ICU_TRIMMED_DATA_BYTES:-1109808}"
+IBEX_ICU_EN_DATA_BYTES="${IBEX_ICU_EN_DATA_BYTES:-1409456}"
 
 ibex_verify_icu_trimmed_filter() {
   local filter="$1" actual
   actual="$(ibex_sha256 "$filter" | awk '{ print $1 }')"
   [[ "$actual" == "$IBEX_ICU_TRIMMED_FILTER_SHA256" ]] || {
     echo "ICU trimmed-data filter digest is $actual, expected $IBEX_ICU_TRIMMED_FILTER_SHA256" >&2
+    return 1
+  }
+}
+
+ibex_verify_icu_en_filter() {
+  local filter="$1" actual
+  actual="$(ibex_sha256 "$filter" | awk '{ print $1 }')"
+  [[ "$actual" == "$IBEX_ICU_EN_FILTER_SHA256" ]] || {
+    echo "ICU English-Intl filter digest is $actual, expected $IBEX_ICU_EN_FILTER_SHA256" >&2
     return 1
   }
 }
@@ -69,14 +80,23 @@ ibex_icu_data_symbol_bytes() {
 }
 
 ibex_verify_icu_data_variants() {
-  local trimmed="$1" full="$2" trimmed_bytes full_bytes
+  local trimmed="$1" en="$2" full="$3" trimmed_bytes en_bytes full_bytes
   trimmed_bytes="$(ibex_icu_data_symbol_bytes "$trimmed")"
+  en_bytes="$(ibex_icu_data_symbol_bytes "$en")"
   full_bytes="$(ibex_icu_data_symbol_bytes "$full")"
   [[ "$trimmed_bytes" == "$IBEX_ICU_TRIMMED_DATA_BYTES" ]] || {
     echo "trimmed ICU data is $trimmed_bytes bytes, expected $IBEX_ICU_TRIMMED_DATA_BYTES" >&2
     return 1
   }
-  (( full_bytes > trimmed_bytes * 10 )) || {
+  [[ "$en_bytes" == "$IBEX_ICU_EN_DATA_BYTES" ]] || {
+    echo "English-Intl ICU data is $en_bytes bytes, expected $IBEX_ICU_EN_DATA_BYTES" >&2
+    return 1
+  }
+  (( en_bytes > trimmed_bytes )) || {
+    echo "English-Intl ICU data must be larger than base: $en_bytes <= $trimmed_bytes" >&2
+    return 1
+  }
+  (( full_bytes > en_bytes * 10 )) || {
     echo "full ICU data is unexpectedly small: $full_bytes bytes" >&2
     return 1
   }

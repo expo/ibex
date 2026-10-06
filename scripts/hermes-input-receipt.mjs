@@ -75,8 +75,8 @@ function parseArguments(argv) {
   }
   const known = new Set([
     '--archive', '--build-flag', '--bytecode-version', '--commit', '--compiler',
-    '--engine-archive', '--headers', '--icu-full-data-archive',
-    '--icu-trimmed-data-archive', '--icu-trimmed-filter',
+    '--engine-archive', '--headers', '--icu-en-data-archive', '--icu-en-filter',
+    '--icu-full-data-archive', '--icu-trimmed-data-archive', '--icu-trimmed-filter',
     '--lean-engine-archive', '--link-directive', '--out', '--profile', '--target',
   ]);
   for (const name of options.keys()) {
@@ -155,18 +155,20 @@ function icuSourceIdentity(repoRoot) {
   try {
     const pin = execFileSync('bash', [
       '-c',
-      'source "$1" && printf "%s\\t%s\\t%s\\t%s" "$IBEX_ICU_SOURCE_COMMIT" "$IBEX_ICU_SOURCE_REF" "$IBEX_ICU_VERSION" "$IBEX_ICU_TRIMMED_FILTER_SHA256"',
+      'source "$1" && printf "%s\\t%s\\t%s\\t%s\\t%s" "$IBEX_ICU_SOURCE_COMMIT" "$IBEX_ICU_SOURCE_REF" "$IBEX_ICU_VERSION" "$IBEX_ICU_TRIMMED_FILTER_SHA256" "$IBEX_ICU_EN_FILTER_SHA256"',
       'hermes-input-receipt',
       join(repoRoot, 'scripts/icu-version.sh').replaceAll('\\', '/'),
     ], { encoding: 'utf8' }).trim();
-    const [sourceCommit, sourceRef, sourceVersion, trimmedFilterSha256] = pin.split('\t');
+    const [sourceCommit, sourceRef, sourceVersion, trimmedFilterSha256, enFilterSha256] = pin.split('\t');
     if (!/^[0-9a-f]{40}$/.test(sourceCommit ?? '')) {
       die(`ICU pin is not a 40-hex commit: ${sourceCommit}`);
     }
-    if (!sourceRef || !sourceVersion || !/^[0-9a-f]{64}$/.test(trimmedFilterSha256 ?? '')) {
-      die('ICU source ref/version or trimmed-filter digest pin is absent');
+    if (!sourceRef || !sourceVersion
+        || !/^[0-9a-f]{64}$/.test(trimmedFilterSha256 ?? '')
+        || !/^[0-9a-f]{64}$/.test(enFilterSha256 ?? '')) {
+      die('ICU source ref/version or filtered-data digest pin is absent');
     }
-    return { sourceCommit, sourceRef, sourceVersion, trimmedFilterSha256 };
+    return { sourceCommit, sourceRef, sourceVersion, trimmedFilterSha256, enFilterSha256 };
   } catch (error) {
     die(`cannot read ICU pin: ${error.message}`);
   }
@@ -236,15 +238,19 @@ const buildFlags = many('--build-flag');
 if (buildFlags.some((item) => !item.trim() || /[\r\n]/.test(item))) die('build flags must be non-empty single lines');
 
 const requestedIcuTrimmedDataArchive = one('--icu-trimmed-data-archive');
+const requestedIcuEnDataArchive = one('--icu-en-data-archive');
 const requestedIcuFullDataArchive = one('--icu-full-data-archive');
 const requestedIcuTrimmedFilter = one('--icu-trimmed-filter');
+const requestedIcuEnFilter = one('--icu-en-filter');
 const icuArgumentCount = [
   requestedIcuTrimmedDataArchive,
+  requestedIcuEnDataArchive,
   requestedIcuFullDataArchive,
   requestedIcuTrimmedFilter,
+  requestedIcuEnFilter,
 ].filter(Boolean).length;
-if (icuArgumentCount !== 0 && icuArgumentCount !== 3) {
-  die('Linux ICU receipts require --icu-trimmed-data-archive, --icu-full-data-archive, and --icu-trimmed-filter together');
+if (icuArgumentCount !== 0 && icuArgumentCount !== 5) {
+  die('Linux ICU receipts require base, English-Intl, and full data archives plus both filters together');
 }
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -345,7 +351,7 @@ const compilerName = compilerPath !== '..' && !compilerPath.startsWith(`..${sep}
   ? canonicalRelative(bundleDir, compiler)
   : basename(compiler);
 let icu;
-if (icuArgumentCount === 3) {
+if (icuArgumentCount === 5) {
   if (!target.endsWith('-unknown-linux-gnu')) {
     die('ICU data variants are supported only for Linux receipts');
   }
@@ -356,10 +362,14 @@ if (icuArgumentCount === 3) {
   );
   const fullDataArchive = inside(bundleDir, requestedIcuFullDataArchive, 'full ICU data archive');
   const trimmedFilter = inside(bundleDir, requestedIcuTrimmedFilter, 'trimmed ICU data filter');
+  const enDataArchive = inside(bundleDir, requestedIcuEnDataArchive, 'English-Intl ICU data archive');
+  const enFilter = inside(bundleDir, requestedIcuEnFilter, 'English-Intl ICU data filter');
   for (const [label, path] of [
     ['trimmed ICU data archive', trimmedDataArchive],
+    ['English-Intl ICU data archive', enDataArchive],
     ['full ICU data archive', fullDataArchive],
     ['trimmed ICU data filter', trimmedFilter],
+    ['English-Intl ICU data filter', enFilter],
   ]) {
     if (!isFile(path)) die(`${label} is not a regular file: ${path}`);
   }
@@ -369,8 +379,12 @@ if (icuArgumentCount === 3) {
   if (basename(fullDataArchive) !== 'libicudata-full.a') {
     die('full ICU data archive must be named libicudata-full.a');
   }
-  if (!archivePaths.includes(trimmedDataArchive) || !archivePaths.includes(fullDataArchive)) {
-    die('both ICU data variants must be present in the archive manifest');
+  if (basename(enDataArchive) !== 'libicudata-en.a') {
+    die('English-Intl ICU data archive must be named libicudata-en.a');
+  }
+  if (![trimmedDataArchive, enDataArchive, fullDataArchive]
+      .every((archive) => archivePaths.includes(archive))) {
+    die('all three ICU data variants must be present in the archive manifest');
   }
   const codeArchives = ['libicui18n.a', 'libicuuc.a'].map((name) => {
     const matches = archivePaths.filter((path) => basename(path) === name);
@@ -379,8 +393,12 @@ if (icuArgumentCount === 3) {
   });
   const source = icuSourceIdentity(repoRoot);
   const actualFilterDigest = sha256File(trimmedFilter);
+  const actualEnFilterDigest = sha256File(enFilter);
   if (actualFilterDigest !== source.trimmedFilterSha256) {
     die(`trimmed ICU data filter digest is ${actualFilterDigest}, expected ${source.trimmedFilterSha256}`);
+  }
+  if (actualEnFilterDigest !== source.enFilterSha256) {
+    die(`English-Intl ICU data filter digest is ${actualEnFilterDigest}, expected ${source.enFilterSha256}`);
   }
   icu = {
     upstream: {
@@ -396,6 +414,13 @@ if (icuArgumentCount === 3) {
         filter: {
           path: canonicalRelative(bundleDir, trimmedFilter),
           digest: `sha256-${actualFilterDigest}`,
+        },
+      },
+      en: {
+        archive: canonicalRelative(bundleDir, enDataArchive),
+        filter: {
+          path: canonicalRelative(bundleDir, enFilter),
+          digest: `sha256-${actualEnFilterDigest}`,
         },
       },
       full: {

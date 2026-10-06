@@ -97,6 +97,8 @@ host_build="$cache_dir/build-host"
 bundle_dir="$cache_dir/bundle"
 icu_trimmed_build="$cache_dir/build-icu-trimmed"
 icu_trimmed_install="$cache_dir/install-icu-trimmed"
+icu_en_build="$cache_dir/build-icu-en"
+icu_en_install="$cache_dir/install-icu-en"
 icu_full_build="$cache_dir/build-icu-full"
 icu_full_install="$cache_dir/install-icu-full"
 
@@ -165,19 +167,26 @@ if [[ "$host_os" == Darwin ]]; then
   compiler="$host_build/bin/hermesc"
 else
   icu_filter="$repo_root/scripts/icu74-filter-root-en.json"
+  icu_en_filter="$repo_root/scripts/icu74-filter-en-intl.json"
   ibex_verify_icu_trimmed_filter "$icu_filter"
+  ibex_verify_icu_en_filter "$icu_en_filter"
   ibex_checkout_icu_source "$icu_source_dir"
-  (
-    cd "$icu_source_dir/icu4c/source"
-    PYTHONPATH=python python3 -m icutools.databuilder \
-      --mode=gnumake --src_dir=data --filter_file="$icu_filter" >/dev/null
-  )
+  for filter in "$icu_filter" "$icu_en_filter"; do
+    (
+      cd "$icu_source_dir/icu4c/source"
+      PYTHONPATH=python python3 -m icutools.databuilder \
+        --mode=gnumake --src_dir=data --filter_file="$filter" >/dev/null
+    )
+  done
   ibex_build_icu_linux \
     "$icu_source_dir" "$icu_trimmed_build" "$icu_trimmed_install" "$icu_filter"
+  ibex_build_icu_linux \
+    "$icu_source_dir" "$icu_en_build" "$icu_en_install" "$icu_en_filter"
   ibex_build_icu_linux \
     "$icu_source_dir" "$icu_full_build" "$icu_full_install"
   ibex_verify_icu_data_variants \
     "$icu_trimmed_install/lib/libicudata.a" \
+    "$icu_en_install/lib/libicudata.a" \
     "$icu_full_install/lib/libicudata.a"
   build_flags+=(
     -DHERMES_ENABLE_INTL=false
@@ -254,12 +263,16 @@ else
   done
   [[ -f "$icu_full_install/lib/libicudata.a" ]] \
     || { echo "full ICU data archive is missing: $icu_full_install/lib/libicudata.a" >&2; exit 1; }
+  [[ -f "$icu_en_install/lib/libicudata.a" ]] \
+    || { echo "English-Intl ICU data archive is missing: $icu_en_install/lib/libicudata.a" >&2; exit 1; }
+  cp "$icu_en_install/lib/libicudata.a" "$bundle_dir/lib/libicudata-en.a"
   cp "$icu_full_install/lib/libicudata.a" "$bundle_dir/lib/libicudata-full.a"
   [[ -d "$icu_trimmed_install/include/unicode" ]] \
     || { echo "ICU headers are missing: $icu_trimmed_install/include/unicode" >&2; exit 1; }
   cp -R "$icu_trimmed_install/include/unicode" "$bundle_dir/include/"
   mkdir -p "$bundle_dir/share/icu"
   cp "$icu_filter" "$bundle_dir/share/icu/filters-root-en.json"
+  cp "$icu_en_filter" "$bundle_dir/share/icu/filters-en-intl.json"
   cp "$icu_source_dir/LICENSE" "$bundle_dir/LICENSE.icu"
   [[ -f "$tinfo_lib_dir/libtinfo.a" ]] \
     || { echo "static terminfo archive is missing: $tinfo_lib_dir/libtinfo.a" >&2; exit 1; }
@@ -289,8 +302,10 @@ if [[ "$host_os" == Darwin ]]; then
 else
   receipt_args+=(
     --icu-trimmed-data-archive=lib/libicudata.a
+    --icu-en-data-archive=lib/libicudata-en.a
     --icu-full-data-archive=lib/libicudata-full.a
     --icu-trimmed-filter=share/icu/filters-root-en.json
+    --icu-en-filter=share/icu/filters-en-intl.json
     --link-directive=rustc-link-lib=static=icui18n
     --link-directive=rustc-link-lib=static=icuuc
     --link-directive=rustc-link-lib=static=icudata

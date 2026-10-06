@@ -47,18 +47,21 @@ esac
 
 cache_root="${IBEX_HERMES_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ibex/hermes-linux-vanilla}"
 # The cache key names the non-lite engine, exact ICU source, and exact trimmed
-# filter so no older Unicode-lite or distro-ICU artifact can satisfy it.
-cache_dir="$cache_root/${hermes_commit}-${variant}-no-intl-nonlite-icu-${IBEX_ICU_SOURCE_COMMIT:0:12}-${IBEX_ICU_TRIMMED_FILTER_SHA256:0:12}"
+# filters so no older Unicode-lite or distro-ICU artifact can satisfy it.
+cache_dir="$cache_root/${hermes_commit}-${variant}-no-intl-nonlite-icu-${IBEX_ICU_SOURCE_COMMIT:0:12}-${IBEX_ICU_TRIMMED_FILTER_SHA256:0:12}-${IBEX_ICU_EN_FILTER_SHA256:0:12}"
 source_dir="$cache_root/upstream"
 icu_source_dir="$cache_root/icu-upstream"
 artifacts="$cache_dir/artifacts"
 icu_trimmed_build="$cache_dir/build-icu-trimmed"
 icu_trimmed_install="$cache_dir/install-icu-trimmed"
+icu_en_build="$cache_dir/build-icu-en"
+icu_en_install="$cache_dir/install-icu-en"
 icu_full_build="$cache_dir/build-icu-full"
 icu_full_install="$cache_dir/install-icu-full"
 engine_dir="$repo_root/linux/Frameworks-vanilla"
 tools_dir="$repo_root/tools/hermes-vanilla"
 icu_filter="$repo_root/scripts/icu74-filter-root-en.json"
+icu_en_filter="$repo_root/scripts/icu74-filter-en-intl.json"
 
 ibex_acquire_hermes_source_build_lock "$(basename "$0")"
 trap 'ibex_release_hermes_source_build_lock' EXIT
@@ -99,8 +102,10 @@ write_receipt() {
     --link-directive=rustc-link-lib=static=jsi
     --link-directive=rustc-link-lib=static=boost_context
     --icu-trimmed-data-archive=linux-static/libicudata.a
+    --icu-en-data-archive=linux-static/libicudata-en.a
     --icu-full-data-archive=linux-static/libicudata-full.a
     --icu-trimmed-filter=share/icu/filters-root-en.json
+    --icu-en-filter=share/icu/filters-en-intl.json
     --link-directive=rustc-link-lib=static=icui18n
     --link-directive=rustc-link-lib=static=icuuc
     --link-directive=rustc-link-lib=static=icudata
@@ -120,8 +125,10 @@ install_artifacts() {
     "$artifacts/linux-static/libhermesvm_a.a" \
     "$artifacts/linux-static/libhermesvmlean_a.a" \
     "$artifacts/linux-static/libicudata.a" \
+    "$artifacts/linux-static/libicudata-en.a" \
     "$artifacts/linux-static/libicudata-full.a" \
     "$artifacts/share/icu/filters-root-en.json" \
+    "$artifacts/share/icu/filters-en-intl.json" \
     "$artifacts/LICENSE.icu" \
     "$artifacts/bin/hermesc" \
     "$artifacts/bin/hermes"; do
@@ -155,18 +162,24 @@ rm -rf "$cache_dir"
 mkdir -p "$cache_dir"
 
 ibex_verify_icu_trimmed_filter "$icu_filter"
+ibex_verify_icu_en_filter "$icu_en_filter"
 ibex_checkout_icu_source "$icu_source_dir"
-(
-  cd "$icu_source_dir/icu4c/source"
-  PYTHONPATH=python python3 -m icutools.databuilder \
-    --mode=gnumake --src_dir=data --filter_file="$icu_filter" >/dev/null
-)
+for filter in "$icu_filter" "$icu_en_filter"; do
+  (
+    cd "$icu_source_dir/icu4c/source"
+    PYTHONPATH=python python3 -m icutools.databuilder \
+      --mode=gnumake --src_dir=data --filter_file="$filter" >/dev/null
+  )
+done
 ibex_build_icu_linux \
   "$icu_source_dir" "$icu_trimmed_build" "$icu_trimmed_install" "$icu_filter"
+ibex_build_icu_linux \
+  "$icu_source_dir" "$icu_en_build" "$icu_en_install" "$icu_en_filter"
 ibex_build_icu_linux \
   "$icu_source_dir" "$icu_full_build" "$icu_full_install"
 ibex_verify_icu_data_variants \
   "$icu_trimmed_install/lib/libicudata.a" \
+  "$icu_en_install/lib/libicudata.a" \
   "$icu_full_install/lib/libicudata.a"
 git -C "$source_dir" fetch origin "$hermes_commit"
 resolved="$(git -C "$source_dir" rev-parse --verify "${hermes_commit}^{commit}")"
@@ -215,12 +228,16 @@ for archive in libicui18n.a libicuuc.a libicudata.a; do
 done
 [[ -f "$icu_full_install/lib/libicudata.a" ]] \
   || { echo "full ICU data archive is missing: $icu_full_install/lib/libicudata.a" >&2; exit 1; }
+[[ -f "$icu_en_install/lib/libicudata.a" ]] \
+  || { echo "English-Intl ICU data archive is missing: $icu_en_install/lib/libicudata.a" >&2; exit 1; }
+cp "$icu_en_install/lib/libicudata.a" "$artifacts/linux-static/libicudata-en.a"
 cp "$icu_full_install/lib/libicudata.a" "$artifacts/linux-static/libicudata-full.a"
 [[ -d "$icu_trimmed_install/include/unicode" ]] \
   || { echo "ICU headers are missing: $icu_trimmed_install/include/unicode" >&2; exit 1; }
 cp -R "$icu_trimmed_install/include/unicode" "$artifacts/hermes-headers/"
 mkdir -p "$artifacts/share/icu"
 cp "$icu_filter" "$artifacts/share/icu/filters-root-en.json"
+cp "$icu_en_filter" "$artifacts/share/icu/filters-en-intl.json"
 cp "$icu_source_dir/LICENSE" "$artifacts/LICENSE.icu"
 [[ -f "$tinfo_lib_dir/libtinfo.a" ]] \
   || { echo "static terminfo archive is missing: $tinfo_lib_dir/libtinfo.a" >&2; exit 1; }

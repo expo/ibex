@@ -4,9 +4,9 @@ Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
 The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v4`. It contains
 nine deterministic archives, `SHA256SUMS`, and one retained Sigstore bundle
 beside each archive. The immutable v1 release contains only the full VM; v2
-added the lean VM but cannot gain the new Linux ICU profile, so v3 uses a new
-release namespace. The immutable v3 release cannot gain tvOS bundles or the
-debugger-off Windows engine, so those changes use the v4 namespace.
+added the lean VM; v3 added the Linux ICU profile. Immutable releases cannot
+gain targets or data, so v4 is the namespace for the tvOS bundles, the
+debugger-off Windows engine, and the separate English-Intl ICU data tier.
 
 Each v4 archive contains both the full `hermesvm_a` and lean
 `hermesvmlean_a` target archives under `lib/`, the rest of their target link
@@ -19,17 +19,24 @@ Receipt generation scans both VM archives for patched exports whenever lean is
 present, and lean selection verifies its distinct manifest digest. The receipt
 deliberately has no production date.
 
-Linux v3 bundles build ICU 74.2 from tag `release-74-2`, verified at commit
+Linux v4 bundles build ICU 74.2 from tag `release-74-2`, verified at commit
 `2d029329c82c7792b985024b2bdab5fc7278fbc8`. They carry shared
-`libicui18n.a` and `libicuuc.a` code archives, `libicudata.a` as the default
-root+en trimmed data, and `libicudata-full.a` as the opt-in full locale data.
-The canonical filter is `scripts/icu74-filter-root-en.json`, SHA-256
+`libicui18n.a` and `libicuuc.a` code archives plus three data tiers:
+`libicudata.a` is the unchanged 1,109,808-byte v3 base required by Hermes's
+non-Intl Unicode backend, `libicudata-en.a` is the 1,334,064-byte English Intl
+closure, and `libicudata-full.a` is the 30,782,896-byte all-locale archive.
+The base filter is `scripts/icu74-filter-root-en.json`, SHA-256
 `c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702`;
-it is copied into each Linux bundle as `share/icu/filters-root-en.json`.
-Receipt `icu` metadata binds the ICU tag, commit, version, both data paths,
-the shared code paths, and that filter digest. Both data archives are also in
-the ordinary sorted archive manifest, so they receive the same digest and
-cache-tree verification as every other static archive.
+the English filter is `scripts/icu74-filter-en-intl.json`, SHA-256
+`108164c45163f5b3cc870a9da69bfcd8b13cb4305f6ecbafe351525becf554b1`.
+They are copied into each Linux bundle as `share/icu/filters-root-en.json` and
+`share/icu/filters-en-intl.json`. Receipt `icu` metadata binds the ICU tag,
+commit, version, all three data paths, the shared code paths, and both filter
+digests. All three data archives are also in the ordinary sorted archive
+manifest, so they receive the same digest and cache-tree verification as every
+other static archive. Adding `en_US` to the English locale list does not grow
+the data symbol beyond the prior English closure; it makes the available
+locale identity honest for the `en-US` fixtures.
 
 The Linux jobs run in the multi-platform `rust:1.97-bookworm` OCI image pinned
 at
@@ -364,10 +371,14 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
       .icu.upstream.sourceVersion == "74.2" and
       .icu.codeArchives == ["lib/libicui18n.a", "lib/libicuuc.a"] and
       .icu.data.trimmed.archive == "lib/libicudata.a" and
+      .icu.data.en.archive == "lib/libicudata-en.a" and
       .icu.data.full.archive == "lib/libicudata-full.a" and
       .icu.data.trimmed.filter.path == "share/icu/filters-root-en.json" and
       .icu.data.trimmed.filter.digest == "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702" and
+      .icu.data.en.filter.path == "share/icu/filters-en-intl.json" and
+      .icu.data.en.filter.digest == "sha256-108164c45163f5b3cc870a9da69bfcd8b13cb4305f6ecbafe351525becf554b1" and
       any(.archives[]; .path == "lib/libicudata.a") and
+      any(.archives[]; .path == "lib/libicudata-en.a") and
       any(.archives[]; .path == "lib/libicudata-full.a")
     else (.icu | not) end)'
 done

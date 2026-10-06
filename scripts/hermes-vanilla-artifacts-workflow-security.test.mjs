@@ -30,6 +30,8 @@ const publisherWorkflow = readFileSync(
 const receiptWriter = readFileSync(join(repoRoot, "scripts/hermes-input-receipt.mjs"), "utf8");
 const icuVersion = readFileSync(join(repoRoot, "scripts/icu-version.sh"), "utf8");
 const icuFilter = readFileSync(join(repoRoot, "scripts/icu74-filter-root-en.json"));
+const icuEnFilter = readFileSync(join(repoRoot, "scripts/icu74-filter-en-intl.json"));
+const parsedIcuFilter = JSON.parse(icuEnFilter);
 const localAppleBuilder = readFileSync(join(repoRoot, "scripts/build-hermes.sh"), "utf8");
 const localLinuxBuilder = readFileSync(join(repoRoot, "scripts/build-hermes-linux.sh"), "utf8");
 const localWindowsBuilder = readFileSync(
@@ -65,7 +67,7 @@ const builders = [
   "windows_x64",
 ];
 
-test("Linux VM artifacts use pinned ICU 74 with trimmed and full data", () => {
+test("Linux VM artifacts use pinned ICU 74 with base, English-Intl, and full data", () => {
   assert.match(localLinuxBuilder, /-DHERMES_ENABLE_INTL=false/);
   assert.match(localLinuxBuilder, /-DHERMES_UNICODE_LITE=false/);
   assert.match(localLinuxBuilder, /-DHERMES_USE_STATIC_ICU=true/);
@@ -75,10 +77,14 @@ test("Linux VM artifacts use pinned ICU 74 with trimmed and full data", () => {
   assert.match(releaseBuilder, /if \[\[ "\$host_os" == Darwin \]\]; then\n  build_flags\+=\(\n    -DHERMES_ENABLE_INTL=true/);
   for (const producer of [localLinuxBuilder, releaseBuilder]) {
     assert.match(producer, /libicudata-full\.a/);
+    assert.match(producer, /libicudata-en\.a/);
     assert.match(producer, /icu74-filter-root-en\.json/);
+    assert.match(producer, /icu74-filter-en-intl\.json/);
     assert.match(producer, /--icu-trimmed-data-archive=/);
+    assert.match(producer, /--icu-en-data-archive=/);
     assert.match(producer, /--icu-full-data-archive=/);
     assert.match(producer, /--icu-trimmed-filter=/);
+    assert.match(producer, /--icu-en-filter=/);
     assert.match(producer, /ibex_verify_icu_data_variants/);
   }
   assert.match(
@@ -125,12 +131,90 @@ test("Linux VM artifacts use pinned ICU 74 with trimmed and full data", () => {
     createHash("sha256").update(icuFilter).digest("hex"),
     icuVersion.match(/IBEX_ICU_TRIMMED_FILTER_SHA256="\$\{IBEX_ICU_TRIMMED_FILTER_SHA256:-([0-9a-f]{64})\}"/)?.[1],
   );
+  assert.equal(
+    createHash("sha256").update(icuEnFilter).digest("hex"),
+    icuVersion.match(/IBEX_ICU_EN_FILTER_SHA256="\$\{IBEX_ICU_EN_FILTER_SHA256:-([0-9a-f]{64})\}"/)?.[1],
+  );
   assert.match(icuVersion, /IBEX_ICU_SOURCE_REF="\$\{IBEX_ICU_SOURCE_REF:-release-74-2\}"/);
   assert.match(icuVersion, /IBEX_ICU_SOURCE_COMMIT="\$\{IBEX_ICU_SOURCE_COMMIT:-2d029329c82c7792b985024b2bdab5fc7278fbc8\}"/);
+  assert.match(icuVersion, /IBEX_ICU_TRIMMED_DATA_BYTES="\$\{IBEX_ICU_TRIMMED_DATA_BYTES:-1109808\}"/);
+  assert.match(icuVersion, /IBEX_ICU_EN_DATA_BYTES="\$\{IBEX_ICU_EN_DATA_BYTES:-1409456\}"/);
   for (const job of ["linux_x86_64", "linux_arm64"].map((name) => jobBlocks(builderWorkflow).get(name))) {
     assert.match(job, /build-hermes-vanilla-linux-container\.sh/);
     assert.doesNotMatch(job, /libicu-dev/);
   }
+});
+
+test("English-Intl ICU data carries the root and English Intl closure", () => {
+  assert.equal(parsedIcuFilter.strategy, "additive");
+  assert.deepEqual(parsedIcuFilter.localeFilter, {
+    filterType: "locale",
+    includelist: ["en", "en_US", "en_US_POSIX"],
+    includeChildren: false,
+    includeScripts: false,
+  });
+  for (const category of [
+    "coll_ucadata",
+    "coll_tree",
+    "curr_supplemental",
+    "curr_tree",
+    "locales_tree",
+    "unit_tree",
+    "zone_tree",
+  ]) assert.equal(parsedIcuFilter.featureFilters[category], "include", category);
+  assert.deepEqual(
+    parsedIcuFilter.featureFilters.misc.includelist,
+    ["keyTypeData", "langInfo", "metaZones", "numberingSystems", "pluralRanges", "plurals", "supplementalData", "timezoneTypes", "units", "zoneinfo64"],
+  );
+
+  const rules = (category, file) => parsedIcuFilter.resourceFilters
+    .filter((entry) => entry.categories.includes(category))
+    .filter((entry) => file === undefined || entry.files?.includelist.includes(file))
+    .flatMap((entry) => entry.rules);
+  for (const path of [
+    "+/NumberElements/default",
+    "+/NumberElements/latn",
+    "+/calendar/gregorian",
+  ]) assert.ok(rules("locales_tree").includes(path), path);
+  assert.deepEqual(rules("curr_tree"), ["+/"]);
+  assert.deepEqual(rules("curr_supplemental"), ["+/"]);
+  assert.deepEqual(rules("unit_tree"), ["+/"]);
+  assert.deepEqual(rules("zone_tree"), ["+/"]);
+  assert.deepEqual(rules("misc", "plurals"), [
+    "+/locales/en",
+    "+/locales/root",
+    "+/rules/set0",
+    "+/rules/set3",
+  ]);
+  for (const file of ["metaZones", "timezoneTypes", "zoneinfo64"]) {
+    assert.deepEqual(rules("misc", file), ["+/"], file);
+  }
+  assert.deepEqual(rules("misc", "langInfo"), ["+/likely"]);
+  assert.deepEqual(rules("misc", "pluralRanges"), ["+/locales/en", "+/rules/set04"]);
+  for (const path of [
+    "+/keyMap/calendar",
+    "+/keyMap/hours",
+    "+/keyMap/numbers",
+    "+/typeMap/calendar/gregorian",
+    "+/typeMap/hours/h11",
+    "+/typeMap/hours/h12",
+    "+/typeMap/hours/h23",
+    "+/typeMap/hours/h24",
+    "+/typeMap/numbers/latn",
+  ]) assert.ok(rules("misc", "keyTypeData").includes(path), path);
+  for (const path of [
+    "+/calendarPreferenceData",
+    "+/idValidity/region/macroregion",
+    "+/timeData/001",
+    "+/timeData/US",
+    "+/weekData",
+  ]) assert.ok(rules("misc", "supplementalData").includes(path), path);
+  for (const path of [
+    "+/convertUnits/hour",
+    "+/convertUnits/meter",
+    "+/convertUnits/second",
+    "+/unitQuantities",
+  ]) assert.ok(rules("misc", "units").includes(path), path);
 });
 
 function jobBlocks(workflow) {
@@ -456,7 +540,7 @@ esac
   }
 });
 
-test("Linux receipt binds both ICU data archives and the pinned filter", (t) => {
+test("Linux receipt binds all ICU data archives and both pinned filters", (t) => {
   if (process.platform === "win32") {
     t.skip("the fixture supplies a POSIX fake nm; Windows release coverage is structural");
     return;
@@ -475,11 +559,13 @@ test("Linux receipt binds both ICU data archives and the pinned filter", (t) => 
     "libicui18n.a",
     "libicuuc.a",
     "libicudata.a",
+    "libicudata-en.a",
     "libicudata-full.a",
   ]) writeFileSync(join(bundle, "lib", name), name);
   writeFileSync(join(bundle, "include", "hermes", "Hermes.h"), "// header\n");
   writeFileSync(join(bundle, "bin", "hermesc"), "compiler");
   writeFileSync(join(bundle, "share", "icu", "filters-root-en.json"), icuFilter);
+  writeFileSync(join(bundle, "share", "icu", "filters-en-intl.json"), icuEnFilter);
   const fakeNm = join(fakeBin, "nm");
   writeFileSync(fakeNm, "#!/bin/sh\nprintf '00000000 T ordinary_vanilla_symbol\\n'\n");
   chmodSync(fakeNm, 0o755);
@@ -492,8 +578,10 @@ test("Linux receipt binds both ICU data archives and the pinned filter", (t) => 
       "--engine-archive=lib/libhermesvm_a.a",
       "--lean-engine-archive=lib/libhermesvmlean_a.a",
       "--icu-trimmed-data-archive=lib/libicudata.a",
+      "--icu-en-data-archive=lib/libicudata-en.a",
       "--icu-full-data-archive=lib/libicudata-full.a",
       "--icu-trimmed-filter=share/icu/filters-root-en.json",
+      "--icu-en-filter=share/icu/filters-en-intl.json",
       "--bytecode-version=99",
       "--link-directive=rustc-link-lib=static=hermesvm_a",
     ], {
@@ -504,12 +592,18 @@ test("Linux receipt binds both ICU data archives and the pinned filter", (t) => 
     const receipt = JSON.parse(readFileSync(join(bundle, "hermes-input-receipt.json"), "utf8"));
     const archives = new Set(receipt.archives.map((archive) => archive.path));
     assert.ok(archives.has("lib/libicudata.a"));
+    assert.ok(archives.has("lib/libicudata-en.a"));
     assert.ok(archives.has("lib/libicudata-full.a"));
     assert.equal(receipt.icu.data.trimmed.archive, "lib/libicudata.a");
+    assert.equal(receipt.icu.data.en.archive, "lib/libicudata-en.a");
     assert.equal(receipt.icu.data.full.archive, "lib/libicudata-full.a");
     assert.equal(
       receipt.icu.data.trimmed.filter.digest,
       `sha256-${createHash("sha256").update(icuFilter).digest("hex")}`,
+    );
+    assert.equal(
+      receipt.icu.data.en.filter.digest,
+      `sha256-${createHash("sha256").update(icuEnFilter).digest("hex")}`,
     );
     assert.equal(receipt.icu.upstream.sourceCommit, "2d029329c82c7792b985024b2bdab5fc7278fbc8");
   } finally {
