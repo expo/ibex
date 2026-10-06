@@ -1,5 +1,6 @@
 # WebSocket: a full-duplex I/O pump for the portable transport
 
+**Status:** Closed (2026-10-06)
 **Opened:** 2026-10-04 (deferred from L4's review, LLP 0057.000 §6 L4)
 **Area:** `crates/ibex2/src/transport/websocket.rs` (non-Apple transport)
 
@@ -68,3 +69,29 @@ hand-rolled shim). `mio::Waker` (eventfd/pipe/IOCP) and `Poll` remove the UDP wa
 batches, stall deadline, latching terminal readiness until buffered input is parsed) — which the
 parked branch's tests and the findings above already specify. Until then the shared-lock
 transport stays: half-duplex but bounded by the 15 s write-stall timeout.
+
+## Resolution (2026-10-06)
+
+Replaced the portable shared-lock reader/writer with one `mio` pump per
+connection (`1faf427`, `e5d6220`, `a729607`). The pump owns the nonblocking TCP
+socket and rustls state, uses `mio::Poll` for TCP readiness and `mio::Waker` for
+commands and cancellation, bounds read work, uses an absolute no-progress
+deadline, and drains/latches a buffered Close before reporting terminal EOF.
+The existing Windows connect-readiness path still establishes the standard
+socket before `MioTcpStream::from_std`; `mio` supplies its IOCP backend.
+
+The portable suite passed 16/16 three consecutive times. Pong latency during
+an 8 MiB send was 0.748–1.479 ms, Close handling was 8.7–9.1 ms, idle polling
+returned zero times over a measured 150 ms, and the 500 ms stall cases failed
+at 503–506 ms. A stripped minimal WebSocket consumer grew 33,208 bytes versus
+main (1,531,024 to 1,564,232), inside D5's 150 KB budget. Direct regressions
+cover Close plus FIN during a pending large write, pong-flood fairness, idle
+abort, final-handle drop, peer RST, and a real zero-length socket write beneath
+rustls.
+
+The runtime all-features suite and explicit WebSocket WPT report (41/41) pass.
+The exact ibex2 all-features command has only the expected macOS Keychain
+environment failure (`User interaction is not allowed`); the remainder passes
+when that single fixture is skipped. Both mandated Clippy commands, formatting,
+and `ref-check` pass. Linux and Windows execution remains pending for the
+orchestrator and is not claimed by this closure.
