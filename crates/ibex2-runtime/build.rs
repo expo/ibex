@@ -49,6 +49,13 @@ fn main() {
     let target = std::env::var("TARGET").expect("Cargo supplies TARGET");
     println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DIGEST={engine_digest}");
     println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_ARCHIVE={engine_archive}");
+    if let (Ok(archive), Ok(digest)) = (
+        std::env::var("DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE"),
+        std::env::var("DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST"),
+    ) {
+        println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DERIVATIVE_ARCHIVE={archive}");
+        println!("cargo:rustc-env=IBEX2_LINKED_ENGINE_DERIVATIVE_DIGEST={digest}");
+    }
     if target_os == "linux" {
         println!(
             "cargo:rustc-env=IBEX2_LINKED_ICU_DATA_ARCHIVE={}",

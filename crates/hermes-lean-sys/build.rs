@@ -2,8 +2,11 @@
 
 mod build_support;
 
-use build_support::{digest_file, hermesc_bytecode_version, rerun_paths, resolve_engine_directory};
-use std::path::Path;
+use build_support::{
+    digest_file, hermesc_bytecode_version, prepare_apple_simulator_link_archives, rerun_paths,
+    resolve_engine_directory, LinkArchive, PreparedLinkArchive,
+};
+use std::path::{Path, PathBuf};
 
 const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
@@ -162,7 +165,30 @@ fn main() {
             archive.display()
         );
         println!("cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DIGEST={digest}");
-        emit_link_lines(&target_os, &target_vendor, &install.lib_root, archive);
+        let link_archives = static_link_archives(&target_os, &install.lib_root, archive);
+        let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo supplies OUT_DIR"));
+        let prepared =
+            prepare_apple_simulator_link_archives(&install, &target, &out_dir, &link_archives)
+                .unwrap_or_else(|error| panic!("cannot prepare Hermes link archives: {error}"));
+        let linked_vm = prepared
+            .iter()
+            .find(|candidate| candidate.source.as_path() == archive.as_path())
+            .expect("prepared link closure contains the selected VM");
+        if let Some(derivative_digest) = &linked_vm.derivative_digest {
+            metadata(
+                "linked_engine_derivative_archive",
+                &linked_vm.linked.display().to_string(),
+            );
+            metadata("linked_engine_derivative_digest", derivative_digest);
+            println!(
+                "cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE={}",
+                linked_vm.linked.display()
+            );
+            println!(
+                "cargo:rustc-env=HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST={derivative_digest}"
+            );
+        }
+        emit_link_lines(&target_os, &target_vendor, &prepared);
     }
     if links_icu && target_os == "linux" {
         // @ref LLP 0057.000#l1--the-bindings-door — the ICU-data identity is
@@ -232,16 +258,60 @@ fn metadata(key: &str, value: &str) {
     println!("cargo::metadata={key}={value}");
 }
 
-fn emit_link_lines(target_os: &str, target_vendor: &str, lib_root: &Path, vm_archive: &Path) {
-    println!("cargo:rustc-link-search=native={}", lib_root.display());
+fn static_link_archives(target_os: &str, lib_root: &Path, vm_archive: &Path) -> Vec<LinkArchive> {
     let vm = vm_archive
         .file_stem()
         .and_then(|name| name.to_str())
         .expect("Hermes archive has a UTF-8 stem")
-        .trim_start_matches("lib");
-    println!("cargo:rustc-link-lib=static={vm}");
-    println!("cargo:rustc-link-lib=static=jsi");
-    println!("cargo:rustc-link-lib=static=boost_context");
+        .trim_start_matches("lib")
+        .to_owned();
+    let archive_path = |library: &str| {
+        if target_os == "windows" {
+            lib_root.join(format!("{library}.lib"))
+        } else {
+            lib_root.join(format!("lib{library}.a"))
+        }
+    };
+    vec![
+        LinkArchive {
+            library: vm,
+            source: vm_archive.to_path_buf(),
+        },
+        LinkArchive {
+            library: "jsi".to_owned(),
+            source: archive_path("jsi"),
+        },
+        LinkArchive {
+            library: "boost_context".to_owned(),
+            source: archive_path("boost_context"),
+        },
+    ]
+}
+
+fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLinkArchive]) {
+    let mut search_paths = Vec::new();
+    // Derivative directories must precede the bundle directory so a thinned
+    // archive wins when a closure mixes fat and already-thin inputs.
+    for archive in archives
+        .iter()
+        .filter(|archive| archive.derivative_digest.is_some())
+        .chain(archives)
+    {
+        let parent = archive
+            .linked
+            .parent()
+            .expect("native link archive has a parent directory");
+        if !search_paths.contains(&parent) {
+            search_paths.push(parent);
+            println!("cargo:rustc-link-search=native={}", parent.display());
+        }
+    }
+    // Do not use `static:-bundle`: exact2's Xcode-facing product is itself a
+    // Rust staticlib, so these native archives must remain bundled through the
+    // intermediate rlibs. Universal archives are made rustc-readable instead.
+    for archive in archives {
+        println!("cargo:rustc-link-lib=static={}", archive.library);
+    }
     if target_vendor == "apple" {
         println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");

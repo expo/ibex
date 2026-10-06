@@ -21,8 +21,20 @@ pub use ibex2::{bindings, boundary, boundary_abi, grant, host, pool, stdlib, tas
 /// Identity of the VM linked through `hermes-lean-sys`.
 pub const LINKED_ENGINE_DIGEST: &str = env!("IBEX2_LINKED_ENGINE_DIGEST");
 
-/// Archive whose link lines `hermes-lean-sys` emitted for this runtime.
+/// Source archive selected for this runtime (receipt-authenticated for a
+/// bundle). A universal Apple Simulator input is thinned before linking; see
+/// [`LINKED_ENGINE_DERIVATIVE_ARCHIVE`].
 pub const LINKED_ENGINE_ARCHIVE: &str = env!("IBEX2_LINKED_ENGINE_ARCHIVE");
+
+/// Thinned VM archive actually passed to rustc for a universal Apple Simulator
+/// bundle, otherwise `None`.
+pub const LINKED_ENGINE_DERIVATIVE_ARCHIVE: Option<&str> =
+    option_env!("IBEX2_LINKED_ENGINE_DERIVATIVE_ARCHIVE");
+
+/// Digest of [`LINKED_ENGINE_DERIVATIVE_ARCHIVE`], distinct from the receipt
+/// identity in [`LINKED_ENGINE_DIGEST`].
+pub const LINKED_ENGINE_DERIVATIVE_DIGEST: Option<&str> =
+    option_env!("IBEX2_LINKED_ENGINE_DERIVATIVE_DIGEST");
 
 /// Linux ICU data archive linked beside [`LINKED_ENGINE_ARCHIVE`]. This is
 /// base by default, English under `intl`, and full under `intl-all-locales`.

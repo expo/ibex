@@ -427,7 +427,13 @@ mismatches the lean entry is refused. Downstream build scripts receive
 `DEP_HERMES_LEAN_ENGINE_DIGEST` for full, plus
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` and `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST` for
 lean when present. With either link feature active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
-`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify what VM that process links.
+`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` identify the source VM selected for that
+process and its receipt-authenticated digest. The universal iOS Simulator bundle's static link
+closure is authenticated and its fat archives are thinned with `lipo` into
+`OUT_DIR`; thin device and arm64-only tvOS Simulator archives remain in place.
+`DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE` and
+`DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST` separately report the VM
+derivative actually passed to rustc without replacing the receipt identity.
 Linux additionally exports `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST`; this separate identity names exactly
 the base, English, or full data variant while shared ICU code stays

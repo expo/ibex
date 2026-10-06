@@ -122,6 +122,25 @@ pub(crate) struct EngineInstall {
     pub icu_trimmed_filter: Option<PathBuf>,
     pub icu_en_filter: Option<PathBuf>,
     pub hermesc: PathBuf,
+    pub authenticated_archive_digests: BTreeMap<PathBuf, String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LinkArchive {
+    pub library: String,
+    pub source: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreparedLinkArchive {
+    pub library: String,
+    /// The receipt-authenticated bundle input. R-e continues to name this
+    /// archive and its receipt digest even when rustc links a thin derivative.
+    pub source: PathBuf,
+    /// The path placed on rustc's native-library search path.
+    pub linked: PathBuf,
+    /// Digest of `linked` when it is an OUT_DIR derivative of `source`.
+    pub derivative_digest: Option<String>,
 }
 
 #[derive(Debug)]
@@ -398,6 +417,7 @@ pub(crate) fn resolve_engine_directory(
     )?;
 
     let lean_vm_archive = authenticated_lean_archive(&target_layout);
+    let authenticated_archive_digests = authenticated_archive_digests(&target_layout)?;
 
     Ok(EngineInstall {
         root: target_layout.root,
@@ -413,6 +433,7 @@ pub(crate) fn resolve_engine_directory(
         icu_trimmed_filter: target_layout.icu_trimmed_filter,
         icu_en_filter: target_layout.icu_en_filter,
         hermesc,
+        authenticated_archive_digests,
     })
 }
 
@@ -689,6 +710,23 @@ fn authenticate_compiler(layout: &InstallLayout, compiler: &Path) -> Result<(), 
 fn authenticated_lean_archive(layout: &InstallLayout) -> Option<PathBuf> {
     (layout.root.join("hermes-input-receipt.json").is_file() && layout.lean_vm_archive.is_file())
         .then(|| layout.lean_vm_archive.clone())
+}
+
+fn authenticated_archive_digests(
+    layout: &InstallLayout,
+) -> Result<BTreeMap<PathBuf, String>, String> {
+    let Some(receipt) = read_receipt_claims(layout)? else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(archive_digests) = receipt.archive_digests else {
+        return Ok(BTreeMap::new());
+    };
+    archive_digests
+        .into_iter()
+        .map(|(relative, digest)| {
+            safe_relative_path(&layout.root, Path::new(&relative)).map(|path| (path, digest))
+        })
+        .collect()
 }
 
 fn validate_receipt(
@@ -1152,6 +1190,215 @@ pub(crate) fn digest_file(path: &Path) -> Result<String, String> {
     io::copy(&mut file, &mut DigestWriter(&mut digest))
         .map_err(|error| format!("cannot hash {}: {error}", path.display()))?;
     Ok(format!("sha256-{:x}", digest.finalize()))
+}
+
+pub(crate) fn apple_simulator_arch(target: &str) -> Option<&'static str> {
+    match target {
+        "aarch64-apple-ios-sim" | "aarch64-apple-tvos-sim" => Some("arm64"),
+        // Rust's x86_64 iOS/tvOS triples are simulator-only and predate the
+        // explicit `-sim` suffix used by the arm64 triples.
+        "x86_64-apple-ios" | "x86_64-apple-tvos" => Some("x86_64"),
+        _ => None,
+    }
+}
+
+/// Thin fat Apple Simulator archives only after every member of the native
+/// link closure has been authenticated against the selected bundle receipt.
+/// Thin device archives and the arm64-only tvOS Simulator archives are linked
+/// directly; `lipo` is deterministic for a fixed source slice and architecture.
+pub(crate) fn prepare_apple_simulator_link_archives(
+    install: &EngineInstall,
+    target: &str,
+    out_dir: &Path,
+    archives: &[LinkArchive],
+) -> Result<Vec<PreparedLinkArchive>, String> {
+    prepare_apple_simulator_link_archives_with_lipo(
+        install,
+        target,
+        out_dir,
+        archives,
+        Path::new("lipo"),
+    )
+}
+
+pub(crate) fn prepare_apple_simulator_link_archives_with_lipo(
+    install: &EngineInstall,
+    target: &str,
+    out_dir: &Path,
+    archives: &[LinkArchive],
+    lipo: &Path,
+) -> Result<Vec<PreparedLinkArchive>, String> {
+    let Some(arch) = apple_simulator_arch(target) else {
+        return Ok(archives
+            .iter()
+            .map(|archive| PreparedLinkArchive {
+                library: archive.library.clone(),
+                source: archive.source.clone(),
+                linked: archive.source.clone(),
+                derivative_digest: None,
+            })
+            .collect());
+    };
+
+    // Authenticate the complete closure before inspecting or deriving any one
+    // archive. In particular, a receipt omission cannot leave a partially
+    // prepared OUT_DIR that later looks usable.
+    for archive in archives {
+        let expected = install
+            .authenticated_archive_digests
+            .get(&archive.source)
+            .ok_or_else(|| {
+                format!(
+                    "cannot thin Apple Simulator link archive {} because the selected bundle receipt does not authenticate it",
+                    archive.source.display()
+                )
+            })?;
+        let actual = digest_file(&archive.source)?;
+        if &actual != expected {
+            return Err(format!(
+                "cannot thin Apple Simulator link archive {}: the selected bundle receipt records {}, but the archive has {}",
+                archive.source.display(),
+                expected,
+                actual
+            ));
+        }
+    }
+
+    let derivative_dir = out_dir.join(format!("hermes-lean-sys-{arch}"));
+    let mut prepared = Vec::with_capacity(archives.len());
+    for archive in archives {
+        let architectures = lipo_architectures(lipo, &archive.source)?;
+        if architectures.len() == 1 {
+            if architectures[0] != arch {
+                return Err(format!(
+                    "thin Apple Simulator archive {} is architecture {}, not required architecture {arch}",
+                    archive.source.display(),
+                    architectures[0]
+                ));
+            }
+            prepared.push(PreparedLinkArchive {
+                library: archive.library.clone(),
+                source: archive.source.clone(),
+                linked: archive.source.clone(),
+                derivative_digest: None,
+            });
+            continue;
+        }
+        if !architectures.iter().any(|candidate| candidate == arch) {
+            return Err(format!(
+                "universal Apple Simulator archive {} contains architectures {}, not required architecture {arch}",
+                archive.source.display(),
+                architectures.join(", ")
+            ));
+        }
+
+        fs::create_dir_all(&derivative_dir).map_err(|error| {
+            format!(
+                "cannot create Apple Simulator thin-archive directory {}: {error}",
+                derivative_dir.display()
+            )
+        })?;
+        let file_name = archive.source.file_name().ok_or_else(|| {
+            format!(
+                "Apple Simulator link archive {} has no file name",
+                archive.source.display()
+            )
+        })?;
+        let destination = derivative_dir.join(file_name);
+        let temporary = derivative_dir.join(format!(".{}.tmp", file_name.to_string_lossy()));
+        match fs::remove_file(&temporary) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "cannot replace stale lipo output {}: {error}",
+                    temporary.display()
+                ));
+            }
+        }
+
+        let output = std::process::Command::new(lipo)
+            .arg("-thin")
+            .arg(arch)
+            .arg(&archive.source)
+            .arg("-output")
+            .arg(&temporary)
+            .output()
+            .map_err(|error| lipo_launch_error(&archive.source, error))?;
+        if !output.status.success() {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!(
+                "lipo -thin {arch} failed for {} with {}: {}",
+                archive.source.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let derivative_architectures = lipo_architectures(lipo, &temporary)?;
+        if derivative_architectures != [arch] {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!(
+                "lipo produced {} with architectures {}, expected only {arch}",
+                temporary.display(),
+                derivative_architectures.join(", ")
+            ));
+        }
+        let derivative_digest = digest_file(&temporary)?;
+        fs::rename(&temporary, &destination).map_err(|error| {
+            format!(
+                "cannot publish thinned Apple Simulator archive {}: {error}",
+                destination.display()
+            )
+        })?;
+        prepared.push(PreparedLinkArchive {
+            library: archive.library.clone(),
+            source: archive.source.clone(),
+            linked: destination,
+            derivative_digest: Some(derivative_digest),
+        });
+    }
+    Ok(prepared)
+}
+
+fn lipo_architectures(lipo: &Path, archive: &Path) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new(lipo)
+        .arg("-archs")
+        .arg(archive)
+        .output()
+        .map_err(|error| lipo_launch_error(archive, error))?;
+    if !output.status.success() {
+        return Err(format!(
+            "lipo -archs failed for {} with {}: {}",
+            archive.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let architectures: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    if architectures.is_empty() {
+        return Err(format!(
+            "lipo -archs reported no architectures for {}",
+            archive.display()
+        ));
+    }
+    Ok(architectures)
+}
+
+fn lipo_launch_error(archive: &Path, error: io::Error) -> String {
+    if error.kind() == io::ErrorKind::NotFound {
+        format!(
+            "cannot run `lipo` for Apple Simulator archive {}; install Xcode command-line tools (run `xcode-select --install`)",
+            archive.display()
+        )
+    } else {
+        format!(
+            "cannot run `lipo` for Apple Simulator archive {}: {error}",
+            archive.display()
+        )
+    }
 }
 
 struct DigestWriter<'a>(&'a mut Sha256);

@@ -26,6 +26,29 @@ fn bindings_sys_and_linked_archive_have_one_digest() {
     let actual = format!("sha256-{:x}", Sha256::digest(archive));
     assert_eq!(actual, ibex2_runtime::LINKED_ENGINE_DIGEST);
 
+    match (
+        ibex2_runtime::LINKED_ENGINE_DERIVATIVE_ARCHIVE,
+        ibex2_runtime::LINKED_ENGINE_DERIVATIVE_DIGEST,
+    ) {
+        (Some(archive), Some(digest)) => {
+            assert_eq!(
+                Some(archive),
+                hermes_lean_sys::LINKED_ENGINE_DERIVATIVE_ARCHIVE
+            );
+            assert_eq!(
+                Some(digest),
+                hermes_lean_sys::LINKED_ENGINE_DERIVATIVE_DIGEST
+            );
+            let bytes = std::fs::read(archive).expect("read thinned linked VM archive");
+            assert_eq!(format!("sha256-{:x}", Sha256::digest(bytes)), digest);
+        }
+        (None, None) => {
+            assert_eq!(hermes_lean_sys::LINKED_ENGINE_DERIVATIVE_ARCHIVE, None);
+            assert_eq!(hermes_lean_sys::LINKED_ENGINE_DERIVATIVE_DIGEST, None);
+        }
+        _ => panic!("linked engine derivative path and digest must appear together"),
+    }
+
     if cfg!(target_os = "linux") {
         assert_eq!(
             ibex2::bindings::ICU_DATA_ARCHIVE,

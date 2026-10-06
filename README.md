@@ -190,7 +190,17 @@ The full identity remains `DEP_HERMES_LEAN_ARCHIVE` /
 `DEP_HERMES_LEAN_ENGINE_DIGEST`; lean is
 `DEP_HERMES_LEAN_LEAN_ARCHIVE` / `DEP_HERMES_LEAN_LEAN_ENGINE_DIGEST`.
 When one link feature is active, `DEP_HERMES_LEAN_LINKED_ARCHIVE` and
-`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` name the archive actually linked.
+`DEP_HERMES_LEAN_LINKED_ENGINE_DIGEST` name the source archive selected for the
+process and its digest (the receipt-authenticated identity for a bundle).
+For the universal iOS Simulator bundle, `hermes-lean-sys` authenticates every
+static archive in the link closure, uses Xcode's `lipo` to thin only the fat
+ones to Cargo's target architecture in `OUT_DIR`, and links those derivatives.
+Thin device and arm64-only tvOS Simulator archives are linked in place. Missing
+`lipo` is an Xcode command-line-tools installation error. The selected VM's
+actual derivative and its SHA-256 are exported separately as
+`DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_ARCHIVE` and
+`DEP_HERMES_LEAN_LINKED_ENGINE_DERIVATIVE_DIGEST`; the receipt identity above
+does not change.
 On Linux `DEP_HERMES_LEAN_LINKED_ICU_DATA_ARCHIVE` and
 `DEP_HERMES_LEAN_LINKED_ICU_DATA_DIGEST` name the exact selected data variant;
 this is the data-variant half of R-e and is deliberately separate from the VM
@@ -199,7 +209,8 @@ context. The bindings door exposes them as `ICU_DATA_*`, `ICU_EN_DATA_*`, and
 `ICU_FULL_DATA_*`, but exposes no selected identity because it links none.
 Only the linking instance's `LINKED_ICU_DATA_*` says what the process links.
 The Rust constants are `ARCHIVE`, `ENGINE_DIGEST`, `LEAN_ARCHIVE`,
-`LEAN_ENGINE_DIGEST`, `LINKED_ARCHIVE`, and `LINKED_ENGINE_DIGEST`.
+`LEAN_ENGINE_DIGEST`, `LINKED_ARCHIVE`, `LINKED_ENGINE_DIGEST`,
+`LINKED_ENGINE_DERIVATIVE_ARCHIVE`, and `LINKED_ENGINE_DERIVATIVE_DIGEST`.
 
 `ibex2::bindings::ENGINE_DIGEST` continues to name the full archive;
 `ibex2::bindings::LEAN_ENGINE_DIGEST` is the identity a lean embedder checks.

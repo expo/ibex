@@ -3,9 +3,11 @@
 mod build_support;
 
 use build_support::{
-    acquire_bundle, download_options_from_env, installer_command, parse_pin_sha256, pin_for_target,
-    repository_install_root, rerun_paths, verify_and_extract_archive, watched_inputs, BundlePin,
-    DownloadOptions, EngineInstall, RELEASE_TAG,
+    acquire_bundle, apple_simulator_arch, digest_file, download_options_from_env,
+    installer_command, parse_pin_sha256, pin_for_target,
+    prepare_apple_simulator_link_archives_with_lipo, repository_install_root, rerun_paths,
+    verify_and_extract_archive, watched_inputs, BundlePin, DownloadOptions, EngineInstall,
+    LinkArchive, RELEASE_TAG,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -79,6 +81,236 @@ fn repository_installs_keep_macos_and_tvos_targets_separate() {
 }
 
 #[test]
+fn apple_simulator_targets_map_to_lipo_architectures() {
+    assert_eq!(apple_simulator_arch("aarch64-apple-ios-sim"), Some("arm64"));
+    assert_eq!(apple_simulator_arch("x86_64-apple-ios"), Some("x86_64"));
+    assert_eq!(
+        apple_simulator_arch("aarch64-apple-tvos-sim"),
+        Some("arm64")
+    );
+    assert_eq!(apple_simulator_arch("aarch64-apple-ios"), None);
+    assert_eq!(apple_simulator_arch("aarch64-apple-darwin"), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn universal_simulator_link_closure_is_thinned_deterministically() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path().join("bundle");
+    let lib = root.join("lib");
+    fs::create_dir_all(&lib).expect("library directory");
+    let archives: Vec<LinkArchive> = ["hermesvm_a", "jsi", "boost_context"]
+        .into_iter()
+        .map(|library| {
+            let source = lib.join(format!("lib{library}.a"));
+            fs::write(&source, format!("universal-{library}")).expect("write synthetic archive");
+            LinkArchive {
+                library: library.to_owned(),
+                source,
+            }
+        })
+        .collect();
+    let authenticated_archive_digests = archives
+        .iter()
+        .map(|archive| {
+            (
+                archive.source.clone(),
+                digest_file(&archive.source).expect("source digest"),
+            )
+        })
+        .collect();
+    let install = EngineInstall {
+        root: root.clone(),
+        include_dir: root.join("include"),
+        lib_root: lib,
+        vm_archive: archives[0].source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_trimmed_filter: None,
+        hermesc: root.join("bin/hermesc"),
+        authenticated_archive_digests,
+    };
+    let fake_lipo = temporary.path().join("lipo");
+    fs::write(
+        &fake_lipo,
+        r#"#!/bin/sh
+if [ "$1" = "-archs" ]; then
+  case "$2" in
+    *hermes-lean-sys-arm64*) printf 'arm64\n' ;;
+    *) printf 'x86_64 arm64\n' ;;
+  esac
+elif [ "$1" = "-thin" ]; then
+  cp "$3" "$5"
+  printf ':%s' "$2" >> "$5"
+else
+  exit 2
+fi
+"#,
+    )
+    .expect("fake lipo");
+    let mut permissions = fs::metadata(&fake_lipo)
+        .expect("fake lipo metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_lipo, permissions).expect("make fake lipo executable");
+
+    let first = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        temporary.path().join("out").as_path(),
+        &archives,
+        &fake_lipo,
+    )
+    .expect("thin universal archives");
+    let second = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        temporary.path().join("out").as_path(),
+        &archives,
+        &fake_lipo,
+    )
+    .expect("repeat thinning");
+
+    assert_eq!(first, second, "fixed inputs produce the same derivatives");
+    for (source, derivative) in archives.iter().zip(first.iter()) {
+        assert_eq!(derivative.source, source.source);
+        assert_ne!(derivative.linked, source.source);
+        assert!(derivative.derivative_digest.is_some());
+        assert_eq!(
+            digest_file(&derivative.linked).expect("derivative digest"),
+            derivative.derivative_digest.as_deref().unwrap()
+        );
+        assert_eq!(
+            fs::read(&source.source).expect("source remains readable"),
+            format!("universal-{}", source.library).as_bytes()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn arm64_only_tvos_simulator_archive_is_not_thinned() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let source = temporary.path().join("libhermesvm_a.a");
+    fs::write(&source, b"thin-arm64").expect("archive");
+    let digest = digest_file(&source).expect("archive digest");
+    let install = EngineInstall {
+        root: temporary.path().to_path_buf(),
+        include_dir: temporary.path().join("include"),
+        lib_root: temporary.path().to_path_buf(),
+        vm_archive: source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_trimmed_filter: None,
+        hermesc: temporary.path().join("hermesc"),
+        authenticated_archive_digests: [(source.clone(), digest)].into_iter().collect(),
+    };
+    let fake_lipo = temporary.path().join("lipo");
+    fs::write(
+        &fake_lipo,
+        "#!/bin/sh\n[ \"$1\" = \"-archs\" ] && printf 'arm64\\n' && exit 0\nexit 99\n",
+    )
+    .expect("fake lipo");
+    let mut permissions = fs::metadata(&fake_lipo)
+        .expect("fake lipo metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_lipo, permissions).expect("make fake lipo executable");
+
+    let prepared = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-tvos-sim",
+        &temporary.path().join("out"),
+        &[LinkArchive {
+            library: "hermesvm_a".to_owned(),
+            source: source.clone(),
+        }],
+        &fake_lipo,
+    )
+    .expect("inspect thin archive");
+    assert_eq!(prepared[0].linked, source);
+    assert_eq!(prepared[0].derivative_digest, None);
+}
+
+#[test]
+fn simulator_thinning_refuses_an_unauthenticated_input_before_lipo() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let source = temporary.path().join("libhermesvm_a.a");
+    fs::write(&source, b"archive").expect("archive");
+    let install = EngineInstall {
+        root: temporary.path().to_path_buf(),
+        include_dir: temporary.path().join("include"),
+        lib_root: temporary.path().to_path_buf(),
+        vm_archive: source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_trimmed_filter: None,
+        hermesc: temporary.path().join("hermesc"),
+        authenticated_archive_digests: Default::default(),
+    };
+    let error = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("out"),
+        &[LinkArchive {
+            library: "hermesvm_a".to_owned(),
+            source,
+        }],
+        &temporary.path().join("missing-lipo"),
+    )
+    .expect_err("receipt omission must fail first");
+    assert!(error.contains("does not authenticate"), "{error}");
+}
+
+#[test]
+fn missing_lipo_names_xcode_command_line_tools() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let source = temporary.path().join("libhermesvm_a.a");
+    fs::write(&source, b"archive").expect("archive");
+    let digest = digest_file(&source).expect("archive digest");
+    let install = EngineInstall {
+        root: temporary.path().to_path_buf(),
+        include_dir: temporary.path().join("include"),
+        lib_root: temporary.path().to_path_buf(),
+        vm_archive: source.clone(),
+        lean_vm_archive: None,
+        icu_i18n_archive: None,
+        icu_uc_archive: None,
+        icu_data_archive: None,
+        icu_full_data_archive: None,
+        icu_trimmed_filter: None,
+        hermesc: temporary.path().join("hermesc"),
+        authenticated_archive_digests: [(source.clone(), digest)].into_iter().collect(),
+    };
+    let error = prepare_apple_simulator_link_archives_with_lipo(
+        &install,
+        "aarch64-apple-ios-sim",
+        &temporary.path().join("out"),
+        &[LinkArchive {
+            library: "hermesvm_a".to_owned(),
+            source,
+        }],
+        &temporary.path().join("missing-lipo"),
+    )
+    .expect_err("missing lipo must fail clearly");
+    assert!(error.contains("Xcode command-line tools"), "{error}");
+    assert!(error.contains("xcode-select --install"), "{error}");
+}
+
+#[test]
 fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
     let root = Path::new("/cache/entry");
     let install = EngineInstall {
@@ -95,6 +327,7 @@ fn rerun_inputs_cover_receipt_headers_cache_and_link_archives() {
         icu_trimmed_filter: Some(root.join("share/icu/filters-root-en.json")),
         icu_en_filter: Some(root.join("share/icu/filters-en-intl.json")),
         hermesc: root.join("bin/hermesc"),
+        authenticated_archive_digests: Default::default(),
     };
     let paths = watched_inputs(&install, "x86_64-unknown-linux-gnu");
     for expected in [
@@ -436,6 +669,7 @@ fn rerun_paths_name_only_existing_inputs_and_the_root() {
         icu_trimmed_filter: None,
         icu_en_filter: None,
         hermesc: root.join("bin/hermesc"),
+        authenticated_archive_digests: Default::default(),
     };
     let paths = rerun_paths(&install, "aarch64-apple-darwin");
     for expected in [
