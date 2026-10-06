@@ -1927,6 +1927,27 @@ fn deferred_intrinsic_capture_is_one_shot_and_refuses_a_frozen_realm() {
     let error = frozen.capture_intrinsics().unwrap_err();
     assert!(error.contains("after intrinsics are frozen"), "{error}");
 
+    // A bootstrap that hides the real %Array.prototype% behind a replaced
+    // `Array` whose `prototype` accessor returns a fresh object can't make a
+    // post-freeze capture look like a pre-freeze one.
+    let disguised = BareConsumer::from_context_with_deferred_intrinsics(
+        Groups::empty(),
+        Context::new(GrantSet::none()),
+    );
+    disguised.eval(
+        r#"(function () {
+              var fake = function () {}.bind(null);
+              Object.defineProperty(fake, "prototype", {
+                get: function () { return {}; },
+                configurable: true
+              });
+              globalThis.Array = fake;
+            })(); "ok""#,
+    );
+    disguised.eval(ibex2::bindings::HARDEN_SOURCE);
+    let error = disguised.capture_intrinsics().unwrap_err();
+    assert!(error.contains("after intrinsics are frozen"), "{error}");
+
     let captured = BareConsumer::from_context_with_deferred_intrinsics(
         Groups::empty(),
         Context::new(GrantSet::none()),

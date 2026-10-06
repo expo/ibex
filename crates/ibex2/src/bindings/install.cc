@@ -440,8 +440,14 @@ struct Adapter::State {
   jsi::Value rejection_unhandled;
   jsi::Value rejection_handled;
   jsi::Function intrinsic_frozen;
+  // %Object.prototype%, %Function.prototype%, and %Array.prototype% as they were
+  // when the adapter was constructed, before any bootstrap ran. A bootstrap can
+  // replace the globals that name them, but not these identities, so capture
+  // can tell whether harden.js has already run.
+  jsi::Value freeze_witnesses;
   std::unique_ptr<Integrity> integrity;
   bool intrinsic_snapshot_deferred = false;
+  bool hardened = false;
   // Trusted-bootstrap globals and the identities published under them (the
   // object first, then each member), kept so the harden guard can prove that
   // none of them is still reachable from what harden.js freezes.
@@ -453,6 +459,11 @@ struct Adapter::State {
         lifetime(std::move(lifetime_value)),
         intrinsic_frozen(rt.global().getPropertyAsObject(rt, "Object")
                              .getPropertyAsFunction(rt, "isFrozen")),
+        freeze_witnesses(jsi::Array::createWithElements(
+            rt,
+            rt.global().getPropertyAsObject(rt, "Object").getProperty(rt, "prototype"),
+            rt.global().getPropertyAsObject(rt, "Function").getProperty(rt, "prototype"),
+            rt.global().getPropertyAsObject(rt, "Array").getProperty(rt, "prototype"))),
         integrity(std::make_unique<Integrity>(rt)) {}
   const void* require(jsi::Runtime& rt) const {
     return lifetime->require(rt);
@@ -489,12 +500,19 @@ void Adapter::capture_intrinsics() {
     throw std::logic_error("the intrinsic snapshot was not deferred");
   if (state_->integrity)
     throw std::logic_error("the deferred intrinsic snapshot was already captured");
-  auto array_prototype = runtime_->global()
-                             .getPropertyAsObject(*runtime_, "Array")
-                             .getPropertyAsObject(*runtime_, "prototype");
-  if (state_->intrinsic_frozen.call(*runtime_, array_prototype).getBool())
+  // Never consult the current globals here: a bootstrap could replace `Array`
+  // with a function whose `prototype` accessor returns a fresh, unfrozen object.
+  // The witnesses are the intrinsics captured at construction.
+  if (state_->hardened)
     throw std::logic_error(
         "the deferred intrinsic snapshot cannot be captured after intrinsics are frozen");
+  auto witnesses = state_->freeze_witnesses.asObject(*runtime_).asArray(*runtime_);
+  for (size_t i = 0; i < witnesses.size(*runtime_); ++i) {
+    if (state_->intrinsic_frozen.call(*runtime_, witnesses.getValueAtIndex(*runtime_, i))
+            .getBool())
+      throw std::logic_error(
+          "the deferred intrinsic snapshot cannot be captured after intrinsics are frozen");
+  }
   state_->integrity = std::make_unique<Integrity>(*runtime_);
 }
 void Adapter::detach() {
@@ -1835,6 +1853,7 @@ void Adapter::harden(const CompiledScript& script) {
     throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
   validate_bytecode(script, state_->bytecode_version);
   verify_harden_preconditions();
+  state_->hardened = true;
   rt.evaluateJavaScript(std::make_shared<CompiledBytes>(script.bytes, script.len),
                         "harden.js");
 }
