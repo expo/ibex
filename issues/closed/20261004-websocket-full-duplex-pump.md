@@ -69,6 +69,10 @@ were 2,061,424 bytes for the shared-lock parent, 2,112,088 for the shim
 (+50,664), and 2,129,432 for `mio` (+68,008). The shim is 17,344 bytes smaller;
 both deltas are within D5's 150 KiB budget.
 
+The identical fix-round release/test-support probe is 2,111,544 stripped bytes,
+or +50,120 over the shared-lock parent (544 bytes smaller than the initial
+pump); the size delta remains effectively +50 KiB.
+
 The identical slow-reader fixture measured the old design at 10.219 s and all
 8 MiB before pong; the pump measured 8.8 ms and 16 KiB before pong, then
 45.9 ms and 240 KiB before the close reply. An idle pump stayed inside one
