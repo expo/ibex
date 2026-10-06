@@ -1414,14 +1414,29 @@ fn unreachable_headers_release_the_borrowed_runtime_registry() {
         "made"
     );
     assert_eq!(consumer.live_headers(), 2000);
-    for _ in 0..8 {
+    drain_headers(&consumer);
+}
+
+/// Collect until every Headers row is released. Collection finishes on its own
+/// schedule (on Windows, under a parallel test run, eight back-to-back calls
+/// were not always enough), so retry for a bounded time instead of a fixed
+/// count; a real leak still fails, just after the budget.
+fn drain_headers(consumer: &BareConsumer) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
         consumer.eval("void 0");
         consumer.collect_garbage();
         if consumer.live_headers() == 0 {
-            break;
+            return;
         }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "{} Headers rows still live after collection",
+                consumer.live_headers()
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert_eq!(consumer.live_headers(), 0);
 }
 
 #[test]
@@ -1447,13 +1462,7 @@ fn non_construct_headers_calls_do_not_leak_created_rows() {
         1,
         "only the unreachable receiver's original row may remain before GC"
     );
-    for _ in 0..8 {
-        consumer.collect_garbage();
-        if consumer.live_headers() == 0 {
-            break;
-        }
-    }
-    assert_eq!(consumer.live_headers(), 0);
+    drain_headers(&consumer);
 }
 
 #[test]
