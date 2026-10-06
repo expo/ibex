@@ -1261,8 +1261,8 @@ fn assert_stall_deadline(secure: bool, flood_pongs: bool) {
             &AbortSignal::default(),
         )
         .unwrap();
-    socket.send_binary(&vec![5u8; 8 * 1024 * 1024]).unwrap();
     let started = std::time::Instant::now();
+    socket.send_binary(&vec![5u8; 8 * 1024 * 1024]).unwrap();
     let error = socket
         .next()
         .expect_err("the client's no-progress deadline must fail the socket");
