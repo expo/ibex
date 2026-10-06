@@ -258,3 +258,47 @@ fn collecting_a_discarded_response_cancels_even_with_a_live_signal() {
     assert_eq!(rt.eval("keepController.signal.aborted").unwrap(), "false");
     server.join().unwrap();
 }
+
+#[test]
+fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        head(&mut stream);
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nX-Reply: yes\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            )
+            .unwrap();
+    });
+    let source = format!(
+        r#"
+        (function () {{
+          fetch('{origin}', {{headers: new Headers({{'X-Request': 'yes'}})}})
+            .then(function (response) {{
+              if (response.headers.get('x-reply') !== 'yes') throw new Error('missing header');
+              return response.text();
+            }})
+            .then(function () {{ globalThis.headersDone = true; }});
+        }})();
+        "#
+    );
+    let (_project, mut runtime) = runtime("fetch-headers-gc", &source, &origin);
+    runtime.run_to_quiescence(Duration::from_secs(5));
+    assert_eq!(runtime.eval("String(headersDone)").unwrap(), "true");
+    assert_eq!(
+        runtime.live_header_handles_for_test(),
+        2,
+        "the explicitly consumed request snapshot must already be gone"
+    );
+    for _ in 0..8 {
+        runtime.eval("void 0").unwrap();
+        assert!(runtime.collect_garbage());
+        if runtime.live_header_handles_for_test() == 0 {
+            break;
+        }
+    }
+    assert_eq!(runtime.live_header_handles_for_test(), 0);
+    server.join().unwrap();
+}

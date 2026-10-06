@@ -23,6 +23,8 @@ extern "C" void* ibex2_sqlite_owner_create(const void*, double, int);
 extern "C" void ibex2_sqlite_owner_destroy(void*);
 extern "C" void* ibex2_response_owner_create(const void*, double);
 extern "C" void ibex2_response_owner_destroy(void*);
+extern "C" void* ibex2_headers_owner_create(const void*, double);
+extern "C" void ibex2_headers_owner_destroy(void*);
 extern "C" void* ibex2_crypto_key_owner_create(const void*, double);
 extern "C" void ibex2_crypto_key_owner_destroy(void*);
 extern "C" int ibex2_response_field(const void*, double, uint32_t,
@@ -671,6 +673,12 @@ struct ResponseOwner final : jsi::NativeState {
   ~ResponseOwner() override { ibex2_response_owner_destroy(owner); }
 };
 
+struct HeadersOwner final : jsi::NativeState {
+  void* owner;
+  explicit HeadersOwner(void* value) : owner(value) {}
+  ~HeadersOwner() override { ibex2_headers_owner_destroy(owner); }
+};
+
 struct CryptoKeyOwner final : jsi::NativeState {
   void* owner;
   explicit CryptoKeyOwner(void* value) : owner(value) {}
@@ -854,6 +862,22 @@ void install_pure(jsi::Runtime& rt,
   set_group_binding(rt, headers, "validName", 49, lifetime);
   set_group_binding(rt, headers, "validValue", 50, lifetime);
   set_group_binding(rt, headers, "free", 51, lifetime);
+  headers.setProperty(
+      rt, "own",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "ownHeaders"), 2,
+          [lifetime](jsi::Runtime& r, const jsi::Value&,
+                     const jsi::Value* args, size_t count) -> jsi::Value {
+            const void* state = lifetime->require(r);
+            if (count != 2 || !args[0].isNumber() || !args[1].isObject())
+              throw jsi::JSError(r, "Headers owner needs a handle and object");
+            void* owner = ibex2_headers_owner_create(state, args[0].asNumber());
+            if (owner == nullptr)
+              throw jsi::JSError(r, "Headers handle is released or unknown");
+            args[1].getObject(r).setNativeState(
+                r, std::make_shared<HeadersOwner>(owner));
+            return jsi::Value::undefined();
+          }));
   global.setProperty(rt, "__ibex2_headers", std::move(headers));
 }
 

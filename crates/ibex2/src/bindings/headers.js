@@ -95,8 +95,11 @@
       enumerable: false,
       writable: false,
     });
-    brand(this, "Headers");
     try {
+      // NativeState is private engine storage: collecting this wrapper drops
+      // its Rust registry row without exposing another handle operation.
+      h.own(this._handle, this);
+      brand(this, "Headers");
       fill(this, init);
     } catch (e) {
       h.free(this._handle);

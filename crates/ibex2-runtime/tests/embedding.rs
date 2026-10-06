@@ -93,6 +93,7 @@ extern "C" {
         out: *mut *mut c_char,
     ) -> i32;
     fn storage_consumer_step(h: *mut c_void, deliver: bool, out: *mut *mut c_char) -> i32;
+    fn storage_consumer_collect_garbage(h: *mut c_void) -> i32;
     fn storage_consumer_subscribe(h: *mut c_void, callback_name: *const c_char) -> u64;
     fn storage_consumer_subscribe_native_throw(h: *mut c_void) -> u64;
     fn storage_consumer_detach(h: *mut c_void);
@@ -323,6 +324,23 @@ impl BareConsumer {
         let result = unsafe { storage_consumer_step(self.handle, deliver, &mut out) };
         assert!(result >= 0, "{}", take(out));
         result
+    }
+
+    fn collect_garbage(&self) {
+        assert_eq!(unsafe { storage_consumer_collect_garbage(self.handle) }, 1);
+    }
+
+    fn live_headers(&self) -> usize {
+        let state = self
+            .context
+            .as_ref()
+            .expect("live borrowed context")
+            .state_ptr()
+            .cast::<ibex2::task::RuntimeState>();
+        // SAFETY: the Context above owns the state for this call.
+        unsafe { ibex2::task::borrow_state(state) }
+            .expect("live runtime state")
+            .live_headers()
     }
 
     fn finish(&self) -> String {
@@ -1227,6 +1245,39 @@ fn retained_pure_bindings_refuse_after_detach_and_context_drop() {
             error.contains("Ibex2 bindings are detached"),
             "unexpected detached error for {source}: {error}"
         );
+    }
+}
+
+#[test]
+fn unreachable_headers_release_the_borrowed_runtime_registry() {
+    let consumer = BareConsumer::new(Groups::PURE);
+    assert_eq!(consumer.live_headers(), 0);
+    assert_eq!(
+        consumer.eval(
+            "(function () { for (var i = 0; i < 2000; i++) new Headers(); return 'made'; })()"
+        ),
+        "made"
+    );
+    assert_eq!(consumer.live_headers(), 2000);
+    for _ in 0..8 {
+        consumer.eval("void 0");
+        consumer.collect_garbage();
+        if consumer.live_headers() == 0 {
+            break;
+        }
+    }
+    assert_eq!(consumer.live_headers(), 0);
+}
+
+#[test]
+fn headers_finalizer_after_adapter_detach_and_runtime_shutdown_is_harmless() {
+    let mut consumer = BareConsumer::new(Groups::PURE);
+    consumer.eval("globalThis.detachedHeaders = new Headers({x: 'y'}); 'made'");
+    assert_eq!(consumer.live_headers(), 1);
+    consumer.detach_and_drop_context();
+    consumer.eval("globalThis.detachedHeaders = undefined; void 0");
+    for _ in 0..4 {
+        consumer.collect_garbage();
     }
 }
 

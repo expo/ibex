@@ -93,6 +93,37 @@ fn median(mut values: Vec<f64>) -> f64 {
 
 #[test]
 #[ignore]
+fn headers_construction_cost() {
+    let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    runtime
+        .install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
+    runtime.harden().expect("harden");
+    const ITERATIONS: usize = 10_000;
+    let source = format!(
+        "(function () {{ var kept = []; var start = performance.now(); \
+         for (var i = 0; i < {ITERATIONS}; i++) kept.push(new Headers()); \
+         return (performance.now() - start) * 1000 / {ITERATIONS}; }})()"
+    );
+    runtime.eval(&source).expect("warmup");
+    let samples = (0..15)
+        .map(|_| {
+            runtime
+                .eval(&source)
+                .expect("measurement")
+                .parse::<f64>()
+                .expect("numeric microseconds per construction")
+        })
+        .collect();
+    println!(
+        "\n=== Headers construction ===\n  median: {:.3} us/new (15 x {ITERATIONS})",
+        median(samples)
+    );
+}
+
+#[test]
+#[ignore]
 fn boot_floor() {
     // The cold boot is what a real binary pays: it includes any one-time
     // process initialization the engine does on first construction.

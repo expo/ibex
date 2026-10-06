@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Native wrapper ownership": `Headers` rows follow JavaScript collection through private JSI native state, explicit fetch release is idempotent, teardown is weak-state safe, and the sibling registry audit is recorded)
 **Revised:** 2026-10-06 (§3/OQ2 fix round 2: complete English currency data preserves non-default fraction metadata and names; `ibex2` has no build-dependency on `hermes-lean-sys`, so only the linking instance selects an ICU tier)
 **Revised:** 2026-10-06 (§3/OQ2 fix round 1: the unchanged v3 base, separate English Intl, and full ICU tiers are selected independently; unavailable process locales fall back to guaranteed English and report the data actually present)
 **Revised:** 2026-10-06 (§3: `INTL` is also available on Windows under the same `intl` feature, backed by the OS `icu.dll` and refused unless a one-time OS probe passes; Windows host notes updated; LLP 0057.000 §5.1.1. I1 fix round 1: nothing imports `icu.dll`; its `unumf_*` entry points are bound from System32 by full path)
@@ -359,6 +360,34 @@ last owner while that callback is already in flight on another thread, because
 shutdown waits for the callback and the callback waits for the lock. The
 borrowed-runtime fixture tests installation, explicit checkpoints,
 persistence, grants and detach without the Ibex2 loader.
+
+#### Native wrapper ownership
+
+Every Rust registry row projected as a JavaScript object follows an owner that
+the engine can collect. `Headers` keeps its compatibility `_handle` data
+property non-enumerable and non-writable, but also carries a private JSI
+`NativeState`. Its destructor owns only a Rust `Weak<RuntimeState>` and removes
+the header row at most once. Therefore collection after `Adapter::detach()` or
+runtime teardown never dereferences borrowed adapter state. Op 51, used when
+fetch consumes a temporary request snapshot, removes the same row first; a
+later finalizer finds no row and does nothing. This owner is installed by
+`PURE`, not `FETCH`, and is reachable only through the deleted bootstrap object,
+so the harden and trusted-bootstrap reachability contracts do not grow.
+
+The complete runtime-registry ownership audit is:
+
+| registry | owner and terminal release |
+|---|---|
+| headers | `Headers` native state; explicit op 51 is idempotent; shutdown also clears rows |
+| responses | response-body native state; EOF, cancellation, collection, or shutdown |
+| controls | ordinary fetch closure/response terminal cleanup; trusted primitives require explicit action 2 |
+| subscriptions | adapter callback root plus Rust `Subscription`; unsubscribe, socket collection, terminal event, or detach |
+| WebSockets | socket native state plus the specified listener/outbound-data keepalive; collection or shutdown |
+| crypto keys | `CryptoKey` native state or shutdown |
+| Intl number/date formatters | formatter native state (on platforms where those registries exist) |
+| SQLite databases/statements/results | database and statement native state or explicit close; result conversion `finally`; runtime shutdown |
+| timers | numeric scheduled operations, not wrappers; fire or explicit clear owns removal |
+| Blob/File/FormData | no Rust registry; private bytes and records are JavaScript-owned |
 
 This is the reusable storage door. Exact2's data-source continuation integration
 is separate work: installing the bindings alone does not teach its executor

@@ -1,5 +1,6 @@
 // A caller-owned runtime: no ibex2 Hermes owner, loader, or pump.
 #include <hermes/hermes.h>
+#include <jsi/instrumentation.h>
 #include "ibex2_jsi.h"
 #include <cstdlib>
 #include <cstring>
@@ -233,6 +234,15 @@ int storage_consumer_step(void *h, bool deliver, char **out) {
     c->runtime->drainMicrotasks();
     return 0;
   } catch (const std::exception &e) { *out = copy(e.what()); return -1; }
+}
+int storage_consumer_collect_garbage(void *h) {
+  auto *c = static_cast<Consumer *>(h);
+  try {
+    c->runtime->instrumentation().collectGarbage("embedding test collection");
+    return 1;
+  } catch (...) {
+    return 0;
+  }
 }
 unsigned long long storage_consumer_subscribe(void *h, const char *callback_name) {
   auto *c = static_cast<Consumer *>(h);
