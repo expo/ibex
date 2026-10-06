@@ -93,12 +93,35 @@ pub(crate) mod intl_case {
     pub(crate) const MAP: u32 = 97;
 }
 
-/// Whether `op` is one of the Intl families' operations (number format and
-/// case 90–99, date-time format 130–137).
+/// Every Intl host operation, by name. `intl_ops_are_the_catalogs_intl_assignments`
+/// keeps this equal to the catalog's `Owner::Intl*` entries, so a new Intl
+/// operation cannot bypass the Windows ICU gate in `ibex2_host_call`.
+#[cfg(any(test, all(feature = "intl", windows)))]
+pub(crate) const INTL_OPS: &[u32] = &[
+    intl_number::CREATE,
+    intl_number::FORMAT,
+    intl_number::FORMAT_PARTS,
+    intl_number::PART_TYPE,
+    intl_number::PART_VALUE,
+    intl_number::RESOLVED,
+    intl_number::SUPPORTED_LOCALES,
+    intl_number::CURRENCY_DIGITS,
+    intl_number::CANONICAL_LOCALE,
+    intl_case::MAP,
+    intl_datetime::CREATE,
+    intl_datetime::FORMAT,
+    intl_datetime::FORMAT_PARTS,
+    intl_datetime::PART_TYPE,
+    intl_datetime::PART_VALUE,
+    intl_datetime::RESOLVED,
+    intl_datetime::SUPPORTED_LOCALES,
+    intl_datetime::CANONICAL_TIME_ZONE,
+];
+
+/// Whether `op` is one of the Intl families' operations.
 #[cfg(all(feature = "intl", windows))]
-pub(crate) const fn is_intl(op: u32) -> bool {
-    (op >= intl_number::CREATE && op <= intl_number::CANONICAL_LOCALE)
-        || (op >= intl_datetime::CREATE && op <= intl_datetime::CANONICAL_TIME_ZONE)
+pub(crate) fn is_intl(op: u32) -> bool {
+    INTL_OPS.contains(&op)
 }
 
 #[cfg_attr(
@@ -487,3 +510,26 @@ pub(crate) const JSI_SYNC_BINDINGS: &[JsiBinding] = &[
     binding!("global", "__ibex2_timer_clear", inline::TIMER_CLEAR),
     binding!("global", "__ibex2_performance_now", inline::PERFORMANCE_NOW),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn intl_ops_are_the_catalogs_intl_assignments() {
+        let catalog: BTreeSet<u32> = ALL
+            .iter()
+            .filter(|assignment| {
+                matches!(
+                    assignment.owner,
+                    Owner::IntlNumber | Owner::IntlCase | Owner::IntlDateTime
+                )
+            })
+            .map(|assignment| assignment.op)
+            .collect();
+        let listed: BTreeSet<u32> = INTL_OPS.iter().copied().collect();
+        assert_eq!(listed.len(), INTL_OPS.len(), "INTL_OPS repeats an op");
+        assert_eq!(listed, catalog);
+    }
+}
