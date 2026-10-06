@@ -120,5 +120,8 @@ The expanded portable suite passes 19/19 for five consecutive macOS runs. A
 fresh probe observed zero idle `Poll::poll` returns over 150 ms, 1.20 ms Pong
 latency and 12.6 ms Close latency during an 8 MiB send. The same stripped
 minimal-consumer fixture is 2,130,152 bytes, 720 bytes above the pre-fix mio
-pump binary and still within D5. Full Mac suites and lints are pending below;
-Linux and Windows remain pending from the orchestrator.
+pump binary and still within D5. `ibex2-runtime --all-features`, both mandated
+Clippy commands, formatting, and `ref-check` pass. The exact `ibex2
+--all-features` command has only the declared macOS Keychain environment
+failure; with that one fixture skipped, 238 library tests and every integration
+test pass. Linux and Windows remain pending from the orchestrator.
