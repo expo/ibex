@@ -61,10 +61,12 @@ pub const LINKED_ICU_DATA_ARCHIVE: Option<&str> =
 /// the linked identity names the exact locale-data variant.
 pub const LINKED_ICU_DATA_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LINKED_ICU_DATA_DIGEST");
 
-/// Windows only: the operating-system ICU DLL whose import library `icu`
-/// links (`icu.dll`). There is no archive and no digest: the bytes belong to
-/// Windows and change with Windows Update, so the version a process uses is an
-/// observed runtime fact (`ibex2::bindings::os_icu`), never a pinned identity.
+/// Windows only: the operating-system ICU DLL behind `icu` (`icu.dll`). The
+/// link names only its frozen `icuuc`/`icuin` forwarders; `ibex2` binds the
+/// rest from System32's copy at run time. There is no archive and no digest:
+/// the bytes belong to Windows and change with Windows Update, so the version
+/// a process uses is an observed runtime fact (`ibex2::bindings::os_icu`),
+/// never a pinned identity.
 /// Absent elsewhere; [`LINKED_ICU_DATA_ARCHIVE`] is absent on Windows.
 pub const LINKED_OS_ICU: Option<&str> = option_env!("HERMES_LEAN_LINKED_OS_ICU");
 

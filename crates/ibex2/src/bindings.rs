@@ -58,14 +58,6 @@ pub const TYPESCRIPT: &str = include_str!("bindings/storage.d.ts");
 /// backs the `INTL` group there. `Err` names why `INTL` is unavailable.
 #[cfg(all(windows, feature = "intl"))]
 pub use crate::stdlib::intl_os::{os_icu, OsIcu};
-/// The `icu.dll` entry points the Windows `INTL` probe requires, and the
-/// Windows 11-only ones the shims must never import. Exposed for the
-/// import-table witness in `ibex2-runtime`'s tests.
-#[cfg(all(windows, feature = "intl"))]
-#[doc(hidden)]
-pub use crate::stdlib::intl_os::{
-    SHIM_ENTRY_POINTS as OS_ICU_ENTRY_POINTS, WINDOWS_11_ONLY as OS_ICU_WINDOWS_11_ONLY,
-};
 
 /// Named projections of the Rust standard library into a JavaScript runtime.
 ///

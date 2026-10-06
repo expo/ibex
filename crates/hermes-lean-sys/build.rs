@@ -9,8 +9,10 @@ const LINUX_ICU_I18N: &str = "icui18n";
 const LINUX_ICU_UC: &str = "icuuc";
 const LINUX_ICU_DATA: &str = "icudata";
 const LINUX_ICU_FULL_DATA: &str = "icudata-full";
-/// The Windows SDK import library for the OS ICU and the DLL it names.
-const WINDOWS_OS_ICU_LIB: &str = "icu";
+/// The Windows SDK's frozen ICU import libraries (`icuuc.dll`/`icuin.dll`,
+/// forwarders into the OS `icu.dll`) and the OS ICU DLL itself.
+const WINDOWS_ICU_UC: &str = "icuuc";
+const WINDOWS_ICU_I18N: &str = "icuin";
 const WINDOWS_OS_ICU_DLL: &str = "icu.dll";
 
 fn main() {
@@ -186,15 +188,17 @@ fn main() {
     if links_icu && target_os == "windows" {
         // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — Windows has no
         // bundled ICU and no data archive, so there is no LINKED_ICU_DATA_*
-        // identity to claim. `icu` links the OS `icu.dll` through the SDK
-        // import library; `icu-full-data` selects nothing more. The legacy
-        // `icuuc`/`icuin` libraries the Hermes VM imports (above) are frozen
-        // forwarders that never gained the `unumf_*` number C API. Unused
-        // import libraries add no import, so a build without Ibex's Intl shims
-        // still imports only what Hermes needs.
-        metadata("os_icu_dll", WINDOWS_OS_ICU_DLL);
+        // identity to claim. `icu` links the SDK's frozen `icuuc`/`icuin`
+        // import libraries, the same ones the Hermes VM imports (above), so
+        // Ibex's Intl shims also link without a VM in the graph. Nothing links
+        // `icu.lib`: the `unumf_*` entry points only `icu.dll` exports are
+        // bound at run time by `ibex2` from System32's `icu.dll` by full path,
+        // so no import names `icu.dll` and an embedder needs no linker flag.
+        // Unused import libraries add no import. `icu-full-data` selects
+        // nothing more.
         println!("cargo:rustc-env=HERMES_LEAN_LINKED_OS_ICU={WINDOWS_OS_ICU_DLL}");
-        println!("cargo:rustc-link-lib=dylib={WINDOWS_OS_ICU_LIB}");
+        println!("cargo:rustc-link-lib=dylib={WINDOWS_ICU_UC}");
+        println!("cargo:rustc-link-lib=dylib={WINDOWS_ICU_I18N}");
     }
 }
 

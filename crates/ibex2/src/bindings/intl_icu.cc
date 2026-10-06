@@ -43,6 +43,12 @@ struct Formatter {
   ~Formatter() { unumf_close(value); }
 };
 
+// A deleter that calls `unumf_closeResult` by name, which on Windows is a
+// call through the bound icu.dll table rather than a linkable function.
+struct CloseFormattedNumber {
+  void operator()(UFormattedNumber *value) const { unumf_closeResult(value); }
+};
+
 struct Span {
   int32_t field;
   size_t begin;
@@ -135,8 +141,8 @@ Result *make_result(const Formatter *formatter, double number,
                     const char *decimal) {
   if (formatter == nullptr || formatter->value == nullptr) return nullptr;
   UErrorCode status = U_ZERO_ERROR;
-  std::unique_ptr<UFormattedNumber, decltype(&unumf_closeResult)> raw(
-      unumf_openResult(&status), &unumf_closeResult);
+  std::unique_ptr<UFormattedNumber, CloseFormattedNumber> raw(
+      unumf_openResult(&status));
   if (U_FAILURE(status)) return nullptr;
   if (decimal == nullptr)
     unumf_formatDouble(formatter->value, number, raw.get(), &status);

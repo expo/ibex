@@ -1,9 +1,9 @@
 //! Windows Intl uses the operating system's ICU (LLP 0057.000 §5.1.1). These
-//! witnesses check the properties that make that safe to ship: the shims'
-//! `icu.dll` is a delay-load import, no Windows 11-only ICU symbol is
-//! imported (the number shim takes the field-position iterator path), the
-//! probe admits only entry points it checked, and the observed OS ICU
-//! versions are reported rather than pinned.
+//! witnesses check the properties that make that safe to ship: no import names
+//! `icu.dll` (the shims reach its `unumf_*` API only through pointers the probe
+//! binds from System32 by full path), the only ICU imports are Hermes's frozen
+//! `icuuc`/`icuin`, no Windows 11-only ICU symbol is imported, and the
+//! observed OS ICU versions are reported rather than pinned.
 #![cfg(all(windows, feature = "intl"))]
 
 use ibex2::bindings::{Context, Groups};
@@ -14,6 +14,12 @@ use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 fn the_probe_reports_the_observed_os_icu() {
     let observed = ibex2::bindings::os_icu().expect("this Windows provides the OS ICU");
     assert_eq!(observed.dll, "icu.dll");
+    let system32 = std::env::var("SystemRoot").expect("SystemRoot") + "\\System32\\icu.dll";
+    assert!(
+        observed.path.eq_ignore_ascii_case(&system32),
+        "bound {} instead of {system32}",
+        observed.path
+    );
     let major: u32 = observed.icu.split('.').next().unwrap().parse().unwrap();
     // Windows 10 2004, the stated floor, ships ICU 64.
     assert!(
@@ -60,45 +66,75 @@ fn the_intl_group_validates_and_installs_on_this_windows() {
     );
 }
 
-#[test]
-fn icu_dll_is_delay_loaded_and_only_windows_10_2004_symbols_are_imported() {
-    let image = Image::read(&std::env::current_exe().unwrap());
-    let is_icu = |dll: &str| {
-        let dll = dll.to_ascii_lowercase();
-        dll == "icu.dll" || dll == "icuuc.dll" || dll == "icuin.dll"
-    };
+/// The `UFormattedValue` field walk, exported only from Windows 11. The Linux
+/// number shim uses it; nothing on Windows may import it.
+const WINDOWS_11_ONLY: &[&str] = &[
+    "unumf_resultAsValue",
+    "ufmtval_getString",
+    "ufmtval_nextPosition",
+    "ucfpos_open",
+    "ucfpos_close",
+    "ucfpos_constrainCategory",
+    "ucfpos_getField",
+    "ucfpos_getIndexes",
+];
 
+/// Checks one executable's import tables and returns its ICU imports as
+/// `dll!name` lines (printed with `--nocapture` for the record).
+fn check_icu_imports(path: &std::path::Path) -> Vec<String> {
+    let image = Image::read(path);
     let eager = image.imports(Directory::Import);
-    assert!(
-        eager
-            .iter()
-            .all(|(dll, _)| !dll.eq_ignore_ascii_case("icu.dll")),
-        "icu.dll must not be a load-time import"
-    );
     let delayed = image.imports(Directory::DelayImport);
-    let icu: Vec<&String> = delayed
-        .iter()
-        .filter(|(dll, _)| dll.eq_ignore_ascii_case("icu.dll"))
-        .flat_map(|(_, names)| names)
-        .collect();
-    assert!(
-        icu.iter()
-            .any(|name| *name == "unumf_resultGetAllFieldPositions"),
-        "the number shim takes the field-position iterator path: {icu:?}"
-    );
-    for name in &icu {
+    for (dll, _) in eager.iter().chain(&delayed) {
         assert!(
-            ibex2::bindings::OS_ICU_ENTRY_POINTS.contains(&name.as_str()),
-            "{name} is imported from icu.dll but not checked by the INTL probe"
+            !dll.eq_ignore_ascii_case("icu.dll"),
+            "{}: no import may name icu.dll; its API is bound by full System32 path",
+            path.display()
         );
     }
-
-    for (dll, names) in eager.iter().chain(&delayed).filter(|(dll, _)| is_icu(dll)) {
+    let is_icu = |dll: &str| dll.to_ascii_lowercase().starts_with("icu");
+    assert!(
+        delayed.iter().all(|(dll, _)| !is_icu(dll)),
+        "{}: no ICU DLL may be delay-loaded",
+        path.display()
+    );
+    let mut lines = Vec::new();
+    for (dll, names) in eager.iter().filter(|(dll, _)| is_icu(dll)) {
+        assert!(
+            dll.eq_ignore_ascii_case("icuuc.dll") || dll.eq_ignore_ascii_case("icuin.dll"),
+            "{}: ICU comes only from Hermes's icuuc/icuin, not {dll}",
+            path.display()
+        );
         for name in names {
             assert!(
-                !ibex2::bindings::OS_ICU_WINDOWS_11_ONLY.contains(&name.as_str()),
-                "{dll}!{name} exists only on Windows 11"
+                !WINDOWS_11_ONLY.contains(&name.as_str()) && !name.starts_with("unumf_"),
+                "{}: {dll}!{name} must not be a link-time import",
+                path.display()
             );
+            lines.push(format!("{}!{name}", dll.to_ascii_lowercase()));
+        }
+    }
+    lines.sort();
+    lines
+}
+
+#[test]
+fn no_import_names_icu_dll_and_icu_comes_only_from_icuuc_and_icuin() {
+    for path in [
+        std::env::current_exe().unwrap(),
+        std::path::PathBuf::from(env!("CARGO_BIN_EXE_ibex2")),
+    ] {
+        let lines = check_icu_imports(&path);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "icuin.dll!ufieldpositer_open"),
+            "{}: the number shim's field-position iterator links through icuin: {lines:?}",
+            path.display()
+        );
+        println!("{} ICU imports ({}):", path.display(), lines.len());
+        for line in &lines {
+            println!("  {line}");
         }
     }
 }

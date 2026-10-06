@@ -65,20 +65,20 @@ variants, so no build compiles or links against a different system ICU.
 
 Windows Intl uses the same `intl` feature and `INTL` group, backed by the
 operating system's `icu.dll` rather than a bundled ICU. No ICU data is
-added; the release CLI grows by 236,544 bytes (231 KiB). The shims are compiled against the
-Windows 10 2004 API, so that is the floor for `INTL`. `icu.dll` is
-delay-loaded, and validation probes it once, so an `intl` binary still starts
-on an older Windows and refuses `INTL` with a clear error.
+added; the release CLI grows by 243,712 bytes (238 KiB). The shims are
+compiled against the Windows 10 2004 API, so that is the floor for `INTL`. Nothing links
+against `icu.dll`: the few entry points only it exports are bound once, as
+function pointers, from System32's `icu.dll` loaded by full path, and
+everything else goes through the `icuuc`/`icuin` imports Hermes already has.
+An `intl` binary therefore still starts on an older Windows and refuses `INTL`
+with a clear error (the `ibex2` CLI runs without Intl there and says why).
 `ibex2::bindings::os_icu()` reports the observed ICU, Unicode, CLDR, and
 tzdata versions. They are unpinned facts about the machine running the
 binary: Windows Update changes them, tzdata can be years old, and Microsoft
 modifies CLDR (for example, en-US time styles put an ASCII space before
 AM/PM). There is no `LINKED_ICU_DATA_*` identity on Windows;
-`hermes_lean_sys::LINKED_OS_ICU` names the DLL instead. Cargo does not
-forward a library's link arguments, so an embedder outside this workspace
-that links `ibex2/intl` into its own executable should add
-`/DELAYLOAD:icu.dll delayimp.lib` to that final link. Without them, the
-executable needs Windows 10 2004 to start. On Windows:
+`hermes_lean_sys::LINKED_OS_ICU` names the DLL instead. An embedder that links
+`ibex2/intl` into its own executable needs no linker flags. On Windows:
 
 ```powershell
 cargo test -p ibex2 --features bindings,intl
