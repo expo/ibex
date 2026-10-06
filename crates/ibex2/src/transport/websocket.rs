@@ -39,6 +39,15 @@ pub struct TcpSocketTransport {
     tls: std::sync::OnceLock<Arc<rustls::ClientConfig>>,
     #[cfg(test)]
     writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
+    #[cfg(test)]
+    pump_observer: Option<Arc<PumpObserver>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct PumpObserver {
+    parked: std::sync::atomic::AtomicBool,
+    returns: AtomicUsize,
 }
 
 impl TcpSocketTransport {
@@ -53,6 +62,7 @@ impl TcpSocketTransport {
         Self {
             tls,
             writer_gate: None,
+            pump_observer: None,
         }
     }
 
@@ -61,6 +71,16 @@ impl TcpSocketTransport {
         Self {
             tls: std::sync::OnceLock::new(),
             writer_gate: Some(gate),
+            pump_observer: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_pump_observer(observer: Arc<PumpObserver>) -> Self {
+        Self {
+            tls: std::sync::OnceLock::new(),
+            writer_gate: None,
+            pump_observer: Some(observer),
         }
     }
 
@@ -240,6 +260,8 @@ impl TcpSocketTransport {
         let pump_signal = signal.clone();
         #[cfg(test)]
         let writer_gate = self.writer_gate.clone();
+        #[cfg(test)]
+        let pump_observer = self.pump_observer.clone();
         std::thread::spawn(move || {
             pump_loop(
                 wire,
@@ -255,6 +277,8 @@ impl TcpSocketTransport {
                 pump_signal,
                 #[cfg(test)]
                 writer_gate,
+                #[cfg(test)]
+                pump_observer,
             )
         });
         Ok(Socket {
@@ -990,6 +1014,7 @@ fn pump_loop(
     state: Arc<Mutex<SendState>>,
     signal: AbortSignal,
     #[cfg(test)] writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
+    #[cfg(test)] pump_observer: Option<Arc<PumpObserver>>,
 ) {
     let mut input = Input::new(buffered_input);
     let mut request: Option<(ReceiveRequest, ReceiveOperation)> = None;
@@ -1265,12 +1290,22 @@ fn pump_loop(
             last_write_progress = None;
             None
         };
-        match waiter.wait(
+        #[cfg(test)]
+        if let Some(observer) = &pump_observer {
+            observer.parked.store(true, Ordering::Release);
+        }
+        let waited = waiter.wait(
             wire.tcp(),
             request.is_some(),
             pending_write && writes_allowed,
             timeout,
-        ) {
+        );
+        #[cfg(test)]
+        if let Some(observer) = &pump_observer {
+            observer.parked.store(false, Ordering::Release);
+            observer.returns.fetch_add(1, Ordering::AcqRel);
+        }
+        match waited {
             Ok(ready) => {
                 // With no read interest, a TCP read indication can only be a
                 // terminal poll condition. Do not spin forever on an idle

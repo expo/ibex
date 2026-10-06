@@ -539,6 +539,119 @@ fn a_ping_flood_from_a_non_reading_peer_fails_cleanly() {
 }
 
 #[test]
+fn control_frames_overtake_a_large_send_to_a_slow_reader() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (reported, report) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        socket2::SockRef::from(&stream)
+            .set_recv_buffer_size(FRAGMENT)
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8(head).unwrap();
+        let key = head
+            .lines()
+            .find_map(|line| line.strip_prefix("Sec-WebSocket-Key: "))
+            .unwrap()
+            .trim();
+        let accept = crate::stdlib::websocket::accept_key(key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .unwrap();
+
+        let ping_sent = std::time::Instant::now();
+        stream.write_all(&frame(true, 0x9, b"priority")).unwrap();
+        let mut data_before_pong = 0;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
+            if opcode == 0xA {
+                assert_eq!(payload, b"priority");
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
+            data_before_pong += payload.len();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let ping_latency = ping_sent.elapsed();
+
+        let close_sent = std::time::Instant::now();
+        stream
+            .write_all(&frame(true, 0x8, &1000u16.to_be_bytes()))
+            .unwrap();
+        let mut data_before_close = data_before_pong;
+        loop {
+            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
+            if opcode == 0x8 {
+                assert_eq!(payload, 1000u16.to_be_bytes());
+                break;
+            }
+            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
+            data_before_close += payload.len();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        reported
+            .send((
+                ping_latency,
+                close_sent.elapsed(),
+                data_before_pong,
+                data_before_close,
+            ))
+            .unwrap();
+    });
+
+    let mut socket = open_on(
+        &TcpSocketTransport::new(),
+        port,
+        "/slow-control",
+        &AbortSignal::default(),
+    )
+    .unwrap();
+    let payload = vec![5; 8 << 20];
+    socket.send_binary(&payload).unwrap();
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1000,
+            reason: String::new(),
+        }
+    );
+    let (ping_latency, close_latency, before_pong, before_close) = report
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the slow peer received both control replies");
+    peer.join().unwrap();
+    assert!(
+        before_pong < payload.len(),
+        "pong followed the whole message"
+    );
+    assert!(
+        before_close < payload.len(),
+        "close reply followed the whole message"
+    );
+    assert!(
+        ping_latency < Duration::from_secs(2),
+        "pong latency was {ping_latency:?}"
+    );
+    assert!(
+        close_latency < Duration::from_secs(2),
+        "close latency was {close_latency:?}"
+    );
+    eprintln!(
+        "full-duplex control latency: ping={ping_latency:?}, close={close_latency:?}, bytes before pong={before_pong}, bytes before close={before_close}"
+    );
+}
+
+#[test]
 fn a_stalled_write_to_a_non_reading_peer_fails_within_the_stall_bound() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -759,6 +872,32 @@ fn retained_plain_and_tls_sockets_are_nonblocking_after_the_handshake() {
             peer.join().unwrap();
         }
     }
+}
+
+#[test]
+fn an_idle_connection_blocks_without_periodic_wakeups() {
+    let (port, _seen) = peer();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let socket = open_on(&transport, port, "/never", &AbortSignal::default()).unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !observer.parked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(
+        observer.parked.load(Ordering::Acquire),
+        "the pump never entered its readiness wait"
+    );
+    let returns = observer.returns.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(observer.parked.load(Ordering::Acquire));
+    assert_eq!(
+        observer.returns.load(Ordering::Acquire),
+        returns,
+        "an idle pump returned from readiness without a command or socket event"
+    );
+    drop(socket);
 }
 
 #[test]
