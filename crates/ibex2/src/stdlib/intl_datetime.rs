@@ -1,4 +1,5 @@
-//! Rust-owned ECMA-402 DateTimeFormat policy for the Linux Hermes adapter.
+//! Rust-owned ECMA-402 DateTimeFormat policy for the Linux and Windows Hermes
+//! adapters.
 //!
 //! JavaScript performs the observable `Get`, ToPrimitive, and object-shape
 //! work. A normalized option vector arrives here; Rust resolves locale

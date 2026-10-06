@@ -1,4 +1,5 @@
-//! Locale-sensitive String case mapping over the Linux ICU closure.
+//! Locale-sensitive String case mapping over ICU (Linux's pinned closure or
+//! Windows' OS ICU).
 //!
 //! The engine adapter carries JavaScript strings as explicit UTF-16LE bytes,
 //! preserving embedded NUL and lone surrogates. ICU performs only the Unicode
