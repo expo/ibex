@@ -65,8 +65,9 @@ close semantics, and the 15 s no-write-progress bound remain.
 The selected readiness implementation is a 194-line `poll(2)`/`WSAPoll` shim
 over dependencies already linked by the crate. A working `mio` 1.2.4 variant
 passed the same macOS portable control test. Identical stripped release probes
-were 2,112,080 bytes for the shim and 2,129,424 for `mio`, so the shim is
-17,344 bytes smaller and both are within D5's 150 KiB mechanism budget.
+were 2,061,424 bytes for the shared-lock parent, 2,112,088 for the shim
+(+50,664), and 2,129,432 for `mio` (+68,008). The shim is 17,344 bytes smaller;
+both deltas are within D5's 150 KiB budget.
 
 The identical slow-reader fixture measured the old design at 10.219 s and all
 8 MiB before pong; the pump measured 8.8 ms and 16 KiB before pong, then
