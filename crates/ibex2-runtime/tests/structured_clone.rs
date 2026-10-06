@@ -381,7 +381,7 @@ fn events_and_websockets_are_private_platform_objects() {
     );
 }
 
-#[cfg(all(target_os = "linux", feature = "intl"))]
+#[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
 #[test]
 fn linux_intl_replacements_are_registered_platform_objects() {
     check(

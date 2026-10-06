@@ -180,6 +180,14 @@ fn main() {
         println!("cargo:rustc-env=HERMES_LEAN_LINKED_ICU_DATA_DIGEST={digest}");
         emit_linux_icu_link_lines(&install.lib_root, library);
     }
+    if links_icu && target_os == "windows" {
+        // SPIKE (win-intl-spike): Windows has no bundled ICU. `icu` links the
+        // operating system's icu.dll through the SDK import library. The
+        // legacy icuuc/icuin DLLs the Hermes bundle imports are frozen
+        // forwarders that lack the unumf_/ufmtval_/ucfpos_ number C API.
+        metadata("linked_icu", "windows-os-icu.dll");
+        println!("cargo:rustc-link-lib=dylib=icu");
+    }
 }
 
 fn metadata(key: &str, value: &str) {

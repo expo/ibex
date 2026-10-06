@@ -550,7 +550,7 @@ pub unsafe extern "C" fn ibex2_host_call(
     }
 
     let state = crate::task::clone_queue(state);
-    #[cfg(all(feature = "intl", target_os = "linux"))]
+    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
     if let Some(result) = crate::stdlib::intl::dispatch(op, &args, state.as_deref()) {
         return match result {
             Ok(value) => {
@@ -560,7 +560,7 @@ pub unsafe extern "C" fn ibex2_host_call(
             Err(err) => fail(out, &err.to_string()),
         };
     }
-    #[cfg(all(feature = "intl", target_os = "linux"))]
+    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
     if let Some(result) = crate::stdlib::intl_datetime::dispatch(op, &args, state.as_deref()) {
         return match result {
             Ok(value) => {
@@ -570,7 +570,7 @@ pub unsafe extern "C" fn ibex2_host_call(
             Err(err) => fail(out, &err.to_string()),
         };
     }
-    #[cfg(all(feature = "intl", target_os = "linux"))]
+    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
     if let Some(result) = crate::stdlib::intl_case::dispatch(op, &args) {
         return match result {
             Ok(value) => {

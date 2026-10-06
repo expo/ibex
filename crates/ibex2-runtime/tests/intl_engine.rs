@@ -2,7 +2,7 @@
 //! omitted. Linux's non-lite Hermes profile exposes no `Intl` object but uses
 //! trimmed root+en ICU data for correct basic Unicode operations; Apple's
 //! profile delegates to the operating system.
-#![cfg(any(target_os = "linux", target_vendor = "apple"))]
+#![cfg(any(target_os = "linux", windows, target_vendor = "apple"))]
 
 use ibex2::bindings::{Context, Groups};
 use ibex2::grant::GrantSet;
@@ -62,7 +62,7 @@ fn engine_intl_surface_without_ibex_intl_group() {
     assert_eq!(observed, "object|1.234,5");
 }
 
-#[cfg(all(target_os = "linux", feature = "intl"))]
+#[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
 #[test]
 fn opted_in_linux_group_supplies_intl_and_locale_methods() {
     set_stable_process_defaults();

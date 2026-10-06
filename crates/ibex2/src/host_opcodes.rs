@@ -69,7 +69,7 @@ pub(crate) mod inline {
     pub(crate) const SQLITE_RESULT: u32 = 80;
 }
 
-#[cfg_attr(not(all(feature = "intl", target_os = "linux")), allow(dead_code))]
+#[cfg_attr(not(all(feature = "intl", any(target_os = "linux", windows))), allow(dead_code))]
 pub(crate) mod intl_number {
     pub(crate) const CREATE: u32 = 90;
     pub(crate) const FORMAT: u32 = 91;
@@ -82,12 +82,12 @@ pub(crate) mod intl_number {
     pub(crate) const CANONICAL_LOCALE: u32 = 99;
 }
 
-#[cfg_attr(not(all(feature = "intl", target_os = "linux")), allow(dead_code))]
+#[cfg_attr(not(all(feature = "intl", any(target_os = "linux", windows))), allow(dead_code))]
 pub(crate) mod intl_case {
     pub(crate) const MAP: u32 = 97;
 }
 
-#[cfg_attr(not(all(feature = "intl", target_os = "linux")), allow(dead_code))]
+#[cfg_attr(not(all(feature = "intl", any(target_os = "linux", windows))), allow(dead_code))]
 pub(crate) mod intl_datetime {
     pub(crate) const CREATE: u32 = 130;
     pub(crate) const FORMAT: u32 = 131;

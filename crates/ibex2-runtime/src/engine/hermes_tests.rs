@@ -156,7 +156,7 @@ fn all_groups_preserve_the_shipping_global_insertion_order() {
         "Response",
         "structuredClone",
     ];
-    #[cfg(all(target_os = "linux", feature = "intl"))]
+    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
     let expected = {
         let mut expected = expected;
         expected.insert(expected.len() - 3, "Intl");

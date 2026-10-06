@@ -1,5 +1,5 @@
 //! Native ICU-backed NumberFormat behavior on the Linux vanilla-Hermes profile.
-#![cfg(all(target_os = "linux", feature = "intl"))]
+#![cfg(all(any(target_os = "linux", windows), feature = "intl"))]
 
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 

@@ -6,6 +6,11 @@
 //
 // @ref LLP 0057#3-the-boundary — Rust owns semantics; ICU is the computation backend
 
+#if defined(_WIN32)
+// SPIKE (win-intl-spike): the Windows SDK's single <icu.h> declares the
+// same unversioned C API, backed by the OS icu.dll (no bundled ICU data).
+#include <icu.h>
+#else
 #include <unicode/ucal.h>
 #include <unicode/udat.h>
 #include <unicode/udatpg.h>
@@ -14,6 +19,7 @@
 #include <unicode/uloc.h>
 #include <unicode/stringoptions.h>
 #include <unicode/ustring.h>
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -24,6 +30,11 @@
 #include <vector>
 
 namespace {
+
+// UDAT_RELATED_YEAR_FIELD is ICU @internal (value 34 since ICU 53). The
+// Windows SDK's <icu.h> strips internal API, so name the value directly.
+// SPIKE (win-intl-spike): found by compiling against the SDK header.
+constexpr int32_t kRelatedYearField = 34;
 
 template <typename T, typename F>
 T protect(T failure, F &&body) noexcept {
@@ -195,7 +206,7 @@ int32_t stable_field(int32_t field) {
     case UDAT_TIMEZONE_ISO_FIELD:
     case UDAT_TIMEZONE_ISO_LOCAL_FIELD: return 9;
     case UDAT_FRACTIONAL_SECOND_FIELD: return 10;
-    case UDAT_RELATED_YEAR_FIELD: return 11;
+    case kRelatedYearField: return 11;
     case UDAT_YEAR_NAME_FIELD: return 12;
     default: return -1;
   }

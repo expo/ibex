@@ -6,12 +6,27 @@
 
 // @ref LLP 0057#3-the-boundary — Rust owns semantics; native libraries are computation backends
 
+#if defined(_WIN32)
+// SPIKE (win-intl-spike): the Windows SDK's single <icu.h> declares the
+// same unversioned C API, backed by the OS icu.dll (no bundled ICU data).
+#include <sdkddkver.h>
+#include <icu.h>
+// Field-position results via UFormattedValue need NTDDI_WIN10_CO (Windows 11);
+// below that, fall back to the ICU 62 UFieldPositionIterator API.
+#if defined(NTDDI_WIN10_CO) && NTDDI_VERSION >= NTDDI_WIN10_CO
+#define IBEX2_ICU_HAS_FORMATTED_VALUE 1
+#else
+#define IBEX2_ICU_HAS_FORMATTED_VALUE 0
+#endif
+#else
 #include <unicode/ucurr.h>
 #include <unicode/uformattedvalue.h>
 #include <unicode/uloc.h>
 #include <unicode/unumberformatter.h>
 #include <unicode/unumsys.h>
 #include <unicode/ustring.h>
+#define IBEX2_ICU_HAS_FORMATTED_VALUE 1
+#endif
 
 #include <algorithm>
 #include <cstddef>
@@ -140,6 +155,7 @@ Result *make_result(const Formatter *formatter, double number,
     unumf_formatDecimal(formatter->value, decimal, -1, raw.get(), &status);
   if (U_FAILURE(status)) return nullptr;
 
+#if IBEX2_ICU_HAS_FORMATTED_VALUE
   const UFormattedValue *formatted = unumf_resultAsValue(raw.get(), &status);
   int32_t length = 0;
   const UChar *text = ufmtval_getString(formatted, &length, &status);
@@ -161,6 +177,35 @@ Result *make_result(const Formatter *formatter, double number,
           Span{field, utf8_offset(text, begin), utf8_offset(text, end)});
     }
   }
+#else
+  // SPIKE (win-intl-spike): Windows 10 2004..22H2 (NTDDI_WIN10_VB) export
+  // unumf_* but not ufmtval_*/ucfpos_* (those arrive with NTDDI_WIN10_CO,
+  // Windows 11). The ICU 62+ iterator API yields the same UNumberFormatFields.
+  int32_t length = unumf_resultToString(raw.get(), nullptr, 0, &status);
+  if (status != U_BUFFER_OVERFLOW_ERROR && U_FAILURE(status)) return nullptr;
+  status = U_ZERO_ERROR;
+  std::vector<UChar> buffer(static_cast<size_t>(length) + 1);
+  unumf_resultToString(raw.get(), buffer.data(), length + 1, &status);
+  const UChar *text = buffer.data();
+  auto result = std::make_unique<Result>();
+  if (U_FAILURE(status) || !uchar_to_utf8(text, length, result->text)) {
+    return nullptr;
+  }
+  std::unique_ptr<UFieldPositionIterator, decltype(&ufieldpositer_close)>
+      positions(ufieldpositer_open(&status), &ufieldpositer_close);
+  if (U_FAILURE(status)) return nullptr;
+  unumf_resultGetAllFieldPositions(raw.get(), positions.get(), &status);
+  for (;;) {
+    if (U_FAILURE(status)) break;
+    int32_t begin = 0, end = 0;
+    const int32_t field = ufieldpositer_next(positions.get(), &begin, &end);
+    if (field < 0) break;
+    if (begin >= 0 && begin <= end && end <= length) {
+      result->spans.push_back(
+          Span{field, utf8_offset(text, begin), utf8_offset(text, end)});
+    }
+  }
+#endif
   return U_FAILURE(status) ? nullptr : result.release();
 }
 

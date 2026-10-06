@@ -10,11 +10,11 @@ pub mod crypto;
 pub mod events;
 pub mod fetch;
 pub mod fs;
-#[cfg(all(feature = "intl", target_os = "linux"))]
+#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl;
-#[cfg(all(feature = "intl", target_os = "linux"))]
+#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl_case;
-#[cfg(all(feature = "intl", target_os = "linux"))]
+#[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl_datetime;
 pub mod multipart;
 pub mod subtle;

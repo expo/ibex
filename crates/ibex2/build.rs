@@ -27,7 +27,10 @@ fn main() {
     }
     // @ref LLP 0057.000#51-included-gated-or-a-crate — D5/D6 require this
     // over-budget family to be absent unless the consumer opts in.
-    if target_os == "linux" && has_intl {
+    // SPIKE (win-intl-spike): Windows compiles the same C-API shims against the
+    // SDK's <icu.h>; the OS icu.dll link line comes from hermes-lean-sys `icu`.
+    let intl_shims = has_intl && (target_os == "linux" || target_os == "windows");
+    if intl_shims {
         for source in [
             "src/bindings/intl_number_format.cc",
             "src/bindings/intl_icu.cc",
@@ -61,7 +64,7 @@ fn main() {
         "fetch",
         "sqlite",
     ];
-    if target_os == "linux" && has_intl {
+    if intl_shims {
         scripts.extend(["intl_number_format", "intl_case", "intl_datetime"]);
     }
     scripts.push("structured_clone");

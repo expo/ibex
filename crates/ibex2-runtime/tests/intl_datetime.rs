@@ -1,7 +1,7 @@
 //! Linux's vanilla Hermes DateTimeFormat has real ICU `format` but a dummy
 //! epoch-number `formatToParts`, and its resolved options cannot reconstruct
 //! the formatter. These tests pin Ibex's one-native-formatter replacement.
-#![cfg(all(target_os = "linux", feature = "intl"))]
+#![cfg(all(any(target_os = "linux", windows), feature = "intl"))]
 
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
 

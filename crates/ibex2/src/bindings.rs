@@ -102,18 +102,18 @@ impl Groups {
 
     /// Every group linked into this build. Linux Intl exists only when its
     /// over-budget Cargo feature is selected.
-    #[cfg(all(target_os = "linux", feature = "intl"))]
+    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
     pub const ALL: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
     /// Every group linked into this build.
-    #[cfg(not(all(target_os = "linux", feature = "intl")))]
+    #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
     pub const ALL: Self = Self::PORTABLE_ALL;
 
     /// The ordinary runtime profile. BLOB and WEBSOCKET stay within LLP
     /// 0057.000 D5's 150 KB / 150 µs budget and are installed by default.
-    #[cfg(all(target_os = "linux", feature = "intl"))]
+    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
     pub const DEFAULT: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
     /// The ordinary runtime profile. Intl is opt-in under LLP 0057.000 D5/D6.
-    #[cfg(not(all(target_os = "linux", feature = "intl")))]
+    #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
     pub const DEFAULT: Self = Self::PORTABLE_ALL;
 
     pub const fn empty() -> Self {
@@ -162,7 +162,7 @@ impl Groups {
                 });
             }
         }
-        #[cfg(not(all(target_os = "linux", feature = "intl")))]
+        #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
         if self.contains(Self::INTL) {
             return Err(GroupError {
                 group: Self::INTL,
@@ -294,18 +294,18 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
         "fetch" => concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/fetch.js"),
         "blob" => concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/blob.js"),
         "sqlite" => SQLITE_SOURCE,
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_number_format" => {
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/src/bindings/intl_number_format.js"
             )
         }
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_case" => {
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/intl_case.js")
         }
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_datetime" => {
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/intl_datetime.js")
         }
@@ -339,7 +339,7 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
     if groups.contains(Groups::WEBSOCKET) {
         push("websocket");
     }
-    #[cfg(all(target_os = "linux", feature = "intl"))]
+    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
     if groups.contains(Groups::INTL) {
         push("intl_number_format");
         push("intl_case");
@@ -389,13 +389,13 @@ fn compiled_script(name: &str) -> &'static [u8] {
         }
         "fetch" => include_bytes!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
         "sqlite" => include_bytes!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_number_format" => {
             include_bytes!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))
         }
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_case" => include_bytes!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         "intl_datetime" => {
             include_bytes!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"))
         }
@@ -669,7 +669,7 @@ mod tests {
             "blob",
             "websocket",
         ];
-        #[cfg(all(target_os = "linux", feature = "intl"))]
+        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
         expected.extend(["intl_number_format", "intl_case", "intl_datetime"]);
         expected.extend(["fetch", "sqlite", "structured_clone"]);
         assert_eq!(names, expected);
@@ -677,7 +677,7 @@ mod tests {
 
     #[test]
     fn intl_group_tracks_the_cargo_feature() {
-        let available = cfg!(all(target_os = "linux", feature = "intl"));
+        let available = cfg!(all(any(target_os = "linux", windows), feature = "intl"));
         assert_eq!(Groups::DEFAULT.contains(Groups::INTL), available);
         assert_eq!(Groups::ALL.contains(Groups::INTL), available);
         let result = Groups::INTL.validate();

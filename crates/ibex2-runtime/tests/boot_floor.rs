@@ -71,7 +71,7 @@ fn groups_without_events() -> ibex2::bindings::Groups {
         | Groups::ENV
         | Groups::SECRETS
         | Groups::KV;
-    #[cfg(all(target_os = "linux", feature = "intl"))]
+    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
     let groups = groups | Groups::INTL;
     groups
 }

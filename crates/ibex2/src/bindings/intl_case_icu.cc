@@ -6,7 +6,13 @@
 
 // @ref LLP 0057#3-the-boundary — native libraries compute; Rust owns semantics
 
+#if defined(_WIN32)
+// SPIKE (win-intl-spike): the Windows SDK's single <icu.h> declares the
+// same unversioned C API, backed by the OS icu.dll (no bundled ICU data).
+#include <icu.h>
+#else
 #include <unicode/ustring.h>
+#endif
 
 #include <cstddef>
 #include <cstdint>
