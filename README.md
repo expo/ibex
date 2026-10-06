@@ -104,9 +104,13 @@ environment rather than using the `bin\bash.exe` wrapper). See LLP 0057.000
 
 `hermes-lean-sys` resolves vanilla Hermes in this order: a complete local
 install selected by `HERMES_LEAN_SYS_DIR`; this checkout's layout when it
-actually contains the Cargo target (the Apple repository layout is macOS-only);
-then the SHA-256-pinned release bundle named by `hermes-lean-sys` for the Cargo
-target. In
+actually contains the Cargo target (`ios/Frameworks-vanilla` for macOS,
+`tvos/Frameworks-vanilla` for `aarch64-apple-tvos`, and
+`tvos-simulator/Frameworks-vanilla` for `aarch64-apple-tvos-sim`); then the
+SHA-256-pinned `hermes-vanilla-d412d3bd8512-v4` release bundle for the Cargo
+target. tvOS has a device bundle and an arm64-only Simulator bundle;
+`x86_64-apple-tvos` (the Intel tvOS Simulator) has no bundle and needs
+`HERMES_LEAN_SYS_DIR`. In
 particular, an iOS cross build does not select the repository's macOS archive;
 it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
 

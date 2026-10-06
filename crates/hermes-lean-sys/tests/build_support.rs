@@ -48,6 +48,10 @@ fn target_to_asset_mapping_includes_apple_simulator_aliases() {
     );
     let error = pin_for_target("riscv64-unknown-linux-gnu").expect_err("unsupported target");
     assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
+    // The Intel tvOS Simulator exists in Rust but has no bundle; it must never
+    // fall through to the arm64 Simulator archive.
+    let error = pin_for_target("x86_64-apple-tvos").expect_err("Intel tvOS Simulator");
+    assert!(error.contains("HERMES_LEAN_SYS_DIR"), "{error}");
 }
 
 #[test]
