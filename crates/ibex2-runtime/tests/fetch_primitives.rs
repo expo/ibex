@@ -661,6 +661,31 @@ fn fetch_primitive_names_are_unused_ascii_identifiers() {
         .to_string();
     assert_eq!(error, "fetch primitives require a non-empty global name");
 
+    for runtime_path in [false, true] {
+        let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+        let options = InstallOptions {
+            fetch_primitives: Some("__shared_bootstrap_output"),
+            abort_hooks: Some("__shared_bootstrap_output"),
+            ..InstallOptions::default()
+        };
+        let error = if runtime_path {
+            runtime.install_runtime_with(FETCH_GROUPS, &context, options)
+        } else {
+            runtime.install_with(FETCH_GROUPS, &context, options)
+        }
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "trusted-bootstrap outputs require distinct global names"
+        );
+        assert_eq!(
+            runtime.eval("typeof __ibex2_default").unwrap(),
+            "undefined",
+            "runtime-only globals must not be prepared before option preflight"
+        );
+    }
+
     for (name, expected) in [
         ("Object", "fetch primitives global already exists"),
         ("globalThis", "fetch primitives global already exists"),

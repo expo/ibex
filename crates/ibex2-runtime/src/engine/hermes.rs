@@ -482,6 +482,11 @@ impl Hermes {
                 "abort hooks require the ABORT group".into(),
             ));
         }
+        if options.fetch_primitives.is_some() && options.fetch_primitives == options.abort_hooks {
+            return Err(JsError::Thrown(
+                "trusted-bootstrap outputs require distinct global names".into(),
+            ));
+        }
         let fetch_primitives = options
             .fetch_primitives
             .map(|name| bootstrap_output_name("fetch primitives", name))
@@ -581,6 +586,11 @@ impl Hermes {
         if options.abort_hooks.is_some() && !groups.contains(crate::bindings::Groups::ABORT) {
             return Err(JsError::Thrown(
                 "abort hooks require the ABORT group".into(),
+            ));
+        }
+        if options.fetch_primitives.is_some() && options.fetch_primitives == options.abort_hooks {
+            return Err(JsError::Thrown(
+                "trusted-bootstrap outputs require distinct global names".into(),
             ));
         }
         if let Some(name) = options.fetch_primitives {
