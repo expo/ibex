@@ -78,8 +78,10 @@ backend; v4 adds no packaged Windows ICU archive.
 
 The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
 the iOS simulator bundle's `-simulator` spelling. They deliberately omit
-`universal`: Rust ships an arm64 tvOS Simulator standard library but no x86_64
-tvOS target. The Rust target `aarch64-apple-tvos-sim` maps to that receipt.
+`universal`: only the arm64 tvOS Simulator is built. Rust does have
+`x86_64-apple-tvos` (the Intel tvOS Simulator), but no bundle covers it and it
+is deliberately unmapped, so a build for it needs `HERMES_LEAN_SYS_DIR`. The Rust
+target `aarch64-apple-tvos-sim` maps to that receipt.
 
 ## Runners
 

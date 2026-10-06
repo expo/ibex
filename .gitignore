@@ -3,6 +3,8 @@
 /ios/Frameworks-vanilla
 /ios/Frameworks-vanilla-nodebug
 /linux/Frameworks-vanilla
+/tvos/Frameworks-vanilla
+/tvos-simulator/Frameworks-vanilla
 /tools/hermes-vanilla
 /.agent-skill-sources/
 /.agent-skill-backups/

@@ -275,6 +275,16 @@ test("read-only builders are separated from the default-branch publisher", () =>
     assert.doesNotMatch(attestation.text, /subject-path:/);
   }
 
+  // Every handoff must also be retained, and the assembled and uploaded set
+  // sizes must move with the builder list (archive + Sigstore bundle per
+  // builder, then SHA256SUMS).
+  const retained = [...publisher.matchAll(/^          retain ([a-z0-9_-]+) "\$[A-Z0-9_]+_NAME" "\$[A-Z0-9_]+_BUNDLE"$/gm)].map((m) => m[1]);
+  assert.deepEqual(retained, builders.map((builder) => builder.replace("_", "-")));
+  const assembled = builders.length * 2;
+  assert.match(publisher, new RegExp(`if len\\(files\\) != ${assembled} or`));
+  assert.match(publisher, new RegExp(`wc -l \\| tr -d ' '\\)" = ${assembled + 1}\n`));
+  assert.match(publisher, new RegExp(`if len\\(local\\) != ${assembled + 1}:`));
+
   const validations = stepBlocks(publisher).filter((step) => step.name.startsWith("Validate "));
   assert.equal(validations.length, builders.length);
   for (const validation of validations) {
