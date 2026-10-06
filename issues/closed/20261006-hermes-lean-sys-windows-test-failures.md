@@ -1,6 +1,6 @@
 # Two hermes-lean-sys build-support tests fail on a Windows host
 
-**Status:** Open
+**Status:** Closed (2026-10-06): both were fixture bugs; the extractor was sound
 **Systems:** hermes-lean-sys, Windows
 **Severity:** P3 (tests only; Linux and macOS hosts pass; no shipped behavior known to differ)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -40,3 +40,35 @@ a real extraction gap and becomes P1.
 
 Run both tests on Windows with `--nocapture`, record the actual errors here, and fix the
 test or the code. Add `hermes-lean-sys` to the Windows CI/check list so this can't recur.
+
+## Resolution (2026-10-06, lane S3)
+
+Both failures came from host-dependent fixtures. The extractor and the receipt check
+are correct, and neither has a P1.
+
+- **Tar names.** This is the diagnosis above, now confirmed. On Windows,
+  `tar::Builder::append_data` passes the name through `Path` (`path2bytes`
+  rewrites `\` to `/`, and `copy_path_into` refuses `Prefix`/`RootDir`
+  components). So `dir\file` was written as `dir/file`, and the extractor
+  rightly accepted it. `C:/file` and `\\?\C:\file` would never have been
+  written at all. The extractor admits names from `path_bytes()`, which does not
+  depend on the host. `write_archive` now puts names into the GNU header's name
+  field verbatim, so the fixture bytes are the same on every host. With that
+  change, all eight refusal cases are refused on Windows, macOS, and Linux.
+- **ICU filter digest.** Confirmed with `--nocapture`: `records base ICU data
+  filter digest sha256-c5d1b182… but selected filter has sha256-5060fef9…`.
+  `scripts/icu74-filter-*.json` fell under `* text=auto`, so a Windows checkout
+  wrote them with CRLF (`git ls-files --eol`: `i/lf w/crlf`). The test
+  `include_bytes!`s them, and the installer's offline test does too. The fix is
+  in `.gitattributes`: `scripts/icu74-filter-*.json text eol=lf`. They are
+  digest-pinned inputs, so their bytes have to be the same on every host. An
+  existing Windows checkout needs those two files checked out again.
+- **Clippy.** `ArchiveEntry::Executable` is built only by the Unix permission
+  test, so the variant and its match arm are now `#[cfg(unix)]`.
+
+On Windows, `cargo test -p hermes-lean-sys` passes (31) and
+`cargo test -p hermes-lean-sys-installer` passes (15; `install_offline` is
+`#![cfg(unix)]` by design). `cargo clippy -p hermes-lean-sys --all-targets
+--features link -D warnings` is clean. macOS `build_support` passes 41.
+There is no Windows Rust CI job to add these to; the README's Windows
+section now lists them in the Windows check list.

@@ -291,6 +291,17 @@ default: `Set-Content` writes the ANSI code page and `-Encoding ascii` writes
 `?` for every non-ASCII character, and a BOM-less `.ps1` is itself read as
 ANSI. Write sources with `-Encoding utf8` (or `[IO.File]::WriteAllText`).
 
+The Windows check list, beside the two workspace clippy commands in
+`AGENTS.md` and `cargo fmt --all --check`:
+
+```powershell
+cargo test -p ibex2 --all-features
+cargo test -p ibex2-runtime
+cargo test -p ibex2-runtime --features intl
+cargo test -p hermes-lean-sys
+cargo test -p hermes-lean-sys-installer
+```
+
 Applications receive no capabilities unless an explicit grant manifest is
 supplied. `run --no-compile` loads source for development; ship precompiled
 artifacts. A smaller, run-only executable omits the loader and default optional
