@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-06 (§3 "Native wrapper ownership" fix round 1: JS-thread fetch header snapshots; constructor-only transactional `Headers`; all native-state attachments refuse displacement)
 **Revised:** 2026-10-06 (§3 "Native wrapper ownership": `Headers` rows follow JavaScript collection through private JSI native state, explicit fetch release is idempotent, teardown is weak-state safe, and the sibling registry audit is recorded)
 **Revised:** 2026-10-06 (§3/OQ2 fix round 2: complete English currency data preserves non-default fraction metadata and names; `ibex2` has no build-dependency on `hermes-lean-sys`, so only the linking instance selects an ICU tier)
 **Revised:** 2026-10-06 (§3/OQ2 fix round 1: the unchanged v3 base, separate English Intl, and full ICU tiers are selected independently; unavailable process locales fall back to guaranteed English and report the data actually present)
@@ -373,6 +374,22 @@ fetch consumes a temporary request snapshot, removes the same row first; a
 later finalizer finds no row and does nothing. This owner is installed by
 `PURE`, not `FETCH`, and is reachable only through the deleted bootstrap object,
 so the harden and trusted-bootstrap reachability contracts do not grow.
+
+The handle itself does not cross the scheduling gap. Both ordinary fetch and
+the opt-in fetch primitives validate and clone the complete header list on the
+JavaScript thread before `pool::run`; the worker receives that owned value and
+never consults the headers registry. Collection after the host call returns is
+therefore independent of request execution. `Headers` requires `new.target`
+before allocating, and handle creation, `_handle` definition, native ownership,
+branding, and initialization share one cleanup transaction. A failed step drops
+the new row even when the receiver already has a non-configurable `_handle`.
+
+JSI permits `setNativeState` to overwrite and finalize an existing owner, so
+every attachment in the bindings first refuses a target with any native state.
+This covers Headers, CryptoKey, response bodies, WebSockets, SQLite objects,
+Intl.NumberFormat, and Intl.DateTimeFormat. Together with constructor-only
+`Headers`, changing a live native wrapper's visible prototype cannot turn it
+into a Headers receiver or displace its resource owner.
 
 The complete runtime-registry ownership audit is:
 

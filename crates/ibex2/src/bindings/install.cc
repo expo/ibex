@@ -208,6 +208,15 @@ HostCallResult call_host_result(jsi::Runtime& rt, const void* state,
   return HostCallResult{status, std::move(result)};
 }
 
+void set_native_state_once(jsi::Runtime& rt, const jsi::Object& object,
+                           std::shared_ptr<jsi::NativeState> state,
+                           const char* owner) {
+  if (object.hasNativeState(rt))
+    throw jsi::JSError(rt, std::string(owner) +
+        " cannot replace an existing native owner");
+  object.setNativeState(rt, std::move(state));
+}
+
 // All ordinary synchronous bindings share the same conversion and release
 // path. Their public contracts report a generic host-call failure.
 static jsi::Value call_host(jsi::Runtime& rt, const void* state, uint32_t op,
@@ -874,8 +883,9 @@ void install_pure(jsi::Runtime& rt,
             void* owner = ibex2_headers_owner_create(state, args[0].asNumber());
             if (owner == nullptr)
               throw jsi::JSError(r, "Headers handle is released or unknown");
-            args[1].getObject(r).setNativeState(
-                r, std::make_shared<HeadersOwner>(owner));
+            set_native_state_once(r, args[1].getObject(r),
+                                  std::make_shared<HeadersOwner>(owner),
+                                  "Headers owner");
             return jsi::Value::undefined();
           }));
   global.setProperty(rt, "__ibex2_headers", std::move(headers));
@@ -918,8 +928,9 @@ void install_crypto(jsi::Runtime& rt,
             void* owner = ibex2_crypto_key_owner_create(state, args[0].asNumber());
             if (owner == nullptr)
               throw jsi::JSError(r, "CryptoKey handle is released or unknown");
-            args[1].getObject(r).setNativeState(
-                r, std::make_shared<CryptoKeyOwner>(owner));
+            set_native_state_once(r, args[1].getObject(r),
+                                  std::make_shared<CryptoKeyOwner>(owner),
+                                  "CryptoKey owner");
             return jsi::Value::undefined();
           }));
   global.setProperty(rt, "__ibex2_subtle", std::move(subtle));
@@ -999,8 +1010,9 @@ void install_fetch(jsi::Runtime& rt, Adapter& adapter,
             if (count != 2 || !args[0].isNumber() || !args[1].isObject())
               throw jsi::JSError(r, "response owner needs a handle and a body");
             auto body = args[1].getObject(r);
-            body.setNativeState(r, std::make_shared<ResponseOwner>(
-                ibex2_response_owner_create(queue, args[0].asNumber())));
+            set_native_state_once(r, body, std::make_shared<ResponseOwner>(
+                ibex2_response_owner_create(queue, args[0].asNumber())),
+                "response body owner");
             auto weak = std::make_shared<jsi::WeakObject>(r, body);
             return jsi::Function::createFromHostFunction(r,
                 jsi::PropNameID::forAscii(r, "responseBody"), 0,
@@ -1368,7 +1380,7 @@ jsi::Object Adapter::websocket_hooks(const void* grants) {
           throw jsi::JSError(r, "could not retain WebSocket");
         }
         try {
-          owner_object.setNativeState(r, native);
+          set_native_state_once(r, owner_object, native, "WebSocket owner");
           auto weak_owner = std::make_shared<jsi::WeakObject>(r, owner_object);
           state->subscriptions.emplace(
               subscription,
@@ -2058,8 +2070,11 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
         state->require(r);
         if (count != 3 || !args[0].isNumber() || !args[1].isNumber() || !args[2].isObject())
           throw jsi::JSError(r, "SQLite owner needs a handle, kind, and object");
-        args[2].getObject(r).setNativeState(r, std::make_shared<SqliteOwner>(
-            ibex2_sqlite_owner_create(state->queue, args[0].asNumber(), static_cast<int>(args[1].asNumber()))));
+        set_native_state_once(r, args[2].getObject(r),
+            std::make_shared<SqliteOwner>(ibex2_sqlite_owner_create(
+                state->queue, args[0].asNumber(),
+                static_cast<int>(args[1].asNumber()))),
+            "SQLite owner");
         return jsi::Value::undefined();
       });
   auto make_sqlite = factory.call(rt, field, retain).getObject(rt).getFunction(rt);

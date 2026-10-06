@@ -1270,6 +1270,38 @@ fn unreachable_headers_release_the_borrowed_runtime_registry() {
 }
 
 #[test]
+fn non_construct_headers_calls_do_not_leak_created_rows() {
+    let consumer = BareConsumer::new(Groups::PURE);
+    assert_eq!(
+        consumer.eval(
+            r#"
+            (function () {
+              var existing = new Headers(), refused = 0;
+              for (var i = 0; i < 2000; i++) {
+                try { Headers.call(existing); }
+                catch (error) { if (error instanceof TypeError) refused++; }
+              }
+              return String(refused);
+            })()
+            "#
+        ),
+        "2000"
+    );
+    assert_eq!(
+        consumer.live_headers(),
+        1,
+        "only the unreachable receiver's original row may remain before GC"
+    );
+    for _ in 0..8 {
+        consumer.collect_garbage();
+        if consumer.live_headers() == 0 {
+            break;
+        }
+    }
+    assert_eq!(consumer.live_headers(), 0);
+}
+
+#[test]
 fn headers_finalizer_after_adapter_detach_and_runtime_shutdown_is_harmless() {
     let mut consumer = BareConsumer::new(Groups::PURE);
     consumer.eval("globalThis.detachedHeaders = new Headers({x: 'y'}); 'made'");

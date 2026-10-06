@@ -260,6 +260,55 @@ fn collecting_a_discarded_response_cancels_even_with_a_live_signal() {
 }
 
 #[test]
+fn headers_call_cannot_displace_a_live_response_body_owner() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        head(&mut stream);
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
+            .unwrap();
+    });
+    let source = format!(
+        r#"
+        globalThis.displacementReady = false;
+        globalThis.displacementError = "none";
+        fetch('{origin}').then(function (response) {{
+          var body = response.body;
+          var originalPrototype = Object.getPrototypeOf(body);
+          Object.setPrototypeOf(body, Headers.prototype);
+          try {{ Headers.call(body); }}
+          catch (error) {{ displacementError = error.constructor.name; }}
+          Object.setPrototypeOf(body, originalPrototype);
+          globalThis.foreignResponse = response;
+          displacementReady = true;
+        }});
+        "#
+    );
+    let (_project, mut runtime) = runtime("headers-foreign-native-owner", &source, &origin);
+    runtime.run_to_quiescence(Duration::from_secs(5));
+    assert_eq!(runtime.eval("String(displacementReady)").unwrap(), "true");
+    assert_eq!(runtime.eval("displacementError").unwrap(), "TypeError");
+
+    assert!(runtime.collect_garbage());
+    runtime
+        .eval(
+            r#"
+            globalThis.foreignBodyResult = "pending";
+            foreignResponse.text().then(
+              function (text) { foreignBodyResult = text; },
+              function (error) { foreignBodyResult = "ERROR: " + error.message; }
+            );
+            "#,
+        )
+        .unwrap();
+    runtime.run_to_quiescence(Duration::from_secs(5));
+    assert_eq!(runtime.eval("foreignBodyResult").unwrap(), "hello");
+    server.join().unwrap();
+}
+
+#[test]
 fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
