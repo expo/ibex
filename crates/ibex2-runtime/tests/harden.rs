@@ -171,6 +171,30 @@ fn forged_headers_receivers_cannot_reach_native_handle_rows_after_harden() {
     );
 }
 
+#[test]
+fn abort_timeout_does_not_adopt_an_application_global_after_harden() {
+    let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(
+        ibex2::bindings::Groups::PURE | ibex2::bindings::Groups::ABORT,
+        &context,
+    )
+    .expect("bindings without TIMERS");
+    rt.harden().expect("harden");
+    assert_eq!(
+        eval(
+            &mut rt,
+            r#"(function () {
+              var called = false;
+              globalThis.setTimeout = function () { called = true; };
+              try { AbortSignal.timeout(0); return "accepted"; }
+              catch (error) { return error.name + "|" + called; }
+            })()"#
+        ),
+        "NotSupportedError|false"
+    );
+}
+
 /// The freeze has a budget in rules/RULES.md, and this is where the build
 /// refuses to exceed it. The MINIMUM of 20 fresh runtimes, not the median:
 /// `cargo test` runs this beside every other test binary on the machine, a

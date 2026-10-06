@@ -1011,10 +1011,7 @@ pub const DEFAULT_ADDED_GLOBALS: &[&str] = &[
 
 const GLOBAL_PARTITION: &[(Option<crate::bindings::Groups>, &[usize])] = &[
     (None, &[0, 1, 2]),
-    (
-        Some(crate::bindings::Groups::TIMERS),
-        &[4, 5, 6, 7, 8, 9],
-    ),
+    (Some(crate::bindings::Groups::TIMERS), &[4, 5, 6, 7, 8, 9]),
     (Some(crate::bindings::Groups::CONSOLE), &[3]),
     (
         Some(crate::bindings::Groups::PURE),
