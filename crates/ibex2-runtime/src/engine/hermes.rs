@@ -653,6 +653,10 @@ impl Hermes {
     /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
     /// bindings are installed and before any module code runs.
     ///
+    /// This refuses, without freezing anything, while a deferred intrinsic
+    /// snapshot is still owed after
+    /// [`InstallOptions::defer_intrinsic_snapshot`].
+    ///
     /// When [`InstallOptions`] published fetch primitives or abort hooks, this
     /// first runs the adapter's trusted-bootstrap guard (the same check as the
     /// C++ `Adapter::harden`) and refuses, without freezing anything, if a
@@ -663,6 +667,7 @@ impl Hermes {
     /// invoked), and prototype. A value held only in a closure, native state,
     /// a collection entry, or behind a concealing Proxy is invisible to that
     /// walk, as it is to the freeze itself.
+    // @ref LLP 0068#deferred-intrinsic-integrity-baseline — hardening cannot precede an owed capture
     // @ref LLP 0068#opt-in-fetch-primitives-protocol — one guard for both doors; the walk mirrors harden.js
     pub fn harden(&mut self) -> Result<(), JsError> {
         let mut out: *mut c_char = std::ptr::null_mut();
