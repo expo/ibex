@@ -18,11 +18,11 @@
 
 #[cfg(feature = "bindings")]
 pub mod bindings;
-// No Rust item from the metadata wrapper is used here, so name the crate to
-// keep its normal dependency live: its ICU features select the archives the
-// Linux engine and Intl shims call.
+// No Rust item from hermes-lean-sys is used here, so name the crate to make
+// rustc link it: its ICU features carry the archives the Linux engine and Intl
+// shims call.
 #[cfg(feature = "bindings")]
-extern crate hermes_lean_sys_metadata as _;
+extern crate hermes_lean_sys as _;
 pub mod boundary;
 #[cfg(feature = "bindings")]
 pub mod boundary_abi;

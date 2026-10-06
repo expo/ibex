@@ -1306,9 +1306,9 @@ default engine support because Unicode-lite breaks required basic JavaScript.
 Direct consumers may select either optional data feature without selecting an
 Ibex Intl feature; this changes data for the same basic-Unicode backend without
 adding Ibex's Intl shims. The bindings feature receives all three available
-archive/digest pairs through a normal metadata wrapper and has no Hermes build
-dependency. The wrapper never forwards `LINKED_ICU_DATA_*`; only
-`hermes-lean-sys` emits that selected identity, so Cargo's resolver-v2
+archive/digest pairs as `links` metadata from its one normal `hermes-lean-sys`
+dependency and has no Hermes build dependency. It never re-exports
+`LINKED_ICU_DATA_*`; only `hermes-lean-sys` emits that selected identity, so Cargo's resolver-v2
 separation cannot make the reported selection disagree with the linked bytes.
 
 The Linux VM is therefore built with `HERMES_ENABLE_INTL=false` and
