@@ -125,3 +125,22 @@ fn hardening_keeps_methods_and_removes_the_private_binding() {
         "undefined:true:false:false:false:ı"
     );
 }
+
+/// The default locale is resolved on first use, not at install (opening ICU's
+/// first number formatter cost about 6 ms of every Windows `INTL` install),
+/// and from the intrinsics captured at install, not whatever `Intl.NumberFormat`
+/// holds by then. @ref LLP 0057.000#511-windows-intl-uses-the-os-icu
+#[test]
+fn the_default_locale_resolves_on_first_use_from_captured_intrinsics() {
+    let mut runtime = runtime(false);
+    assert_eq!(
+        eval(
+            &mut runtime,
+            r#"(function () {
+              Intl.NumberFormat = function () { throw new Error('replaced'); };
+              return 'ABC'.toLocaleLowerCase() + ':' + 'abc'.toLocaleUpperCase([]);
+            })()"#,
+        ),
+        "abc:ABC"
+    );
+}
