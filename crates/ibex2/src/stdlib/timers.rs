@@ -120,7 +120,8 @@ impl Timers {
         runs: u32,
     ) {
         self.next_sequence += 1;
-        let deadline_micros = now_micros.saturating_add(delay.as_micros() as u64);
+        let deadline_micros =
+            now_micros.saturating_add(u64::try_from(delay.as_micros()).unwrap_or(u64::MAX));
         let key = Key {
             deadline_micros,
             sequence: self.next_sequence,
@@ -164,7 +165,8 @@ impl Timers {
         self.scheduled.remove(&key);
         self.by_handle.remove(&entry.handle);
         if let Some(interval) = entry.interval {
-            self.queued.insert(entry.handle, (interval, entry.runs + 1));
+            self.queued
+                .insert(entry.handle, (interval, entry.runs.saturating_add(1)));
         }
         Some(entry.handle)
     }
@@ -302,6 +304,45 @@ mod tests {
         }
         assert_eq!(timers.take_due(3.999), None);
         assert_eq!(timers.take_due(4.0), Some(h));
+    }
+
+    /// A 1 ms interval keeps its period for five runs, then waits 4 ms.
+    #[test]
+    fn a_short_interval_meets_the_clamp_after_five_runs() {
+        let mut timers = Timers::new();
+        let h = timers.set(0.0, Duration::from_millis(1), true);
+        let mut at = 1.0;
+        for _ in 1..=5 {
+            assert_eq!(timers.take_due(at), Some(h));
+            timers.delivered(h, micros(at));
+            at += 1.0;
+        }
+        assert_eq!(
+            timers.next_deadline(),
+            Some(9.0),
+            "the sixth waits 4 ms after the fifth at 5"
+        );
+    }
+
+    /// The run count saturates: only whether it reached five matters.
+    #[test]
+    fn the_run_count_saturates() {
+        let mut timers = Timers::new();
+        let h = timers.set(0.0, Duration::from_millis(0), true);
+        let key = timers.by_handle[&h];
+        timers.scheduled.get_mut(&key).unwrap().runs = u32::MAX;
+        assert_eq!(timers.take_due(0.0), Some(h));
+        assert_eq!(timers.queued[&h].1, u32::MAX);
+        timers.delivered(h, 0);
+        assert_eq!(timers.next_deadline(), Some(4.0), "still clamped");
+    }
+
+    /// A delay too large for the wheel's microseconds is never due.
+    #[test]
+    fn a_huge_delay_saturates() {
+        let mut timers = Timers::new();
+        timers.set(1.0, Duration::MAX, false);
+        assert_eq!(timers.take_due_micros(u64::MAX - 1), None);
     }
 
     /// An occurrence taken at 25 and left queued until 60 repeats from 60.

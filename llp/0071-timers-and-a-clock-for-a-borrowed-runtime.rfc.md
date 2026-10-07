@@ -5,7 +5,7 @@
 **Systems:** Engine adapter, Tasks, Timers, Rust Stdlib
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-07
-**Revised:** 2026-10-07 (r3, after the same reviewers' r2 reviews, both NOT READY, and with the implementation in hand: the cycle is an adapter method, `Adapter::cycle()`, holding the drive flag across both checkpoints, and a nested cycle returns as the owning pump's does; `deliver_one` stays the storage primitive and refuses nesting; for a timer, taking it from the FIFO is its delivery commit, the reschedule point both drivers share, with the clock sampled after the subscription lock is released; intervals meet HTML's nesting clamp after five runs instead of an unconditional floor; the sealing, first-sample and `is_idle` edges are stated; test 7 is a bounded diagnostic; LLP 0059 §3 is named; the tests list what the implementation runs) 2026-10-07 (r2, after GPT-6-Astra xhigh and Grok 4.7 xhigh reviews of r1, both NOT READY: the clock gets a contract — read outside every Ibex lock, sealed at first read, invalid readings ignored, kept as integer microseconds so "due" and "how long to sleep" agree; the caller's cycle is normative, with its pre-checkpoint, and `deliver_one` refuses to nest; admission does wake; intervals reschedule when delivered, have at most one queued occurrence, and repeat no sooner than 4 ms; `performance.now` is always Ibex's under `TIMERS`; the amended text of LLP 0058.000.000 §8, LLP 0059.000 §2 and LLP 0068 §3 is named; the tests move to the borrowed fixture and replace its refusal test)
+**Revised:** 2026-10-07 (r4, after round-3 reviews of r3 and its implementation, both NOT READY on implementation findings: `cycle()`'s checkpoints report a job that throws out of the queue and resume, as the owning pump's do; a callback that detaches the adapter ends the cycle; the drive guard retains the runtime state; the interval run count saturates; a delay too large for a `Duration` is never due instead of panicking across the ABI; the tests named by the reviews are added) 2026-10-07 (r3, after the same reviewers' r2 reviews, both NOT READY, and with the implementation in hand: the cycle is an adapter method, `Adapter::cycle()`, holding the drive flag across both checkpoints, and a nested cycle returns as the owning pump's does; `deliver_one` stays the storage primitive and refuses nesting; for a timer, taking it from the FIFO is its delivery commit, the reschedule point both drivers share, with the clock sampled after the subscription lock is released; intervals meet HTML's nesting clamp after five runs instead of an unconditional floor; the sealing, first-sample and `is_idle` edges are stated; test 7 is a bounded diagnostic; LLP 0059 §3 is named; the tests list what the implementation runs) 2026-10-07 (r2, after GPT-6-Astra xhigh and Grok 4.7 xhigh reviews of r1, both NOT READY: the clock gets a contract — read outside every Ibex lock, sealed at first read, invalid readings ignored, kept as integer microseconds so "due" and "how long to sleep" agree; the caller's cycle is normative, with its pre-checkpoint, and `deliver_one` refuses to nest; admission does wake; intervals reschedule when delivered, have at most one queued occurrence, and repeat no sooner than 4 ms; `performance.now` is always Ibex's under `TIMERS`; the amended text of LLP 0058.000.000 §8, LLP 0059.000 §2 and LLP 0068 §3 is named; the tests move to the borrowed fixture and replace its refusal test)
 **Related:** LLP 0058.000.000 §8 (the one-task-per-cycle driver), LLP 0068 §3 (the caller-owned runtime), LLP 0059.000 §2 (`performance.now`), §3.2 (the timer wheel) and §3.12 (WebSocket), exact2 LLP 1016.000 (answers that keep coming), the exact2 SDK spike (branch `spike/sdk`, 2026-10-07); reviews under `llp/reviews/0071-*`
 
 ## Summary
@@ -142,6 +142,15 @@ holding the runtime state's drive flag throughout:
 3. deliver at most one task — settlement, event or timer;
 4. drain microtasks (the post-checkpoint).
 
+Each checkpoint is the owning pump's: a job that throws out of the microtask
+queue — only an engine-raised error can; Promise reactions and
+`queueMicrotask` catch their own — is reported through the `EVENTS` error
+path (reaching the host reporter only when the event is not canceled, or when `EVENTS` is absent) and the drain
+resumes behind it, the engine having retired the job before running it. A
+callback or microtask that detaches the adapter ends the cycle: no further
+JavaScript runs, and the guard, which retains the runtime state, releases the
+flag even if the caller's `Context` was dropped meanwhile.
+
 It returns `Delivered`, `Idle` (nothing was ready) or `Nested`. A cycle
 requested while the flag is held — from a callback or microtask of a cycle in
 progress, through whatever native function an embedder exposes, or beside an
@@ -191,6 +200,7 @@ delivery, and loops forever inside one admission call for
   repeating timer: its first five occurrences repeat at the interval given,
   and from the sixth it repeats no sooner than 4 ms after its last delivery.
   A `setInterval(f, 0)` at a held clock therefore runs five times and waits.
+  The run count saturates; only whether it has reached five matters.
   LLP 0059.000 §3.2's "HTML clamping" holds for intervals; `setTimeout`'s
   nesting clamp remains unimplemented, as today.
 
@@ -255,16 +265,33 @@ clock unless stated, settling with `cycle()`:
 14. A throwing timer reaches a cancelable `error` listener; `preventDefault`
     suppresses the host reporter; the next timer still runs.
 15. `performance.now` and an event's `timeStamp` read the caller's clock.
-16. WebSocket (`websocket` feature): a borrowed runtime with `CONSOLE | PURE |
+16. A cycle runs its own pre-checkpoint: a reaction that clears a due
+    timer runs before admission.
+17. A job that throws out of the pre- or post-checkpoint (raised through
+    `HermesInternal.enqueueJob`) reaches the cancelable `error` event, the
+    drain resumes behind it, and the flag is released.
+18. A timer callback that detaches the adapter ends the cycle; the next
+    cycle runs nothing.
+19. The clock read at a timer's take runs outside the subscription lock: a
+    clock that publishes an event on that read completes (a watchdog fails
+    the test rather than hanging).
+20. Sealing that the test's own `set_clock` cannot satisfy: an unclocked
+    runtime's `setTimeout` seals; a busy `is_idle`, which reads no time, does
+    not.
+21. Due and the distance to due agree 10^12 ms from the origin.
+22. `setTimeout(f, 1e300)` is never due and does not panic.
+23. WebSocket (`websocket` feature): a borrowed runtime with `CONSOLE | PURE |
     EVENTS | TIMERS | WEBSOCKET` sends to a local echo server under its grant,
     receives the echo and closes cleanly, waiting on real time for I/O; a
     reconnect scheduled for 100 ms does not happen at a held clock and does
-    when the clock reaches 100; an origin outside the grants still errors and
-    closes with timers installed.
+    when the clock reaches 100 (the JavaScript reconnect count, not only the
+    server's accept count, is checked); an origin outside the grants gives
+    exactly `error` then `close:1006` with timers installed.
 
 In `crates/ibex2/src/stdlib/timers.rs`: the interval tests reschedule on
-delivery; a zero interval meets the clamp after five runs; an interval
-repeats from its delivery, not its admission. The existing owning-runtime
+delivery; zero and 1 ms intervals meet the clamp after five runs; an
+interval repeats from its delivery, not its admission; the run count
+saturates; a delay beyond the wheel's microseconds is never due. The existing owning-runtime
 suites (`hermes_tests`, the deadline tests) run unchanged on `Instant`.
 
 ## 5. What a caller does with it (Exact 2, non-normative)

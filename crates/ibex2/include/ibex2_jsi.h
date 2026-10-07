@@ -373,7 +373,10 @@ public:
   // task, drain microtasks. Idle -- nothing was ready -- is "settled at this
   // clock". A cycle requested while the flag is held (a microtask or callback
   // of this cycle, or an owning pump) runs nothing and returns Nested, as the
-  // owning pump returns for a nested drive.
+  // owning pump returns for a nested drive. A job that throws out of a
+  // checkpoint is reported through the EVENTS error path and the drain resumes,
+  // as the owning pump's checkpoint does; a callback or microtask that detaches
+  // the adapter ends the cycle, which then runs no further JavaScript.
   Cycle cycle();
   // Release WebSocket keepalive roots whose listener/queued-data condition
   // ended before an embedder explicitly requests collection.
@@ -387,6 +390,9 @@ private:
   void refresh_websocket_keepalives();
   // deliver_one()'s body, under a drive flag its caller holds.
   bool deliver_next();
+  // cycle()'s checkpoint: drain, reporting and resuming past a job that throws
+  // out of the queue. False when the adapter was detached meanwhile.
+  bool checkpoint();
   struct State;
   jsi::Runtime* runtime_;
   std::shared_ptr<State> state_;

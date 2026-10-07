@@ -1264,16 +1264,22 @@ pub unsafe extern "C" fn ibex2_take_task(
     }
 }
 
-/// Take the runtime's drive flag for one borrowed-adapter delivery (LLP 0071
-/// D5): 1 if taken, 0 if a delivery or an owning pump already holds it.
+/// Take the runtime's drive flag for one borrowed-adapter delivery or cycle
+/// (LLP 0071 D5). Returns a retained reference to the state, which
+/// [`ibex2_adapter_end_drive`] releases with the flag, or null when a
+/// delivery, a cycle or an owning pump already holds the flag: the state then
+/// outlives the guard even if the caller's `Context` is dropped meanwhile.
 ///
 /// # Safety
 /// `state` must be null or a live runtime state.
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_adapter_begin_drive(
     state: *const crate::task::RuntimeState,
-) -> c_int {
-    crate::task::borrow_state(state).map_or(0, |state| c_int::from(state.begin_drive()))
+) -> *const crate::task::RuntimeState {
+    match crate::task::clone_queue(state) {
+        Some(state) if state.begin_drive() => std::sync::Arc::into_raw(state),
+        _ => std::ptr::null(),
+    }
 }
 
 /// Admit every timer due on the runtime's clock, for a borrowed adapter's
@@ -1288,15 +1294,18 @@ pub unsafe extern "C" fn ibex2_adapter_admit_due_timers(
     crate::task::borrow_state(state).map_or(0, |state| state.admit_due_timers() as c_int)
 }
 
-/// Release the drive flag [`ibex2_adapter_begin_drive`] took.
+/// Release the drive flag and the reference [`ibex2_adapter_begin_drive`]
+/// returned.
 ///
 /// # Safety
-/// `state` must be null or a live runtime state.
+/// `held` must be a non-null value `ibex2_adapter_begin_drive` returned, released once.
 #[no_mangle]
-pub unsafe extern "C" fn ibex2_adapter_end_drive(state: *const crate::task::RuntimeState) {
-    if let Some(state) = crate::task::borrow_state(state) {
-        state.end_drive();
+pub unsafe extern "C" fn ibex2_adapter_end_drive(held: *const crate::task::RuntimeState) {
+    if held.is_null() {
+        return;
     }
+    let state = std::sync::Arc::from_raw(held);
+    state.end_drive();
 }
 
 /// Release a value produced by `ibex2_host_call`.

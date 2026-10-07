@@ -353,6 +353,12 @@ int storage_consumer_install_loop_probe(void *h) {
             default: return jsi::String::createFromAscii(r, "idle");
           }
         }));
+    rt.global().setProperty(rt, "detachFromJs", jsi::Function::createFromHostFunction(
+        rt, jsi::PropNameID::forAscii(rt, "detachFromJs"), 0,
+        [c](jsi::Runtime &, const jsi::Value &, const jsi::Value *, size_t) -> jsi::Value {
+          c->adapter->detach();
+          return jsi::Value::undefined();
+        }));
     rt.global().setProperty(rt, "deliverFromJs", jsi::Function::createFromHostFunction(
         rt, jsi::PropNameID::forAscii(rt, "deliverFromJs"), 0,
         [c](jsi::Runtime &r, const jsi::Value &, const jsi::Value *, size_t) -> jsi::Value {

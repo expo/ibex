@@ -16,7 +16,7 @@ extern "C" int ibex2_host_call(const void*, uint32_t, const Ibex2AbiValue*, size
 extern "C" void ibex2_host_release(Ibex2AbiValue*);
 extern "C" int ibex2_async_begin(const void*, const void*, uint32_t, const Ibex2AbiValue*, size_t, uint64_t);
 extern "C" int ibex2_take_task(const void*, int*, unsigned long long*, Ibex2AbiValue*, int*);
-extern "C" int ibex2_adapter_begin_drive(const void*);
+extern "C" const void* ibex2_adapter_begin_drive(const void*);
 extern "C" void ibex2_adapter_end_drive(const void*);
 extern "C" int ibex2_adapter_admit_due_timers(const void*);
 extern "C" const void* ibex2_grants_retain(const void*);
@@ -2309,33 +2309,69 @@ void Adapter::report_error(const char* message) {
 }
 
 namespace {
-// Releases the drive flag on every way out, a throw included.
-struct DriveRelease {
-  const void* queue;
-  ~DriveRelease() { ibex2_adapter_end_drive(queue); }
+// Holds the drive flag and a reference to the runtime state, releasing both
+// on every way out, a throw included (LLP 0071 D5).
+struct DriveHold {
+  const void* held;
+  explicit DriveHold(const void* queue) : held(ibex2_adapter_begin_drive(queue)) {}
+  ~DriveHold() { if (held) ibex2_adapter_end_drive(held); }
+  DriveHold(const DriveHold&) = delete;
+  DriveHold& operator=(const DriveHold&) = delete;
+  bool taken() const { return held != nullptr; }
 };
 }  // namespace
 
 bool Adapter::deliver_one() {
   if (!state_->alive) return false;
   // @ref LLP 0071#d5--the-cycle-is-the-adapters-and-does-not-nest — one host task at a time: a delivery reached from inside another, a cycle, or an owning pump is refused before it takes anything
-  if (!ibex2_adapter_begin_drive(state_->queue))
+  DriveHold drive(state_->queue);
+  if (!drive.taken())
     throw std::logic_error(
         "Ibex2 deliver_one: nested delivery (a delivery, a cycle or an owning "
         "pump is already running on this runtime)");
-  DriveRelease release{state_->queue};
   return deliver_next();
+}
+
+// A microtask checkpoint that reports what it cannot finish, as the owning
+// pump's does (LLP 0058.000.000 §8): a job that throws out of the queue -- only
+// an engine-raised error can -- is reported and the drain resumes behind it,
+// the engine having retired the job before running it. Returns false when the
+// adapter was detached by the JavaScript it ran.
+bool Adapter::checkpoint() {
+  for (;;) {
+    if (!state_->alive || !runtime_) return false;
+    try {
+      runtime_->drainMicrotasks();
+      return state_->alive && runtime_;
+    } catch (const jsi::JSError& error) {
+      if (!state_->alive || !runtime_) return false;
+      try {
+        report_error(error.value());
+      } catch (...) {
+        ibex2_report_uncaught(error.getMessage().c_str());
+      }
+    } catch (const std::exception& error) {
+      if (!state_->alive || !runtime_) return false;
+      try {
+        report_error(error.what());
+      } catch (...) {
+        ibex2_report_uncaught(error.what());
+      }
+    }
+  }
 }
 
 Adapter::Cycle Adapter::cycle() {
   if (!state_->alive) return Cycle::Idle;
   // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — a drive requested while one runs records nothing and returns, as the owning pump does
-  if (!ibex2_adapter_begin_drive(state_->queue)) return Cycle::Nested;
-  DriveRelease release{state_->queue};
-  runtime_->drainMicrotasks();
-  ibex2_adapter_admit_due_timers(state_->queue);
+  DriveHold drive(state_->queue);
+  if (!drive.taken()) return Cycle::Nested;
+  const void* queue = state_->queue;
+  if (!checkpoint()) return Cycle::Idle;
+  ibex2_adapter_admit_due_timers(queue);
   bool delivered = deliver_next();
-  runtime_->drainMicrotasks();
+  // A callback that detached the adapter leaves no runtime to checkpoint.
+  checkpoint();
   return delivered ? Cycle::Delivered : Cycle::Idle;
 }
 

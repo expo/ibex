@@ -1073,7 +1073,10 @@ impl RuntimeState {
     }
 
     pub fn set_timer(&self, delay_ms: f64, repeating: bool) -> u64 {
-        let delay = std::time::Duration::from_secs_f64((delay_ms.max(0.0)) / 1000.0);
+        // A delay too large for a Duration (`setTimeout(f, 1e300)`) is never
+        // due, rather than a panic across the host-call ABI.
+        let delay = std::time::Duration::try_from_secs_f64(delay_ms.max(0.0) / 1000.0)
+            .unwrap_or(std::time::Duration::MAX);
         // Sampled before the wheel is locked: the caller's clock runs with no
         // Ibex lock held.
         let now = self.now_micros();
@@ -1090,9 +1093,9 @@ impl RuntimeState {
     /// Move every timer due now into the host-task FIFO, and report how many.
     ///
     /// Admission, not delivery: the driver still takes at most one task per
-    /// cycle (LLP 0058.000.000 §8). Intervals reschedule inside `take_due` —
-    /// before their callback runs — so clearing an interval from within its own
-    /// callback removes the next occurrence rather than the one in flight.
+    /// cycle (LLP 0058.000.000 §8). An interval reschedules when its task is
+    /// taken (`take_task`, LLP 0071 D6) — before its callback runs — so clearing
+    /// it from within its own callback removes the next occurrence.
     pub fn admit_due_timers(&self) -> usize {
         let now = self.now_micros();
         let mut admitted = 0;

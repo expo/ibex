@@ -473,7 +473,9 @@ fn a_websocket_echoes_and_a_timer_reconnects_it_driven_only_by_the_cycle() {
     consumer.eval(&format!(
         r#"
         globalThis.log = [];
+        globalThis.connects = 0;
         function connect() {{
+          connects++;
           var socket = new WebSocket("ws://127.0.0.1:{port}/");
           socket.onopen = function () {{ log.push("open"); socket.send("hello"); }};
           socket.onmessage = function (event) {{ log.push("echo:" + event.data); socket.close(1000); }};
@@ -491,10 +493,11 @@ fn a_websocket_echoes_and_a_timer_reconnects_it_driven_only_by_the_cycle() {
     std::thread::sleep(Duration::from_millis(150));
     settle(&consumer);
     assert_eq!(
-        accepted.load(Ordering::SeqCst),
-        1,
-        "the reconnect waits for the caller's clock"
+        consumer.eval("String(connects)"),
+        "1",
+        "the reconnect timer waits for the caller's clock"
     );
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
     held.set(100.0);
     until(&consumer, "log.length === 6");
     assert_eq!(
@@ -511,15 +514,172 @@ fn a_denied_websocket_still_errors_and_closes_with_timers_installed() {
     consumer.eval(
         r#"
         globalThis.log = [];
-        try {
-          var socket = new WebSocket("ws://127.0.0.1:9/");
-          socket.onerror = function () { log.push("error"); };
-          socket.onclose = function (event) { log.push("close:" + event.code); };
-        } catch (error) { log.push("threw:" + error.name); }
+        var socket = new WebSocket("ws://127.0.0.1:9/");
+        socket.onerror = function () { log.push("error"); };
+        socket.onclose = function (event) { log.push("close:" + event.code); };
         "#,
     );
-    until(
-        &consumer,
-        "log.length > 0 && (log[0].indexOf('threw') === 0 || log.indexOf('close:1006') >= 0)",
+    until(&consumer, "log.indexOf('close:1006') >= 0");
+    assert_eq!(log(&consumer), "error,close:1006");
+}
+
+#[test]
+fn a_cycle_runs_its_own_pre_checkpoint() {
+    let (consumer, _held) = clocked(TIMED, "", 0.0);
+    consumer.eval(
+        "globalThis.log = []; var t = setTimeout(function () { log.push('t'); }, 0); \
+         Promise.resolve().then(function () { clearTimeout(t); log.push('p'); });",
     );
+    assert_eq!(
+        consumer.cycle(),
+        0,
+        "the reaction cleared t before admission"
+    );
+    assert_eq!(log(&consumer), "p");
+}
+
+#[test]
+fn a_job_that_throws_out_of_a_checkpoint_is_reported_and_the_drain_resumes() {
+    let (consumer, _held) = clocked(TIMED, "", 0.0);
+    let _ = ibex2::boundary_abi::drain_console();
+    consumer.eval(
+        "globalThis.log = []; \
+         addEventListener('error', function (event) { log.push('error:' + event.message); event.preventDefault(); }); \
+         HermesInternal.enqueueJob(function () { throw new Error('job boom'); }); \
+         HermesInternal.enqueueJob(function () { log.push('after'); }); \
+         setTimeout(function () { \
+           log.push('t'); \
+           HermesInternal.enqueueJob(function () { throw new Error('post boom'); }); \
+           HermesInternal.enqueueJob(function () { log.push('post-after'); }); \
+         }, 0);",
+    );
+    assert_eq!(
+        consumer.cycle(),
+        1,
+        "the cycle went on after the pre-checkpoint's throw"
+    );
+    assert_eq!(
+        log(&consumer),
+        "error:job boom,after,t,error:post boom,post-after"
+    );
+    assert_eq!(consumer.cycle(), 0, "and the drive flag was released");
+    assert!(
+        ibex2::boundary_abi::drain_console().is_empty(),
+        "preventDefault canceled host reporting"
+    );
+}
+
+#[test]
+fn a_callback_that_detaches_the_adapter_ends_the_cycle() {
+    let (consumer, _held) = clocked(TIMED, "", 0.0);
+    consumer.install_loop_probe();
+    consumer.eval(
+        "globalThis.log = []; \
+         setTimeout(function () { log.push('t'); detachFromJs(); Promise.resolve().then(function () { log.push('late'); }); }, 0); \
+         setTimeout(function () { log.push('u'); }, 0);",
+    );
+    assert_eq!(consumer.cycle(), 1);
+    assert_eq!(consumer.cycle(), 0, "a detached adapter runs nothing");
+    assert!(log(&consumer).starts_with('t'), "{}", log(&consumer));
+    assert!(
+        !log(&consumer).contains('u'),
+        "no second task after detach: {}",
+        log(&consumer)
+    );
+}
+
+/// LLP 0071 D3 and D6: the clock read at a timer's take runs after the
+/// subscription lock is released. The clock publishes an event (which takes
+/// that lock) on the second read after it is armed -- admission's is the
+/// first, the take's the second; a watchdog fails the test instead of hanging.
+#[test]
+fn the_take_reads_the_clock_outside_the_subscription_lock() {
+    use std::sync::atomic::AtomicBool;
+    let countdown = Arc::new(AtomicUsize::new(0));
+    let target: Arc<std::sync::OnceLock<(usize, u64)>> = Arc::new(std::sync::OnceLock::new());
+    let (inner_countdown, inner_target) = (countdown.clone(), target.clone());
+    let clock: Arc<dyn Fn() -> f64 + Send + Sync> = Arc::new(move || {
+        if inner_countdown.load(Ordering::SeqCst) > 0
+            && inner_countdown.fetch_sub(1, Ordering::SeqCst) == 1
+        {
+            if let Some(&(state, subscription)) = inner_target.get() {
+                // SAFETY: the test's context outlives every read of its clock.
+                assert_eq!(
+                    unsafe { ibex2_test_publish_event(state as *const c_void, subscription) },
+                    1
+                );
+            }
+        }
+        0.0
+    });
+    ibex2_runtime::ensure_linked();
+    let fresh = Context::new(GrantSet::none());
+    fresh.set_clock(clock).expect("fresh");
+    let consumer = BareConsumer::from_context(TIMED, fresh);
+    consumer.eval("globalThis.log = []; globalThis.onEvent = function () { log.push('event'); };");
+    let callback = std::ffi::CString::new("onEvent").unwrap();
+    let subscription = unsafe { storage_consumer_subscribe(consumer.handle, callback.as_ptr()) };
+    let _ = target.set((context(&consumer).state_ptr() as usize, subscription));
+    consumer.eval("setTimeout(function () { log.push('timer'); }, 0);");
+    let done = Arc::new(AtomicBool::new(false));
+    let watching = done.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(30));
+        if !watching.load(Ordering::SeqCst) {
+            eprintln!("the clock was read under the subscription lock: deadlock");
+            std::process::abort();
+        }
+    });
+    countdown.store(2, Ordering::SeqCst);
+    settle(&consumer);
+    done.store(true, Ordering::SeqCst);
+    assert_eq!(log(&consumer), "timer,event");
+}
+
+#[test]
+fn reading_time_seals_and_answering_without_it_does_not() {
+    let held = Held::new(0.0);
+    ibex2_runtime::ensure_linked();
+    let unclocked = BareConsumer::from_context(TIMED, Context::new(GrantSet::none()));
+    unclocked.eval("setTimeout(function () {}, 5);");
+    assert!(
+        context(&unclocked).set_clock(held.clock()).is_err(),
+        "setTimeout read time"
+    );
+
+    let busy = BareConsumer::from_context(TIMED, Context::new(GrantSet::none()));
+    busy.eval("globalThis.onEvent = function () {};");
+    let callback = std::ffi::CString::new("onEvent").unwrap();
+    let subscription = unsafe { storage_consumer_subscribe(busy.handle, callback.as_ptr()) };
+    assert_eq!(
+        unsafe { ibex2_test_publish_event(context(&busy).state_ptr(), subscription) },
+        1
+    );
+    assert!(!context(&busy).is_idle(), "work is queued");
+    assert!(
+        context(&busy).set_clock(held.clock()).is_ok(),
+        "a busy is_idle read no time"
+    );
+}
+
+#[test]
+fn due_and_the_distance_to_due_agree_far_from_the_origin() {
+    let origin = 1.0e12;
+    let (consumer, held) = clocked(TIMED, "", origin);
+    consumer.eval("globalThis.log = []; setTimeout(function () { log.push('x'); }, 1);");
+    held.set(origin + 0.9996);
+    assert_eq!(context(&consumer).millis_until_next_timer(), Some(0.001));
+    assert_eq!(context(&consumer).admit_due_timers(), 0);
+    held.set(origin + 1.0004);
+    assert_eq!(context(&consumer).millis_until_next_timer(), Some(0.0));
+    assert_eq!(context(&consumer).admit_due_timers(), 1);
+}
+
+#[test]
+fn a_delay_too_large_for_a_duration_is_never_due() {
+    let (consumer, held) = clocked(TIMED, "", 0.0);
+    consumer.eval("globalThis.log = []; setTimeout(function () { log.push('never'); }, 1e300);");
+    held.set(9.0e15);
+    settle(&consumer);
+    assert_eq!(log(&consumer), "");
 }
