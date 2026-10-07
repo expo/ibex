@@ -397,7 +397,7 @@ impl TcpSocketTransport {
             queued_bytes: 0,
             queued_messages: 0,
             terminal: None,
-            lingering: false,
+            graceful_teardown: false,
             #[cfg(test)]
             history: Vec::new(),
         }));
@@ -577,8 +577,9 @@ struct SendState {
     queued_bytes: usize,
     queued_messages: usize,
     terminal: Option<TerminalLatch>,
-    /// The pump has half-closed and owns the remaining TCP teardown.
-    lingering: bool,
+    /// The pump has handed its final frame to TCP (or is already
+    /// half-closing) and owns a graceful TCP teardown from here on.
+    graceful_teardown: bool,
     #[cfg(test)]
     history: Vec<TerminalStep>,
 }
@@ -1340,6 +1341,10 @@ fn release_terminal(
 ) {
     {
         let mut send = state.lock().expect("WebSocket sender poisoned");
+        // Set in the same critical section that can make the terminal
+        // deliverable, so a caller dropping the socket on that result never
+        // races the pump into a resetting shutdown.
+        send.graceful_teardown = true;
         #[cfg(test)]
         send.history.push(TerminalStep::CloseSent);
         if let Some(terminal) = send.terminal.as_mut() {
@@ -1707,7 +1712,10 @@ fn linger_close(
     signal: &AbortSignal,
     state: &Mutex<SendState>,
 ) {
-    state.lock().expect("WebSocket sender poisoned").lingering = true;
+    state
+        .lock()
+        .expect("WebSocket sender poisoned")
+        .graceful_teardown = true;
     let _ = shutdown.shutdown(Shutdown::Write);
     let deadline = Instant::now() + CLOSE_LINGER;
     let interest = if *registered {
@@ -1847,7 +1855,19 @@ fn pump_loop(
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    let _ = shutdown.shutdown(Shutdown::Both);
+                    if close.close_sent {
+                        linger_close(
+                            &mut poll,
+                            &mut events,
+                            &mut wire,
+                            &mut tcp_registered,
+                            &shutdown,
+                            &signal,
+                            &state,
+                        );
+                    } else {
+                        let _ = shutdown.shutdown(Shutdown::Both);
+                    }
                     return;
                 }
             }
@@ -2585,15 +2605,16 @@ impl Drop for Socket {
             let _ = self.sender.close(Some(1000), "");
         }
         self.sender.mark_closed();
-        // A lingering pump is already half-closed and finishes TCP itself; a
-        // receive-side shutdown here could reset its queued final frames.
-        let lingering = self
+        // After its Close reaches TCP the pump half-closes and finishes TCP
+        // itself; a receive-side shutdown here could reset those queued
+        // final bytes.
+        let graceful = self
             .sender
             .state
             .lock()
             .expect("WebSocket sender poisoned")
-            .lingering;
-        if !lingering {
+            .graceful_teardown;
+        if !graceful {
             let _ = self.shutdown.shutdown(Shutdown::Both);
         }
         let _ = self.wake.wake();
