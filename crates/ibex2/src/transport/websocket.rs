@@ -63,6 +63,8 @@ struct PumpObserver {
     network_bytes: AtomicUsize,
     last_write_progress: Mutex<Option<Instant>>,
     write_blocked: std::sync::atomic::AtomicBool,
+    peer_fin: std::sync::atomic::AtomicBool,
+    send_state: std::sync::OnceLock<Arc<Mutex<SendState>>>,
 }
 
 impl TcpSocketTransport {
@@ -395,6 +397,9 @@ impl TcpSocketTransport {
             queued_bytes: 0,
             queued_messages: 0,
             terminal: None,
+            lingering: false,
+            #[cfg(test)]
+            history: Vec::new(),
         }));
         let (commands, outgoing) = mpsc::sync_channel(MAX_OUTBOUND_COMMANDS);
         let (requests, incoming) = mpsc::sync_channel(1);
@@ -572,6 +577,21 @@ struct SendState {
     queued_bytes: usize,
     queued_messages: usize,
     terminal: Option<TerminalLatch>,
+    /// The pump has half-closed and owns the remaining TCP teardown.
+    lingering: bool,
+    #[cfg(test)]
+    history: Vec<TerminalStep>,
+}
+
+/// Test-only record of terminal-latch transitions, in the order the pump made
+/// them under the send-state lock.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalStep {
+    LatchedDeferred,
+    LatchedDeliverable,
+    CloseSent,
+    Deliverable,
 }
 
 struct TerminalLatch {
@@ -1256,10 +1276,22 @@ fn latch_terminal(
     send.admission = AdmissionState::Closed;
     if let Some(terminal) = send.terminal.as_mut() {
         if terminal.peer_close || !peer_close {
+            #[cfg(test)]
+            let became_deliverable = deliverable && !terminal.deliverable;
             terminal.deliverable |= deliverable;
+            #[cfg(test)]
+            if became_deliverable {
+                send.history.push(TerminalStep::Deliverable);
+            }
             return;
         }
     }
+    #[cfg(test)]
+    send.history.push(if deliverable {
+        TerminalStep::LatchedDeliverable
+    } else {
+        TerminalStep::LatchedDeferred
+    });
     send.terminal = Some(TerminalLatch {
         result,
         delivered: false,
@@ -1306,13 +1338,19 @@ fn release_terminal(
     requests: &mpsc::Receiver<ReceiveRequest>,
     state: &Mutex<SendState>,
 ) {
-    if let Some(terminal) = state
-        .lock()
-        .expect("WebSocket sender poisoned")
-        .terminal
-        .as_mut()
     {
-        terminal.deliverable = true;
+        let mut send = state.lock().expect("WebSocket sender poisoned");
+        #[cfg(test)]
+        send.history.push(TerminalStep::CloseSent);
+        if let Some(terminal) = send.terminal.as_mut() {
+            #[cfg(test)]
+            let became_deliverable = !terminal.deliverable;
+            terminal.deliverable = true;
+            #[cfg(test)]
+            if became_deliverable {
+                send.history.push(TerminalStep::Deliverable);
+            }
+        }
     }
     deliver_terminal(request, requests, state);
 }
@@ -1365,6 +1403,7 @@ struct CloseState {
     close_sent: bool,
     close_received: bool,
     finish_after_close_sent: bool,
+    peer_fin: bool,
 }
 
 impl CloseState {
@@ -1376,6 +1415,7 @@ impl CloseState {
             close_sent: false,
             close_received: false,
             finish_after_close_sent: false,
+            peer_fin: false,
         }
     }
 
@@ -1641,6 +1681,73 @@ fn drain_commands(
     }
 }
 
+/// How long a finished pump keeps reading after its half-close while it waits
+/// for the peer's FIN.
+#[cfg(not(test))]
+const CLOSE_LINGER: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const CLOSE_LINGER: Duration = Duration::from_secs(2);
+
+/// Close TCP cleanly once the WebSocket exchange is finished. Every frame the
+/// pump will ever write is already in the kernel, possibly behind a slow
+/// reader. Half-close writing so FIN follows those bytes, then read and discard
+/// until the peer's FIN, abort, or `CLOSE_LINGER`. Shutting down the receive
+/// side or closing the last handle while inbound bytes are unread instead
+/// sends RST (every platform on close; Windows also on `SD_RECEIVE`), and RST
+/// discards our unsent send queue — including the Close or 1009 the peer has
+/// not read yet.
+// @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — half-close and drain before teardown
+#[allow(clippy::too_many_arguments)]
+fn linger_close(
+    poll: &mut Poll,
+    events: &mut Events,
+    wire: &mut Wire,
+    registered: &mut bool,
+    shutdown: &StdTcpStream,
+    signal: &AbortSignal,
+    state: &Mutex<SendState>,
+) {
+    state.lock().expect("WebSocket sender poisoned").lingering = true;
+    let _ = shutdown.shutdown(Shutdown::Write);
+    let deadline = Instant::now() + CLOSE_LINGER;
+    let interest = if *registered {
+        poll.registry()
+            .reregister(wire.tcp_mut(), SOCKET_TOKEN, Interest::READABLE)
+    } else {
+        poll.registry()
+            .register(wire.tcp_mut(), SOCKET_TOKEN, Interest::READABLE)
+    };
+    if interest.is_ok() {
+        *registered = true;
+        let mut scratch = [0u8; 16 << 10];
+        'linger: loop {
+            if signal.aborted() {
+                break;
+            }
+            loop {
+                match wire.tcp_mut().read(&mut scratch) {
+                    Ok(0) => break 'linger,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => break 'linger,
+                }
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match poll.poll(events, Some(left)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    }
+    let _ = stop_polling_tcp(poll, wire, registered);
+    let _ = shutdown.shutdown(Shutdown::Both);
+}
+
 #[cfg(test)]
 struct PumpExit(Option<Arc<PumpObserver>>);
 
@@ -1673,6 +1780,10 @@ fn pump_loop(
 ) {
     #[cfg(test)]
     let _exit = PumpExit(pump_observer.clone());
+    #[cfg(test)]
+    if let Some(observer) = &pump_observer {
+        let _ = observer.send_state.set(Arc::clone(&state));
+    }
     let mut events = Events::with_capacity(8);
     let mut input = Input::new(buffered_input);
     let mut terminal_drain = TerminalDrain::default();
@@ -1847,6 +1958,7 @@ fn pump_loop(
         }
 
         let background_read = close.read == ReadSide::Closing
+            || close.peer_fin
             || close.close_sent
             || command_count.load(Ordering::Acquire) != 0
             || frame.is_some()
@@ -2085,6 +2197,7 @@ fn pump_loop(
                         #[cfg(test)]
                         if let Some(observer) = &pump_observer {
                             observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                            observer.write_blocked.store(false, Ordering::Release);
                             *observer
                                 .last_write_progress
                                 .lock()
@@ -2165,6 +2278,7 @@ fn pump_loop(
                         #[cfg(test)]
                         if let Some(observer) = &pump_observer {
                             observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                            observer.write_blocked.store(false, Ordering::Release);
                             *observer
                                 .last_write_progress
                                 .lock()
@@ -2226,8 +2340,15 @@ fn pump_loop(
                 && controls.is_empty()
                 && command_count.load(Ordering::Acquire) == 0)
         {
-            let _ = stop_polling_tcp(&poll, &mut wire, &mut tcp_registered);
-            let _ = shutdown.shutdown(Shutdown::Both);
+            linger_close(
+                &mut poll,
+                &mut events,
+                &mut wire,
+                &mut tcp_registered,
+                &shutdown,
+                &signal,
+                &state,
+            );
             return;
         }
 
@@ -2282,14 +2403,18 @@ fn pump_loop(
                     read_ready |= event.is_readable();
                     write_ready |= event.is_writable();
                     if event.is_read_closed() && close.read != ReadSide::Done {
-                        begin_terminal_drain(
-                            &mut close,
-                            &mut terminal_drain,
-                            &mut request,
-                            #[cfg(test)]
-                            pump_observer.as_deref(),
-                        );
+                        // A peer FIN is an in-order end of the byte stream,
+                        // not a terminal condition: data frames ahead of it
+                        // still belong to receive demand. Only parse leading
+                        // control frames without demand; EOF itself is
+                        // processed when a read reaches it.
+                        // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — read FIN keeps queued messages
+                        close.peer_fin = true;
                         read_ready = true;
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.peer_fin.store(true, Ordering::Release);
+                        }
                     }
                     if event.is_write_closed() {
                         close.write = WriteSide::Done;
@@ -2460,7 +2585,17 @@ impl Drop for Socket {
             let _ = self.sender.close(Some(1000), "");
         }
         self.sender.mark_closed();
-        let _ = self.shutdown.shutdown(Shutdown::Both);
+        // A lingering pump is already half-closed and finishes TCP itself; a
+        // receive-side shutdown here could reset its queued final frames.
+        let lingering = self
+            .sender
+            .state
+            .lock()
+            .expect("WebSocket sender poisoned")
+            .lingering;
+        if !lingering {
+            let _ = self.shutdown.shutdown(Shutdown::Both);
+        }
         let _ = self.wake.wake();
     }
 }

@@ -303,15 +303,76 @@ fn wait(seen: &Receiver<String>) -> String {
         .expect("the peer reports")
 }
 
+/// Wait until the pump's last write found the kernel full and no write has
+/// progressed for a while. One `WouldBlock` is not enough: macOS grows an
+/// autotuned send buffer as earlier segments are acknowledged, so a socket that
+/// once refused bytes can accept the rest of a fragment and a control frame
+/// moments later. Once the non-reading peer's window is closed, nothing more
+/// is acknowledged and the buffer stops growing.
 #[cfg(test)]
 fn wait_for_kernel_backpressure(observer: &PumpObserver) {
+    const QUIET: Duration = Duration::from_millis(200);
     let watchdog = std::time::Instant::now() + Duration::from_secs(10);
-    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < watchdog {
-        std::thread::yield_now();
+    let mut quiet_since: Option<(std::time::Instant, usize)> = None;
+    while std::time::Instant::now() < watchdog {
+        let bytes = observer.network_bytes.load(Ordering::Acquire);
+        let blocked = observer.write_blocked.load(Ordering::Acquire)
+            && observer.parked.load(Ordering::Acquire);
+        match quiet_since {
+            Some((since, seen)) if blocked && seen == bytes => {
+                if since.elapsed() >= QUIET {
+                    return;
+                }
+            }
+            _ => quiet_since = blocked.then(|| (std::time::Instant::now(), bytes)),
+        }
+        std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(
-        observer.write_blocked.load(Ordering::Acquire),
-        "the maximum-size message did not fill the kernel buffers"
+    panic!("the maximum-size message did not fill the kernel buffers");
+}
+
+/// The pump's terminal-latch transitions so far, read under the lock the pump
+/// records them with.
+#[cfg(test)]
+fn terminal_history(observer: &PumpObserver) -> Vec<TerminalStep> {
+    observer
+        .send_state
+        .get()
+        .expect("the pump registered its state")
+        .lock()
+        .expect("WebSocket sender poisoned")
+        .history
+        .clone()
+}
+
+/// Wait for the pump's publish-or-defer decision and return it.
+#[cfg(test)]
+fn wait_for_terminal_decision(observer: &PumpObserver) -> TerminalStep {
+    let watchdog = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(first) = terminal_history(observer).first() {
+            return *first;
+        }
+        assert!(
+            std::time::Instant::now() < watchdog,
+            "the pump made no terminal decision"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// A terminal result that generated a Close was deferred when latched and
+/// became deliverable only when that Close was handed to TCP.
+#[cfg(test)]
+fn assert_deferred_until_close_sent(observer: &PumpObserver) {
+    assert_eq!(
+        terminal_history(observer),
+        [
+            TerminalStep::LatchedDeferred,
+            TerminalStep::CloseSent,
+            TerminalStep::Deliverable
+        ],
+        "the terminal result became deliverable before its Close was sent"
     );
 }
 
@@ -693,15 +754,24 @@ fn a_watch_does_not_publish_close_until_its_blocked_reply_drains() {
     wait_for_kernel_backpressure(&observer);
     close_now.send(()).unwrap();
     close_observed.recv().unwrap();
-    let watchdog = std::time::Instant::now() + Duration::from_secs(10);
-    while !observer.close_received.load(Ordering::Acquire) && std::time::Instant::now() < watchdog {
-        std::thread::yield_now();
-    }
-    assert!(observer.close_received.load(Ordering::Acquire));
-    assert!(
-        matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
-        "the watch published Close before its reply could drain"
+    // Observe the pump's publish-or-defer decision itself, not the earlier
+    // parse flag. The peer Close generated a reply, so it is latched
+    // undeliverable; while that remains so, the watch cannot have it.
+    assert_eq!(
+        wait_for_terminal_decision(&observer),
+        TerminalStep::LatchedDeferred,
+        "the peer Close was published before its reply could drain"
     );
+    assert!(observer.close_received.load(Ordering::Acquire));
+    {
+        let state = observer.send_state.get().unwrap().lock().unwrap();
+        if !state.history.contains(&TerminalStep::Deliverable) {
+            assert!(
+                matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
+                "the watch published Close before its reply could drain"
+            );
+        }
+    }
     drain_now.send(()).unwrap();
     assert_eq!(
         report.recv_timeout(Duration::from_secs(10)).unwrap(),
@@ -715,11 +785,18 @@ fn a_watch_does_not_publish_close_until_its_blocked_reply_drains() {
             was_clean: true,
         }
     );
+    assert_deferred_until_close_sent(&observer);
     peer.join().unwrap();
 }
 
+/// An oversized inbound message supersedes an admitted but unstarted local
+/// Close with 1009, with or without the peer's FIN behind the oversized
+/// frame. The peer reads nothing until the pump has latched TooLarge as
+/// undeliverable, so 1009 is generated while the data fragment is blocked.
+/// Afterwards the client half-closes: the peer reads 1009 and then a clean
+/// EOF, not a reset that would have discarded the queued 1009.
 #[cfg(test)]
-fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
+fn too_large_supersedes_an_admitted_close(peer_fin: bool) {
     let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (send_oversize, oversize_requested) = channel();
@@ -738,15 +815,15 @@ fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
         message_started.send(()).unwrap();
         oversize_requested.recv().unwrap();
         stream.write_all(&frame(true, 0x1, &[b'x'; 128])).unwrap();
-        if terminal_drain {
+        if peer_fin {
             stream.shutdown(Shutdown::Write).unwrap();
         }
         oversize_sent.send(()).unwrap();
-        if terminal_drain {
-            drain_requested.recv().unwrap();
-        }
+        drain_requested.recv().unwrap();
         message.read_control(&mut stream, 0x8, &1009u16.to_be_bytes(), "the 1009 Close");
-        reported.send(message.bytes).unwrap();
+        let mut after = [0u8; 1];
+        let end = stream.read(&mut after).map_err(|error| error.kind());
+        reported.send((message.bytes, end)).unwrap();
     });
 
     let observer = Arc::new(PumpObserver::default());
@@ -761,19 +838,27 @@ fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
     wait_for_kernel_backpressure(&observer);
     send_oversize.send(()).unwrap();
     oversize_observed.recv().unwrap();
-    if terminal_drain {
-        let watchdog = std::time::Instant::now() + Duration::from_secs(10);
-        while !observer.terminal_draining.load(Ordering::Acquire)
-            && std::time::Instant::now() < watchdog
-        {
-            std::thread::yield_now();
-        }
-        assert!(observer.terminal_draining.load(Ordering::Acquire));
-        drain_now.send(()).unwrap();
-    }
-    assert_eq!(socket.next().unwrap(), Incoming::TooLarge);
-    let data_before_close = report.recv_timeout(Duration::from_secs(10)).unwrap();
+    let receiving = std::thread::spawn(move || {
+        let received = socket.next();
+        (socket, received)
+    });
+    assert_eq!(
+        wait_for_terminal_decision(&observer),
+        TerminalStep::LatchedDeferred,
+        "TooLarge was published before its 1009 could drain"
+    );
+    drain_now.send(()).unwrap();
+    let (socket, received) = receiving.join().unwrap();
+    assert_eq!(received.unwrap(), Incoming::TooLarge);
+    assert_deferred_until_close_sent(&observer);
+    let (data_before_close, end) = report.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(data_before_close < LARGE_SEND);
+    assert_eq!(
+        end,
+        Ok(0),
+        "the client reset instead of half-closing after 1009"
+    );
+    drop(socket);
     peer.join().unwrap();
 }
 
@@ -783,8 +868,61 @@ fn too_large_supersedes_an_admitted_close_with_receive_demand() {
 }
 
 #[test]
-fn terminal_drain_too_large_supersedes_an_admitted_close() {
+fn too_large_supersedes_an_admitted_close_before_a_peer_fin() {
     too_large_supersedes_an_admitted_close(true);
+}
+
+/// A peer FIN is the in-order end of the byte stream. Messages ahead of it are
+/// still delivered to later receive demand even when the pump observed the
+/// FIN's readiness first, and only then does EOF report 1006.
+#[test]
+fn messages_before_a_peer_fin_survive_fin_readiness_without_demand() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (reported, report) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        server_handshake(&mut stream);
+        let mut inbound = frame(true, 0x1, b"before fin");
+        inbound.extend(frame(true, 0x2, &[4; 300]));
+        stream.write_all(&inbound).unwrap();
+        stream.shutdown(Shutdown::Write).unwrap();
+        let mut after = [0u8; 1];
+        reported
+            .send(stream.read(&mut after).map_err(|error| error.kind()))
+            .unwrap();
+    });
+
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let mut socket = open_on(&transport, port, "/data-fin", &AbortSignal::default()).unwrap();
+    let watchdog = std::time::Instant::now() + Duration::from_secs(10);
+    while !observer.peer_fin.load(Ordering::Acquire) && std::time::Instant::now() < watchdog {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(observer.peer_fin.load(Ordering::Acquire));
+    assert_eq!(socket.next().unwrap(), text("before fin"));
+    assert_eq!(
+        socket.next_event().unwrap(),
+        Event::Message(Message::Binary(vec![4; 300]))
+    );
+    assert_eq!(
+        socket.next().unwrap(),
+        Incoming::Closed {
+            code: 1006,
+            reason: String::new(),
+        }
+    );
+    assert_eq!(
+        report.recv_timeout(Duration::from_secs(10)).unwrap(),
+        Ok(0),
+        "the client did not half-close after EOF"
+    );
+    drop(socket);
+    peer.join().unwrap();
 }
 
 #[test]
@@ -864,13 +1002,25 @@ fn write_failure_drains_unread_data_before_publishing_a_peer_close() {
         std::thread::yield_now();
     }
     assert!(observer.terminal_draining.load(Ordering::Acquire));
+    let terminal = socket.next();
+    // Linux and macOS keep bytes that arrived before a RST readable, so the
+    // drain finds the peer Close. Windows discards a reset connection's unread
+    // receive buffer: the Close is gone, and whichever direction observes the
+    // reset first reports the abnormal end (1006 or the write error).
+    #[cfg(not(windows))]
     assert_eq!(
-        socket.next().unwrap(),
+        terminal.unwrap(),
         Incoming::Closed {
             code: 3011,
             reason: "behind data".into(),
         }
     );
+    #[cfg(windows)]
+    match terminal {
+        Ok(Incoming::Closed { code: 1006, .. }) => {}
+        Err(HostError::Failed(error)) if error.contains("the socket write failed") => {}
+        other => panic!("a Windows reset did not end abnormally: {other:?}"),
+    }
     wait_for_pump_exit(&observer, "write-dead terminal drain");
     peer.join().unwrap();
 }
