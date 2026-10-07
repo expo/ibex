@@ -1711,6 +1711,59 @@ fn a_real_peer_reset_closes_the_idle_pump_without_spinning() {
     peer.join().unwrap();
 }
 
+/// Guards the linger cap under a peer that keeps sending after the close
+/// handshake. On loopback the pump usually out-reads the peer and so also
+/// stops at a WouldBlock; the per-read deadline check in `linger_close` is
+/// what bounds a peer that never lets reads block (reviewed, 2026-10-07).
+#[test]
+fn a_peer_flooding_after_the_close_cannot_hold_the_pump_past_its_linger_cap() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (closed_tx, closed_rx) = channel();
+    let peer = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap().0;
+        server_handshake(&mut stream);
+        // The client's masked Close: 2-byte header, 4-byte mask, short payload.
+        let mut header = [0u8; 2];
+        stream.read_exact(&mut header).unwrap();
+        assert_eq!(header[0], 0x88, "the client sent Close");
+        let mut rest = vec![0u8; 4 + usize::from(header[1] & 0x7f)];
+        stream.read_exact(&mut rest).unwrap();
+        closed_tx.send(()).unwrap();
+        stream.write_all(&[0x88, 0x02, 0x03, 0xe8]).unwrap();
+        // The client half-closes when it starts lingering; flood only then.
+        let mut byte = [0u8; 1];
+        while stream.read(&mut byte).unwrap_or(0) != 0 {}
+        let junk = [0u8; 16 << 10];
+        while stream.write_all(&junk).is_ok() {}
+    });
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
+    let socket = open_on(
+        &transport,
+        port,
+        "/flood-after-close",
+        &AbortSignal::default(),
+    )
+    .unwrap();
+    let sender = socket.sender().unwrap();
+    sender.close(Some(1000), "bye").unwrap();
+    closed_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the peer received the Close");
+    drop(sender);
+    drop(socket);
+    let deadline = std::time::Instant::now() + CLOSE_LINGER + Duration::from_secs(2);
+    while !observer.exited.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        observer.exited.load(Ordering::Acquire),
+        "the pump outlived its {CLOSE_LINGER:?} linger cap under a post-close flood"
+    );
+    peer.join().unwrap();
+}
+
 #[test]
 fn sha1_is_sha1() {
     let hex = |b: [u8; 20]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();

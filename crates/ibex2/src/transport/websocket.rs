@@ -1733,6 +1733,12 @@ fn linger_close(
                 break;
             }
             loop {
+                // A peer that keeps sending never yields WouldBlock, so the
+                // cap and abort are checked after every read, not only when
+                // the socket goes quiet.
+                if signal.aborted() || Instant::now() >= deadline {
+                    break 'linger;
+                }
                 match wire.tcp_mut().read(&mut scratch) {
                     Ok(0) => break 'linger,
                     Ok(_) => {}
