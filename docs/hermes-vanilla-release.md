@@ -82,6 +82,7 @@ backend; v4 adds no packaged Windows ICU archive.
 | `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | not rebuilt in I3 |
 | `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | not rebuilt in I3 |
 | `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | not buildable on macOS |
+| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | local (macOS with NDK 27.1); no CI runner yet | `min-size-release` | not in a release yet |
 
 The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
 the iOS simulator bundle's `-simulator` spelling. They deliberately omit
@@ -89,6 +90,16 @@ the iOS simulator bundle's `-simulator` spelling. They deliberately omit
 `x86_64-apple-tvos` (the Intel tvOS Simulator), but no bundle covers it and it
 is deliberately unmapped, so a build for it needs `HERMES_LEAN_SYS_DIR`. The Rust
 target `aarch64-apple-tvos-sim` maps to that receipt.
+
+`aarch64-linux-android` is built by the same script with the Android NDK (27.1,
+API 30, `ANDROID_STL=c++_static`), from the pinned Hermes commit with no patches.
+Its Unicode backend is a static ICU 74 with the trimmed root-en data, as the
+Linux bundles carry; it has no `Intl`. Hermes's `hermes.cpp` includes fbjni only
+to attach a JVM thread, so the build puts a no-op `ThreadScope` header
+(`scripts/android-fbjni-shim/`) on the include path; its digest is in the
+receipt. No release carries this bundle yet and no CI runner builds it, so a
+consumer points `HERMES_LEAN_SYS_DIR_aarch64_linux_android` at a local install
+(below).
 
 ## Runners
 
@@ -404,8 +415,12 @@ directory) and the published layout (`include/`, `lib/`, and `bin/hermesc`) are
 accepted for local installs. A published-layout override is complete only with
 its receipt. A legacy Apple or Windows repository-layout install may omit one;
 a Linux install must carry a canonical receipt because its ICU code, all three
-data variants, and both pinned filters are build inputs. Unsupported
-triples are refused with instructions to provide `HERMES_LEAN_SYS_DIR`;
+data variants, and both pinned filters are build inputs. A target-qualified override, `HERMES_LEAN_SYS_DIR_<target>` (the Rust target
+with `-` and `.` as `_`, as the `cc` crate names its per-target variables), is
+read before `HERMES_LEAN_SYS_DIR` and applies to that target only, so a cross
+build's host instance keeps its pinned bundle while the target uses a local
+install. Unsupported
+triples are refused with instructions to provide one of the two;
 `aarch64-apple-ios-sim` and `x86_64-apple-ios` both select the universal iOS
 Simulator archive. `aarch64-apple-tvos` selects the tvOS device archive and
 `aarch64-apple-tvos-sim` selects the arm64 tvOS Simulator archive.

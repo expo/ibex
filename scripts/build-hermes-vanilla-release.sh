@@ -22,7 +22,8 @@ usage() {
     '  aarch64-apple-tvos' \
     '  aarch64-apple-tvos-simulator' \
     '  x86_64-unknown-linux-gnu' \
-    '  aarch64-unknown-linux-gnu'
+    '  aarch64-unknown-linux-gnu' \
+    '  aarch64-linux-android      (ANDROID_NDK_HOME, or the SDK'"'"'s newest NDK)'
 }
 
 [[ $# -eq 2 ]] || { usage >&2; exit 2; }
@@ -69,6 +70,20 @@ case "$target" in
   aarch64-unknown-linux-gnu)
     [[ "$host_os" == Linux && "$host_arch" == arm64 ]] \
       || { echo "$target requires an arm64 Linux host" >&2; exit 2; } ;;
+  aarch64-linux-android)
+    # Cross-built with the NDK from a macOS or Linux host. Hermes's own
+    # HERMES_IS_ANDROID build needs fbjni and a JVM for Unicode and Intl; a
+    # native embedder has neither, so this bundle takes Unicode from a static
+    # ICU (as the Linux bundles do) and has no Intl.
+    android_ndk="${ANDROID_NDK_HOME:-}"
+    if [[ -z "$android_ndk" ]]; then
+      sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+      android_ndk="$(ls -d "$sdk"/ndk/* 2>/dev/null | LC_ALL=C sort -V | tail -1)"
+    fi
+    [[ -f "$android_ndk/build/cmake/android.toolchain.cmake" ]] \
+      || { echo "$target needs an Android NDK (set ANDROID_NDK_HOME)" >&2; exit 2; }
+    android_api="${IBEX_ANDROID_API:-30}"
+    profile=min-size-release ;;
   *) usage >&2; exit 2 ;;
 esac
 
@@ -134,7 +149,94 @@ build_flags=(
   -DHERMES_ENABLE_TEST_SUITE=false
 )
 
-if [[ "$host_os" == Darwin ]]; then
+if [[ "$target" == aarch64-linux-android ]]; then
+  # The host compiler first, as the Apple branch does; the target build
+  # imports it rather than building a hermesc it cannot run.
+  host_osx=()
+  [[ "$host_os" == Darwin ]] && host_osx=(-DCMAKE_OSX_SYSROOT=macosx \
+    -DCMAKE_OSX_ARCHITECTURES="$host_arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
+  cmake -S "$source_dir" -B "$host_build" "${generator[@]}" \
+    -DCMAKE_BUILD_TYPE=Release "${host_osx[@]}" \
+    -DHERMES_ENABLE_TEST_SUITE=false \
+    -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON \
+    -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
+  cmake --build "$host_build" --target hermesc -j "$jobs"
+  # Unicode through ICU, as the Linux bundles have it (case mapping,
+  # normalization, collation, dates; still no Intl): the trimmed root-en data,
+  # cross-built with the NDK over a host build that supplies ICU's data tools.
+  # Hermes's Android default is its JNI Unicode backend, so the ICU one is
+  # selected by its macro (HERMES_PLATFORM_UNICODE_ICU = 3).
+  icu_filter="$repo_root/scripts/icu74-filter-root-en.json"
+  ibex_verify_icu_trimmed_filter "$icu_filter"
+  ibex_checkout_icu_source "$icu_source_dir"
+  (
+    cd "$icu_source_dir/icu4c/source"
+    PYTHONPATH=python python3 -m icutools.databuilder \
+      --mode=gnumake --src_dir=data --filter_file="$icu_filter" >/dev/null
+  )
+  ndk_bin="$(ls -d "$android_ndk"/toolchains/llvm/prebuilt/*/bin | head -1)"
+  icu_host_build="$cache_dir/build-icu-host"
+  rm -rf "$icu_host_build" "$icu_trimmed_build" "$icu_trimmed_install"
+  mkdir -p "$icu_host_build" "$icu_trimmed_build"
+  (
+    cd "$icu_host_build"
+    export ICU_DATA_FILTER_FILE="$icu_filter"
+    if [[ "$host_os" == Darwin ]]; then icu_host=MacOSX; else icu_host=Linux; fi
+    "$icu_source_dir/icu4c/source/runConfigureICU" "$icu_host" \
+      --enable-static --disable-shared --disable-tests --disable-samples --disable-extras
+    make -j "$jobs"
+  )
+  (
+    cd "$icu_trimmed_build"
+    export ICU_DATA_FILTER_FILE="$icu_filter"
+    env CC="$ndk_bin/aarch64-linux-android${android_api}-clang" \
+      CXX="$ndk_bin/aarch64-linux-android${android_api}-clang++" \
+      AR="$ndk_bin/llvm-ar" RANLIB="$ndk_bin/llvm-ranlib" \
+      CFLAGS='-Os -fPIC -ffunction-sections -fdata-sections' \
+      CXXFLAGS='-Os -fPIC -ffunction-sections -fdata-sections' \
+      "$icu_source_dir/icu4c/source/configure" \
+        --host=aarch64-linux-android --with-cross-build="$icu_host_build" \
+        --prefix="$icu_trimmed_install" \
+        --enable-static --disable-shared --with-data-packaging=static \
+        --disable-tests --disable-samples --disable-extras --disable-tools
+    make -j "$jobs"
+    make install
+  )
+  for archive in libicui18n.a libicuuc.a libicudata.a; do
+    [[ -f "$icu_trimmed_install/lib/$archive" ]] \
+      || { echo "Android ICU archive is missing: $icu_trimmed_install/lib/$archive" >&2; exit 1; }
+  done
+  # hermes.cpp includes <fbjni/fbjni.h> under __ANDROID__ for a JVM thread
+  # scope; a native embedder has no JVM, so a no-op stand-in (recorded by digest).
+  fbjni_shim="$script_dir/android-fbjni-shim"
+  fbjni_shim_digest="$(ibex_sha256 "$fbjni_shim/fbjni/fbjni.h" | awk '{ print $1 }')"
+  build_flags+=(
+    "-DIBEX_ANDROID_FBJNI_SHIM_SHA256=$fbjni_shim_digest"
+    -DHERMES_ENABLE_INTL=false
+    -DHERMES_UNICODE_LITE=false
+    -DHERMES_USE_STATIC_ICU=true
+    -DHERMES_IS_ANDROID=false
+    -DCMAKE_BUILD_TYPE=MinSizeRel
+    -DANDROID_ABI=arm64-v8a
+    "-DANDROID_PLATFORM=android-$android_api"
+    -DANDROID_STL=c++_static
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DHERMES_BUILD_APPLE_FRAMEWORK=false
+    -DHERMES_ENABLE_LIBFUZZER=false
+    -DHERMES_ENABLE_FUZZILLI=false
+  )
+  cmake -S "$source_dir" -B "$build_dir" "${generator[@]}" \
+    "${build_flags[@]}" \
+    -DCMAKE_TOOLCHAIN_FILE="$android_ndk/build/cmake/android.toolchain.cmake" \
+    -DCMAKE_CXX_FLAGS="-isystem $fbjni_shim -DHERMES_PLATFORM_UNICODE=3" \
+    -DCMAKE_PREFIX_PATH="$icu_trimmed_install" \
+    -DICU_ROOT="$icu_trimmed_install" \
+    -DCMAKE_FIND_ROOT_PATH="$icu_trimmed_install" \
+    -DIMPORT_HOST_COMPILERS="$host_build/ImportHostCompilers.cmake"
+  cmake --build "$build_dir" --target ExtensionsBytecodeInclude -j 1
+  cmake --build "$build_dir" --target hermesvm_a hermesvmlean_a jsi boost_context -j "$jobs"
+  compiler="$host_build/bin/hermesc"
+elif [[ "$host_os" == Darwin ]]; then
   build_flags+=(
     -DHERMES_ENABLE_INTL=true
   )
@@ -229,7 +331,20 @@ cp -R "$source_dir/API/hermes/." "$bundle_dir/include/hermes/"
 cp -R "$source_dir/public/hermes/Public" "$bundle_dir/include/hermes/"
 cp "$source_dir/LICENSE" "$bundle_dir/LICENSE.hermes"
 
-if [[ "$host_os" == Darwin ]]; then
+if [[ "$target" == aarch64-linux-android ]]; then
+  for archive in libicui18n.a libicuuc.a libicudata.a; do
+    cp "$icu_trimmed_install/lib/$archive" "$bundle_dir/lib/"
+  done
+  cp -R "$icu_trimmed_install/include/unicode" "$bundle_dir/include/"
+  mkdir -p "$bundle_dir/share/icu"
+  cp "$icu_filter" "$bundle_dir/share/icu/filters-root-en.json"
+  cp "$icu_source_dir/LICENSE" "$bundle_dir/LICENSE.icu"
+  # The NDK's llvm-ar already writes deterministic archives (zero uid, gid and
+  # mtime). Never extract and repack: Hermes archives hold same-named members
+  # (hermesSupport's and LLVHSupport's ErrorHandling.cpp.o), and extraction
+  # keeps only one of each.
+  chmod 0644 "$bundle_dir/lib/"*.a
+elif [[ "$host_os" == Darwin ]]; then
   normalize_archive() {
     local archive="$1" temp_dir arch
     local -a arches=()
@@ -293,7 +408,18 @@ receipt_args+=(
   --link-directive=rustc-link-lib=static=jsi
   --link-directive=rustc-link-lib=static=boost_context
 )
-if [[ "$host_os" == Darwin ]]; then
+if [[ "$target" == aarch64-linux-android ]]; then
+  receipt_args+=(
+    --link-directive=rustc-link-lib=static=icui18n
+    --link-directive=rustc-link-lib=static=icuuc
+    --link-directive=rustc-link-lib=static=icudata
+    --link-directive=rustc-link-lib=c++_static
+    --link-directive=rustc-link-lib=c++abi
+    --link-directive=rustc-link-lib=log
+    --link-directive=rustc-link-lib=dl
+    --link-directive=rustc-link-lib=m
+  )
+elif [[ "$host_os" == Darwin ]]; then
   receipt_args+=(
     --link-directive=rustc-link-lib=c++
     --link-directive=rustc-link-lib=framework=CoreFoundation
