@@ -375,8 +375,9 @@ public:
   // of this cycle, or an owning pump) runs nothing and returns Nested, as the
   // owning pump returns for a nested drive. A job that throws out of a
   // checkpoint is reported through the EVENTS error path and the drain resumes,
-  // as the owning pump's checkpoint does; a callback or microtask that detaches
-  // the adapter ends the cycle, which then runs no further JavaScript.
+  // as the owning pump's checkpoint does. A callback or microtask that detaches
+  // the adapter ends the cycle once the entrance it ran in returns (the engine
+  // finishes that drain or dispatch); the cycle then starts no other JavaScript.
   Cycle cycle();
   // Release WebSocket keepalive roots whose listener/queued-data condition
   // ended before an embedder explicitly requests collection.

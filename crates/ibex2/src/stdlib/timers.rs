@@ -337,12 +337,13 @@ mod tests {
         assert_eq!(timers.next_deadline(), Some(4.0), "still clamped");
     }
 
-    /// A delay too large for the wheel's microseconds is never due.
+    /// A delay whose microseconds overflow a `u64` saturates rather than
+    /// wrapping to a nearer deadline.
     #[test]
     fn a_huge_delay_saturates() {
         let mut timers = Timers::new();
-        timers.set(1.0, Duration::MAX, false);
-        assert_eq!(timers.take_due_micros(u64::MAX - 1), None);
+        timers.set(1.0, Duration::from_secs(u64::MAX), false);
+        assert_eq!(timers.next_deadline_micros(), Some(u64::MAX));
     }
 
     /// An occurrence taken at 25 and left queued until 60 repeats from 60.

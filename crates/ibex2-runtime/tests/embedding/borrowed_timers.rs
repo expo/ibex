@@ -323,8 +323,9 @@ fn the_clock_is_sealed_at_its_first_read() {
 
 /// A diagnostic, not a supported use: D3 forbids a clock that calls into its
 /// runtime. With a one-shot recursion guard, a clock that reads the wheel once
-/// completes, which it could not if Ibex called the clock with the wheel's or
-/// the subscription lock held.
+/// completes, which it could not if Ibex called the clock with the wheel's
+/// lock held (`the_take_reads_the_clock_outside_the_subscription_lock` covers
+/// the other lock).
 #[test]
 fn the_clock_is_called_with_no_ibex_lock_held() {
     use std::sync::OnceLock;
@@ -580,12 +581,7 @@ fn a_callback_that_detaches_the_adapter_ends_the_cycle() {
     );
     assert_eq!(consumer.cycle(), 1);
     assert_eq!(consumer.cycle(), 0, "a detached adapter runs nothing");
-    assert!(log(&consumer).starts_with('t'), "{}", log(&consumer));
-    assert!(
-        !log(&consumer).contains('u'),
-        "no second task after detach: {}",
-        log(&consumer)
-    );
+    assert_eq!(log(&consumer), "t", "no post-checkpoint, no second timer");
 }
 
 /// LLP 0071 D3 and D6: the clock read at a timer's take runs after the
@@ -682,4 +678,16 @@ fn a_delay_too_large_for_a_duration_is_never_due() {
     held.set(9.0e15);
     settle(&consumer);
     assert_eq!(log(&consumer), "");
+}
+
+#[test]
+fn an_invalid_first_reading_is_time_zero() {
+    let bad = Held::new(f64::NAN);
+    ibex2_runtime::ensure_linked();
+    let fresh = Context::new(GrantSet::none());
+    fresh.set_clock(bad.clock()).expect("fresh");
+    let consumer = BareConsumer::from_context(TIMED, fresh);
+    assert_eq!(consumer.eval("String(performance.now())"), "0");
+    bad.set(3.0);
+    assert_eq!(consumer.eval("String(performance.now())"), "3");
 }
