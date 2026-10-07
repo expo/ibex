@@ -2129,6 +2129,9 @@ void Adapter::settle(uint64_t id, Ibex2AbiValue& value, bool is_error) {
   auto payload = from_abi(rt, value);
   if (is_error) {
     auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, payload);
+    // The realm's Error may be the embedder's, and may have detached the
+    // adapter: no further JavaScript once it has (LLP 0071 D5).
+    if (!state_->alive || !runtime_) return;
     promise.reject.call(rt, error);
   } else promise.resolve.call(rt, payload);
 }
@@ -2302,6 +2305,11 @@ void Adapter::report_error(const char* message) {
       state_->event_reporter.getObject(rt).isFunction(rt)) {
     auto error = rt.global().getPropertyAsFunction(rt, "Error")
         .callAsConstructor(rt, message == nullptr ? "uncaught error" : message);
+    // As in settle(): the Error constructor may have detached the adapter.
+    if (!state_->alive || !runtime_ || !state_->event_reporter.isObject()) {
+      ibex2_report_uncaught(message);
+      return;
+    }
     state_->event_reporter.getObject(rt).getFunction(rt).call(rt, error);
     return;
   }
@@ -2333,8 +2341,9 @@ bool Adapter::deliver_one() {
 }
 
 // A microtask checkpoint that reports what it cannot finish, as the owning
-// pump's does (LLP 0058.000.000 §8): a job that throws out of the queue -- only
-// an engine-raised error can -- is reported and the drain resumes behind it,
+// pump's does (LLP 0058.000.000 §8): a job that throws out of the queue -- on
+// the ordinary paths only an engine-raised error can, though a raw
+// HermesInternal.enqueueJob job can too -- is reported and the drain resumes behind it,
 // the engine having retired the job before running it. Returns false when the
 // adapter was detached by the JavaScript it ran.
 bool Adapter::checkpoint() {

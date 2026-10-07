@@ -96,9 +96,15 @@
   // The runtime's clock, replacing any earlier performance.now: timers and
   // performance.now read one clock (LLP 0071 D4).
   global.performance = global.performance || {};
-  global.performance.now = function () {
+  var runtimeNow = function () {
     return performanceNow();
   };
+  global.performance.now = runtimeNow;
+  // An accessor can accept the assignment and keep its own clock: refuse
+  // installation rather than leave two clocks (LLP 0071 D4).
+  if (global.performance.now !== runtimeNow) {
+    throw new TypeError("performance.now cannot be replaced with the runtime's clock");
+  }
   // The adapter retains this completion value in native state. It is not an
   // application global: only a host task already reserved by the pump may
   // choose the private timer handle passed here.

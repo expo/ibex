@@ -351,7 +351,17 @@ fn the_clock_is_called_with_no_ibex_lock_held() {
     let _ = state.set(fresh.state_ptr() as usize);
     let consumer = BareConsumer::from_context(TIMED, fresh);
     consumer.eval("globalThis.log = []; setTimeout(function () { log.push('x'); }, 0);");
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watching = done.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(30));
+        if !watching.load(Ordering::SeqCst) {
+            eprintln!("the clock was read under the wheel's lock: deadlock");
+            std::process::abort();
+        }
+    });
     settle(&consumer);
+    done.store(true, Ordering::SeqCst);
     assert_eq!(log(&consumer), "x");
 }
 
@@ -690,4 +700,50 @@ fn an_invalid_first_reading_is_time_zero() {
     assert_eq!(consumer.eval("String(performance.now())"), "0");
     bad.set(3.0);
     assert_eq!(consumer.eval("String(performance.now())"), "3");
+}
+
+/// D5: a detach inside a checkpoint takes effect when that drain returns.
+/// The engine finishes the drain it is in; the cycle then admits and
+/// delivers nothing.
+#[test]
+fn a_microtask_that_detaches_ends_the_cycle_after_its_drain() {
+    let (consumer, _held) = clocked(TIMED, "", 0.0);
+    consumer.install_loop_probe();
+    consumer.eval(
+        "globalThis.log = []; \
+         setTimeout(function () { log.push('t'); }, 0); \
+         Promise.resolve().then(function () { log.push('m'); detachFromJs(); }); \
+         Promise.resolve().then(function () { log.push('same-drain'); });",
+    );
+    assert_eq!(
+        consumer.cycle(),
+        0,
+        "nothing admitted or delivered after the detach"
+    );
+    assert_eq!(
+        log(&consumer),
+        "m,same-drain",
+        "the drain finished; the timer never ran"
+    );
+}
+
+/// D5: a detach inside an error listener takes effect when the dispatch
+/// returns: the post-checkpoint does not run.
+#[test]
+fn an_error_listener_that_detaches_ends_the_cycle_after_its_dispatch() {
+    let (consumer, _held) = clocked(TIMED, "", 0.0);
+    consumer.install_loop_probe();
+    let _ = ibex2::boundary_abi::drain_console();
+    consumer.eval(
+        "globalThis.log = []; \
+         addEventListener('error', function (event) { log.push('first'); detachFromJs(); event.preventDefault(); }); \
+         addEventListener('error', function () { log.push('second'); }); \
+         setTimeout(function () { Promise.resolve().then(function () { log.push('late'); }); throw new Error('boom'); }, 0);",
+    );
+    assert_eq!(consumer.cycle(), 1);
+    assert_eq!(
+        log(&consumer),
+        "first,second",
+        "the dispatch finished; the post-checkpoint did not run"
+    );
 }

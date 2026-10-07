@@ -5,7 +5,7 @@
 **Systems:** Engine adapter, Tasks, Timers, Rust Stdlib
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-07
-**Revised:** 2026-10-07 (r5, after a round-4 delta review: a detach from inside JavaScript takes effect when that entrance returns, which is what the adapter can do and now what the text says; the detach test checks the exact log; the saturation tests and wording are exact) 2026-10-07 (r4, after round-3 reviews of r3 and its implementation, both NOT READY on implementation findings: `cycle()`'s checkpoints report a job that throws out of the queue and resume, as the owning pump's do; a callback that detaches the adapter ends the cycle; the drive guard retains the runtime state; the interval run count saturates; a delay too large for a `Duration` is never due instead of panicking across the ABI; the tests named by the reviews are added) 2026-10-07 (r3, after the same reviewers' r2 reviews, both NOT READY, and with the implementation in hand: the cycle is an adapter method, `Adapter::cycle()`, holding the drive flag across both checkpoints, and a nested cycle returns as the owning pump's does; `deliver_one` stays the storage primitive and refuses nesting; for a timer, taking it from the FIFO is its delivery commit, the reschedule point both drivers share, with the clock sampled after the subscription lock is released; intervals meet HTML's nesting clamp after five runs instead of an unconditional floor; the sealing, first-sample and `is_idle` edges are stated; test 7 is a bounded diagnostic; LLP 0059 §3 is named; the tests list what the implementation runs) 2026-10-07 (r2, after GPT-6-Astra xhigh and Grok 4.7 xhigh reviews of r1, both NOT READY: the clock gets a contract — read outside every Ibex lock, sealed at first read, invalid readings ignored, kept as integer microseconds so "due" and "how long to sleep" agree; the caller's cycle is normative, with its pre-checkpoint, and `deliver_one` refuses to nest; admission does wake; intervals reschedule when delivered, have at most one queued occurrence, and repeat no sooner than 4 ms; `performance.now` is always Ibex's under `TIMERS`; the amended text of LLP 0058.000.000 §8, LLP 0059.000 §2 and LLP 0068 §3 is named; the tests move to the borrowed fixture and replace its refusal test)
+**Revised:** 2026-10-07 (r6, after the final round (Grok 4.7 READY; GPT-6-Astra NOT READY on three points): a settlement or error report whose `Error` constructor detaches the adapter enters no further JavaScript; a `performance.now` accessor that ignores assignment fails installation; detach inside a checkpoint and inside an error dispatch are tested) 2026-10-07 (r5, after a round-4 delta review: a detach from inside JavaScript takes effect when that entrance returns, which is what the adapter can do and now what the text says; the detach test checks the exact log; the saturation tests and wording are exact) 2026-10-07 (r4, after round-3 reviews of r3 and its implementation, both NOT READY on implementation findings: `cycle()`'s checkpoints report a job that throws out of the queue and resume, as the owning pump's do; a callback that detaches the adapter ends the cycle; the drive guard retains the runtime state; the interval run count saturates; a delay too large for a `Duration` is never due instead of panicking across the ABI; the tests named by the reviews are added) 2026-10-07 (r3, after the same reviewers' r2 reviews, both NOT READY, and with the implementation in hand: the cycle is an adapter method, `Adapter::cycle()`, holding the drive flag across both checkpoints, and a nested cycle returns as the owning pump's does; `deliver_one` stays the storage primitive and refuses nesting; for a timer, taking it from the FIFO is its delivery commit, the reschedule point both drivers share, with the clock sampled after the subscription lock is released; intervals meet HTML's nesting clamp after five runs instead of an unconditional floor; the sealing, first-sample and `is_idle` edges are stated; test 7 is a bounded diagnostic; LLP 0059 §3 is named; the tests list what the implementation runs) 2026-10-07 (r2, after GPT-6-Astra xhigh and Grok 4.7 xhigh reviews of r1, both NOT READY: the clock gets a contract — read outside every Ibex lock, sealed at first read, invalid readings ignored, kept as integer microseconds so "due" and "how long to sleep" agree; the caller's cycle is normative, with its pre-checkpoint, and `deliver_one` refuses to nest; admission does wake; intervals reschedule when delivered, have at most one queued occurrence, and repeat no sooner than 4 ms; `performance.now` is always Ibex's under `TIMERS`; the amended text of LLP 0058.000.000 §8, LLP 0059.000 §2 and LLP 0068 §3 is named; the tests move to the borrowed fixture and replace its refusal test)
 **Related:** LLP 0058.000.000 §8 (the one-task-per-cycle driver), LLP 0068 §3 (the caller-owned runtime), LLP 0059.000 §2 (`performance.now`), §3.2 (the timer wheel) and §3.12 (WebSocket), exact2 LLP 1016.000 (answers that keep coming), the exact2 SDK spike (branch `spike/sdk`, 2026-10-07); reviews under `llp/reviews/0071-*`
 
 ## Summary
@@ -122,7 +122,8 @@ today.
 
 Under `TIMERS`, Ibex installs `performance.now` reading the runtime state's
 time, replacing any earlier `performance.now` (today it keeps one it finds).
-A `performance.now` that cannot be replaced (non-writable) fails installation,
+A `performance.now` that cannot be replaced — non-writable, or an accessor
+that accepts the assignment and keeps its own — fails installation,
 and the installer's existing rule for a failure after publication applies:
 the runtime is partially mutated and must be discarded.
 `EVENTS` therefore stamps `timeStamp` from the same clock when `TIMERS` is
@@ -151,7 +152,9 @@ resumes behind it, the engine having retired the job before running it. A
 callback or microtask that detaches the adapter ends the cycle once the
 entrance it ran in returns: the engine finishes that entrance (the rest of the
 drain it was in, or the rest of an error dispatch's listeners), and the cycle
-then starts no other JavaScript — no checkpoint, admission or task. The
+then starts no other JavaScript — no checkpoint, admission or task, and no
+rejection after a settlement's `Error` constructor (which an embedder's
+bootstrap may have replaced) detaches it. The
 adapter cannot stop the engine inside an entrance; a caller that needs that
 stops from inside its own JavaScript. The guard, which retains the runtime
 state, releases the flag even if the caller's `Context` is dropped meanwhile.
@@ -277,7 +280,9 @@ clock unless stated, settling with `cycle()`:
     drain resumes behind it, and the flag is released.
 18. A timer callback that detaches the adapter and queues a microtask ends
     the cycle: the microtask never runs, nor a second timer; the next cycle
-    runs nothing.
+    runs nothing. A microtask that detaches in the pre-checkpoint lets the
+    rest of that drain finish and nothing else; an error listener that
+    detaches lets the rest of that dispatch finish and no post-checkpoint.
 19. The clock read at a timer's take runs outside the subscription lock: a
     clock that publishes an event on that read completes (a watchdog fails
     the test rather than hanging).
