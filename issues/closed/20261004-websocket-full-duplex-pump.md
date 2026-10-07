@@ -260,11 +260,9 @@ text):
   `issues/20261007-windows-crypto-key-gc-test.md`.
 - **Clippy, formatting, references**: both mandated Clippy commands exit 0 on
   Linux and Windows; `cargo fmt --all --check` and `./ref-check` pass.
-- **Not reproduced**: the once-seen Windows failure of
+- **Pre-existing, filed**: the occasional Windows failure of
   `transport::stream_tests::abort_interrupts_body_reads_and_drop_closes_an_unread_body`
-  (fetch streaming, not touched here). Its peer's final `read` returned an
-  error instead of EOF. It didn't recur in 25 isolated runs and 8 full-suite
-  runs on main, or in 3 full-suite runs on this branch. It's left unfiled
-  because nothing ties it to this branch or shows it on main. If it recurs,
-  the Windows reset-on-unread-input behavior recorded in §3.12 is the first
-  thing to check.
+  (fetch streaming, not touched here; the peer reads a reset instead of EOF).
+  It reproduces on main `c3fd74a` under background load (2 of 30 runs), and
+  on this branch's heavier full suite 2 of 16 times. It's filed as
+  `issues/20261007-windows-fetch-abort-test-reset-under-load.md`.
