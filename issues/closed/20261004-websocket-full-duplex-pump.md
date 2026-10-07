@@ -254,10 +254,13 @@ text):
   the mini everything passes except
   `secrets::darwin::tests::the_keychain_round_trips`, which can't reach the
   Keychain over SSH. It passes on this Mac's interactive session.
-- **`ibex2-runtime --all-features`**: green on Linux and macOS. On Windows the
-  only failure is `garbage_collection_releases_rust_key_handles`, which also
-  fails 30 of 30 isolated runs on main `c3fd74a`. It's filed as
-  `issues/20261007-windows-crypto-key-gc-test.md`.
+- **`ibex2-runtime --all-features`**: green on Linux and macOS. On Windows,
+  three GC and timing tests fail intermittently, and all three do the same on
+  main `c3fd74a`: `garbage_collection_releases_rust_key_handles` (30 of 30
+  isolated runs on main),
+  `fetched_header_snapshots_release_once_and_response_headers_follow_gc`, and
+  `the_freeze_stays_within_its_budget` (1 and 2 of 5 full runs on main). They're
+  filed as `issues/20261007-windows-crypto-key-gc-test.md`.
 - **Clippy, formatting, references**: both mandated Clippy commands exit 0 on
   Linux and Windows; `cargo fmt --all --check` and `./ref-check` pass.
 - **Pre-existing, filed**: the occasional Windows failure of

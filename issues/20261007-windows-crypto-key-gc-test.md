@@ -26,3 +26,20 @@ entrances, so the `CryptoKey`'s NativeState stays reachable. That is unproven.
 The next step is to find out whether the key is ever released on Windows,
 for example after more entrances or after the runtime drops, which would make
 this a test-conservativeness problem. If it never is, it's a real handle leak.
+
+## Other Windows `ibex2-runtime --all-features` flakes on main
+
+Two more tests in the same Windows run fail intermittently on main `c3fd74a`
+(full `cargo test -q --no-fail-fast -p ibex2-runtime --all-features`, 5 runs
+on the NUC):
+
+- `fetch_streaming.rs` `fetched_header_snapshots_release_once_and_response_headers_follow_gc`
+  (`:351`, a retained-handle count of 2 where 0 is expected after GC) failed
+  1 of 5 runs. It's the same conservative-GC class as the key-handle test
+  above.
+- `harden.rs` `the_freeze_stays_within_its_budget` (`:224`) failed 2 of 5
+  runs, e.g. "the freeze took 2.05 ms at best over 20 runs, against the 2 ms
+  budget". The budget leaves no margin on this host.
+
+In those full runs the key-handle test above passed. It fails reliably only
+in isolation (`--test subtle`).
