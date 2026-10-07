@@ -8,6 +8,22 @@ use crate::stdlib::abort::AbortController;
 use std::net::TcpStream;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+// The production outbound quota is also the largest single message these
+// regressions can admit. It is comfortably larger than Linux's observed
+// multi-megabyte autotuned send-ahead and spans 1,024 wire fragments.
+const LARGE_SEND: usize = MAX_OUTBOUND_BYTES;
+
+/// Set the peer's advertised receive window before `accept`. Linux inherits
+/// this listener option while negotiating the child socket, whereas changing
+/// an accepted socket is too late to constrain the initial window.
+fn slow_peer_listener() -> std::net::TcpListener {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    socket2::SockRef::from(&listener)
+        .set_recv_buffer_size(FRAGMENT)
+        .unwrap();
+    listener
+}
+
 /// A server frame (never masked).
 fn frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
     let mut out = vec![if fin { 0x80 } else { 0 } | opcode];
@@ -30,20 +46,44 @@ fn frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
 fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
     let mut head = [0u8; 2];
     s.read_exact(&mut head).ok()?;
+    assert_eq!(head[0] & 0x70, 0, "client frames do not set RSV bits");
     assert!(head[1] & 0x80 != 0, "a client frame is masked");
-    let len = match head[1] & 0x7f {
+    let fin = head[0] & 0x80 != 0;
+    let opcode = head[0] & 0x0f;
+    assert!(
+        matches!(opcode, 0x0..=0x2 | 0x8..=0xA),
+        "reserved client opcode {opcode:#x}"
+    );
+    let encoded_len = head[1] & 0x7f;
+    let len = match encoded_len {
         126 => {
             let mut bytes = [0u8; 2];
             s.read_exact(&mut bytes).ok()?;
-            u16::from_be_bytes(bytes) as usize
+            let len = u16::from_be_bytes(bytes) as usize;
+            assert!(len >= 126, "client frame length is not minimally encoded");
+            len
         }
         127 => {
             let mut bytes = [0u8; 8];
             s.read_exact(&mut bytes).ok()?;
-            usize::try_from(u64::from_be_bytes(bytes)).ok()?
+            let len = u64::from_be_bytes(bytes);
+            assert!(
+                len >= 65_536,
+                "client frame length is not minimally encoded"
+            );
+            assert_eq!(len >> 63, 0, "client frame length sets the reserved bit");
+            usize::try_from(len).ok()?
         }
         len => len as usize,
     };
+    if opcode >= 0x8 {
+        assert!(fin, "a client control frame is not final");
+        assert!(len <= 125, "a client control frame is oversized");
+        assert!(
+            encoded_len < 126,
+            "a client control frame uses an extended length"
+        );
+    }
     let mut mask = [0u8; 4];
     s.read_exact(&mut mask).ok()?;
     let mut payload = vec![0u8; len];
@@ -51,7 +91,61 @@ fn client_frame(s: &mut impl Read) -> Option<(bool, u8, Vec<u8>)> {
     for (i, b) in payload.iter_mut().enumerate() {
         *b ^= mask[i % 4];
     }
-    Some((head[0] & 0x80 != 0, head[0] & 0x0f, payload))
+    Some((fin, opcode, payload))
+}
+
+#[derive(Default)]
+struct FragmentedBinary {
+    fragments: usize,
+    bytes: usize,
+}
+
+impl FragmentedBinary {
+    fn observe(&mut self, fin: bool, opcode: u8, payload: &[u8], awaited: &str) {
+        assert_eq!(
+            opcode,
+            if self.fragments == 0 { 0x2 } else { 0x0 },
+            "unexpected data opcode before {awaited}"
+        );
+        assert!(!fin, "{awaited} followed the message's final fragment");
+        assert_eq!(
+            payload.len(),
+            FRAGMENT,
+            "non-final data fragments have the transport fragment size"
+        );
+        self.fragments += 1;
+        self.bytes += payload.len();
+    }
+
+    fn read_one(&mut self, stream: &mut impl Read, awaited: &str) {
+        let (fin, opcode, payload) = client_frame(stream).expect("the client sent a data frame");
+        self.observe(fin, opcode, &payload, awaited);
+    }
+
+    fn read_control(
+        &mut self,
+        stream: &mut impl Read,
+        expected_opcode: u8,
+        expected_payload: &[u8],
+        awaited: &str,
+    ) {
+        loop {
+            let (fin, opcode, payload) =
+                client_frame(stream).unwrap_or_else(|| panic!("the client sent {awaited}"));
+            if opcode == expected_opcode {
+                assert!(fin);
+                assert_eq!(payload, expected_payload);
+                assert!(self.fragments > 0, "{awaited} preceded the large message");
+                assert!(
+                    self.bytes < LARGE_SEND,
+                    "{awaited} followed the entire large message"
+                );
+                return;
+            }
+            self.observe(fin, opcode, &payload, awaited);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
 }
 
 /// A local peer; what it saw from the client arrives on the receiver.
@@ -210,14 +304,14 @@ fn wait(seen: &Receiver<String>) -> String {
 }
 
 #[cfg(test)]
-fn wait_for_blocked_write(observer: &PumpObserver) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+fn wait_for_kernel_backpressure(observer: &PumpObserver) {
+    let watchdog = std::time::Instant::now() + Duration::from_secs(10);
+    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < watchdog {
         std::thread::yield_now();
     }
     assert!(
         observer.write_blocked.load(Ordering::Acquire),
-        "the test requires a write blocked in the kernel"
+        "the maximum-size message did not fill the kernel buffers"
     );
 }
 
@@ -501,60 +595,38 @@ fn the_rust_transport_holds_the_whole_conversation() {
 
 #[test]
 fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
-    let (close_now, close_requested) = channel();
     let (close_sent, close_observed) = channel();
     let (reported, report) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         server_handshake(&mut stream);
         stream.write_all(&frame(true, 1, b"first")).unwrap();
-        close_requested.recv().unwrap();
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the peer Close reply");
         let mut close = 3001u16.to_be_bytes().to_vec();
         close.extend_from_slice(b"between");
         stream.write_all(&frame(true, 0x8, &close)).unwrap();
         stream.shutdown(Shutdown::Write).unwrap();
         close_sent.send(()).unwrap();
-        let mut data_before_close = 0usize;
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).expect("the client sent a frame");
-            if opcode == 0x8 {
-                reported.send((payload, data_before_close)).unwrap();
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
-            data_before_close += payload.len();
-        }
+        message.read_control(&mut stream, 0x8, &close, "the peer Close reply");
+        reported.send(message.bytes).unwrap();
     });
 
-    let observer = Arc::new(PumpObserver::default());
-    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
-    let mut socket = open_on(&transport, port, "/close-fin", &AbortSignal::default()).unwrap();
+    let mut socket = open_on(
+        &TcpSocketTransport::new(),
+        port,
+        "/close-fin",
+        &AbortSignal::default(),
+    )
+    .unwrap();
     assert_eq!(socket.next().unwrap(), text("first"));
-    let payload = vec![7; 8 << 20];
-    socket.send_binary(&payload).unwrap();
-    let write_deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while !observer.write_blocked.load(Ordering::Acquire)
-        && std::time::Instant::now() < write_deadline
-    {
-        std::thread::yield_now();
-    }
-    assert!(
-        observer.write_blocked.load(Ordering::Acquire),
-        "the terminal event must race a write blocked in the kernel"
-    );
-    close_now.send(()).unwrap();
+    socket.send_binary(&vec![7; LARGE_SEND]).unwrap();
     close_observed.recv().unwrap();
-    // Give mio time to observe and drain terminal readiness while receive
-    // demand is paused. The parsed Close must survive pump exit.
-    std::thread::sleep(Duration::from_millis(100));
     assert_eq!(
         socket.next().unwrap(),
         Incoming::Closed {
@@ -562,15 +634,11 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
             reason: "between".into(),
         }
     );
-    let (close_payload, data_before_close) = report
-        .recv_timeout(Duration::from_secs(3))
+    let data_before_close = report
+        .recv_timeout(Duration::from_secs(10))
         .expect("the peer received the close reply");
-    assert_eq!(
-        close_payload,
-        [3001u16.to_be_bytes().as_slice(), b"between"].concat()
-    );
     assert!(
-        data_before_close < payload.len(),
+        data_before_close < LARGE_SEND,
         "the buffered Close reply followed the whole queued message"
     );
     peer.join().unwrap();
@@ -578,32 +646,31 @@ fn close_and_fin_between_receives_preserve_the_peer_close_and_reply() {
 
 #[test]
 fn a_watch_does_not_publish_close_until_its_blocked_reply_drains() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (close_now, close_requested) = channel();
+    let (close_sent, close_observed) = channel();
+    let (drain_now, drain_requested) = channel();
+    let (started, message_started) = channel();
     let (reported, report) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         server_handshake(&mut stream);
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the watched Close reply");
+        started.send(()).unwrap();
         close_requested.recv().unwrap();
         let mut close = 3010u16.to_be_bytes().to_vec();
         close.extend_from_slice(b"watched");
         stream.write_all(&frame(true, 0x8, &close)).unwrap();
         stream.shutdown(Shutdown::Write).unwrap();
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).expect("the watch replied");
-            if opcode == 0x8 {
-                reported.send(payload).unwrap();
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2));
-        }
+        close_sent.send(()).unwrap();
+        drain_requested.recv().unwrap();
+        message.read_control(&mut stream, 0x8, &close, "the watched Close reply");
+        reported.send(close).unwrap();
     });
 
     let observer = Arc::new(PumpObserver::default());
@@ -621,40 +688,54 @@ fn a_watch_does_not_publish_close_until_its_blocked_reply_drains() {
         1024,
     );
     assert!(matches!(events.recv().unwrap(), Event::Open { .. }));
-    connection.send_binary(&vec![8; 8 << 20]).unwrap();
-    wait_for_blocked_write(&observer);
+    connection.send_binary(&vec![8; LARGE_SEND]).unwrap();
+    message_started.recv().unwrap();
+    wait_for_kernel_backpressure(&observer);
     close_now.send(()).unwrap();
+    close_observed.recv().unwrap();
+    let watchdog = std::time::Instant::now() + Duration::from_secs(10);
+    while !observer.close_received.load(Ordering::Acquire) && std::time::Instant::now() < watchdog {
+        std::thread::yield_now();
+    }
+    assert!(observer.close_received.load(Ordering::Acquire));
+    assert!(
+        matches!(events.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
+        "the watch published Close before its reply could drain"
+    );
+    drain_now.send(()).unwrap();
     assert_eq!(
-        events.recv_timeout(Duration::from_secs(3)).unwrap(),
+        report.recv_timeout(Duration::from_secs(10)).unwrap(),
+        [3010u16.to_be_bytes().as_slice(), b"watched"].concat()
+    );
+    assert_eq!(
+        events.recv_timeout(Duration::from_secs(10)).unwrap(),
         Event::Close {
             code: 3010,
             reason: "watched".into(),
             was_clean: true,
         }
     );
-    assert_eq!(
-        report.recv_timeout(Duration::from_secs(3)).unwrap(),
-        [3010u16.to_be_bytes().as_slice(), b"watched"].concat()
-    );
     peer.join().unwrap();
 }
 
 #[cfg(test)]
 fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (send_oversize, oversize_requested) = channel();
     let (oversize_sent, oversize_observed) = channel();
+    let (message_started, started) = channel();
+    let (drain_now, drain_requested) = channel();
     let (reported, report) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         server_handshake(&mut stream);
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the 1009 Close");
+        message_started.send(()).unwrap();
         oversize_requested.recv().unwrap();
         stream.write_all(&frame(true, 0x1, &[b'x'; 128])).unwrap();
         if terminal_drain {
@@ -662,56 +743,37 @@ fn too_large_supersedes_an_admitted_close(terminal_drain: bool) {
         }
         oversize_sent.send(()).unwrap();
         if terminal_drain {
-            // Keep the client write-blocked until epoll/IOCP has reported the
-            // FIN and the terminal parser has inspected the oversized frame.
-            // Reading sooner races that state transition by admitting the
-            // queued local Close onto the wire first.
-            std::thread::sleep(Duration::from_millis(100));
+            drain_requested.recv().unwrap();
         }
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).expect("the client sent 1009");
-            if opcode == 0x8 {
-                reported.send(payload).unwrap();
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2));
-        }
+        message.read_control(&mut stream, 0x8, &1009u16.to_be_bytes(), "the 1009 Close");
+        reported.send(message.bytes).unwrap();
     });
 
     let observer = Arc::new(PumpObserver::default());
-    let writer_gate =
-        terminal_drain.then(|| Arc::new((Mutex::new(false), std::sync::Condvar::new())));
-    let transport = writer_gate.as_ref().map_or_else(
-        || TcpSocketTransport::with_pump_observer(Arc::clone(&observer)),
-        |gate| TcpSocketTransport::with_writer_gate(Arc::clone(gate)),
-    );
+    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
     let url = url::Url::parse(&format!("ws://127.0.0.1:{port}/oversize-close")).unwrap();
     let mut socket = transport
         .connect(&url, 64, &AbortSignal::default())
         .unwrap();
-    socket.send_binary(&vec![9; 8 << 20]).unwrap();
+    socket.send_binary(&vec![9; LARGE_SEND]).unwrap();
     socket.close(3008, "queued").unwrap();
-    if terminal_drain {
-        // Let the pump construct the blocked data fragment before delivering
-        // terminal input; the closed gate makes the wire ordering exact.
-        std::thread::sleep(Duration::from_millis(20));
-    } else {
-        wait_for_blocked_write(&observer);
-    }
+    started.recv().unwrap();
+    wait_for_kernel_backpressure(&observer);
     send_oversize.send(()).unwrap();
     oversize_observed.recv().unwrap();
     if terminal_drain {
-        std::thread::sleep(Duration::from_millis(50));
-        let gate = writer_gate.as_ref().unwrap();
-        *gate.0.lock().unwrap() = true;
-        gate.1.notify_one();
+        let watchdog = std::time::Instant::now() + Duration::from_secs(10);
+        while !observer.terminal_draining.load(Ordering::Acquire)
+            && std::time::Instant::now() < watchdog
+        {
+            std::thread::yield_now();
+        }
+        assert!(observer.terminal_draining.load(Ordering::Acquire));
+        drain_now.send(()).unwrap();
     }
     assert_eq!(socket.next().unwrap(), Incoming::TooLarge);
-    assert_eq!(
-        report.recv_timeout(Duration::from_secs(3)).unwrap(),
-        1009u16.to_be_bytes(),
-        "1009 supersedes the admitted Close before it reaches the wire"
-    );
+    let data_before_close = report.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(data_before_close < LARGE_SEND);
     peer.join().unwrap();
 }
 
@@ -727,44 +789,34 @@ fn terminal_drain_too_large_supersedes_an_admitted_close() {
 
 #[test]
 fn read_fin_preserves_an_admitted_close_behind_a_blocked_fragment() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (finish_reading, finish_requested) = channel();
     let (reported, report) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         server_handshake(&mut stream);
         finish_requested.recv().unwrap();
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the admitted Close");
         stream.shutdown(Shutdown::Write).unwrap();
-        loop {
-            let (_, opcode, payload) =
-                client_frame(&mut stream).expect("the admitted Close drained");
-            if opcode == 0x8 {
-                reported.send(payload).unwrap();
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2));
-        }
+        let close = [3009u16.to_be_bytes().as_slice(), b"retain"].concat();
+        message.read_control(&mut stream, 0x8, &close, "the admitted Close");
+        reported.send(message.bytes).unwrap();
     });
 
-    let observer = Arc::new(PumpObserver::default());
-    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
     let mut socket = open_on(
-        &transport,
+        &TcpSocketTransport::new(),
         port,
         "/fin-local-close",
         &AbortSignal::default(),
     )
     .unwrap();
-    socket.send_binary(&vec![3; 8 << 20]).unwrap();
+    socket.send_binary(&vec![3; LARGE_SEND]).unwrap();
     socket.close(3009, "retain").unwrap();
-    wait_for_blocked_write(&observer);
     finish_reading.send(()).unwrap();
     assert_eq!(
         socket.next().unwrap(),
@@ -773,16 +825,13 @@ fn read_fin_preserves_an_admitted_close_behind_a_blocked_fragment() {
             reason: String::new(),
         }
     );
-    assert_eq!(
-        report.recv_timeout(Duration::from_secs(3)).unwrap(),
-        [3009u16.to_be_bytes().as_slice(), b"retain"].concat()
-    );
+    assert!(report.recv_timeout(Duration::from_secs(10)).unwrap() < LARGE_SEND);
     peer.join().unwrap();
 }
 
 #[test]
 fn write_failure_drains_unread_data_before_publishing_a_peer_close() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (reset_sent, reset_observed) = channel();
     let peer = std::thread::spawn(move || {
@@ -806,7 +855,7 @@ fn write_failure_drains_unread_data_before_publishing_a_peer_close() {
     let mut socket = transport
         .connect(&url, 128 << 10, &AbortSignal::default())
         .unwrap();
-    socket.send_binary(&vec![2; 8 << 20]).unwrap();
+    socket.send_binary(&vec![2; LARGE_SEND]).unwrap();
     reset_observed.recv().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     while !observer.terminal_draining.load(Ordering::Acquire)
@@ -828,17 +877,16 @@ fn write_failure_drains_unread_data_before_publishing_a_peer_close() {
 
 #[test]
 fn a_peer_close_survives_a_following_reset_during_a_blocked_send() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (reset_now, reset_requested) = channel();
     let (close_sent, close_observed) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         server_handshake(&mut stream);
         reset_requested.recv().unwrap();
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the peer Close");
         let mut close = 3002u16.to_be_bytes().to_vec();
         close.extend_from_slice(b"keep me");
         stream.write_all(&frame(true, 0x8, &close)).unwrap();
@@ -852,12 +900,7 @@ fn a_peer_close_survives_a_following_reset_during_a_blocked_send() {
     let observer = Arc::new(PumpObserver::default());
     let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
     let mut socket = open_on(&transport, port, "/close-reset", &AbortSignal::default()).unwrap();
-    socket.send_binary(&vec![6; 8 << 20]).unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
-        std::thread::yield_now();
-    }
-    assert!(observer.write_blocked.load(Ordering::Acquire));
+    socket.send_binary(&vec![6; LARGE_SEND]).unwrap();
     reset_now.send(()).unwrap();
     close_observed.recv().unwrap();
     wait_for_pump_exit(&observer, "close followed by reset");
@@ -981,77 +1024,29 @@ fn a_ping_flood_from_a_non_reading_peer_fails_cleanly() {
 }
 
 #[test]
-fn control_frames_overtake_a_large_send_to_a_slow_reader() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+fn control_frames_interleave_with_a_large_send_to_a_slow_reader() {
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (reported, report) = channel();
     let (pong_seen, pong_observed) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        let mut head = Vec::new();
-        let mut byte = [0u8; 1];
-        while !head.ends_with(b"\r\n\r\n") {
-            stream.read_exact(&mut byte).unwrap();
-            head.push(byte[0]);
-        }
-        let head = String::from_utf8(head).unwrap();
-        let key = head
-            .lines()
-            .find_map(|line| line.strip_prefix("Sec-WebSocket-Key: "))
-            .unwrap()
-            .trim();
-        let accept = crate::stdlib::websocket::accept_key(key);
-        write!(
-            stream,
-            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
-        )
-        .unwrap();
-
-        let ping_sent = std::time::Instant::now();
+        server_handshake(&mut stream);
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the Pong");
         stream.write_all(&frame(true, 0x9, b"priority")).unwrap();
-        let mut data_before_pong = 0;
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
-            if opcode == 0xA {
-                assert_eq!(payload, b"priority");
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
-            data_before_pong += payload.len();
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        let ping_latency = ping_sent.elapsed();
+        message.read_control(&mut stream, 0xA, b"priority", "the Pong");
+        let data_before_pong = message.bytes;
         pong_seen.send(()).unwrap();
 
-        let close_sent = std::time::Instant::now();
         stream
             .write_all(&frame(true, 0x8, &1000u16.to_be_bytes()))
             .unwrap();
-        let mut data_before_close = data_before_pong;
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
-            if opcode == 0x8 {
-                assert_eq!(payload, 1000u16.to_be_bytes());
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2), "unexpected opcode {opcode}");
-            data_before_close += payload.len();
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        reported
-            .send((
-                ping_latency,
-                close_sent.elapsed(),
-                data_before_pong,
-                data_before_close,
-            ))
-            .unwrap();
+        message.read_control(&mut stream, 0x8, &1000u16.to_be_bytes(), "the Close reply");
+        reported.send((data_before_pong, message.bytes)).unwrap();
     });
 
     let mut socket = open_on(
@@ -1061,10 +1056,9 @@ fn control_frames_overtake_a_large_send_to_a_slow_reader() {
         &AbortSignal::default(),
     )
     .unwrap();
-    let payload = vec![5; 8 << 20];
-    socket.send_binary(&payload).unwrap();
+    socket.send_binary(&vec![5; LARGE_SEND]).unwrap();
     pong_observed
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(Duration::from_secs(10))
         .expect("the pump answered ping without a posted receive");
     assert_eq!(
         socket.next().unwrap(),
@@ -1073,96 +1067,52 @@ fn control_frames_overtake_a_large_send_to_a_slow_reader() {
             reason: String::new(),
         }
     );
-    let (ping_latency, close_latency, before_pong, before_close) = report
-        .recv_timeout(Duration::from_secs(5))
+    let (before_pong, before_close) = report
+        .recv_timeout(Duration::from_secs(10))
         .expect("the slow peer received both control replies");
     peer.join().unwrap();
+    assert!(before_pong < LARGE_SEND, "pong followed the whole message");
     assert!(
-        before_pong < payload.len(),
-        "pong followed the whole message"
-    );
-    assert!(
-        before_close < payload.len(),
+        before_close < LARGE_SEND,
         "close reply followed the whole message"
-    );
-    assert!(
-        ping_latency < Duration::from_secs(2),
-        "pong latency was {ping_latency:?}"
-    );
-    assert!(
-        close_latency < Duration::from_secs(2),
-        "close latency was {close_latency:?}"
-    );
-    eprintln!(
-        "full-duplex control latency: ping={ping_latency:?}, close={close_latency:?}, bytes before pong={before_pong}, bytes before close={before_close}"
     );
 }
 
 #[test]
 fn an_admitted_local_close_does_not_suppress_ping_or_peer_close() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (start_control, control_started) = channel();
     let (reported, report) = channel();
     let peer = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap().0;
-        socket2::SockRef::from(&stream)
-            .set_recv_buffer_size(FRAGMENT)
-            .unwrap();
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         server_handshake(&mut stream);
         control_started.recv().unwrap();
+        let mut message = FragmentedBinary::default();
+        message.read_one(&mut stream, "the Pong");
         stream.write_all(&frame(true, 0x9, b"still open")).unwrap();
-
-        let mut data_before_pong = 0usize;
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
-            if opcode == 0xA {
-                assert_eq!(payload, b"still open");
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2));
-            data_before_pong += payload.len();
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        message.read_control(&mut stream, 0xA, b"still open", "the Pong");
+        let data_before_pong = message.bytes;
 
         let mut close = 3003u16.to_be_bytes().to_vec();
         close.extend_from_slice(b"peer wins");
         stream.write_all(&frame(true, 0x8, &close)).unwrap();
-        let mut data_before_close = data_before_pong;
-        loop {
-            let (_, opcode, payload) = client_frame(&mut stream).unwrap();
-            if opcode == 0x8 {
-                reported
-                    .send((payload, data_before_pong, data_before_close))
-                    .unwrap();
-                break;
-            }
-            assert!(matches!(opcode, 0x0 | 0x2));
-            data_before_close += payload.len();
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        message.read_control(&mut stream, 0x8, &close, "the peer Close reply");
+        reported.send((data_before_pong, message.bytes)).unwrap();
     });
 
-    let observer = Arc::new(PumpObserver::default());
-    let transport = TcpSocketTransport::with_pump_observer(Arc::clone(&observer));
     let mut socket = open_on(
-        &transport,
+        &TcpSocketTransport::new(),
         port,
         "/local-close-control",
         &AbortSignal::default(),
     )
     .unwrap();
-    let payload = vec![4; 8 << 20];
-    socket.send_binary(&payload).unwrap();
+    socket.send_binary(&vec![4; LARGE_SEND]).unwrap();
     socket.close(3000, "local").unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
-    while !observer.write_blocked.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
-        std::thread::yield_now();
-    }
-    assert!(observer.write_blocked.load(Ordering::Acquire));
     start_control.send(()).unwrap();
     assert_eq!(
         socket.next().unwrap(),
@@ -1171,14 +1121,9 @@ fn an_admitted_local_close_does_not_suppress_ping_or_peer_close() {
             reason: "peer wins".into(),
         }
     );
-    let (close_payload, before_pong, before_close) =
-        report.recv_timeout(Duration::from_secs(3)).unwrap();
-    assert_eq!(
-        close_payload,
-        [3003u16.to_be_bytes().as_slice(), b"peer wins"].concat()
-    );
-    assert!(before_pong < payload.len());
-    assert!(before_close < payload.len());
+    let (before_pong, before_close) = report.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(before_pong < LARGE_SEND);
+    assert!(before_close < LARGE_SEND);
     peer.join().unwrap();
 }
 
@@ -1193,7 +1138,7 @@ fn stalled_peer(
     Arc<PumpObserver>,
     std::thread::JoinHandle<()>,
 ) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = slow_peer_listener();
     let port = listener.local_addr().unwrap().port();
     let (release_peer, released) = channel();
     let observer = Arc::new(PumpObserver::default());
@@ -1211,9 +1156,6 @@ fn stalled_peer(
     };
     let peer = std::thread::spawn(move || {
         let tcp = listener.accept().unwrap().0;
-        socket2::SockRef::from(&tcp)
-            .set_recv_buffer_size(1024)
-            .unwrap();
         tcp.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
         let hold = |wire: &mut (dyn ReadWrite + '_)| {
             server_handshake(wire);
@@ -1261,12 +1203,10 @@ fn assert_stall_deadline(secure: bool, flood_pongs: bool) {
             &AbortSignal::default(),
         )
         .unwrap();
-    let started = std::time::Instant::now();
-    socket.send_binary(&vec![5u8; 8 * 1024 * 1024]).unwrap();
+    socket.send_binary(&vec![5u8; LARGE_SEND]).unwrap();
     let error = socket
         .next()
         .expect_err("the client's no-progress deadline must fail the socket");
-    let elapsed = started.elapsed();
     assert!(
         error
             .to_string()
@@ -1274,16 +1214,22 @@ fn assert_stall_deadline(secure: bool, flood_pongs: bool) {
         "unexpected stalled-write failure: {error}"
     );
     assert!(
-        elapsed >= WRITE_STALL_TIMEOUT && elapsed < Duration::from_secs(3),
-        "the {:?} stall fired after {elapsed:?}, expected near {WRITE_STALL_TIMEOUT:?}",
-        if secure { "TLS" } else { "plaintext" }
-    );
-    assert!(
         observer.network_bytes.load(Ordering::Acquire) > 0,
         "the test must partially write the frame before it stalls"
     );
+    let last_progress = observer
+        .last_write_progress
+        .lock()
+        .expect("WebSocket progress observer poisoned")
+        .expect("a partial write records its progress instant");
+    let stalled_for = last_progress.elapsed();
+    assert!(
+        stalled_for >= WRITE_STALL_TIMEOUT && stalled_for < Duration::from_secs(3),
+        "the {:?} write made no progress for {stalled_for:?}, expected at least {WRITE_STALL_TIMEOUT:?}",
+        if secure { "TLS" } else { "plaintext" }
+    );
     eprintln!(
-        "{} stalled write failed after {elapsed:?} with {} network bytes written{}",
+        "{} stalled write failed after {stalled_for:?} without progress, with {} network bytes written{}",
         if secure { "TLS" } else { "plaintext" },
         observer.network_bytes.load(Ordering::Acquire),
         if flood_pongs {

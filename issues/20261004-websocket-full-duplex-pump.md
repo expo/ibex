@@ -1,6 +1,9 @@
 # WebSocket: a full-duplex I/O pump for the portable transport
 
 **Status:** Open
+**Systems:** Runtime, Transport, WebSocket
+**Author:** Charlie Cheever / Claude (Opus 5)
+**Date:** 2026-10-04
 **Opened:** 2026-10-04 (deferred from L4's review, LLP 0057.000 §6 L4)
 **Area:** `crates/ibex2/src/transport/websocket.rs` (non-Apple transport)
 
@@ -43,10 +46,13 @@ through the existing receive queue. Keep the current external contract:
 bounded queues, `bufferedAmount`, the stall bound (now measured as "no write
 progress for 15 s"), and close semantics.
 
-**Done when:** a peer that stops reading no longer delays inbound pings or
-close frames; the existing websocket tests (including the ping-flood and
-stalled-writer cases) pass on Linux and Windows; there's no 25 ms poll; and the
-D5 metrics row for `WEBSOCKET` is re-measured.
+**Done when:** a blocked data write does not stop the pump from reading inbound
+Ping or Close frames; their replies are selected at the next WebSocket frame
+boundary, with bytes already accepted by TCP still ahead of them; the existing
+websocket tests (including the ping-flood and stalled-writer cases) pass on
+Linux and Windows; there's no 25 ms poll; and the D5 metrics row for
+`WEBSOCKET` is re-measured. This is an ordering guarantee, not a fixed-duration
+guarantee against a peer that controls how quickly the kernel queue drains.
 
 ## 2026-10-06: attempt parked (branch `wip/websocket-pump-poll`)
 
@@ -136,8 +142,9 @@ through `WouldBlock`. More importantly, Linux's autotuned TCP send buffer had
 already accepted roughly 2.5 MiB before `WouldBlock`. A Close generated after
 that point could not overtake those kernel bytes, and the 500 ms test stall
 deadline fired while the small-window peer was still draining them. The client
-now requests a one-fragment native send buffer, bounding the data ahead of a
-control frame on every backend.
+temporarily requested a one-fragment native send buffer, bounding the data
+ahead of a control frame on every backend. Round 3 rejects that throughput
+tradeoff; the readiness fix remains.
 
 The close-lifecycle review fixes now keep generated terminal Close frames ahead
 of terminal delivery, supersede an admitted but unstarted local Close with
@@ -152,3 +159,38 @@ The expanded portable suite passes 24/24 for ten consecutive Linux runs.
 --all-features` pass, including the WebSocket WPT gate. Both mandated Clippy
 commands, formatting, and `ref-check` pass. The Windows IOCP rerun remains
 pending from the orchestrator, so this issue stays open.
+
+## 2026-10-07: Linux fix round 3
+
+The client no longer changes `SO_SNDBUF` and does not substitute
+`TCP_NOTSENT_LOWAT`. A Pong, Close echo, or generated 1009 is written at the
+next frame boundary after the pump's current 16 KiB fragment. TCP remains an
+ordered byte stream, so data the kernel already accepted still goes first. A
+slow reader must therefore drain that native queue plus the current fragment
+before it sees the control frame, but the unsent remainder of the fragmented
+message does not go ahead of it. No duration independent of the peer's read
+rate is promised; earlier millisecond measurements are observations from their
+specific hosts, not latency limits.
+
+The portable tests now set a small `SO_RCVBUF` on the listening peer before
+`accept`, use the maximum-admissible 16 MiB message (1,024 fragments), and read
+at a controlled rate. They validate client masking, reserved bits, opcodes,
+minimal lengths, control-frame bounds, and fragmented-message sequencing, then
+require Pong, Close echo, and 1009 before the data message's final fragment.
+Close+FIN, admitted local Close, 1009 supersession, watch delivery after reply
+drain, and read-FIN retention keep their sent/delivered assertions without a
+deadline for kernel acceptance. A peer that reads nothing still fills the
+kernel buffers, and the stall checks time 500 ms from the last successful
+socket write. On Linux, the uncapped 24-test portable suite passes ten
+consecutive runs. The `ibex2` and `ibex2-runtime` all-features suites pass,
+including the 41/41 WebSocket WPT gate, as do both mandated Clippy commands,
+formatting, and `ref-check`. macOS and Windows qualification remains with the
+orchestrator, so the issue stays open.
+
+A five-run Linux release probe with a normal autotuned receive buffer and a
+reader consuming one 16 KiB frame per millisecond observed Pong in
+275.5–281.7 ms during a 16 MiB send. A separate 256 MiB loopback transfer
+(sixteen 16 MiB messages) measured median throughput of 590.3 MiB/s with the
+cap and 638.1 MiB/s without it, an 8.1% increase; the five-run ranges were
+553.0–640.9 and 627.6–653.1 MiB/s respectively. These are host observations,
+not protocol limits.

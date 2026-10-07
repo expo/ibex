@@ -57,9 +57,11 @@ pub struct TcpSocketTransport {
 struct PumpObserver {
     parked: std::sync::atomic::AtomicBool,
     exited: std::sync::atomic::AtomicBool,
+    close_received: std::sync::atomic::AtomicBool,
     terminal_draining: std::sync::atomic::AtomicBool,
     returns: AtomicUsize,
     network_bytes: AtomicUsize,
+    last_write_progress: Mutex<Option<Instant>>,
     write_blocked: std::sync::atomic::AtomicBool,
 }
 
@@ -336,13 +338,6 @@ impl TcpSocketTransport {
         }
         let tcp = tcp.ok_or(last)?;
         tcp.set_nodelay(true).map_err(failed)?;
-        // A Close or Pong cannot overtake bytes already accepted by TCP. Keep
-        // the native send queue near one WebSocket fragment so a large data
-        // send cannot bury a later control frame behind Linux's multi-megabyte
-        // autotuned send buffer.
-        socket2::SockRef::from(&tcp)
-            .set_send_buffer_size(FRAGMENT)
-            .map_err(failed)?;
         // Aborting wakes Poll even when the connection is completely idle.
         // Shutdown is retained as a second, idempotent way to make socket I/O
         // observe cancellation if it races the wake.
@@ -1765,6 +1760,10 @@ fn pump_loop(
                         match received {
                             received @ Received::Closed { .. } => {
                                 close.receive_close();
+                                #[cfg(test)]
+                                if let Some(observer) = &pump_observer {
+                                    observer.close_received.store(true, Ordering::Release);
+                                }
                                 if close.close_sent || close.write == WriteSide::Done {
                                     publish_terminal(&mut request, &requests, Ok(received), &state);
                                 } else {
@@ -1818,6 +1817,10 @@ fn pump_loop(
                 Ok(DrainParse::Progress | DrainParse::Yield) => reschedule_read = true,
                 Ok(DrainParse::Closed(received)) => {
                     close.receive_close();
+                    #[cfg(test)]
+                    if let Some(observer) = &pump_observer {
+                        observer.close_received.store(true, Ordering::Release);
+                    }
                     if close.close_sent || close.write == WriteSide::Done {
                         publish_terminal(&mut request, &requests, Ok(received), &state);
                     } else {
@@ -1871,6 +1874,10 @@ fn pump_loop(
                 }
                 Ok(ControlParse::Closed(received)) => {
                     close.receive_close();
+                    #[cfg(test)]
+                    if let Some(observer) = &pump_observer {
+                        observer.close_received.store(true, Ordering::Release);
+                    }
                     if close.close_sent || close.write == WriteSide::Done {
                         publish_terminal(&mut request, &requests, Ok(received), &state);
                     } else {
@@ -2072,11 +2079,17 @@ fn pump_loop(
                         defer_terminal(Ok(abnormal_close()), &state);
                     }
                     Ok(Some(WriteProgress::Network(_bytes))) => {
-                        stall_deadline = Some(Instant::now() + WRITE_STALL_TIMEOUT);
+                        let progressed_at = Instant::now();
+                        stall_deadline = Some(progressed_at + WRITE_STALL_TIMEOUT);
                         retry_write = true;
                         #[cfg(test)]
                         if let Some(observer) = &pump_observer {
                             observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                            *observer
+                                .last_write_progress
+                                .lock()
+                                .expect("WebSocket progress observer poisoned") =
+                                Some(progressed_at);
                         }
                     }
                     Ok(Some(WriteProgress::Retry)) => retry_write = true,
@@ -2146,11 +2159,17 @@ fn pump_loop(
                         defer_terminal(Ok(abnormal_close()), &state);
                     }
                     Ok(WriteProgress::Network(_bytes)) => {
-                        stall_deadline = Some(Instant::now() + WRITE_STALL_TIMEOUT);
+                        let progressed_at = Instant::now();
+                        stall_deadline = Some(progressed_at + WRITE_STALL_TIMEOUT);
                         retry_write = true;
                         #[cfg(test)]
                         if let Some(observer) = &pump_observer {
                             observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                            *observer
+                                .last_write_progress
+                                .lock()
+                                .expect("WebSocket progress observer poisoned") =
+                                Some(progressed_at);
                         }
                     }
                     Ok(WriteProgress::Retry) => retry_write = true,
