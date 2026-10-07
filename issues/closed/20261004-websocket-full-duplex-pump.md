@@ -1,6 +1,6 @@
 # WebSocket: a full-duplex I/O pump for the portable transport
 
-**Status:** Open
+**Status:** Closed (2026-10-07): the mio pump is qualified on macOS, Linux, and Windows
 **Systems:** Runtime, Transport, WebSocket
 **Author:** Charlie Cheever / Claude (Opus 5)
 **Date:** 2026-10-04
@@ -233,3 +233,38 @@ failed three Windows tests every run and two macOS tests intermittently (7 of
   latch, Close sent, then deliverable — all under the send-state lock) instead
   of a parse flag plus an empty event queue. This also answers the review
   finding that the watch test could pass after a premature publication.
+
+## Resolution (2026-10-07)
+
+The portable transport is one `mio` pump per connection (epoll, kqueue, IOCP)
+with the close lifecycle, FIN handling, graceful teardown, and platform
+differences specified in LLP 0059.000 §3.12. The done-when conditions above
+hold on all three platforms: control replies are written at the next frame
+boundary behind bytes TCP has already accepted, the ping-flood, stalled-writer,
+and close-lifecycle regressions pass, and there's no 25 ms poll.
+
+Evidence at `4a407e9` (later commits on the branch change only issue and LLP
+text):
+
+- **Portable suite** (`cargo test -p ibex2 --all-features
+  transport::websocket`, 25 tests): ten consecutive green runs on each of the
+  mini (macOS), the Linux build host, and the NUC (Windows). Earlier runs at
+  `e702ce8` were 12/12 on all three.
+- **`ibex2 --all-features`**: green on Linux and on Windows (three runs). On
+  the mini everything passes except
+  `secrets::darwin::tests::the_keychain_round_trips`, which can't reach the
+  Keychain over SSH. It passes on this Mac's interactive session.
+- **`ibex2-runtime --all-features`**: green on Linux and macOS. On Windows the
+  only failure is `garbage_collection_releases_rust_key_handles`, which also
+  fails 30 of 30 isolated runs on main `c3fd74a`. It's filed as
+  `issues/20261007-windows-crypto-key-gc-test.md`.
+- **Clippy, formatting, references**: both mandated Clippy commands exit 0 on
+  Linux and Windows; `cargo fmt --all --check` and `./ref-check` pass.
+- **Not reproduced**: the once-seen Windows failure of
+  `transport::stream_tests::abort_interrupts_body_reads_and_drop_closes_an_unread_body`
+  (fetch streaming, not touched here). Its peer's final `read` returned an
+  error instead of EOF. It didn't recur in 25 isolated runs and 8 full-suite
+  runs on main, or in 3 full-suite runs on this branch. It's left unfiled
+  because nothing ties it to this branch or shows it on main. If it recurs,
+  the Windows reset-on-unread-input behavior recorded in §3.12 is the first
+  thing to check.
