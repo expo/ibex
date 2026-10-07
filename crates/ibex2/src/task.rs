@@ -36,6 +36,33 @@ pub struct Completion {
     pub result: Result<HostValue, HostError>,
 }
 
+/// Where a runtime's time comes from (LLP 0071 D3).
+enum ClockSource {
+    /// Milliseconds since the runtime started.
+    Instant,
+    /// The caller's clock, in milliseconds.
+    Caller(Arc<dyn Fn() -> f64 + Send + Sync>),
+}
+
+/// The largest clock reading accepted, in milliseconds: 2^53, the largest
+/// integer an `f64` holds exactly. Its microseconds fit a `u64`.
+const MAX_CLOCK_MS: f64 = 9_007_199_254_740_992.0;
+
+/// `set_clock` was refused: something had already read this runtime's time,
+/// or a clock was already set (LLP 0071 D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClockSealed;
+
+impl std::fmt::Display for ClockSealed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "the runtime's clock is set at its first read; set it before anything reads time",
+        )
+    }
+}
+
+impl std::error::Error for ClockSealed {}
+
 /// One admitted host task.
 ///
 /// LLP 0058.000.000 §8: Rust owns **one** sequence-numbered FIFO of admitted
@@ -389,6 +416,13 @@ pub struct RuntimeState {
     /// The runtime's monotonic origin, so `now()` is milliseconds since boot —
     /// the same base `performance.now` will read (§2).
     started: std::time::Instant,
+    /// Where time comes from (LLP 0071 D3): `Instant` since `started`, or the
+    /// caller's clock. The first read fixes it, so `set_clock` is refused once
+    /// anything has read time and no deadline is computed in two domains.
+    clock: std::sync::OnceLock<ClockSource>,
+    /// The largest accepted sample, in integer microseconds: time never runs
+    /// backward, and a rejected reading repeats it.
+    clock_micros: std::sync::atomic::AtomicU64,
     /// True while a drive cycle is running, so a nested request records a
     /// wakeup instead of starting a second host task.
     driving: std::sync::atomic::AtomicBool,
@@ -540,6 +574,8 @@ impl RuntimeState {
             crypto_keys: Mutex::new(std::collections::HashMap::new()),
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
+            clock: std::sync::OnceLock::new(),
+            clock_micros: std::sync::atomic::AtomicU64::new(0),
             driving: std::sync::atomic::AtomicBool::new(false),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
@@ -998,17 +1034,53 @@ impl RuntimeState {
             && self.millis_until_next_timer().is_none()
     }
 
-    /// Milliseconds since this runtime started.
+    /// Make `clock` this runtime's time source (LLP 0071 D3): milliseconds,
+    /// read by the timer wheel and `performance.now`. Refused once anything
+    /// has read time.
+    pub fn set_clock(&self, clock: Arc<dyn Fn() -> f64 + Send + Sync>) -> Result<(), ClockSealed> {
+        self.clock
+            .set(ClockSource::Caller(clock))
+            .map_err(|_| ClockSealed)
+    }
+
+    /// One sample of this runtime's time, in integer microseconds, never less
+    /// than an earlier one. The caller's clock is called with no lock held; a
+    /// reading that is not finite, is negative or exceeds 2^53 ms, or a panic,
+    /// repeats the last sample.
+    pub fn now_micros(&self) -> u64 {
+        use std::sync::atomic::Ordering::SeqCst;
+        let sample = match self.clock.get_or_init(|| ClockSource::Instant) {
+            ClockSource::Instant => Some(self.started.elapsed().as_micros() as u64),
+            ClockSource::Caller(clock) => {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| clock())) {
+                    Ok(ms) if (0.0..=MAX_CLOCK_MS).contains(&ms) => {
+                        Some(crate::stdlib::timers::micros(ms))
+                    }
+                    _ => None,
+                }
+            }
+        };
+        match sample {
+            Some(sample) => self.clock_micros.fetch_max(sample, SeqCst).max(sample),
+            None => self.clock_micros.load(SeqCst),
+        }
+    }
+
+    /// Milliseconds on this runtime's clock (LLP 0071 D3): since it started,
+    /// unless the caller supplied the clock.
     pub fn now(&self) -> f64 {
-        self.started.elapsed().as_secs_f64() * 1000.0
+        self.now_micros() as f64 / 1000.0
     }
 
     pub fn set_timer(&self, delay_ms: f64, repeating: bool) -> u64 {
         let delay = std::time::Duration::from_secs_f64((delay_ms.max(0.0)) / 1000.0);
+        // Sampled before the wheel is locked: the caller's clock runs with no
+        // Ibex lock held.
+        let now = self.now_micros();
         self.timers
             .lock()
             .expect("timers poisoned")
-            .set(self.now(), delay, repeating)
+            .set_micros(now, delay, repeating)
     }
 
     pub fn clear_timer(&self, handle: u64) {
@@ -1022,10 +1094,14 @@ impl RuntimeState {
     /// before their callback runs — so clearing an interval from within its own
     /// callback removes the next occurrence rather than the one in flight.
     pub fn admit_due_timers(&self) -> usize {
-        let now = self.now();
+        let now = self.now_micros();
         let mut admitted = 0;
         loop {
-            let due = self.timers.lock().expect("timers poisoned").take_due(now);
+            let due = self
+                .timers
+                .lock()
+                .expect("timers poisoned")
+                .take_due_micros(now);
             match due {
                 Some(handle) => {
                     self.queue.admit(HostTask::Timer { handle });
@@ -1038,13 +1114,25 @@ impl RuntimeState {
 
     /// Milliseconds until the next timer, for an embedder that wants to sleep
     /// exactly long enough rather than poll.
+    /// Measured on this runtime's clock, from the same integer sample
+    /// admission compares: `0` exactly when a timer is due (LLP 0071 D3).
     pub fn millis_until_next_timer(&self) -> Option<f64> {
-        let now = self.now();
+        let now = self.now_micros();
         self.timers
             .lock()
             .expect("timers poisoned")
-            .next_deadline()
-            .map(|deadline| (deadline - now).max(0.0))
+            .next_deadline_micros()
+            .map(|deadline| deadline.saturating_sub(now) as f64 / 1000.0)
+    }
+
+    /// A timer task is being taken for delivery: an interval is rescheduled
+    /// now (LLP 0071 D6).
+    fn timer_taken(&self, handle: u64) {
+        let now = self.now_micros();
+        self.timers
+            .lock()
+            .expect("timers poisoned")
+            .delivered(handle, now);
     }
 
     pub fn live_responses(&self) -> usize {
@@ -1162,6 +1250,11 @@ impl RuntimeState {
                 return None;
             }
             let task = self.queue.take()?;
+            if let HostTask::Timer { handle } = task {
+                drop(subscriptions);
+                self.timer_taken(handle);
+                return Some(task);
+            }
             let HostTask::Event { subscription, .. } = &task else {
                 return Some(task);
             };

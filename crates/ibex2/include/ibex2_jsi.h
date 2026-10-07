@@ -359,11 +359,22 @@ public:
   // without EVENTS these fall back to the host console reporter.
   void report_error(const jsi::Value& error);
   void report_error(const char* message);
-  // Takes at most one storage settlement or subscribed event. A timer task is
-  // refused: timer admission and firing belong to the owning runtime's pump.
-  // It does not run a microtask checkpoint. Callback failures are reported
-  // through the EVENTS error path and do not escape.
+  // Takes at most one storage settlement, subscribed event or admitted timer
+  // (LLP 0071 D1). It admits no timers and runs no microtask checkpoint.
+  // Callback failures are reported through the EVENTS error path and do not
+  // escape. It holds the runtime's drive flag while it runs and throws
+  // std::logic_error, taking nothing, when the flag is already held: by a
+  // delivery in progress, a cycle, or an owning pump (LLP 0071 D5).
   bool deliver_one();
+  // What cycle() did.
+  enum class Cycle { Delivered, Idle, Nested };
+  // One LLP 0058.000.000 §8 cycle for a borrowed runtime, under the drive flag
+  // (LLP 0071 D5): drain microtasks, admit due timers, deliver at most one
+  // task, drain microtasks. Idle -- nothing was ready -- is "settled at this
+  // clock". A cycle requested while the flag is held (a microtask or callback
+  // of this cycle, or an owning pump) runs nothing and returns Nested, as the
+  // owning pump returns for a nested drive.
+  Cycle cycle();
   // Release WebSocket keepalive roots whose listener/queued-data condition
   // ended before an embedder explicitly requests collection.
   void prepare_garbage_collection();
@@ -374,6 +385,8 @@ private:
   friend struct AdapterTestAccess;
   jsi::Object websocket_hooks(const void* grants);
   void refresh_websocket_keepalives();
+  // deliver_one()'s body, under a drive flag its caller holds.
+  bool deliver_next();
   struct State;
   jsi::Runtime* runtime_;
   std::shared_ptr<State> state_;

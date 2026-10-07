@@ -568,6 +568,33 @@ impl Context {
         self.endowment.state.is_idle()
     }
 
+    /// Make `clock` this runtime's time source, in milliseconds: the timer
+    /// wheel and `performance.now` read it (LLP 0071 D3). Ibex calls it with
+    /// no Ibex lock held, on the thread reading time; it must return promptly
+    /// and must not call into this `Context` or its adapter. A reading that is
+    /// not finite, is negative or exceeds 2^53 ms, or a panic, repeats the last
+    /// sample, and time never runs backward. Refused once anything has read
+    /// time: call it right after creating the `Context`.
+    pub fn set_clock(
+        &self,
+        clock: Arc<dyn Fn() -> f64 + Send + Sync>,
+    ) -> Result<(), crate::task::ClockSealed> {
+        self.endowment.state.set_clock(clock)
+    }
+
+    /// Move every timer due on this runtime's clock into the task FIFO, and
+    /// report how many (LLP 0071 D2). Admission wakes, as every admission
+    /// does: do not hold across it a lock the wake callback takes.
+    pub fn admit_due_timers(&self) -> usize {
+        self.endowment.state.admit_due_timers()
+    }
+
+    /// Milliseconds on this runtime's clock until the next timer is due;
+    /// `Some(0.0)` exactly when one is (LLP 0071 D2, D3).
+    pub fn millis_until_next_timer(&self) -> Option<f64> {
+        self.endowment.state.millis_until_next_timer()
+    }
+
     /// Borrowed Arc-backed pointer for the JSI adapter. The context must
     /// outlive the adapter's detach; the adapter never releases this pointer.
     pub fn state_ptr(&self) -> *const c_void {

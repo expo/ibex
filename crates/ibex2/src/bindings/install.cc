@@ -16,6 +16,9 @@ extern "C" int ibex2_host_call(const void*, uint32_t, const Ibex2AbiValue*, size
 extern "C" void ibex2_host_release(Ibex2AbiValue*);
 extern "C" int ibex2_async_begin(const void*, const void*, uint32_t, const Ibex2AbiValue*, size_t, uint64_t);
 extern "C" int ibex2_take_task(const void*, int*, unsigned long long*, Ibex2AbiValue*, int*);
+extern "C" int ibex2_adapter_begin_drive(const void*);
+extern "C" void ibex2_adapter_end_drive(const void*);
+extern "C" int ibex2_adapter_admit_due_timers(const void*);
 extern "C" const void* ibex2_grants_retain(const void*);
 extern "C" void ibex2_grants_destroy(const void*);
 extern "C" const void* ibex2_bindings_state(const Ibex2Bindings*);
@@ -2305,20 +2308,53 @@ void Adapter::report_error(const char* message) {
   ibex2_report_uncaught(message);
 }
 
+namespace {
+// Releases the drive flag on every way out, a throw included.
+struct DriveRelease {
+  const void* queue;
+  ~DriveRelease() { ibex2_adapter_end_drive(queue); }
+};
+}  // namespace
+
 bool Adapter::deliver_one() {
   if (!state_->alive) return false;
+  // @ref LLP 0071#d5--the-cycle-is-the-adapters-and-does-not-nest — one host task at a time: a delivery reached from inside another, a cycle, or an owning pump is refused before it takes anything
+  if (!ibex2_adapter_begin_drive(state_->queue))
+    throw std::logic_error(
+        "Ibex2 deliver_one: nested delivery (a delivery, a cycle or an owning "
+        "pump is already running on this runtime)");
+  DriveRelease release{state_->queue};
+  return deliver_next();
+}
+
+Adapter::Cycle Adapter::cycle() {
+  if (!state_->alive) return Cycle::Idle;
+  // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — a drive requested while one runs records nothing and returns, as the owning pump does
+  if (!ibex2_adapter_begin_drive(state_->queue)) return Cycle::Nested;
+  DriveRelease release{state_->queue};
+  runtime_->drainMicrotasks();
+  ibex2_adapter_admit_due_timers(state_->queue);
+  bool delivered = deliver_next();
+  runtime_->drainMicrotasks();
+  return delivered ? Cycle::Delivered : Cycle::Idle;
+}
+
+bool Adapter::deliver_next() {
   int kind = 0, is_error = 0;
   unsigned long long id = 0;
   Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0, nullptr, 0};
   if (!ibex2_take_task(state_->queue, &kind, &id, &value, &is_error)) return false;
-  if (kind != 1 && kind != 3) {
+  if (kind != 1 && kind != 2 && kind != 3) {
     ibex2_host_release(&value);
-    throw jsi::JSError(*runtime_, "storage adapter received a non-settlement task");
+    throw jsi::JSError(*runtime_, "Ibex2 adapter received an unknown task kind");
   }
   // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — borrowed-adapter task failures are reported like owning-pump failures
+  // @ref LLP 0071#d1--a-borrowed-adapter-delivers-timer-tasks — a due timer is delivered like an event, inside the same containment
   try {
     if (kind == 3)
       deliver_event(id, value);
+    else if (kind == 2)
+      fire_timer(id);
     else
       settle(id, value, is_error != 0);
   } catch (const jsi::JSError& error) {

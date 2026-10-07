@@ -105,6 +105,8 @@ extern "C" {
     ) -> i32;
     fn storage_consumer_step(h: *mut c_void, deliver: bool, out: *mut *mut c_char) -> i32;
     fn storage_consumer_collect_garbage(h: *mut c_void) -> i32;
+    fn storage_consumer_cycle(h: *mut c_void, out: *mut *mut c_char) -> i32;
+    fn storage_consumer_install_loop_probe(h: *mut c_void) -> i32;
     fn storage_consumer_subscribe(h: *mut c_void, callback_name: *const c_char) -> u64;
     fn storage_consumer_subscribe_native_throw(h: *mut c_void) -> u64;
     fn storage_consumer_detach(h: *mut c_void);
@@ -383,6 +385,23 @@ impl BareConsumer {
         self.step_result(deliver).unwrap()
     }
 
+    /// One LLP 0071 D5 cycle: 0 idle, 1 delivered, 2 nested.
+    fn cycle(&self) -> i32 {
+        let mut out = std::ptr::null_mut();
+        let result = unsafe { storage_consumer_cycle(self.handle, &mut out) };
+        assert!(result >= 0, "cycle failed: {}", take(out));
+        result
+    }
+
+    /// `cycleFromJs()` and `deliverFromJs()`: the caller's loop, reachable
+    /// from JavaScript as an embedder's native function might make it.
+    fn install_loop_probe(&self) {
+        assert_eq!(
+            unsafe { storage_consumer_install_loop_probe(self.handle) },
+            1
+        );
+    }
+
     fn collect_garbage(&self) {
         assert_eq!(unsafe { storage_consumer_collect_garbage(self.handle) }, 1);
     }
@@ -633,30 +652,6 @@ fn borrowed_runtime_keeps_a_global_websocket_bound_to_its_endowment() {
     deliver_one();
     deliver_one();
     assert_eq!(consumer.eval("borrowedLog.join('|')"), "error:3|close:1006");
-}
-
-#[test]
-fn borrowed_adapter_refuses_a_timer_task() {
-    let consumer = BareConsumer::new(Groups::CONSOLE | Groups::TIMERS);
-    consumer
-        .harden(ibex2::bindings::HARDEN_BYTECODE)
-        .expect("harden before application code");
-    consumer.eval(
-        "globalThis.borrowedTimerFired = false; setTimeout(function () { borrowedTimerFired = true; }, 0);",
-    );
-    let state = consumer
-        .context
-        .as_ref()
-        .expect("live borrowed context")
-        .state_ptr()
-        .cast::<ibex2::task::RuntimeState>();
-    let admitted = unsafe { ibex2::task::borrow_state(state) }
-        .expect("live borrowed state")
-        .admit_due_timers();
-    assert_eq!(admitted, 1, "the test must hand deliver_one a timer task");
-    let error = consumer.step_result(true).unwrap_err();
-    assert!(error.contains("non-settlement task"), "{error}");
-    assert_eq!(consumer.eval("String(borrowedTimerFired)"), "false");
 }
 
 #[cfg(feature = "websocket")]
@@ -2257,3 +2252,8 @@ fn rejection_tracker_replacements_are_part_of_the_integrity_baseline() {
         .unwrap_err();
     assert!(error.contains("harden"), "{error}");
 }
+
+// LLP 0071: a borrowed runtime's timers and clock (replaces the test that
+// pinned their refusal).
+#[path = "embedding/borrowed_timers.rs"]
+mod borrowed_timers;

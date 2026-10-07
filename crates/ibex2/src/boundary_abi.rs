@@ -1264,6 +1264,41 @@ pub unsafe extern "C" fn ibex2_take_task(
     }
 }
 
+/// Take the runtime's drive flag for one borrowed-adapter delivery (LLP 0071
+/// D5): 1 if taken, 0 if a delivery or an owning pump already holds it.
+///
+/// # Safety
+/// `state` must be null or a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_adapter_begin_drive(
+    state: *const crate::task::RuntimeState,
+) -> c_int {
+    crate::task::borrow_state(state).map_or(0, |state| c_int::from(state.begin_drive()))
+}
+
+/// Admit every timer due on the runtime's clock, for a borrowed adapter's
+/// cycle (LLP 0071 D5); returns how many.
+///
+/// # Safety
+/// `state` must be null or a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_adapter_admit_due_timers(
+    state: *const crate::task::RuntimeState,
+) -> c_int {
+    crate::task::borrow_state(state).map_or(0, |state| state.admit_due_timers() as c_int)
+}
+
+/// Release the drive flag [`ibex2_adapter_begin_drive`] took.
+///
+/// # Safety
+/// `state` must be null or a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_adapter_end_drive(state: *const crate::task::RuntimeState) {
+    if let Some(state) = crate::task::borrow_state(state) {
+        state.end_drive();
+    }
+}
+
 /// Release a value produced by `ibex2_host_call`.
 ///
 /// # Safety
