@@ -194,3 +194,42 @@ reader consuming one 16 KiB frame per millisecond observed Pong in
 cap and 638.1 MiB/s without it, an 8.1% increase; the five-run ranges were
 553.0–640.9 and 627.6–653.1 MiB/s respectively. These are host observations,
 not protocol limits.
+
+## 2026-10-07: cross-platform qualification (macOS, Linux, Windows)
+
+The first three-platform runs of round 3 (`afb4de3`) were green on Linux but
+failed three Windows tests every run and two macOS tests intermittently (7 of
+16 mini runs under load). The causes, in order of consequence:
+
+- **A peer FIN discarded the messages ahead of it (macOS flake in the core
+  conversation test).** FIN readiness started the terminal drain, which skips
+  data payload. When the FIN's readiness reached the pump before receive
+  demand, `/drop`'s `"x"` was thrown away and the caller saw 1006 first. A FIN
+  is now the in-order end of the stream: its readiness only enables
+  control-frame parsing without demand, data ahead of it is delivered, and EOF
+  takes effect when a read reaches it. Terminal draining is reserved for a dead
+  write side. New regression:
+  `messages_before_a_peer_fin_survive_fin_readiness_without_demand`.
+- **Teardown reset slow peers on Windows (both too-large tests).** The pump
+  ended with `shutdown(Both)` while the oversized message's bytes were still
+  unread. Windows answers `SD_RECEIVE`/`SD_BOTH` with unread input by sending
+  RST, which also discards our unsent queue — the 1009 the slow peer had not
+  read yet. (Closing the last handle with unread input does the same on every
+  platform.) A finished pump now half-closes, reads and discards until the
+  peer's FIN or a bounded linger, then shuts down; a socket dropped after its
+  Close was sent leaves teardown to the pump. The too-large regressions now
+  also require a clean EOF after 1009.
+- **Windows discards received-but-unread bytes on RST.** In
+  `write_failure_drains_unread_data_before_publishing_a_peer_close` the peer
+  resets after sending data and Close. Linux and macOS keep those bytes
+  readable; Windows does not, so the Close is lost and the result is 1006 or
+  the write error (both surface as `error` then `close(1006)`). The test keeps
+  the Close assertion on Linux and macOS and expects the abnormal end on
+  Windows. Probed directly with a standalone TCP program on all three OSes.
+- **The tests assumed one `WouldBlock` meant a full kernel (macOS).** macOS
+  grows an autotuned send buffer and admits zero-window probes, so the "blocked"
+  reply could legitimately drain before the test looked. The watch and
+  too-large tests now read the pump's own test-only latch history (deferred at
+  latch, Close sent, then deliverable — all under the send-state lock) instead
+  of a parse flag plus an empty event queue. This also answers the review
+  finding that the watch test could pass after a premature publication.
