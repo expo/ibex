@@ -329,6 +329,15 @@ fn the_clock_is_sealed_at_its_first_read() {
 #[test]
 fn the_clock_is_called_with_no_ibex_lock_held() {
     use std::sync::OnceLock;
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watching = done.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(30));
+        if !watching.load(Ordering::SeqCst) {
+            eprintln!("the clock was read under the wheel's lock: deadlock");
+            std::process::abort();
+        }
+    });
     let state: Arc<OnceLock<usize>> = Arc::new(OnceLock::new());
     let inner = state.clone();
     let clock: Arc<dyn Fn() -> f64 + Send + Sync> = Arc::new(move || {
@@ -351,15 +360,6 @@ fn the_clock_is_called_with_no_ibex_lock_held() {
     let _ = state.set(fresh.state_ptr() as usize);
     let consumer = BareConsumer::from_context(TIMED, fresh);
     consumer.eval("globalThis.log = []; setTimeout(function () { log.push('x'); }, 0);");
-    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let watching = done.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(30));
-        if !watching.load(Ordering::SeqCst) {
-            eprintln!("the clock was read under the wheel's lock: deadlock");
-            std::process::abort();
-        }
-    });
     settle(&consumer);
     done.store(true, Ordering::SeqCst);
     assert_eq!(log(&consumer), "x");
@@ -745,5 +745,29 @@ fn an_error_listener_that_detaches_ends_the_cycle_after_its_dispatch() {
         log(&consumer),
         "first,second",
         "the dispatch finished; the post-checkpoint did not run"
+    );
+}
+
+/// D5: a detach inside the post-checkpoint ends the cycle once that drain
+/// returns: the rest of the drain runs, and nothing after it.
+#[test]
+fn a_microtask_that_detaches_in_the_post_checkpoint_ends_the_cycle() {
+    let (consumer, _held) = clocked(TIMED, "", 0.0);
+    consumer.install_loop_probe();
+    consumer.eval(
+        "globalThis.log = []; \
+         setTimeout(function () { \
+           log.push('t'); \
+           Promise.resolve().then(function () { log.push('m'); detachFromJs(); }); \
+           Promise.resolve().then(function () { log.push('same-drain'); }); \
+         }, 0); \
+         setTimeout(function () { log.push('u'); }, 0);",
+    );
+    assert_eq!(consumer.cycle(), 1);
+    assert_eq!(consumer.cycle(), 0);
+    assert_eq!(
+        log(&consumer),
+        "t,m,same-drain",
+        "the second timer never ran"
     );
 }

@@ -2128,9 +2128,12 @@ void Adapter::settle(uint64_t id, Ibex2AbiValue& value, bool is_error) {
   auto& rt = *runtime_;
   auto payload = from_abi(rt, value);
   if (is_error) {
-    auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, payload);
-    // The realm's Error may be the embedder's, and may have detached the
-    // adapter: no further JavaScript once it has (LLP 0071 D5).
+    // The realm's Error -- its lookup and its construction, each JavaScript
+    // the embedder may have replaced -- may detach the adapter: no further
+    // JavaScript once it has (LLP 0071 D5).
+    auto make = rt.global().getPropertyAsFunction(rt, "Error");
+    if (!state_->alive || !runtime_) return;
+    auto error = make.callAsConstructor(rt, payload);
     if (!state_->alive || !runtime_) return;
     promise.reject.call(rt, error);
   } else promise.resolve.call(rt, payload);
@@ -2303,10 +2306,16 @@ void Adapter::report_error(const char* message) {
   auto& rt = *runtime_;
   if (state_->event_reporter.isObject() &&
       state_->event_reporter.getObject(rt).isFunction(rt)) {
-    auto error = rt.global().getPropertyAsFunction(rt, "Error")
-        .callAsConstructor(rt, message == nullptr ? "uncaught error" : message);
-    // As in settle(): the Error constructor may have detached the adapter.
-    if (!state_->alive || !runtime_ || !state_->event_reporter.isObject()) {
+    // As in settle(): Error's lookup and its construction may each detach
+    // the adapter.
+    auto detached = [&] { return !state_->alive || !runtime_ || !state_->event_reporter.isObject(); };
+    auto make = rt.global().getPropertyAsFunction(rt, "Error");
+    if (detached()) {
+      ibex2_report_uncaught(message);
+      return;
+    }
+    auto error = make.callAsConstructor(rt, message == nullptr ? "uncaught error" : message);
+    if (detached()) {
       ibex2_report_uncaught(message);
       return;
     }
