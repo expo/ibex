@@ -648,3 +648,108 @@ pub fn run_with_limits(
         Ok(result)
     })
 }
+
+#[cfg(all(test, unix))]
+mod bounded_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    fn fixture() -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "ibex-bounds-{}",
+            super::super::crypto::random_uuid().unwrap()
+        ));
+        std::fs::create_dir(&p).unwrap();
+        p
+    }
+    #[test]
+    fn growth_after_metadata_is_stopped_at_the_probe_byte_and_cancel_stops_next_chunk() {
+        let root = fixture();
+        let path = root.join("grow");
+        std::fs::write(&path, b"x").unwrap();
+        let calls = AtomicUsize::new(0);
+        let file = std::fs::File::open(&path).unwrap();
+        let err = read_bounded_file(file, 4, &|| {
+            if calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_len(100)
+                    .unwrap();
+            }
+            false
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains(RESULT_LIMIT));
+        let file = std::fs::File::open(&path).unwrap();
+        let calls = AtomicUsize::new(0);
+        assert_eq!(
+            read_bounded_file(file, 100, &|| calls.fetch_add(1, Ordering::Relaxed) == 1)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::Interrupted
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn configured_envelopes_count_base64_and_escaped_names_before_retaining_them() {
+        let root = fixture();
+        let path = root.join("bytes");
+        std::fs::write(&path, b"abcd").unwrap();
+        let grants = GrantSet::parse(&format!("fs.read \"{}\"", root.display())).unwrap();
+        assert!(run_with_limits(
+            &grants,
+            None,
+            None,
+            ResultLimits { bytes: 17 },
+            FsOp::ReadFile,
+            path.to_str().unwrap(),
+            None,
+            None
+        )
+        .is_err());
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            run_with_limits(
+                &grants,
+                None,
+                None,
+                ResultLimits { bytes: 17 },
+                FsOp::ReadFile,
+                path.to_str().unwrap(),
+                None,
+                None
+            )
+            .unwrap(),
+            FsResult::Bytes(b"abc".to_vec())
+        );
+        with_result_limits(ResultLimits { bytes: 16 }, || {
+            let mut names = vec![];
+            let mut used = 0;
+            push_name(&mut names, &mut used, "a".into()).unwrap();
+            assert!(push_name(&mut names, &mut used, "\n\n\n\n\n\n".into()).is_err());
+            assert_eq!(names, ["a"]);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(RESULT_BUDGET.with(|limit| limit.get()), RESULT_BYTES);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn bounded_reader_refuses_nonregular_opened_handles() {
+        let root = fixture();
+        assert!(read_bounded_file(std::fs::File::open(&root).unwrap(), 8, &|| false).is_err());
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        use std::os::fd::FromRawFd;
+        let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        assert!(read_bounded_file(reader, 8, &|| false).is_err());
+        drop(writer);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(all(test, windows))]
+#[path = "windows_document_tests.rs"]
+mod windows_document_tests;

@@ -8,7 +8,7 @@ use crate::{
 use std::{
     ffi::{CStr, CString},
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
     os::fd::{AsRawFd, FromRawFd},
     path::Path,
     sync::Arc,

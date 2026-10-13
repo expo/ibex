@@ -571,6 +571,30 @@ mod tests {
         ImageService::new(Arc::new(Codec(codec)), limits).unwrap()
     }
     #[test]
+    fn codec_and_publication_observer_panics_settle_and_release_workers() {
+        let f = Fixture::new();
+        let limits = WorkLimits::default();
+        let work = ImageWork::new(limits);
+        let codec = service(|_, _| panic!("codec panic fixture"), limits);
+        let job = f.job(&work, &codec);
+        let handle = job.handle();
+        assert!(job.execute().is_err());
+        assert_eq!(work.outstanding_workers(), 0);
+        assert!(matches!(handle.cancel(), CancelResult::Settled(Err(_))));
+        handle.take_outcome();
+        let codec = service(encoded, limits);
+        let job = f.job(&work, &codec);
+        let handle = job.handle();
+        assert!(job
+            .execute_with_commit_observer(|_| panic!("observer panic fixture"))
+            .is_err());
+        assert_eq!(work.outstanding_workers(), 0);
+        assert!(matches!(handle.cancel(), CancelResult::Settled(Err(_))));
+        assert_eq!(f.output(), b"old");
+        handle.take_outcome();
+        assert_eq!(work.pending_completions(), 0);
+    }
+    #[test]
     fn queued_abandonment_never_calls_codec_or_writes_and_keeps_worker_until_retirement() {
         let f = Fixture::new();
         let limits = WorkLimits::default();

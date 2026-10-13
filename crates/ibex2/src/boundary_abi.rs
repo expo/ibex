@@ -875,6 +875,22 @@ pub unsafe extern "C" fn ibex2_async_begin(
         std::slice::from_raw_parts(argv, argc)
     };
 
+    let Some(op) = AsyncOp::from_u32(op) else {
+        return 1;
+    };
+    if op == AsyncOp::FsCompressImage {
+        if raw.len() != 4 {
+            return 1;
+        }
+        for (index, value) in raw.iter().enumerate() {
+            match (index, value.borrow()) {
+                (0 | 1, Ok(HostArg::Str(text))) if text.len() <= 32_768 => {}
+                (2 | 3, Ok(HostArg::Number(_))) => {}
+                _ => return 1,
+            }
+        }
+    }
+
     // Owned snapshot: the worker outlives this call, so it cannot borrow.
     let mut owned = Vec::with_capacity(raw.len());
     for value in raw {
@@ -889,9 +905,6 @@ pub unsafe extern "C" fn ibex2_async_begin(
         }
     }
 
-    let Some(op) = AsyncOp::from_u32(op) else {
-        return 1;
-    };
     // A JS wrapper may become unreachable as soon as this host call returns.
     // Snapshot handle-backed inputs while its native owner must still be live;
     // no worker may resolve a Headers registry id later.

@@ -21,6 +21,8 @@ pub enum DocumentErrorKind {
     Unsupported,
     IsDirectory,
     NotDirectory,
+    DirectoryNotEmpty,
+    AlreadyExists,
     Io,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +43,8 @@ impl DocumentError {
                 DocumentErrorKind::Unsupported => "ENOTSUP",
                 DocumentErrorKind::IsDirectory => "EISDIR",
                 DocumentErrorKind::NotDirectory => "ENOTDIR",
+                DocumentErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
+                DocumentErrorKind::AlreadyExists => "EEXIST",
                 DocumentErrorKind::Io => "EIO",
             }
         ))
@@ -52,6 +56,8 @@ impl From<std::io::Error> for DocumentError {
         Self::new(match error.kind() {
             ErrorKind::IsADirectory => DocumentErrorKind::IsDirectory,
             ErrorKind::NotADirectory => DocumentErrorKind::NotDirectory,
+            ErrorKind::DirectoryNotEmpty => DocumentErrorKind::DirectoryNotEmpty,
+            ErrorKind::AlreadyExists => DocumentErrorKind::AlreadyExists,
             ErrorKind::NotFound => DocumentErrorKind::NotFound,
             ErrorKind::PermissionDenied => DocumentErrorKind::PermissionDenied,
             ErrorKind::Unsupported => DocumentErrorKind::Unsupported,
@@ -157,7 +163,6 @@ pub fn run_document(
     path: &str,
     data: Option<&[u8]>,
 ) -> Result<FsResult, HostError> {
-    let parts = components(path).map_err(|e| e.guest(path))?;
     // All admission precedes provider table lookup and file metadata/open calls.
     let (read, write) = op.required();
     if read {
@@ -166,6 +171,7 @@ pub fn run_document(
     if write {
         boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
     }
+    let parts = components(path).map_err(|e| e.guest(path))?;
     if matches!(op, FsOp::Rename | FsOp::CopyFile | FsOp::Realpath) {
         return Err(DocumentError::new(DocumentErrorKind::Unsupported).guest(path));
     }
