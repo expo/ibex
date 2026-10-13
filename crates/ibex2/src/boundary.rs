@@ -107,6 +107,11 @@ pub enum HostError {
     /// The operation was not admitted by the caller's grants. Carries no detail
     /// about what *would* have been admitted.
     Denied { capability: &'static str },
+    /// A redirect led outside the caller's grants (LLP 0068.000 §2).
+    DeniedRedirect {
+        capability: &'static str,
+        origin: String,
+    },
     /// The arguments did not match the operation's contract.
     InvalidArgument(String),
     /// The requested family was deliberately omitted from this build.
@@ -119,6 +124,9 @@ impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HostError::Denied { capability } => write!(f, "denied: {capability}"),
+            HostError::DeniedRedirect { capability, origin } => {
+                write!(f, "denied: {capability}, redirected to {origin}")
+            }
             HostError::InvalidArgument(detail) => write!(f, "invalid argument: {detail}"),
             HostError::Unavailable { feature } => {
                 write!(f, "unavailable: the {feature} feature is not enabled")

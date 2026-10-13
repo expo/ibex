@@ -10,6 +10,7 @@ pub mod crypto;
 pub mod documents;
 pub mod events;
 pub mod fetch;
+pub mod fetch_async;
 pub mod fs;
 pub mod fs_image;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]

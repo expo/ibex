@@ -84,7 +84,9 @@ crypto-asymmetric = ["crypto"]
 # Application WebSockets. The grant grammar and the refusing Rust/JS surface
 # remain present when this is off; only the transport implementation is cut.
 websocket = []
-test-support = [
+test-support = ["portable-http"]
+# Explicit production alternative; the native Apple transport remains default.
+portable-http = [
     "dep:mio",
     "dep:socket2",
     "dep:ureq",

@@ -432,6 +432,30 @@ pub struct Fetch {
 }
 
 impl Fetch {
+    /// Start a bounded asynchronous fetch endowed with this binding's grants.
+    /// The consumer chooses the transport scope, dispatcher, and deadline.
+    // @ref LLP 0068.000#2-the-proposed-boundary — retain authority for the whole fetch
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_async(
+        &self,
+        transport: Arc<dyn crate::stdlib::fetch_async::AsyncTransport>,
+        request: fetch::Request,
+        upload: Option<Arc<crate::stdlib::fetch_async::Upload>>,
+        signal: crate::stdlib::abort::AbortSignal,
+        caps: crate::stdlib::fetch_async::HeaderCaps,
+        events: Arc<dyn crate::stdlib::fetch_async::FetchEvents>,
+    ) -> Arc<crate::stdlib::fetch_async::FetchTask> {
+        crate::stdlib::fetch_async::FetchTask::start(
+            transport,
+            self.grants.clone(),
+            request,
+            upload,
+            signal,
+            caps,
+            events,
+        )
+    }
+
     #[cfg(feature = "bindings")]
     pub(crate) fn transport(&self) -> &dyn Transport {
         self.transport.as_ref()

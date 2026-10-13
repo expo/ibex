@@ -329,11 +329,37 @@ pub(crate) fn connect_socket(
             }
             // A bounded wait on the caller's thread, not a second executor or
             // worker; abandoning the attempt closes the one pending socket.
-            std::thread::park_timeout(remaining.min(Duration::from_millis(10)));
+            wait_writable(&socket, remaining.min(Duration::from_millis(50)));
         }
     }
     socket.set_nonblocking(false)?;
     Ok(socket.into())
+}
+
+/// Wait for a connecting socket to become writable. A `poll(2)` returns when
+/// the connection completes instead of imposing a sleep on every connection
+/// (LLP 0068.002 §2).
+#[cfg(not(windows))]
+fn wait_writable(socket: &socket2::Socket, timeout: Duration) {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        let mut fd = libc::pollfd {
+            fd: socket.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        let ms = timeout.as_millis().clamp(1, i32::MAX as u128) as libc::c_int;
+        // SAFETY: one valid descriptor owned by `socket`, alive for this call.
+        unsafe {
+            libc::poll(&mut fd, 1, ms);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = socket;
+        std::thread::park_timeout(timeout.min(Duration::from_millis(10)));
+    }
 }
 struct CancellableSocket {
     stream: TcpStream,
@@ -454,7 +480,23 @@ impl Transport for RustlsHttpTransport {
                 ureq::Proxy::try_from_env().as_ref(),
             ),
         );
-        let result = lease.slot.as_ref().unwrap().agent.run(req);
+        let agent = &lease.slot.as_ref().unwrap().agent;
+        // Replace all agent defaults: no shorter internal phase limit may win
+        // before the request's own timeout (LLP 0068.000 §4).
+        let req = match request.timeout {
+            Some(limit) => agent
+                .configure_request(req)
+                .timeout_global(Some(limit))
+                .timeout_connect(Some(limit))
+                .timeout_send_request(Some(limit))
+                .timeout_send_body(Some(limit))
+                .timeout_await_100(Some(limit))
+                .timeout_recv_response(Some(limit))
+                .timeout_recv_body(Some(limit))
+                .build(),
+            None => req,
+        };
+        let result = agent.run(req);
         signal.check()?;
         let response = result.map_err(failed)?;
         let status = response.status();
