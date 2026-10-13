@@ -25,6 +25,7 @@ struct Bytes : jsi::Buffer {
 struct Consumer {
   std::unique_ptr<jsi::Runtime> runtime;
   std::unique_ptr<ibex2::jsi_adapter::Adapter> adapter;
+  const void *queue = nullptr;
 };
 uint32_t bytecode_version() {
   auto *root = jsi::castInterface<facebook::hermes::IHermesRootAPI>(
@@ -86,6 +87,7 @@ char *bindings_expected_scripts(uint16_t groups, char **error) {
 void *bindings_consumer_create_uninstalled(const void *queue) {
   try {
     auto c = std::make_unique<Consumer>();
+    c->queue = queue;
     auto config = ::hermes::vm::RuntimeConfig::Builder()
         .withEnableEval(false).withMicrotaskQueue(true).build();
     c->runtime = facebook::hermes::makeHermesRuntimeNoThrow(config);
@@ -253,6 +255,7 @@ void *storage_consumer_create(const void *queue, const void *grants,
                               const uint8_t *harden, size_t harden_len, char **error) {
   try {
     auto c = std::make_unique<Consumer>();
+    c->queue = queue;
     auto config = ::hermes::vm::RuntimeConfig::Builder()
         .withEnableEval(false).withMicrotaskQueue(true).build();
     c->runtime = facebook::hermes::makeHermesRuntimeNoThrow(config);
@@ -276,6 +279,32 @@ void *storage_consumer_create(const void *queue, const void *grants,
     return c.release();
   } catch (const std::exception &e) { *error = copy(e.what()); return nullptr; }
 }
+// Trusted host lookup: the value is retrieved with the runtime that owns it.
+uint64_t storage_consumer_image_task_id(void *owner, void *value_owner, const char *name) {
+  auto *c = static_cast<Consumer *>(owner);
+  auto *source = static_cast<Consumer *>(value_owner);
+  if (!c || !c->adapter || !source || !source->runtime) return 0;
+  auto &rt = *source->runtime;
+  return c->adapter->image_task_id(rt, rt.global().getProperty(rt, name));
+}
+// Same runtime, independently branded adapter: checks owner identity separately
+// from the runtime check without ever passing a foreign value to a JSI engine.
+uint64_t storage_consumer_foreign_adapter_image_task_id(void *value_owner, const char *name) {
+  auto *c = static_cast<Consumer *>(value_owner);
+  auto &rt = *c->runtime;
+  ibex2::jsi_adapter::Adapter other(rt, c->queue, bytecode_version());
+  return other.image_task_id(rt, rt.global().getProperty(rt, name));
+}
+// Detach without destroying the adapter so the production stale-owner refusal
+// is exercised while the Promise remains alive in its own runtime.
+uint64_t storage_consumer_detached_image_task_id(void *value_owner, const char *name) {
+  auto *c = static_cast<Consumer *>(value_owner);
+  auto &rt = *c->runtime;
+  auto value = rt.global().getProperty(rt, name);
+  c->adapter->detach();
+  return c->adapter->image_task_id(rt, value);
+}
+
 int storage_consumer_eval(void *h, const uint8_t *bytes, size_t len, char **out) {
   auto &rt = *static_cast<Consumer *>(h)->runtime;
   try {

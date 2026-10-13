@@ -97,6 +97,22 @@ extern "C" {
         harden_len: usize,
         error: *mut *mut c_char,
     ) -> *mut c_void;
+    #[cfg(unix)]
+    fn storage_consumer_image_task_id(
+        owner: *mut c_void,
+        value_owner: *mut c_void,
+        name: *const c_char,
+    ) -> u64;
+    #[cfg(unix)]
+    fn storage_consumer_foreign_adapter_image_task_id(
+        value_owner: *mut c_void,
+        name: *const c_char,
+    ) -> u64;
+    #[cfg(unix)]
+    fn storage_consumer_detached_image_task_id(
+        value_owner: *mut c_void,
+        name: *const c_char,
+    ) -> u64;
     fn storage_consumer_eval(
         h: *mut c_void,
         data: *const u8,

@@ -429,6 +429,12 @@ struct Adapter::State {
     std::vector<std::pair<std::string, jsi::Value>> identities;
   };
   struct Pending { jsi::Function resolve; jsi::Function reject; };
+  struct ImagePromiseOwner final : jsi::NativeState {
+    const uint64_t task_id;
+    const std::weak_ptr<State> owner;
+    ImagePromiseOwner(uint64_t id, const std::shared_ptr<State>& state)
+        : task_id(id), owner(state) {}
+  };
   struct EventSubscription {
     void* rust;
     jsi::Function callback;
@@ -2009,9 +2015,25 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
           state->pending.erase(id);
           throw jsi::JSError(r, "could not start the async operation");
         }
+        if (op == 121) {
+          set_native_state_once(r, promise.getObject(r),
+              std::make_shared<State::ImagePromiseOwner>(id, state),
+              "Image operation Promise");
+        }
         if (op == 113 || op == 116) return filesystem_promise(r, std::move(promise), op);
         return promise;
       });
+}
+
+uint64_t Adapter::image_task_id(jsi::Runtime& rt, const jsi::Value& promise) const {
+  // Reject foreign runtimes before inspecting a runtime-owned JSI value.
+  if (!runtime_ || runtime_ != &rt || !state_->alive || !promise.isObject()) return 0;
+  auto object = promise.getObject(rt);
+  if (!object.hasNativeState<State::ImagePromiseOwner>(rt)) return 0;
+  auto brand = object.getNativeState<State::ImagePromiseOwner>(rt);
+  auto owner = brand->owner.lock();
+  if (owner != state_ || state_->pending.find(brand->task_id) == state_->pending.end()) return 0;
+  return brand->task_id;
 }
 
 jsi::Function Adapter::fetch(const void* grants) {

@@ -2,7 +2,8 @@
 use super::*;
 use ibex2::boundary::HostError;
 use ibex2::stdlib::fs_image::{
-    CodecLimits, CompressedImage, ImageCodec, ImageRequest, WorkControl, WorkLimits, WorkState,
+    CancelResult, CodecLimits, CompressedImage, ImageCodec, ImageRequest, WorkControl, WorkLimits,
+    WorkState,
 };
 use std::sync::{mpsc, Mutex};
 struct EchoCodec;
@@ -71,6 +72,104 @@ impl ImageCodec for BlockedCodec {
     }
 }
 #[test]
+fn borrowed_image_promises_correlate_owned_work_without_guest_ids() {
+    let consumer = Consumer::new("fs.read app:/\nfs.write app:/");
+    let (entered, waiting) = mpsc::channel();
+    let (release, blocked) = mpsc::channel();
+    consumer
+        .context
+        .set_image_codec(
+            Arc::new(BlockedCodec {
+                entered,
+                release: Mutex::new(blocked),
+            }),
+            WorkLimits::default(),
+        )
+        .unwrap();
+    std::fs::write(consumer.directory.join("tmp/in"), b"new").unwrap();
+    std::fs::write(consumer.directory.join("data/first"), b"old-first").unwrap();
+    std::fs::write(consumer.directory.join("data/second"), b"old-second").unwrap();
+    consumer
+        .eval(
+            "globalThis.result='';
+             globalThis.unrelated=storage.fs.readFile('app:/tmp/in');
+             globalThis.firstImage=storage.fs.compressImage('app:/tmp/in','app:/data/first',16,64);
+             globalThis.secondImage=storage.fs.compressImage('app:/tmp/in','app:/data/second',16,64);
+             globalThis.derived=firstImage.then(()=>true,()=>false);
+             globalThis.forged={task_id:2};
+             globalThis.inherited=Object.create(firstImage);
+             globalThis.primitive=42;
+             Promise.all([
+               firstImage.then(()=> 'unexpected commit',()=> 'abandoned'),
+               secondImage.then(()=> 'committed',e=>String(e))
+             ]).then(x=>globalThis.result=x.join('|'));",
+        )
+        .unwrap();
+    waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+    waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+    let task_id = |name: &CStr| unsafe {
+        storage_consumer_image_task_id(consumer.handle, consumer.handle, name.as_ptr())
+    };
+    let first_id = task_id(c"firstImage");
+    let second_id = task_id(c"secondImage");
+    assert!(first_id > 1, "an unrelated async operation consumed an id");
+    assert!(second_id > first_id);
+    let first = consumer.context.image_work_handle(first_id).unwrap();
+    let second = consumer.context.image_work_handle(second_id).unwrap();
+    assert_ne!(first.id(), second.id());
+    for name in [
+        c"unrelated",
+        c"derived",
+        c"forged",
+        c"inherited",
+        c"primitive",
+    ] {
+        assert_eq!(task_id(name), 0, "unbranded value: {name:?}");
+    }
+    assert_eq!(
+        consumer
+            .eval(
+                "typeof firstImage.task_id + '|' + Object.getOwnPropertySymbols(firstImage).length"
+            )
+            .unwrap(),
+        "undefined|0"
+    );
+    assert_eq!(
+        unsafe {
+            storage_consumer_foreign_adapter_image_task_id(consumer.handle, c"firstImage".as_ptr())
+        },
+        0
+    );
+    let other = Consumer::new("");
+    assert_eq!(
+        unsafe {
+            storage_consumer_image_task_id(other.handle, consumer.handle, c"firstImage".as_ptr())
+        },
+        0
+    );
+    assert_eq!(first.cancel(), CancelResult::Abandoned);
+    assert_eq!(second.state(), WorkState::Running);
+    release.send(()).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(consumer.finish(), "abandoned|committed");
+    assert_eq!(
+        std::fs::read(consumer.directory.join("data/first")).unwrap(),
+        b"old-first"
+    );
+    assert_eq!(
+        std::fs::read(consumer.directory.join("data/second")).unwrap(),
+        b"new"
+    );
+    assert_eq!(first.cancel(), CancelResult::Abandoned);
+    assert!(matches!(second.cancel(), CancelResult::Settled(Ok(_))));
+    for (name, id) in [(c"firstImage", first_id), (c"secondImage", second_id)] {
+        assert_eq!(task_id(name), 0, "settled Promise is stale");
+        assert!(consumer.context.image_work_handle(id).is_none());
+    }
+    assert_eq!(consumer.context.image_work().outstanding_workers(), 0);
+    assert_eq!(consumer.context.image_work().pending_completions(), 0);
+}
+#[test]
 fn borrowed_adapter_teardown_drops_guest_roots_while_native_worker_retires_later() {
     let root = std::env::temp_dir().join(format!(
         "ibex-jsi-image-{}",
@@ -101,9 +200,24 @@ fn borrowed_adapter_teardown_drops_guest_roots_while_native_worker_retires_later
     let work = context.image_work().clone();
     let consumer = BareConsumer::from_context(Groups::PURE | Groups::STORAGE, context);
     consumer.harden(ibex2::bindings::HARDEN_BYTECODE).unwrap();
-    consumer.eval_result("fs.compressImage('app:/tmp/in','app:/data/out',16,64).then(()=>{ throw Error('must not deliver after teardown'); });").unwrap();
+    consumer.eval_result("globalThis.imagePromise=fs.compressImage('app:/tmp/in','app:/data/out',16,64); imagePromise.then(()=>{ throw Error('must not deliver after teardown'); });").unwrap();
     waiting.recv_timeout(Duration::from_secs(10)).unwrap();
-    let handle = work.handles().pop().unwrap();
+    let id = unsafe {
+        storage_consumer_image_task_id(consumer.handle, consumer.handle, c"imagePromise".as_ptr())
+    };
+    assert_ne!(id, 0);
+    let handle = consumer
+        .context
+        .as_ref()
+        .unwrap()
+        .image_work_handle(id)
+        .unwrap();
+    assert_eq!(
+        unsafe {
+            storage_consumer_detached_image_task_id(consumer.handle, c"imagePromise".as_ptr())
+        },
+        0
+    );
     drop(consumer);
     assert_eq!(handle.state(), WorkState::Abandoned);
     assert_eq!(work.outstanding_workers(), 1);
