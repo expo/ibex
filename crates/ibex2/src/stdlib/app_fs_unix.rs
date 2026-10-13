@@ -123,8 +123,29 @@ fn each_name(
     let mut count = 0;
     let mut failure = None;
     loop {
+        // POSIX distinguishes EOF from failure using errno. A stale errno from
+        // a successful visit must not hide or invent an enumeration error.
+        #[cfg(target_vendor = "apple")]
+        unsafe {
+            *libc::__error() = 0;
+        }
+        #[cfg(target_os = "linux")]
+        unsafe {
+            *libc::__errno_location() = 0;
+        }
+        #[cfg(target_os = "android")]
+        unsafe {
+            *libc::__errno() = 0;
+        }
         let entry = unsafe { libc::readdir(stream) };
         if entry.is_null() {
+            #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+            {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().is_some_and(|code| code != 0) {
+                    failure = Some(error);
+                }
+            }
             break;
         }
         let s = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
@@ -493,7 +514,11 @@ pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
         .ok_or_else(|| error("remove needs a filename"))?;
     use std::os::unix::ffi::OsStrExt;
     let leaf = CString::new(leaf.as_bytes()).map_err(error)?;
-    let parent = File::open(parent_path).map_err(error)?;
+    let parent = match File::open(parent_path) {
+        Ok(parent) => parent,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(FsResult::Done),
+        Err(e) => return Err(error(e)),
+    };
     remove_raw(&parent, &leaf).map_err(error)?;
     Ok(FsResult::Done)
 }

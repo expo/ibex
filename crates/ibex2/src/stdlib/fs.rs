@@ -642,7 +642,7 @@ pub fn run_with_limits(
                 .and_then(|n| n.checked_add(13)),
             FsResult::Text(text) => serde_json::to_string(text).ok().map(|s| s.len()),
             FsResult::Names(names) => serde_json::to_vec(names).ok().map(|s| s.len()),
-            FsResult::Stat(_) => Some(128),
+            FsResult::Stat(stat) => serde_json::to_vec(&serde_json::json!({"size":stat.size,"isFile":stat.is_file,"isDirectory":stat.is_directory,"modifiedMs":stat.modified_ms})).ok().map(|s| s.len()),
             FsResult::Done => Some(4),
         };
         if size.is_none_or(|n| n > limits.bytes) {

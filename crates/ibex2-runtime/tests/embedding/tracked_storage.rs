@@ -137,3 +137,60 @@ fn borrowed_document_denial_never_calls_provider_and_selected_file_roundtrips() 
     assert_eq!(consumer.finish(), "8");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
+
+#[cfg(feature = "loader")]
+#[test]
+fn owning_runtime_adopts_configured_storage_services_with_its_own_work_generation() {
+    use ibex2::stdlib::fs::{DocumentLease, Documents, ResultLimits};
+    use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
+    let root = std::env::temp_dir().join(format!(
+        "ibex-own-image-{}",
+        ibex2::stdlib::crypto::random_uuid().unwrap()
+    ));
+    for name in ["data", "cache", "tmp"] {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+    }
+    std::fs::write(root.join("tmp/in"), b"encoded").unwrap();
+    std::fs::write(root.join("chosen"), b"document").unwrap();
+    let context = Context::new(GrantSet::none());
+    context
+        .set_app_directories(
+            AppDirectories::new(root.join("data"), root.join("cache"), root.join("tmp")).unwrap(),
+        )
+        .unwrap();
+    context
+        .set_image_codec(Arc::new(EchoCodec), WorkLimits::default())
+        .unwrap();
+    context
+        .set_storage_limits(ResultLimits { bytes: 1024 })
+        .unwrap();
+    let directory = Arc::new(std::fs::File::open(&root).unwrap());
+    let provider: Arc<Documents> = Arc::new(move |_, _| {
+        DocumentLease::selected_file(directory.clone(), "chosen".into(), Arc::new(()))
+    });
+    context.set_documents(provider).unwrap();
+    let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+    runtime
+        .install_runtime(Groups::PURE | Groups::STORAGE, &context)
+        .unwrap();
+    runtime.harden().unwrap();
+    std::fs::write(root.join("index.js"), "globalThis.result=''; fs.readFile('doc:/1/chosen').then(function(bytes) { return fs.compressImage('app:/tmp/in','app:/data/out',16,64).then(function(image) { result=bytes.byteLength+'|'+image; }); }).catch(function(error) { result=String(error); });").unwrap();
+    runtime
+        .set_loader(
+            ibex2_runtime::loader::Root::Declared(root.clone()),
+            ibex2_runtime::loader::ModuleGrants::parse(
+                "[*]\nfs.read app:/\nfs.write app:/\nfs.read doc:/1\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    runtime.run_entry("./index.js").unwrap();
+    runtime.run_to_quiescence(Duration::from_secs(10));
+    assert_eq!(runtime.eval("result").unwrap(), "8|1\t1\t7");
+    assert_eq!(std::fs::read(root.join("data/out")).unwrap(), b"encoded");
+    assert_eq!(context.image_work().outstanding_workers(), 0);
+    assert_eq!(context.image_work().pending_completions(), 0);
+    drop(runtime);
+    drop(context);
+    std::fs::remove_dir_all(root).unwrap();
+}
