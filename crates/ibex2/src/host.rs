@@ -434,6 +434,16 @@ pub struct Fetch {
 }
 
 impl Fetch {
+    /// Adapt this binding's configured blocking transport to caller-supplied
+    /// bounded workers. Pass the adapter to `start_async` so this binding still
+    /// admits each hop with its own grant; no raw grant extraction is needed.
+    pub fn blocking_adapter(
+        &self,
+        workers: Arc<dyn crate::stdlib::fetch_async::WorkerService>,
+    ) -> crate::stdlib::fetch_async::BlockingAdapter {
+        crate::stdlib::fetch_async::BlockingAdapter::new(self.transport.clone(), workers)
+    }
+
     /// Start a bounded asynchronous fetch endowed with this binding's grants.
     /// The consumer chooses the transport scope, dispatcher, and deadline.
     // @ref LLP 0068.000#2-the-proposed-boundary — retain authority for the whole fetch
