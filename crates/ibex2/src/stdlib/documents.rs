@@ -23,6 +23,7 @@ pub enum DocumentErrorKind {
     NotDirectory,
     DirectoryNotEmpty,
     AlreadyExists,
+    ResultLimit,
     Io,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,9 @@ impl DocumentError {
         Self { kind }
     }
     fn guest(self, path: &str) -> HostError {
+        if self.kind == DocumentErrorKind::ResultLimit {
+            return HostError::Failed(super::fs::RESULT_LIMIT.into());
+        }
         HostError::Failed(format!(
             "document {}: {path}",
             match self.kind {
@@ -45,6 +49,7 @@ impl DocumentError {
                 DocumentErrorKind::NotDirectory => "ENOTDIR",
                 DocumentErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
                 DocumentErrorKind::AlreadyExists => "EEXIST",
+                DocumentErrorKind::ResultLimit => unreachable!("handled above"),
                 DocumentErrorKind::Io => "EIO",
             }
         ))
@@ -53,6 +58,11 @@ impl DocumentError {
 impl From<std::io::Error> for DocumentError {
     fn from(error: std::io::Error) -> Self {
         use std::io::ErrorKind;
+        // Preserve only Ibex's constant quota marker. Native diagnostic text
+        // remains private, since it can contain the physical selected path.
+        if error.kind() == ErrorKind::Other && error.to_string() == super::fs::RESULT_LIMIT {
+            return Self::new(DocumentErrorKind::ResultLimit);
+        }
         Self::new(match error.kind() {
             ErrorKind::IsADirectory => DocumentErrorKind::IsDirectory,
             ErrorKind::NotADirectory => DocumentErrorKind::NotDirectory,
@@ -258,6 +268,36 @@ mod tests {
     }
     fn grants() -> GrantSet {
         GrantSet::parse("fs.read doc:/1\nfs.write doc:/1").unwrap()
+    }
+    #[test]
+    fn document_result_limits_keep_the_same_safe_error_as_other_storage() {
+        let f = Fixture::new();
+        std::fs::write(f.0.join("chosen"), [0; 64]).unwrap();
+        let retained = Arc::new(File::open(&f.0).unwrap());
+        let provider = move |_: &str, _: DocumentAccess| {
+            DocumentLease::selected_file(retained.clone(), "chosen".into(), Arc::new(()))
+        };
+        let error = super::super::fs::run_with_limits(
+            &grants(),
+            None,
+            Some(&provider),
+            super::super::fs::ResultLimits { bytes: 64 },
+            FsOp::ReadFile,
+            "doc:/1/chosen",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            HostError::Failed(super::super::fs::RESULT_LIMIT.into())
+        );
+        let native_error = DocumentError::from(std::io::Error::other("/private/selected/file"));
+        assert_eq!(native_error.kind, DocumentErrorKind::Io);
+        assert!(!native_error
+            .guest("doc:/1/chosen")
+            .to_string()
+            .contains("/private"));
     }
     #[test]
     fn grants_and_path_validation_precede_provider_and_namespaces_are_disjoint() {
