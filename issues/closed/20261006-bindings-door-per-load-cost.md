@@ -1,6 +1,6 @@
 # The bindings door costs an embedder about 2 ms per module load
 
-**Status:** Open
+**Status:** Resolved
 **Systems:** Bindings, Runtime, Performance
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -99,3 +99,51 @@ prelude on an idle host. If hardening remains dominant there, split its
 abort-hook reachability guard from the freeze bytecode before choosing among
 the structural ideas above. The P3 remains open until that production-shaped
 result explains the observed 2.05 ms cost.
+
+
+## Resolution: production lean-runtime measurement (2026-10-13)
+
+The measurement request is complete. Exact commit `118bedf8b` adds the ignored
+`phase_cost_tests::production_lean_bootstrap_phase_costs` diagnostic to its
+ordinary `exact-js` test target. It runs the real `Session`, `Engine`, trusted
+`PRELUDE`, main-thread policy, intrinsic capture and guarded hardening, then
+tears down the engine before the Context. All bytecode is built ahead of time.
+It includes no application module, app storage roots, native module or watchdog.
+The public production entrance combines runtime creation with binding install,
+and combines capture with hardening; those are the measured boundaries.
+
+The release build ran on the fleet's Mac Studio M5 Ultra (36 CPU cores,
+256 GiB RAM, macOS arm64), separately from the overloaded development laptop.
+Load averages were 10.71 / 8.80 / 9.67 before and after: this is a lightly
+loaded larger host, not a claim that it was otherwise idle. The authenticated
+v4 lean VM is
+`sha256-f3803c6fab19590ef7312086500d23ee72d26550d3939e9439b0273977e30733`,
+HBC 99; the actual production prelude is 95,914 bytes. It discarded 20 warmups
+and recorded 200 samples. Times are microseconds:
+
+| phase | min | p25 | median | p75 | p95 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| storage Context | 1.3 | 1.5 | 1.7 | 2.0 | 2.8 | 5.8 |
+| runtime + binding install | 369.6 | 377.0 | 383.2 | 391.9 | 425.8 | 513.3 |
+| production trusted prelude | 141.0 | 143.0 | 144.4 | 147.4 | 169.7 | 209.5 |
+| capture + guarded harden | 1,473.2 | 1,486.8 | 1,494.7 | 1,505.5 | 1,540.7 | 1,606.6 |
+| startup through harden | 1,990.8 | 2,012.5 | 2,022.7 | 2,045.5 | 2,140.3 | 2,267.4 |
+| runtime + Context teardown | 72.0 | 79.9 | 82.1 | 85.5 | 102.0 | 192.0 |
+
+Reproduce from Exact's isolated consumer-adoption worktree with pinned Bun
+1.4.2 dependencies installed:
+
+```sh
+CARGO_BUILD_JOBS=4 cargo test -p exact-js --release --lib \
+  production_lean_bootstrap_phase_costs -- --ignored --nocapture --test-threads=1
+```
+
+The 2.023 ms median is consistent with the original approximately 2 ms
+observation. Capture plus guarded hardening accounts for approximately 74%
+of the measured total; runtime creation plus install is about 19%, and the
+production prelude about 7%. This identifies the next optimization target
+without claiming a before/after regression comparison across different hosts.
+No hardening guarantee was weakened and no structural optimization was made.
+Before proposing snapshots or changing the freeze walk, a follow-up should
+separate capture, abort-hook reachability, and freeze inside this measured
+production boundary and compare their costs on the same host.
