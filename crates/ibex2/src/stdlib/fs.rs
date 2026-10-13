@@ -379,6 +379,9 @@ pub fn perform(
         FsOp::Mkdir => std::fs::create_dir_all(path)
             .map(|_| FsResult::Done)
             .map_err(failed),
+        #[cfg(unix)]
+        FsOp::Remove => super::app_fs::remove_native(path),
+        #[cfg(not(unix))]
         FsOp::Remove => {
             let result = if path.is_dir() {
                 std::fs::remove_dir_all(path)

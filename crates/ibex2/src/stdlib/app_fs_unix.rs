@@ -483,6 +483,21 @@ impl AppDirectories {
         }
     }
 }
+/// Native recursive removal shares the bounded raw-name iterator used by app roots.
+pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
+    let parent_path = path
+        .parent()
+        .ok_or_else(|| error("cannot remove filesystem root"))?;
+    let leaf = path
+        .file_name()
+        .ok_or_else(|| error("remove needs a filename"))?;
+    use std::os::unix::ffi::OsStrExt;
+    let leaf = CString::new(leaf.as_bytes()).map_err(error)?;
+    let parent = File::open(parent_path).map_err(error)?;
+    remove_raw(&parent, &leaf).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
 pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostError> {
     let parent = path
         .parent()

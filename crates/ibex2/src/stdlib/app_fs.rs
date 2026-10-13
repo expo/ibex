@@ -10,6 +10,9 @@ pub use implementation::*;
 #[cfg(any(unix, windows))]
 pub(crate) use implementation::{atomic_native, document};
 
+#[cfg(unix)]
+pub(crate) use implementation::remove_native;
+
 #[cfg(not(any(unix, windows)))]
 mod implementation {
     use crate::{

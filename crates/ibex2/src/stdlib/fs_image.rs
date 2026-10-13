@@ -34,6 +34,10 @@ pub struct ImageRequest {
     pub max_bytes: u64,
 }
 /// The provider MUST enforce decoded-pixel, scratch and output limits BEFORE allocation.
+/// `max_scratch_bytes` includes ALL provider-owned decoded pixel buffers and
+/// intermediate workspace. Only the borrowed source and returned encoded output
+/// are excluded; Ibex charges those separately. A codec must not retain inputs
+/// or workspace after return.
 #[derive(Debug, Clone, Copy)]
 pub struct CodecLimits {
     pub max_pixels: u64,
@@ -48,7 +52,7 @@ pub trait ImageCodec: Send + Sync {
         control: &WorkControl,
     ) -> Result<CompressedImage, HostError>;
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkLimits {
     pub workers: usize,
     pub completions: usize,
@@ -368,6 +372,9 @@ impl ImageJob {
         crate::boundary::admit(&grants, &Operation::FsRead { path: from.into() })?;
         crate::boundary::admit(&grants, &Operation::FsWrite { path: to.into() })?;
         let service = service.ok_or_else(|| failed("unsupported: no image codec"))?;
+        if work.0.limits != service.limits {
+            return Err(failed("work registry and codec service limits differ"));
+        }
         if !from.starts_with("app:/")
             || !to.starts_with("app:/")
             || from.len() > 32_768
