@@ -249,11 +249,34 @@ ten documented canonical-receipt checks. Only after those checks did the pin
 updater replace the authenticated V4 table with the published V5 tag and ten
 archive digests.
 
-Published-consumer qualification remains the delivery boundary for this pin
-transition: exercise cold, warm, offline, mirror, target-qualified local
-override, all-platform admission, and Android cross-link and Exact consumer
-cases. Use only the published V5 archive digests; the local candidate digest
-above is never substituted. Record those results separately before delivery.
+Published-consumer qualification passed on 2026-10-13 at Ibex pin
+`e60b3e0570315f31710744c1187f3cec5574fedf`. On the assigned Linux host, the
+compiled installer downloaded the published host and Android archives into an
+isolated Cargo home whose Hermes namespace was empty, verified the warm cache
+with a refusing endpoint, and produced the expected offline refusals for an
+empty host cache and a
+host-only cache missing Android. An owned local mirror served exactly those two
+archives. A target-qualified local override, the Rust bindings lean-VM Android
+cross-link, and all 11 target mappings over the ten distinct published archives
+then passed; every retained archive digest matched its compiled pin.
+
+An NDK 27.1.12297006/API 30 C++ probe directly called `makeHermesRuntime` and
+`evaluateJavaScript`. The resulting 84,027,720-byte AArch64 PIE defined 3,276
+Hermes symbols, retained no unresolved Hermes symbols, depended only on
+Android's `liblog`, `libdl`, `libm`, and `libc`, and had SHA-256
+`6e652055581393892b5779f8091d6d1de7f3aa3722a2128ea34bf180e55d7f14`.
+Exact `56f107fa44bf65c3df043efd3b784e7dd71484a5` had an identical V5 pin table
+and built `duo-lab` with `bun scripts/agent-android.mjs build duo-lab` while
+Hermes resolution was forced offline through that isolated published cache and
+its legacy Android engine cache stayed empty. Its 78,809,152-byte AArch64 PIE
+also defined 3,276 Hermes symbols, retained no unresolved Hermes symbols or
+`libc++_shared` dependency, and had SHA-256
+`dec5e208fe21cb32340f603aa0514409414918f9eafad0e623ba6580cc66d98e`.
+The commands, expected failures, output inspections, and harness corrections
+are retained in local ship record `20261013-consumer-release`. These are
+cross-compilation and link results; no Android device execution is claimed.
+Only published V5 digests were used; the local candidate digest above was never
+substituted.
 
 ## Required repository settings
 

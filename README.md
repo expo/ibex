@@ -122,6 +122,15 @@ bundle with the same target-specific pin and host-compiler pairing as the other
 targets; `HERMES_LEAN_SYS_DIR_aarch64_linux_android` remains available for an
 explicit complete local Android install.
 
+The V5 pin was qualified at Ibex `e60b3e0`: the compiled installer admitted all
+11 target mappings over ten published archives, and isolated Linux checks
+covered cold and warm caches, offline hits and misses, a local mirror, and a
+target-qualified Android override. Rust bindings and a C++ runtime probe linked
+the Android bundle with NDK 27.1.12297006/API 30. Exact `56f107fa4` then built its
+`duo-lab` AArch64 Android carrier from the same published pins with an empty
+legacy engine cache. These Android results are cross-compilation and link
+evidence; no Android device execution is claimed.
+
 There are two supported release-bundle modes. In the default automatic mode,
 a Cargo build downloads a missing pinned bundle and caches it. For a build
 that must never access the network, install the host bundle and any cross
