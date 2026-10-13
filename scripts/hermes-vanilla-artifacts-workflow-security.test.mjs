@@ -455,7 +455,12 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
     assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v5$`, "m"));
     assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v5`, "m"));
   }
-  assert.match(buildSupport, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "hermes-vanilla-${commit.slice(0, 12)}-v4";$`, "m"));
+  assert.match(buildSupport, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "hermes-vanilla-${commit.slice(0, 12)}-v5";$`, "m"));
+  assert.equal([...buildSupport.matchAll(/^    BundlePin \{$/gm)].length, 11);
+  assert.match(buildSupport, /target: "aarch64-linux-android",\n        asset: "hermes-vanilla-aarch64-linux-android\.tar\.gz",\n        sha256: "[0-9a-f]{64}"/);
+  const pinTable = buildSupport.match(/pub\(crate\) const PINNED_BUNDLES: &\[BundlePin\] = &\[([\s\S]*?)\n\];/);
+  assert.ok(pinTable, "pinned bundle table must remain parseable");
+  assert.doesNotMatch(pinTable[1], /TODO_[A-Z0-9_]+_SHA256/);
 });
 
 test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targets", () => {
@@ -645,7 +650,7 @@ test("Linux receipt binds all ICU data archives and both pinned filters", (t) =>
   }
 });
 
-test("pin updater makes one exact authenticated transition from v4 to staged v5", () => {
+test("pin updater admits the exact V5 inventory and rejects drift", () => {
   const livePinsPath = join(repoRoot, "crates/hermes-lean-sys/build_support.rs");
   const livePinsBefore = readFileSync(livePinsPath, "utf8");
   const temporary = mkdtempSync(join(tmpdir(), "hermes-pin-updater-test-"));

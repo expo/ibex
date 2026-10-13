@@ -69,7 +69,7 @@ resolves to the available default `en-US` locale instead of formatting with
 German-looking root fallback. It does not expose German or other absent locale
 data. Apple Hermes retains
 its operating-system-backed native implementation, so omitting Ibex's
-Linux-only group does not remove Apple's engine-owned `Intl`. Every Linux v4
+Linux-only group does not remove Apple's engine-owned `Intl`. Every Linux v5
 bundle carries matching ICU headers, shared code archives, and all three data
 variants, so no build compiles or links against a different system ICU.
 
@@ -108,7 +108,7 @@ by `_`); a complete local install selected by `HERMES_LEAN_SYS_DIR`; this
 checkout's layout when it actually contains the Cargo target (`ios/Frameworks-vanilla` for macOS,
 `tvos/Frameworks-vanilla` for `aarch64-apple-tvos`, and
 `tvos-simulator/Frameworks-vanilla` for `aarch64-apple-tvos-sim`); then the
-SHA-256-pinned `hermes-vanilla-d412d3bd8512-v4` release bundle for the Cargo
+SHA-256-pinned `hermes-vanilla-d412d3bd8512-v5` release bundle for the Cargo
 target. tvOS has a device bundle and an arm64-only Simulator bundle;
 `x86_64-apple-tvos` (the Intel tvOS Simulator) has no bundle and needs
 `HERMES_LEAN_SYS_DIR`. The tvOS bundles are built for tvOS 15.0, so set
@@ -117,10 +117,10 @@ target. tvOS has a device bundle and an arm64-only Simulator bundle;
 warns when the variable is missing or lower. In
 particular, an iOS cross build does not select the repository's macOS archive;
 it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
-Android arm64 is absent from immutable v4. The staged v5 release adds it; until
-that release and all ten attestations are verified and the consumer pin table
-moves atomically, set `HERMES_LEAN_SYS_DIR_aarch64_linux_android` to a complete
-local Android install.
+Android arm64 is included in immutable v5. Cross builds select its published
+bundle with the same target-specific pin and host-compiler pairing as the other
+targets; `HERMES_LEAN_SYS_DIR_aarch64_linux_android` remains available for an
+explicit complete local Android install.
 
 There are two supported release-bundle modes. In the default automatic mode,
 a Cargo build downloads a missing pinned bundle and caches it. For a build
@@ -195,7 +195,7 @@ revision compiled into the dependency. Configure Cargo's separate `[net]`
 `offline = true` setting if Rust dependencies must also be resolved without
 the network.
 
-Each v4 bundle contains both source-capable `hermesvm_a` and bytecode-only
+Each v5 bundle contains both source-capable `hermesvm_a` and bytecode-only
 `hermesvmlean_a`. Enable exactly one `hermes-lean-sys` link feature: `link`
 for the full VM or `link-lean` for lean. Enabling both is a compile-time error.
 On Linux both VM features imply the independent `icu` feature, which is the
@@ -247,10 +247,10 @@ metadata is exported. A receipt that does not bind those bytes is refused.
 Old local layouts without a lean archive export no lean path, digest, or HBC
 version; they continue to support full-VM builds and fail with a targeted
 message only when `link-lean` is requested. The
-end-to-end lean proof can be run against a complete v4 bundle:
+end-to-end lean proof can be run against a complete v5 bundle:
 
 ```sh
-HERMES_LEAN_SYS_DIR=/path/to/extracted-v4-bundle \
+HERMES_LEAN_SYS_DIR=/path/to/extracted-v5-bundle \
   cargo test --locked --manifest-path crates/ibex2-lean-embedding/Cargo.toml
 ```
 

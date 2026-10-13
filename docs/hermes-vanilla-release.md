@@ -1,17 +1,17 @@
 # Vanilla Hermes release bundles
 
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
-The current immutable prerelease is `hermes-vanilla-d412d3bd8512-v4`, published
-on 2026-10-06 with nine deterministic archives, `SHA256SUMS`, and one retained
-Sigstore bundle beside each archive. The staged successor is
-`hermes-vanilla-d412d3bd8512-v5`: it rebuilds those nine targets and adds
-`aarch64-linux-android`, for ten archives and 21 release assets. It is not a
-consumer source until its immutable publication and all ten attestations have
-been verified. The immutable v1 release contains only the full VM; v2 added the
-lean VM; v3 added the Linux ICU profile; v4 added the tvOS bundles, the
-debugger-off Windows engine, and the separate English-Intl ICU data tier.
+The current immutable prerelease is `hermes-vanilla-d412d3bd8512-v5`, published
+on 2026-10-13 with ten deterministic archives, `SHA256SUMS`, and one retained
+Sigstore bundle beside each archive. It rebuilds the nine v4 targets and adds
+`aarch64-linux-android`, for 21 release assets. All 20 checksums, ten publisher
+attestations, ten canonical receipts, and the direct tag binding were verified
+before its consumer pin table was prepared. The immutable v1 release contains
+only the full VM; v2 added the lean VM; v3 added the Linux ICU profile; v4 added
+the tvOS bundles, the debugger-off Windows engine, and the separate English-Intl
+ICU data tier.
 
-Each v4 archive, and every staged v5 build, contains both the full `hermesvm_a`
+Each v5 archive contains both the full `hermesvm_a`
 and lean `hermesvmlean_a` target archives under `lib/`, the rest of their target link
 closure, host `hermesc` under `bin/`, public headers under `include/`, the
 upstream license, and a canonical `hermes-input-receipt.json`. Receipt v2 binds
@@ -22,7 +22,7 @@ Receipt generation scans both VM archives for patched exports whenever lean is
 present, and lean selection verifies its distinct manifest digest. The receipt
 deliberately has no production date.
 
-Linux v4 bundles build ICU 74.2 from tag `release-74-2`, verified at commit
+Linux v5 bundles build ICU 74.2 from tag `release-74-2`, verified at commit
 `2d029329c82c7792b985024b2bdab5fc7278fbc8`. They carry shared
 `libicui18n.a` and `libicuuc.a` code archives plus three data tiers:
 `libicudata.a` is the unchanged 1,109,808-byte v3 base required by Hermes's
@@ -63,29 +63,29 @@ retaining old version pins.
 ICU uses two make jobs; Hermes uses at most four Ninja jobs and a two-slot link
 pool. Hermes is configured with `HERMES_ENABLE_INTL=false`,
 `HERMES_UNICODE_LITE=false`, and `HERMES_USE_STATIC_ICU=true`. Apple keeps
-`HERMES_ENABLE_INTL=true`. Windows v4 disables the debugger and uses the same
+`HERMES_ENABLE_INTL=true`. Windows v5 disables the debugger and uses the same
 `release` receipt profile as Linux; as before, the receipt records
 `HERMES_ENABLE_WIN10_ICU_FALLBACK=ON` plus the `icuuc` and
 `icuin` import-library link directives, while pinned Hermes's CMake source
 selects its `USE_WIN10_ICU` declarations (marked `dllimport`) and reports
 "Using Windows 10 built-in ICU" when no separately installed ICU is found.
 Thus the Windows build continues to use the OS ICU DLL for its Unicode
-backend; v4 adds no packaged Windows ICU archive.
+backend; v5 adds no packaged Windows ICU archive.
 
 ## Bundle set
 
 | Receipt target | Archive | Runner | Profile | Release state |
 | --- | --- | --- | --- | --- |
-| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
-| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-large` | `min-size-release` | v4 published; v5 staged |
-| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
-| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
-| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
-| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
-| `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | v4 published; v5 staged |
-| `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | v4 published; v5 staged |
-| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `ubuntu-24.04`, NDK 27.1.12297006 | `min-size-release` | absent from v4; v5 staged |
-| `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | v4 published; v5 staged |
+| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
+| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-large` | `min-size-release` | v5 published |
+| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
+| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
+| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
+| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
+| `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | v5 published |
+| `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | v5 published |
+| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `ubuntu-24.04`, NDK 27.1.12297006 | `min-size-release` | v5 published |
+| `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | v5 published |
 
 The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
 the iOS simulator bundle's `-simulator` spelling. They deliberately omit
@@ -100,11 +100,12 @@ Its Unicode backend is a static ICU 74 with the trimmed root-en data, as the
 Linux bundles carry; it has no `Intl`. Hermes's `hermes.cpp` includes fbjni only
 to attach a JVM thread, so the build puts a no-op `ThreadScope` header
 (`scripts/android-fbjni-shim/`) on the include path; its digest is in the
-receipt. Immutable v4 cannot acquire it. The v5 read-only Ubuntu builder selects
+receipt. The v5 read-only Ubuntu builder selected
 NDK 27.1.12297006, installs that exact SDK package with unprivileged `sdkmanager`
-when absent, and verifies `source.properties` before building. Until v5 is
-published and verified, a consumer points
-`HERMES_LEAN_SYS_DIR_aarch64_linux_android` at a local install (below).
+when absent, and verifies `source.properties` before building. Consumers now
+select the published Android pin by default; a target-qualified
+`HERMES_LEAN_SYS_DIR_aarch64_linux_android` still selects an explicit complete
+local install.
 
 ## Runners
 
@@ -236,24 +237,23 @@ Its dynamic dependencies were only Android's `liblog`, `libdl`, `libm`, and
 linker extracted and linked the local candidate's VM closure. It does not
 execute Hermes on an Android device or authenticate bytes for publication.
 
-## V5 completion boundary
+## V5 publication and consumer completion
 
-V5 remains unpublished. Completion requires these operations in order:
+The V5 publication boundary passed on 2026-10-13. The reviewed source was
+`bf74e54c14ab80bdb4935411ed3a2bf77c2d86dc`; all ten builder jobs and the
+publisher's exact handoff inventory passed; publisher run 38476099300 created
+immutable prerelease 412153148 with ten archives, ten retained Sigstore bundles,
+and `SHA256SUMS`. A fresh download matched all 20 checksum entries, all ten
+default-branch publisher attestations, the direct tag-to-source binding, and all
+ten documented canonical-receipt checks. Only after those checks did the pin
+updater replace the authenticated V4 table with the published V5 tag and ten
+archive digests.
 
-1. Merge the reviewed v5 builder and publisher definitions to `main`, then
-   dispatch the read-only builder from that exact head.
-2. Require all ten jobs and the publisher's exact ten-handoff inventory to
-   pass. The default-branch publisher must create an immutable prerelease with
-   ten archives, ten retained Sigstore bundles, and `SHA256SUMS` (21 assets).
-3. Download that release; verify every checksum, all ten publisher-workflow
-   attestations, the direct tag-to-source commit binding, and every canonical
-   receipt, including the Android checks in the verification loop below.
-4. Only then run the pin updater with the verified v5 tag and `SHA256SUMS`.
-   Review the resulting one-file transition from the authenticated v4 tag and
-   nine-archive table to the authenticated v5 tag and ten-archive table.
-5. Exercise cold, warm, offline, mirror, local override, and Android cross-link
-   cases before landing the consumer-pin change. Use only the published v5
-   archive digest; the local candidate digest above is never substituted.
+Published-consumer qualification remains the delivery boundary for this pin
+transition: exercise cold, warm, offline, mirror, target-qualified local
+override, all-platform admission, and Android cross-link and Exact consumer
+cases. Use only the published V5 archive digests; the local candidate digest
+above is never substituted. Record those results separately before delivery.
 
 ## Required repository settings
 
@@ -453,18 +453,30 @@ attestation was checked with the publisher workflow certificate identity on
 `refs/heads/main`, `--source-ref refs/heads/main`, and both `--source-digest`
 and `--signer-digest` set to the full `321cc6d…` tag target above.
 
-### Current v4 publication (2026-10-06)
+### Current V5 publication (2026-10-13)
 
-The current consumer baseline used builder run
+The current consumer release used builder run
+[38474140055](https://github.com/expo/ibex/actions/runs/38474140055) and
+publisher run
+[38476099300](https://github.com/expo/ibex/actions/runs/38476099300), from
+`bf74e54c14ab80bdb4935411ed3a2bf77c2d86dc`. The published tag
+`hermes-vanilla-d412d3bd8512-v5` resolves directly to that commit. Immutable
+prerelease 412153148 has exactly ten archives, their ten retained Sigstore
+bundles, and `SHA256SUMS`; all 20 checksum entries, ten attestations, and ten
+canonical receipts passed the verification procedure below before the consumer
+pin updater ran.
+
+### Previous v4 publication (2026-10-06)
+
+The previous consumer baseline used builder run
 [37473711909](https://github.com/expo/ibex/actions/runs/37473711909) and
 publisher run
 [37485666347](https://github.com/expo/ibex/actions/runs/37485666347). Both ran
 from `69808486da780b44de89747dcfb4d225a06957e5`, and the published tag
 `hermes-vanilla-d412d3bd8512-v4` resolves directly to that commit. The
 immutable prerelease has exactly nine archives, their nine retained Sigstore
-bundles, and `SHA256SUMS`. The nine archive digests compiled into
-`hermes-lean-sys` equal the published asset digests. V5 must complete the same
-verification for all ten archives before it replaces that tag and pin table.
+bundles, and `SHA256SUMS`. Its nine archive digests were the consumer baseline
+until the verified V5 transition above.
 
 ## Recover a stuck draft
 
@@ -507,9 +519,8 @@ repository from satisfying this check.
 
 ```sh
 repo=expo/ibex
-# Use v4 to reverify the current consumer baseline. Change this to v5 only
-# after the staged publisher has created that immutable release.
-tag=hermes-vanilla-d412d3bd8512-v4
+# Reverify the current consumer baseline.
+tag=hermes-vanilla-d412d3bd8512-v5
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
@@ -582,7 +593,7 @@ rejects that pair.
 
 ## Consuming the bundles
 
-`hermes-lean-sys` is the supported consumer. It pins immutable v4 asset digests,
+`hermes-lean-sys` is the supported consumer. It pins immutable V5 asset digests,
 replaced from the published, attested `SHA256SUMS`. It resolves a complete
 `HERMES_LEAN_SYS_DIR` first, this repository's local platform install second,
 and the release bundle pinned for Cargo's exact target triple otherwise. Both
@@ -640,7 +651,7 @@ link lines exports these
 `LINKED_ICU_DATA_*` values. This is R-e: a process never reports one VM or
 data tier while linking another. Legacy local
 layouts may omit lean; they export no lean path, digest, or
-HBC version and fail only if `link-lean` is requested. Published v4 bundles
+HBC version and fail only if `link-lean` is requested. Published V5 bundles
 must carry and manifest all three ICU data archives. Repository discovery uses
 `ios/Frameworks-vanilla` only for macOS; tvOS device and Simulator installs
 use `tvos/Frameworks-vanilla` and `tvos-simulator/Frameworks-vanilla` so they
@@ -756,16 +767,15 @@ checks it against the runtime API.
 ## Bump consumer pins
 
 Only after completing every `gh attestation verify` command in the preceding
-section, update the target table from that same downloaded checksum file. For
-this transition, set `tag=hermes-vanilla-d412d3bd8512-v5` throughout the
-verification procedure; reverifying current v4 does not call the updater.
+section, update the target table from that same downloaded checksum file. V5's
+verified transition used `tag=hermes-vanilla-d412d3bd8512-v5` throughout.
 
 ```sh
 node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS" "$tag"
 ```
 
 The script requires the exact ten-archive and ten-Sigstore-bundle checksum
-inventory, requires the supplied tag to equal the staged publisher tag, and
+inventory, requires the supplied tag to equal the publisher tag, and
 rewrites the release tag and complete target table together. That adds the
 Android mapping and keeps the duplicate universal-simulator mappings
 consistent. Review the resulting source diff, then exercise cold-cache,
