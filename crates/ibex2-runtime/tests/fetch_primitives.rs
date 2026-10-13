@@ -882,8 +882,9 @@ fn follow_redirects_check_every_hop_against_the_grants() {
     );
     runtime.harden().unwrap();
     let result = run_probe(&mut runtime, &format!("{:?}", format!("{origin}/redirect")));
-    assert_eq!(result["follow"], "denied: net.fetch", "{result}");
-    assert_eq!(result["omitted"], "denied: net.fetch", "{result}");
+    let denied = "denied: net.fetch, redirected to http://127.0.0.1:1";
+    assert_eq!(result["follow"], denied, "{result}");
+    assert_eq!(result["omitted"], denied, "{result}");
     assert_eq!(result["manual"], "status 302", "{result}");
     assert!(
         result["error"]

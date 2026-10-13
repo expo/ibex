@@ -2118,7 +2118,10 @@ fn the_platform_does_not_launder_a_redirect_past_the_capability_check() {
     .unwrap();
     rt.pump_until(1);
 
-    assert_eq!(rt.eval("result").unwrap(), "denied: net.fetch");
+    assert_eq!(
+        rt.eval("result").unwrap(),
+        format!("denied: net.fetch, redirected to {}", ungranted.origin())
+    );
     assert_eq!(redirector.hits().len(), 1, "the first hop is granted");
     assert!(
         ungranted.hits().is_empty(),
