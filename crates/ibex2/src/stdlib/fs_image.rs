@@ -403,7 +403,9 @@ fn failed(detail: &str) -> HostError {
 fn source_error(error: HostError, control: &WorkControl) -> HostError {
     // This exact, internal reader marker is the source quota. Arbitrary I/O or
     // provider text containing these words must retain its original meaning.
-    if matches!(&error, HostError::Failed(text) if text == crate::stdlib::fs::RESULT_LIMIT) {
+    if matches!(&error, HostError::Failed(text)
+        if text.strip_prefix("filesystem: ") == Some(crate::stdlib::fs::RESULT_LIMIT))
+    {
         failed("too-large: the source is over 64 MiB")
     } else if !control.canceled() && Instant::now() >= control.deadline {
         failed("timeout: the source read ran past the trial deadline")
@@ -691,7 +693,7 @@ mod tests {
         assert_eq!(source_error(lookalike.clone(), &control), lookalike);
         assert_eq!(
             source_error(
-                HostError::Failed(crate::stdlib::fs::RESULT_LIMIT.into()),
+                HostError::Failed(format!("filesystem: {}", crate::stdlib::fs::RESULT_LIMIT)),
                 &control
             ),
             failed("too-large: the source is over 64 MiB")
