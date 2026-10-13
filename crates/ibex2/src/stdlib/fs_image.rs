@@ -216,7 +216,7 @@ impl WorkHandle {
         }
         if Instant::now() >= deadline {
             record.state = WorkState::Abandoned;
-            record.outcome = Some(Err(failed("deadline expired before publication")));
+            record.outcome = Some(Err(failed("timeout: deadline expired before publication")));
             return false;
         }
         record.state = WorkState::CommitStarted;
@@ -376,8 +376,10 @@ impl WorkControl {
     }
     /// Call BEFORE starting every decode/encode trial and between long-running chunks.
     pub fn check(&self) -> Result<(), HostError> {
-        if self.canceled() || Instant::now() >= self.deadline {
-            Err(failed("work abandoned or trial deadline expired"))
+        if self.canceled() {
+            Err(failed("work abandoned"))
+        } else if Instant::now() >= self.deadline {
+            Err(failed("timeout: the trial deadline expired"))
         } else {
             Ok(())
         }
@@ -397,6 +399,17 @@ pub struct ImageJob {
 }
 fn failed(detail: &str) -> HostError {
     HostError::Failed(format!("compressImage: {detail}"))
+}
+fn source_error(error: HostError, control: &WorkControl) -> HostError {
+    // This exact, internal reader marker is the source quota. Arbitrary I/O or
+    // provider text containing these words must retain its original meaning.
+    if matches!(&error, HostError::Failed(text) if text == crate::stdlib::fs::RESULT_LIMIT) {
+        failed("too-large: the source is over 64 MiB")
+    } else if !control.canceled() && Instant::now() >= control.deadline {
+        failed("timeout: the source read ran past the trial deadline")
+    } else {
+        error
+    }
 }
 fn bounded_error(error: HostError) -> HostError {
     fn bound(mut text: String) -> String {
@@ -495,11 +508,12 @@ impl ImageJob {
         control.check()?;
         // Pin the destination parent before provider work; no later namespace lookup retargets it.
         let target = self.directories.prepare_atomic(&self.grants, &self.to)?;
-        let source =
-            self.directories
-                .read_bounded(&self.grants, &self.from, MAX_SOURCE_BYTES, &|| {
-                    control.check().is_err()
-                })?;
+        let source = self
+            .directories
+            .read_bounded(&self.grants, &self.from, MAX_SOURCE_BYTES, &|| {
+                control.check().is_err()
+            })
+            .map_err(|error| source_error(error, &control))?;
         control.check()?;
         let image = self
             .service
@@ -641,6 +655,62 @@ mod tests {
         limits: WorkLimits,
     ) -> ImageService {
         ImageService::new(Arc::new(Codec(codec)), limits).unwrap()
+    }
+    #[test]
+    fn oversized_source_reports_image_quota_before_the_codec_and_keeps_the_target() {
+        let f = Fixture::new();
+        std::fs::File::create(f.path.join("tmp/in"))
+            .unwrap()
+            .set_len(MAX_SOURCE_BYTES + 1)
+            .unwrap();
+        let limits = WorkLimits::default();
+        let work = ImageWork::new(limits);
+        let service = service(|_, _| panic!("over-quota input reached codec"), limits);
+        let result = f.job(&work, &service).execute();
+        assert_eq!(result, Err(failed("too-large: the source is over 64 MiB")));
+        assert_eq!(f.output(), b"old");
+        assert_eq!(work.outstanding_workers(), 0);
+    }
+    #[test]
+    fn source_quota_and_deadlines_keep_distinct_stable_error_codes() {
+        let work = ImageWork::new(WorkLimits::default());
+        let (handle, _worker) = work.admit().unwrap();
+        assert!(handle.start());
+        let mut control = WorkControl {
+            handle: handle.clone(),
+            deadline: Instant::now() + Duration::from_secs(60),
+            limits: CodecLimits {
+                max_pixels: 1024,
+                max_scratch_bytes: 1024,
+            },
+        };
+        let lookalike = HostError::Failed(format!(
+            "unrelated detail: {}",
+            crate::stdlib::fs::RESULT_LIMIT
+        ));
+        assert_eq!(source_error(lookalike.clone(), &control), lookalike);
+        assert_eq!(
+            source_error(
+                HostError::Failed(crate::stdlib::fs::RESULT_LIMIT.into()),
+                &control
+            ),
+            failed("too-large: the source is over 64 MiB")
+        );
+        control.deadline = Instant::now();
+        assert_eq!(
+            control.check(),
+            Err(failed("timeout: the trial deadline expired"))
+        );
+        assert_eq!(
+            source_error(HostError::Failed("interrupted read".into()), &control),
+            failed("timeout: the source read ran past the trial deadline")
+        );
+        assert!(!handle.reserve_commit(control.deadline));
+        assert_eq!(
+            handle.take_outcome(),
+            Some(Err(failed("timeout: deadline expired before publication")))
+        );
+        assert_eq!(control.check(), Err(failed("work abandoned")));
     }
     #[test]
     fn provider_diagnostics_are_bounded_before_completion_retention() {
