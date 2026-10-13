@@ -158,9 +158,18 @@ fn owning_runtime_adopts_configured_storage_services_with_its_own_work_generatio
             AppDirectories::new(root.join("data"), root.join("cache"), root.join("tmp")).unwrap(),
         )
         .unwrap();
+    let (entered, waiting) = mpsc::channel();
+    let (release, blocked) = mpsc::channel();
     context
-        .set_image_codec(Arc::new(EchoCodec), WorkLimits::default())
+        .set_image_codec(
+            Arc::new(BlockedCodec {
+                entered,
+                release: Mutex::new(blocked),
+            }),
+            WorkLimits::default(),
+        )
         .unwrap();
+    let source_work = context.image_work().clone();
     context
         .set_storage_limits(ResultLimits { bytes: 1024 })
         .unwrap();
@@ -185,12 +194,18 @@ fn owning_runtime_adopts_configured_storage_services_with_its_own_work_generatio
         )
         .unwrap();
     runtime.run_entry("./index.js").unwrap();
+    // First deliver the read settlement so its continuation dispatches image work.
+    runtime.pump_until(1);
+    waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(source_work.outstanding_workers(), 0);
+    assert_eq!(source_work.pending_completions(), 0);
+    drop(context); // An adopted owner must survive source Context retirement.
+    release.send(()).unwrap();
     runtime.run_to_quiescence(Duration::from_secs(10));
     assert_eq!(runtime.eval("result").unwrap(), "8|1\t1\t7");
     assert_eq!(std::fs::read(root.join("data/out")).unwrap(), b"encoded");
-    assert_eq!(context.image_work().outstanding_workers(), 0);
-    assert_eq!(context.image_work().pending_completions(), 0);
+    assert_eq!(source_work.outstanding_workers(), 0);
+    assert_eq!(source_work.pending_completions(), 0);
     drop(runtime);
-    drop(context);
     std::fs::remove_dir_all(root).unwrap();
 }
