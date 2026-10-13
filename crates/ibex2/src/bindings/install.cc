@@ -2009,18 +2009,28 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
                   args[0].getObject(r).getFunction(r), args[1].getObject(r).getFunction(r)});
               return jsi::Value::undefined();
             });
-        auto ctor = r.global().getPropertyAsFunction(r, "Promise");
-        auto promise = ctor.callAsConstructor(r, executor);
+        jsi::Value promise;
+        try {
+          auto ctor = r.global().getPropertyAsFunction(r, "Promise");
+          promise = ctor.callAsConstructor(r, executor);
+          if (op == 121) {
+            set_native_state_once(r, promise.getObject(r),
+                std::make_shared<State::ImagePromiseOwner>(id, state),
+                "Image operation Promise");
+          }
+          if (op == 113 || op == 116)
+            promise = filesystem_promise(r, std::move(promise), op);
+        } catch (...) {
+          // A constructor can invoke the executor and then throw. Finish every
+          // fallible Promise/brand step before accepting a worker, and release
+          // any callbacks it registered when preparation fails.
+          state->pending.erase(id);
+          throw;
+        }
         if (ibex2_async_begin(state->queue, authority.get(), op, abi.data(), abi.size(), id) != 0) {
           state->pending.erase(id);
           throw jsi::JSError(r, "could not start the async operation");
         }
-        if (op == 121) {
-          set_native_state_once(r, promise.getObject(r),
-              std::make_shared<State::ImagePromiseOwner>(id, state),
-              "Image operation Promise");
-        }
-        if (op == 113 || op == 116) return filesystem_promise(r, std::move(promise), op);
         return promise;
       });
 }

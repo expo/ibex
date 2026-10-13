@@ -28,6 +28,82 @@ impl ImageCodec for EchoCodec {
         })
     }
 }
+struct CountingCodec(Arc<AtomicUsize>);
+impl ImageCodec for CountingCodec {
+    fn limits(&self) -> CodecLimits {
+        EchoCodec.limits()
+    }
+    fn encode(
+        &self,
+        source: &[u8],
+        request: ImageRequest,
+        control: &WorkControl,
+    ) -> Result<CompressedImage, HostError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        EchoCodec.encode(source, request, control)
+    }
+}
+#[test]
+fn borrowed_image_promise_preparation_failure_never_dispatches_or_roots_callbacks() {
+    // Replacing Promise is deliberately possible only in this unhardened
+    // exception-atomicity fixture; this makes no unhardened security claim.
+    for (constructor_tail, expected, retained_owners) in [
+        (
+            "globalThis.rejectedImagePromise={}; promiseRootProbe(rejectedImagePromise); return rejectedImagePromise;",
+            "cannot replace an existing native owner",
+            1,
+        ),
+        ("throw Error('constructor failed after executor');", "constructor failed after executor", 0),
+    ] {
+        let consumer = Consumer::configured("fs.read app:/\nfs.write app:/", false);
+        let calls = Arc::new(AtomicUsize::new(0));
+        consumer
+            .context
+            .set_image_codec(Arc::new(CountingCodec(calls.clone())), WorkLimits::default())
+            .unwrap();
+        std::fs::write(consumer.directory.join("tmp/in"), b"new").unwrap();
+        std::fs::write(consumer.directory.join("data/out"), b"old").unwrap();
+        assert_eq!(
+            unsafe { storage_consumer_install_promise_root_probe(consumer.handle) },
+            1
+        );
+        let result = consumer
+            .eval(&format!(
+                "(function() {{
+                  const OriginalPromise=Promise;
+                  globalThis.Promise=function(executor) {{
+                    const resolve=function() {{}}, reject=function() {{}};
+                    promiseRootProbe(resolve); promiseRootProbe(reject);
+                    executor(resolve,reject);
+                    {constructor_tail}
+                  }};
+                  try {{
+                    storage.fs.compressImage('app:/tmp/in','app:/data/out',16,64);
+                    return 'unexpected admission';
+                  }} catch(e) {{ return String(e); }}
+                  finally {{ globalThis.Promise=OriginalPromise; }}
+                }})()"
+            ))
+            .unwrap();
+        assert!(result.contains(expected), "{result}");
+        assert_eq!(consumer.context.in_flight(), 0);
+        assert_eq!(consumer.context.image_work().outstanding_workers(), 0);
+        assert_eq!(consumer.context.image_work().pending_completions(), 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(std::fs::read(consumer.directory.join("data/out")).unwrap(), b"old");
+        assert_eq!(unsafe { storage_consumer_collect_garbage(consumer.handle) }, 1);
+        assert_eq!(
+            unsafe { storage_consumer_promise_probe_roots(consumer.handle) },
+            retained_owners,
+            "failed construction must release both executor callbacks"
+        );
+        // The preexisting native owner is preserved until the caller drops its
+        // object; no image brand displaces it and no pending callback holds it.
+        consumer.eval("globalThis.rejectedImagePromise=null").unwrap();
+        assert_eq!(unsafe { storage_consumer_collect_garbage(consumer.handle) }, 1);
+        assert_eq!(unsafe { storage_consumer_promise_probe_roots(consumer.handle) }, 0);
+    }
+}
 #[test]
 fn borrowed_storage_uses_the_same_codec_and_retires_completion_on_delivery() {
     let consumer = Consumer::new("fs.read app:/\nfs.write app:/");

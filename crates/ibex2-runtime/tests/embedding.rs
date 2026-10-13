@@ -113,6 +113,10 @@ extern "C" {
         value_owner: *mut c_void,
         name: *const c_char,
     ) -> u64;
+    #[cfg(unix)]
+    fn storage_consumer_install_promise_root_probe(value_owner: *mut c_void) -> i32;
+    #[cfg(unix)]
+    fn storage_consumer_promise_probe_roots(value_owner: *mut c_void) -> usize;
     fn storage_consumer_eval(
         h: *mut c_void,
         data: *const u8,

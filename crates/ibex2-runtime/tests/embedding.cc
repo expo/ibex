@@ -26,6 +26,14 @@ struct Consumer {
   std::unique_ptr<jsi::Runtime> runtime;
   std::unique_ptr<ibex2::jsi_adapter::Adapter> adapter;
   const void *queue = nullptr;
+  std::shared_ptr<size_t> promise_probe_roots = std::make_shared<size_t>(0);
+};
+struct PromiseProbeRoot final : jsi::NativeState {
+  std::shared_ptr<size_t> count;
+  explicit PromiseProbeRoot(std::shared_ptr<size_t> value) : count(std::move(value)) {
+    ++*count;
+  }
+  ~PromiseProbeRoot() override { --*count; }
 };
 uint32_t bytecode_version() {
   auto *root = jsi::castInterface<facebook::hermes::IHermesRootAPI>(
@@ -303,6 +311,32 @@ uint64_t storage_consumer_detached_image_task_id(void *value_owner, const char *
   auto value = rt.global().getProperty(rt, name);
   c->adapter->detach();
   return c->adapter->image_task_id(rt, value);
+}
+// Unhardened fault-injection only: count actual native owners attached to the
+// replacement constructor's callbacks and returned object across collection.
+int storage_consumer_install_promise_root_probe(void *value_owner) {
+  auto *c = static_cast<Consumer *>(value_owner);
+  auto &rt = *c->runtime;
+  try {
+    auto probe = jsi::Function::createFromHostFunction(
+        rt, jsi::PropNameID::forAscii(rt, "promiseRootProbe"), 1,
+        [count = c->promise_probe_roots](jsi::Runtime &r, const jsi::Value &,
+                                       const jsi::Value *args, size_t argc) {
+          if (argc != 1 || !args[0].isObject())
+            throw jsi::JSError(r, "promise probe requires an object");
+          ibex2::jsi_adapter::set_native_state_once(
+              r, args[0].getObject(r), std::make_shared<PromiseProbeRoot>(count),
+              "Promise root probe");
+          return jsi::Value::undefined();
+        });
+    rt.global().setProperty(rt, "promiseRootProbe", std::move(probe));
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+size_t storage_consumer_promise_probe_roots(void *value_owner) {
+  return *static_cast<Consumer *>(value_owner)->promise_probe_roots;
 }
 
 int storage_consumer_eval(void *h, const uint8_t *bytes, size_t len, char **out) {
