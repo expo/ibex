@@ -84,7 +84,7 @@ backend; v4 adds no packaged Windows ICU archive.
 | `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
 | `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | v4 published; v5 staged |
 | `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | v4 published; v5 staged |
-| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `macos-15-xlarge`, NDK 27.1.12297006 | `min-size-release` | absent from v4; v5 staged |
+| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `ubuntu-24.04`, NDK 27.1.12297006 | `min-size-release` | absent from v4; v5 staged |
 | `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | v4 published; v5 staged |
 
 The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
@@ -100,8 +100,8 @@ Its Unicode backend is a static ICU 74 with the trimmed root-en data, as the
 Linux bundles carry; it has no `Intl`. Hermes's `hermes.cpp` includes fbjni only
 to attach a JVM thread, so the build puts a no-op `ThreadScope` header
 (`scripts/android-fbjni-shim/`) on the include path; its digest is in the
-receipt. Immutable v4 cannot acquire it. The v5 read-only builder selects NDK
-27.1.12297006, installs that exact SDK package with unprivileged `sdkmanager`
+receipt. Immutable v4 cannot acquire it. The v5 read-only Ubuntu builder selects
+NDK 27.1.12297006, installs that exact SDK package with unprivileged `sdkmanager`
 when absent, and verifies `source.properties` before building. Until v5 is
 published and verified, a consumer points
 `HERMES_LEAN_SYS_DIR_aarch64_linux_android` at a local install (below).
@@ -115,8 +115,18 @@ standard pool. On 2026-10-05 the v3 build's standard `macos-15` jobs waited
 about two hours behind an organization-wide queue and one was cancelled before
 it received a runner; a probe on 2026-10-06 started both larger labels within
 seconds. They use the same macOS 15 image family and Xcode as the standard
-labels. The Android job also uses `macos-15-xlarge`, with the exact NDK selected
-above. Linux and Windows jobs keep the standard hosted runners.
+labels. Linux, Android, and Windows use standard hosted runners. The Android job
+uses `ubuntu-24.04`; it takes the SDK root from `ANDROID_SDK_ROOT` or
+`ANDROID_HOME`, defaults to the hosted image's `/usr/local/lib/android/sdk`, and
+accepts the conventional `$HOME/Android/Sdk` fallback used by Linux builders.
+
+The first v5 Android job on 2026-10-13 used `macos-15-xlarge` and stopped before
+the build because that runner exposed neither SDK-root variable to the step. The
+corrected Ubuntu job resolves the SDK explicitly, prefers its absolute
+`cmdline-tools/latest/bin/sdkmanager` and falls back to `PATH`, then requires the
+NDK's CMake toolchain and exact `source.properties` revision. Changing the build
+host does not change the Android target, API 30, static C++ runtime, receipt, or
+read-only handoff boundary.
 
 ## Local Android candidate evidence (2026-10-13)
 

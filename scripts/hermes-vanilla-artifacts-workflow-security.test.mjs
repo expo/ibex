@@ -474,11 +474,16 @@ test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targe
 
 test("Android is an exact NDK-pinned release target with an inert authenticated handoff", () => {
   const android = jobBlocks(builderWorkflow).get("android_arm64");
-  assert.match(android, /^    runs-on: macos-15-xlarge$/m);
+  assert.match(android, /^    runs-on: ubuntu-24\.04$/m);
+  assert.match(android, /ANDROID_SDK_ROOT:-\$\{ANDROID_HOME:-\/usr\/local\/lib\/android\/sdk\}/);
+  assert.match(android, /! -d "\$android_sdk" && -d "\$HOME\/Android\/Sdk"/);
+  assert.match(android, /Android SDK root not found at \$android_sdk/);
   assert.match(android, /android_ndk="\$android_sdk\/ndk\/27\.1\.12297006"/);
-  assert.match(android, /sdkmanager="\$\(command -v sdkmanager\)"/);
+  assert.match(android, /sdkmanager="\$android_sdk\/cmdline-tools\/latest\/bin\/sdkmanager"/);
+  assert.match(android, /sdkmanager="\$\(command -v sdkmanager \|\| true\)"/);
+  assert.match(android, /sdkmanager not found at \$android_sdk\/cmdline-tools\/latest\/bin\/sdkmanager or on PATH/);
   assert.match(android, /--install 'ndk;27\.1\.12297006' < <\(yes\)/);
-  assert.match(android, /test -f "\$android_ndk\/build\/cmake\/android\.toolchain\.cmake"/);
+  assert.match(android, /Android NDK 27\.1\.12297006 is missing its CMake toolchain at \$android_ndk/);
   assert.ok(android.includes("grep -Eq '^Pkg\\.Revision[[:space:]]*=[[:space:]]*27\\.1\\.12297006$'"));
   assert.doesNotMatch(android, /sudo|brew install/);
   assert.match(android, /ANDROID_NDK_HOME=%s/);

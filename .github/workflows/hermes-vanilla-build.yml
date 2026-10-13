@@ -411,7 +411,7 @@ jobs:
 
   android_arm64:
     name: Build Android arm64 dual-VM bundle
-    runs-on: macos-15-xlarge
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
       contents: read
@@ -430,15 +430,31 @@ jobs:
       - name: Select pinned Android NDK
         run: |
           set -euo pipefail
-          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          test -n "$android_sdk"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          if [[ ! -d "$android_sdk" && -d "$HOME/Android/Sdk" ]]; then
+            android_sdk="$HOME/Android/Sdk"
+          fi
+          if [[ ! -d "$android_sdk" ]]; then
+            echo "::error::Android SDK root not found at $android_sdk; set ANDROID_SDK_ROOT or ANDROID_HOME" >&2
+            exit 1
+          fi
           android_ndk="$android_sdk/ndk/27.1.12297006"
           if [[ ! -f "$android_ndk/build/cmake/android.toolchain.cmake" ]]; then
-            sdkmanager="$(command -v sdkmanager)"
+            sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+            if [[ ! -x "$sdkmanager" ]]; then
+              sdkmanager="$(command -v sdkmanager || true)"
+            fi
+            if [[ -z "$sdkmanager" || ! -x "$sdkmanager" ]]; then
+              echo "::error::sdkmanager not found at $android_sdk/cmdline-tools/latest/bin/sdkmanager or on PATH" >&2
+              exit 1
+            fi
             "$sdkmanager" --sdk_root="$android_sdk" \
               --install 'ndk;27.1.12297006' < <(yes)
           fi
-          test -f "$android_ndk/build/cmake/android.toolchain.cmake"
+          if [[ ! -f "$android_ndk/build/cmake/android.toolchain.cmake" ]]; then
+            echo "::error::Android NDK 27.1.12297006 is missing its CMake toolchain at $android_ndk" >&2
+            exit 1
+          fi
           grep -Eq '^Pkg\.Revision[[:space:]]*=[[:space:]]*27\.1\.12297006$' \
             "$android_ndk/source.properties"
           printf 'ANDROID_NDK_HOME=%s\n' "$android_ndk" >> "$GITHUB_ENV"
