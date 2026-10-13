@@ -63,7 +63,7 @@ struct Recorded {
     ended: AtomicUsize,
     metrics: Mutex<Vec<(String, HopMetrics)>>,
     /// Next hops held back, to start by hand.
-    held: Mutex<Option<Vec<Box<dyn FnOnce() + Send>>>>,
+    held: Mutex<Option<Vec<Job>>>,
     /// Run at a hop's end, as a caller's re-entrant abort would.
     on_end: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }

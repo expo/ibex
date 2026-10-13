@@ -711,6 +711,16 @@ pub fn resolve_sqlite(
     }
 }
 
+pub(crate) struct AtomicTarget {
+    parent: File,
+    leaf: String,
+}
+impl AtomicTarget {
+    pub(crate) fn write(self, data: &[u8]) -> Result<(), HostError> {
+        atomic(&self.parent, &self.leaf, data).map_err(error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1039,15 +1049,5 @@ mod tests {
         );
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/cache/db").is_err());
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/data/../cache/db").is_err());
-    }
-}
-
-pub(crate) struct AtomicTarget {
-    parent: File,
-    leaf: String,
-}
-impl AtomicTarget {
-    pub(crate) fn write(self, data: &[u8]) -> Result<(), HostError> {
-        atomic(&self.parent, &self.leaf, data).map_err(error)
     }
 }

@@ -411,6 +411,10 @@ fn bounded_error(error: HostError) -> HostError {
     match error {
         HostError::Failed(text) => HostError::Failed(bound(text)),
         HostError::InvalidArgument(text) => HostError::InvalidArgument(bound(text)),
+        HostError::DeniedRedirect { capability, origin } => HostError::DeniedRedirect {
+            capability,
+            origin: bound(origin),
+        },
         other => other,
     }
 }
@@ -657,6 +661,27 @@ mod tests {
                 .len()
                 <= MAX_ERROR_BYTES
         );
+        assert_eq!(f.output(), b"old");
+        // The provider can return any HostError variant. Its redirect-origin
+        // string is retained just like an ordinary failure's diagnostic.
+        let codec = service(
+            |_, _| {
+                Err(HostError::DeniedRedirect {
+                    capability: "net.fetch",
+                    origin: "😀".repeat(8192),
+                })
+            },
+            limits,
+        );
+        let job = f.job(&work, &codec);
+        let handle = job.handle();
+        assert!(job.execute().is_err());
+        let HostError::DeniedRedirect { origin, .. } = handle.take_outcome().unwrap().unwrap_err()
+        else {
+            panic!("provider error classification changed")
+        };
+        assert!(origin.len() <= MAX_ERROR_BYTES);
+        assert!(origin.capacity() <= MAX_ERROR_BYTES);
         assert_eq!(f.output(), b"old");
     }
     #[test]
