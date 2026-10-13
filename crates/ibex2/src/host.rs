@@ -10,8 +10,9 @@
 //! list, as a struct — and a request is checked against the grant the binding
 //! carries, never against who is calling.
 //!
-//! Synchronous, deliberately. These are the primitives; an executor is the
-//! consumer's, and a runner with its own loop puts them on its own workers.
+//! Blocking primitives and callback networking leave execution to the consumer.
+//! Tracked image jobs reserve bounded work before dispatch; owned handles expose
+//! cancellation separately from native retirement and completion collection.
 //!
 //! @ref LLP 0068#1-the-shape — bindings that carry their grant
 //! @ref LLP 0067#3-the-check — one chokepoint, the grant the binding carries
@@ -27,9 +28,10 @@ use crate::stdlib::fetch::{self, Request, Response, Transport};
 use crate::stdlib::fs::{self, FsOp, FsResult, Stat};
 use crate::stdlib::websocket::{self, MessageSource, SocketTransport};
 
-/// The host: the platform's transport, its secret store, and its kv store,
-/// and nothing else. One per process is the expected shape; it is the
-/// analogue of the runtime, without an engine.
+/// The engine-free host endowment: transports, secret/KV stores, optional app
+/// directories and SQLite/document/image providers, and storage/work budgets.
+/// Services are selected before endowing a consumer; grants travel with each
+/// resulting binding. Executors remain consumer-owned.
 pub struct Host {
     transport: Arc<dyn Transport>,
     sockets: Arc<dyn SocketTransport>,
@@ -478,10 +480,10 @@ impl Fetch {
     }
 }
 
-/// `fs`, carrying its grant. Paths are absolute, normalized lexically and
-/// checked as spelt and as the filesystem will really resolve them
-/// (LLP 0067 §3); a two-path operation needs read on the source and write on
-/// the destination.
+/// `fs`, carrying its grant. Native, app and chosen-document namespaces stay
+/// distinct. Optional providers and retained directory capabilities are shared
+/// by the Rust and JSI doors; every provider access follows grant admission.
+/// Bounded image jobs add owned cancellation/publication and retirement handles.
 #[derive(Clone)]
 pub struct Fs {
     grants: Arc<GrantSet>,

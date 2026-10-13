@@ -153,6 +153,7 @@ fn components(path: &str) -> Result<Vec<&str>, DocumentError> {
     let tail = path
         .strip_prefix(DOCUMENT_PREFIX)
         .ok_or_else(|| DocumentError::new(DocumentErrorKind::InvalidPath))?;
+    let tail = tail.strip_suffix('/').unwrap_or(tail);
     validate_relative(tail, false)?;
     Ok(tail.split('/').collect())
 }

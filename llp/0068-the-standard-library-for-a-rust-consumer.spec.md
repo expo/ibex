@@ -57,15 +57,18 @@ let bytes    = app.fs.read_file("/data/things.json")?;            // checked as 
 let home     = app.env.get("HOME");                               // None if not granted: absent, not refused
 ```
 
-`Host` is the runtime without an engine: the platform transport, the secret
-store, the kv store, and nothing else. `endow` is instantiation:
+`Host` is the runtime without an engine: selected transports, secret and KV
+stores, optional app directories, SQLite/document/image providers, and their
+storage/work limits. `endow` is instantiation:
 `Bindings { fetch, websocket, fs, env, secrets, kv, sqlite }` (WebSocket is LLP 0059.000 §3.12; secrets and kv are LLP 0069 and LLP 0070; SQLite is LLP 0059.000 §3.15) is the module parameter list as a struct, each binding holding an
 `Arc` of the grant set for its whole life. A binding handed from one consumer to another carries the
 first's authority, as LLP 0067 §3 says a JavaScript binding does. A consumer
 granted nothing holds bindings that refuse — not absent bindings — so the
 failure is a denial rather than a panic.
 
-`Fs` offers the eleven operations the JavaScript `fs` has, with the same rules:
+`Fs` offers the ordinary filesystem operations and prepares tracked image
+jobs through the same implementation as JavaScript `fs.compressImage`
+(LLP 0068.001). Ordinary native paths retain the same rules:
 absolute paths, normalized lexically and checked as spelt and as the
 filesystem will really resolve them; read on the source and write on the
 destination for `rename` and `copy_file`, plus source write for `rename`. `Env` is the snapshot LLP 0059.000
@@ -96,19 +99,38 @@ directory handles (LLP 0059.000 §3.11, §3.15).
 
 ## 2. Synchronous, and why
 
-The primitives block. An executor is the consumer's: a runner with its own
-loop — Exact 2's has a seekable clock and a data seam — puts them on its own
-workers, or wraps them in whatever future type it already uses. Ibex 2 does
-not pick an async runtime for a consumer, and does not ship timers here,
-because the consumer's clock is its own. The JavaScript path's task queue
-(`task.rs`) is the engine's executor, not a general one.
+Blocking primitives remain available, and the executor is the consumer's:
+a runner with its own loop puts file operations and prepared image jobs on
+its own workers. Callback HTTP (LLP 0068.000) adds an executor-neutral async
+transport seam without choosing an async runtime or moving application
+scheduling into Ibex. The JavaScript task queue (`task.rs`) remains its
+adapter's executor, not a general scheduler for Rust consumers.
 
 `Fetch::stream(request, &signal)` returns headers and an owned, demand-driven
 `StreamingResponse`. Read its body into caller-provided byte slices, collect it,
-or drop it to close an unread request. `stdlib::abort::AbortController::abort`
-interrupts the native request through its signal, including blocked header and
-body reads. Buffered `send`/`get` collect this same transport path; origin grants
-are checked on every redirect. Cancellation introduces no Rust timer or runtime.
+or drop it to close an unread request. Buffered `send`/`get` use that same
+path. `Fetch::start_async` carries the endowed grants through callback
+networking; transports and consumers use LLP 0068.000's separate accepted
+activation, terminal outcome, physical hop retirement, and upload-release
+signals. Blocking and async redirect/grant semantics share the Rust policy.
+
+Chosen documents resolve at execution through an optional `Documents` service,
+after logical grant admission. Retained `DocumentLease` handles and guards
+outlive the actual native work. `Host::with_documents` and
+`Context::set_documents` install the same service once per endowment. The
+provider owns picker/session policy; no physical path reaches guest errors.
+`ResultLimits` can tighten the 16 MiB storage envelope, while explicit Rust
+bounded reads choose a raw-byte ceiling and check cancellation between chunks.
+
+`Host::with_image_codec`/`Context::set_image_codec` install a codec with declared
+decoded-pixel/scratch bounds and work limits. `Fs::prepare_image` reserves a
+worker plus completion slot before the consumer dispatches its `ImageJob`.
+Its owned handle reports Abandoned, CommitStarted, or the retained terminal
+outcome; confirmed abandonment prevents target publication. Worker retirement
+and completion collection release distinct charges. Context destruction
+abandons uncommitted work and drops guest delivery while native workers keep
+their leases until returning. No guest AbortSignal semantics are promised for
+compression; the embedder owns those work handles (LLP 0068.001).
 
 `Bindings::websocket.open` preserves the original blocking receive API.
 `Bindings::websocket.watch` adds the executor-neutral event path: it returns a

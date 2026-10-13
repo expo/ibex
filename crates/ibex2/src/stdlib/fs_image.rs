@@ -16,6 +16,8 @@ use std::{
 
 pub const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 pub const TRIAL_BUDGET: Duration = Duration::from_secs(20);
+/// Retained provider diagnostics cannot make completion records unbounded.
+pub const MAX_ERROR_BYTES: usize = 4096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompressedImage {
     pub bytes: Vec<u8>,
@@ -396,6 +398,22 @@ pub struct ImageJob {
 fn failed(detail: &str) -> HostError {
     HostError::Failed(format!("compressImage: {detail}"))
 }
+fn bounded_error(error: HostError) -> HostError {
+    fn bound(mut text: String) -> String {
+        let mut end = MAX_ERROR_BYTES.min(text.len());
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.shrink_to_fit();
+        text
+    }
+    match error {
+        HostError::Failed(text) => HostError::Failed(bound(text)),
+        HostError::InvalidArgument(text) => HostError::InvalidArgument(bound(text)),
+        other => other,
+    }
+}
 impl ImageJob {
     #[allow(clippy::too_many_arguments)]
     pub fn prepare(
@@ -407,6 +425,9 @@ impl ImageJob {
         to: &str,
         request: ImageRequest,
     ) -> Result<Self, HostError> {
+        if from.len() > 32_768 || to.len() > 32_768 {
+            return Err(failed("image path exceeds its bound"));
+        }
         crate::boundary::admit(&grants, &Operation::FsRead { path: from.into() })?;
         crate::boundary::admit(&grants, &Operation::FsWrite { path: to.into() })?;
         let service = service.ok_or_else(|| failed("unsupported: no image codec"))?;
@@ -458,7 +479,7 @@ impl ImageJob {
         }
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.perform(observer)))
-                .unwrap_or_else(|_| Err(failed("codec panicked")));
+                .unwrap_or_else(|_| Err(failed("image provider or commit observer panicked")));
         self.handle.settle(outcome)
     }
     fn perform(&self, observer: impl FnOnce(WorkId)) -> WorkOutcome {
@@ -476,7 +497,11 @@ impl ImageJob {
                     control.check().is_err()
                 })?;
         control.check()?;
-        let image = self.service.codec.encode(&source, self.request, &control)?;
+        let image = self
+            .service
+            .codec
+            .encode(&source, self.request, &control)
+            .map_err(bounded_error)?;
         drop(source);
         let pixels = u64::from(image.width)
             .checked_mul(u64::from(image.height))
@@ -612,6 +637,27 @@ mod tests {
         limits: WorkLimits,
     ) -> ImageService {
         ImageService::new(Arc::new(Codec(codec)), limits).unwrap()
+    }
+    #[test]
+    fn provider_diagnostics_are_bounded_before_completion_retention() {
+        let f = Fixture::new();
+        let limits = WorkLimits::default();
+        let work = ImageWork::new(limits);
+        let codec = service(|_, _| Err(HostError::Failed("😀".repeat(8192))), limits);
+        let job = f.job(&work, &codec);
+        let handle = job.handle();
+        let error = job.execute().unwrap_err();
+        assert!(error.to_string().len() <= MAX_ERROR_BYTES);
+        assert!(
+            handle
+                .take_outcome()
+                .unwrap()
+                .unwrap_err()
+                .to_string()
+                .len()
+                <= MAX_ERROR_BYTES
+        );
+        assert_eq!(f.output(), b"old");
     }
     #[test]
     fn codec_and_publication_observer_panics_settle_and_release_workers() {
