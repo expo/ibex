@@ -178,12 +178,24 @@ impl WorkHandle {
     /// A running worker retains its independent worker/memory charge.
     pub fn discard(&self) {
         if let Some(registry) = self.0.registry.upgrade() {
-            let removed = registry
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .work
-                .remove(&self.id().sequence);
+            let mut state = registry.state.lock().unwrap_or_else(|e| e.into_inner());
+            let (charged, retired) = match state.work.get_mut(&self.id().sequence) {
+                Some(entry) => {
+                    let charged = entry.completion;
+                    entry.completion = false;
+                    (charged, !entry.worker)
+                }
+                None => (false, false),
+            };
+            if charged {
+                state.completions -= 1;
+            }
+            let removed = if retired {
+                state.work.remove(&self.id().sequence)
+            } else {
+                None
+            };
+            drop(state);
             drop(removed);
         }
     }
@@ -227,7 +239,13 @@ struct RegistryState {
     next: u64,
     workers: usize,
     closed: bool,
-    work: HashMap<u64, WorkHandle>,
+    completions: usize,
+    work: HashMap<u64, Entry>,
+}
+struct Entry {
+    handle: WorkHandle,
+    completion: bool,
+    worker: bool,
 }
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
@@ -235,11 +253,14 @@ pub struct ImageWork(Arc<Registry>);
 impl ImageWork {
     pub fn new(limits: WorkLimits) -> Self {
         Self(Arc::new(Registry {
-            generation: GENERATION.fetch_add(1, Ordering::Relaxed),
+            generation: GENERATION
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+                .expect("image owner identity exhausted"),
             limits,
             state: Mutex::new(RegistryState {
                 next: 1,
                 workers: 0,
+                completions: 0,
                 closed: false,
                 work: HashMap::new(),
             }),
@@ -257,8 +278,7 @@ impl ImageWork {
             .state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .work
-            .len()
+            .completions
     }
     pub fn handles(&self) -> Vec<WorkHandle> {
         self.0
@@ -267,24 +287,25 @@ impl ImageWork {
             .unwrap_or_else(|e| e.into_inner())
             .work
             .values()
-            .cloned()
+            .map(|entry| entry.handle.clone())
             .collect()
     }
     pub fn close(&self) {
         let handles = {
             let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
             state.closed = true;
+            state.completions = 0;
             std::mem::take(&mut state.work)
         };
-        for (_, handle) in handles {
-            handle.cancel();
+        for (_, entry) in handles {
+            entry.handle.cancel();
         }
     }
     fn admit(&self) -> Result<(WorkHandle, Worker), HostError> {
         let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.closed
             || state.workers >= self.0.limits.workers
-            || state.work.len() >= self.0.limits.completions
+            || state.completions >= self.0.limits.completions
         {
             return Err(failed("work capacity unavailable"));
         }
@@ -305,18 +326,34 @@ impl ImageWork {
             registry: Arc::downgrade(&self.0),
         }));
         state.workers += 1;
-        state.work.insert(sequence, handle.clone());
-        Ok((handle, Worker(self.0.clone())))
+        state.completions += 1;
+        state.work.insert(
+            sequence,
+            Entry {
+                handle: handle.clone(),
+                completion: true,
+                worker: true,
+            },
+        );
+        Ok((handle, Worker(self.0.clone(), sequence)))
     }
 }
-struct Worker(Arc<Registry>);
+struct Worker(Arc<Registry>, u64);
 impl Drop for Worker {
     fn drop(&mut self) {
-        self.0
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .workers -= 1;
+        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.workers -= 1;
+        let discarded = state.work.get_mut(&self.1).is_some_and(|entry| {
+            entry.worker = false;
+            !entry.completion
+        });
+        let removed = if discarded {
+            state.work.remove(&self.1)
+        } else {
+            None
+        };
+        drop(state);
+        drop(removed);
     }
 }
 /// Cooperative provider view; no paths, destination, grants or JSI values.
@@ -347,13 +384,14 @@ impl WorkControl {
 /// A bounded admission created before dispatch. Dropping it before execution abandons it.
 pub struct ImageJob {
     handle: WorkHandle,
-    worker: Option<Worker>,
     service: ImageService,
     directories: Arc<AppDirectories>,
     grants: Arc<GrantSet>,
     from: String,
     to: String,
     request: ImageRequest,
+    // Last: accounting retires only after provider/leases/owned allocations drop.
+    worker: Option<Worker>,
 }
 fn failed(detail: &str) -> HostError {
     HostError::Failed(format!("compressImage: {detail}"))
@@ -414,16 +452,14 @@ impl ImageJob {
     }
     /// Trusted native instrumentation after the publication decision, before its write.
     /// Runs outside every state lock; cancellation at this point reports CommitStarted.
-    pub fn execute_with_commit_observer(mut self, observer: impl FnOnce(WorkId)) -> WorkOutcome {
+    pub fn execute_with_commit_observer(self, observer: impl FnOnce(WorkId)) -> WorkOutcome {
         if !self.handle.start() {
             return self.handle.take_snapshot();
         }
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.perform(observer)))
                 .unwrap_or_else(|_| Err(failed("codec panicked")));
-        let outcome = self.handle.settle(outcome);
-        drop(self.worker.take());
-        outcome
+        self.handle.settle(outcome)
     }
     fn perform(&self, observer: impl FnOnce(WorkId)) -> WorkOutcome {
         let control = WorkControl {
@@ -620,6 +656,37 @@ mod tests {
         assert!(handle.take_outcome().unwrap().is_err());
         assert_eq!(work.pending_completions(), 0);
         assert_eq!(f.output(), b"old");
+    }
+    #[test]
+    fn discarding_delivery_does_not_lose_teardown_authority_over_a_running_worker() {
+        let f = Fixture::new();
+        let limits = WorkLimits::default();
+        let work = ImageWork::new(limits);
+        let (entered, waiting) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        let blocked = Mutex::new(blocked);
+        let service = service(
+            move |source, control| {
+                entered.send(()).unwrap();
+                blocked.lock().unwrap().recv().unwrap();
+                encoded(source, control)
+            },
+            limits,
+        );
+        let job = f.job(&work, &service);
+        let handle = job.handle();
+        let thread = std::thread::spawn(move || job.execute());
+        waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+        handle.discard();
+        assert_eq!(work.pending_completions(), 0);
+        assert_eq!(work.handles().len(), 1);
+        work.close();
+        assert_eq!(handle.state(), WorkState::Abandoned);
+        assert_eq!(work.outstanding_workers(), 1);
+        release.send(()).unwrap();
+        assert!(thread.join().unwrap().is_err());
+        assert_eq!(f.output(), b"old");
+        assert_eq!(work.outstanding_workers(), 0);
     }
     #[test]
     fn running_abandonment_prevents_late_publication_and_a_stalled_codec_keeps_capacity() {
