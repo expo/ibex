@@ -87,6 +87,12 @@ fn main() {
         .unwrap_or_else(|error| panic!("cannot inspect selected Hermes compiler: {error}"));
     metadata("include_dir", &install.include_dir.display().to_string());
     metadata("hermesc_path", &install.hermesc.display().to_string());
+    // @ref LLP 0068.002#2-patch-disposition — consumers use the compiler from
+    // this resolution, including the authenticated host half of a cross build.
+    println!(
+        "cargo:rustc-env=HERMES_LEAN_HERMESC_PATH={}",
+        install.hermesc.display()
+    );
     metadata("lib_root", &install.lib_root.display().to_string());
     metadata("archive", &install.vm_archive.display().to_string());
     metadata("engine_digest", &engine_digest);

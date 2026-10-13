@@ -119,6 +119,13 @@ executor. No async runtime enters the crate.
 
 ## 3. No engine in the process
 
+`hermes-lean-sys::HERMESC_PATH` exposes the paired host compiler to Rust
+consumers and build scripts, alongside its existing Cargo metadata. Both
+come from the same resolver; cross builds still authenticate a host compiler
+compatible with the selected target VM. The lean-embedding proof compiles its
+fixture through this public constant. Exact's explicit stub build remains a
+consumer adaptation, not an engine mode in Ibex (LLP 0068.002 §2).
+
 `ibex2` has no engine feature and always links no VM. Its `bindings` feature is
 off by default and adds only the JSI installer and precompiled binding inputs;
 the caller provides the engine. `cargo test -p ibex2 --no-default-features` runs the

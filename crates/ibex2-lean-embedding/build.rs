@@ -28,7 +28,7 @@ fn main() {
     );
 
     let app_bytecode = PathBuf::from(required("OUT_DIR")).join("lean-app.hbc");
-    let status = std::process::Command::new(required_path("DEP_HERMES_LEAN_HERMESC_PATH"))
+    let status = std::process::Command::new(hermes_lean_sys::HERMESC_PATH)
         .args(["-emit-binary", "-O", "-Xes6-block-scoping", "-out"])
         .arg(&app_bytecode)
         .arg(Path::new("tests/app.js"))
