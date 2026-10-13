@@ -441,6 +441,11 @@ pub struct RuntimeState {
     /// An owning engine keeps its own queue and adopts the host-selected
     /// mechanisms exactly once. OnceLock makes the borrowed reference returned
     /// by transport() stable for the runtime's lifetime.
+    documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
+    image_service: std::sync::OnceLock<crate::stdlib::fs_image::ImageService>,
+    image_work: std::sync::OnceLock<crate::stdlib::fs_image::ImageWork>,
+    image_tasks: Mutex<HashMap<u64, crate::stdlib::fs_image::WorkHandle>>,
+    storage_limits: std::sync::OnceLock<crate::stdlib::fs::ResultLimits>,
     adopted_endowment: std::sync::OnceLock<host::Bindings>,
 }
 
@@ -580,8 +585,19 @@ impl RuntimeState {
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
             endowment: bindings.clone(),
+            documents: std::sync::OnceLock::new(),
+            image_service: std::sync::OnceLock::new(),
+            image_work: std::sync::OnceLock::new(),
+            image_tasks: Mutex::new(HashMap::new()),
+            storage_limits: std::sync::OnceLock::new(),
             adopted_endowment: std::sync::OnceLock::new(),
         };
+        if let Some(documents) = bindings.documents() {
+            let _ = state.documents.set(documents);
+        }
+        if let Some(service) = bindings.image_service() {
+            let _ = state.image_service.set(service);
+        }
         if let Some(provider) = bindings.sqlite_provider() {
             state
                 .sqlite
@@ -602,6 +618,115 @@ impl RuntimeState {
     pub fn app_directories(&self) -> Option<&crate::stdlib::app_fs::AppDirectories> {
         self.app_directories.get()
     }
+    pub fn set_storage_limits(
+        &self,
+        limits: crate::stdlib::fs::ResultLimits,
+    ) -> Result<(), HostError> {
+        if !(16..=crate::stdlib::fs::RESULT_BYTES).contains(&limits.bytes) {
+            return Err(HostError::InvalidArgument(
+                "invalid storage result limits".into(),
+            ));
+        }
+        self.storage_limits
+            .set(limits)
+            .map_err(|_| HostError::InvalidArgument("storage limits already configured".into()))
+    }
+    pub fn storage_limits(&self) -> crate::stdlib::fs::ResultLimits {
+        *self.storage_limits.get_or_init(|| {
+            self.adopted_endowment
+                .get()
+                .unwrap_or(&self.endowment)
+                .storage_limits()
+        })
+    }
+    pub fn set_documents(
+        &self,
+        documents: Arc<crate::stdlib::fs::Documents>,
+    ) -> Result<(), HostError> {
+        self.documents
+            .set(documents)
+            .map_err(|_| HostError::InvalidArgument("Documents already configured".into()))
+    }
+    pub fn documents(&self) -> Option<&crate::stdlib::fs::Documents> {
+        self.documents.get().map(|d| &**d)
+    }
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<dyn crate::stdlib::fs_image::ImageCodec>,
+        limits: crate::stdlib::fs_image::WorkLimits,
+    ) -> Result<(), HostError> {
+        if self.image_work.get().is_some() {
+            return Err(HostError::InvalidArgument(
+                "Image work already began".into(),
+            ));
+        }
+        let service = crate::stdlib::fs_image::ImageService::new(codec, limits)?;
+        self.image_service
+            .set(service)
+            .map_err(|_| HostError::InvalidArgument("Image codec already configured".into()))
+    }
+    pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
+        self.image_work.get_or_init(|| {
+            crate::stdlib::fs_image::ImageWork::new(
+                self.image_service
+                    .get()
+                    .map_or_else(Default::default, |s| s.limits),
+            )
+        })
+    }
+    pub(crate) fn prepare_image(
+        &self,
+        task_id: u64,
+        grants: Arc<crate::grant::GrantSet>,
+        from: &str,
+        to: &str,
+        request: crate::stdlib::fs_image::ImageRequest,
+    ) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+        let job = crate::stdlib::fs_image::ImageJob::prepare(
+            self.image_work(),
+            self.image_service.get(),
+            self.app_directories.get().cloned().map(Arc::new),
+            grants,
+            from,
+            to,
+            request,
+        )?;
+        let mut tasks = self.image_tasks.lock().expect("image tasks poisoned");
+        if self.is_shutdown() {
+            drop(tasks);
+            job.handle().cancel();
+            job.handle().discard();
+            return Err(HostError::Failed("runtime is shut down".into()));
+        }
+        let old = tasks.insert(task_id, job.handle());
+        drop(tasks);
+        if let Some(old) = old {
+            old.cancel();
+            old.discard();
+        }
+        Ok(job)
+    }
+    pub(crate) fn end_image_work(&self, task_id: u64) {
+        let handle = self
+            .image_tasks
+            .lock()
+            .expect("image tasks poisoned")
+            .remove(&task_id);
+        if let Some(handle) = handle {
+            handle.discard();
+        }
+    }
+    pub fn image_work_handle(&self, task_id: u64) -> Option<crate::stdlib::fs_image::WorkHandle> {
+        self.image_tasks
+            .lock()
+            .expect("image tasks poisoned")
+            .get(&task_id)
+            .cloned()
+    }
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn set_sqlite_provider(
         &self,
         provider: Arc<dyn crate::stdlib::sqlite::Provider>,
@@ -715,6 +840,9 @@ impl RuntimeState {
         bindings.with_runtime_configuration(
             self.app_directories.get().cloned().map(Arc::new),
             self.sqlite.provider(),
+            self.documents.get().cloned(),
+            self.image_service.get().cloned(),
+            self.storage_limits(),
         )
     }
 
@@ -738,6 +866,16 @@ impl RuntimeState {
         if !self.sqlite.has_provider() {
             if let Some(provider) = bindings.sqlite_provider() {
                 self.sqlite.set_provider(provider)?;
+            }
+        }
+        if self.documents.get().is_none() {
+            if let Some(documents) = bindings.documents() {
+                let _ = self.documents.set(documents);
+            }
+        }
+        if self.image_service.get().is_none() {
+            if let Some(service) = bindings.image_service() {
+                let _ = self.image_service.set(service);
             }
         }
         self.adopted_endowment
@@ -837,6 +975,11 @@ impl RuntimeState {
     }
 
     pub fn shutdown(&self) {
+        self.image_work().close();
+        let image_tasks =
+            std::mem::take(&mut *self.image_tasks.lock().expect("image tasks poisoned"));
+        drop(image_tasks);
+
         let mut subscriptions = self
             .subscriptions
             .lock()
@@ -1259,6 +1402,9 @@ impl RuntimeState {
                 return Some(task);
             }
             let HostTask::Event { subscription, .. } = &task else {
+                if let HostTask::Settlement(completion) = &task {
+                    self.end_image_work(completion.task_id);
+                }
                 return Some(task);
             };
             // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — reservation revalidates Running and subscription liveness at one serialized commit point

@@ -905,13 +905,30 @@ pub unsafe extern "C" fn ibex2_async_begin(
     // every call. Nothing here consults ambient state.
     let grants = clone_grants(grants).unwrap_or_else(|| std::sync::Arc::new(GrantSet::none()));
 
+    // Register tracked work on the owner thread, before enqueueing any payload/provider work.
+    let image_job = if op == AsyncOp::FsCompressImage {
+        Some(prepare_image_args(&owned, &state, grants.clone(), task_id))
+    } else {
+        None
+    };
+
+    if let Some(Err(error)) = &image_job {
+        state.queue.complete(task_id, Err(error.clone()));
+        return 0;
+    }
     // Counted before the thread starts, so the loop cannot see an idle moment
     // between "started" and "running".
     state.task_started();
     let work = move || {
-        let result = match fetch_headers {
-            Ok(headers) => run_async(op, &owned, headers, &state, &grants),
-            Err(error) => Err(error),
+        let result = match image_job {
+            Some(Ok(job)) => job.execute().map(|image| {
+                HostValue::Str(format!("{}\t{}\t{}", image.width, image.height, image.size))
+            }),
+            Some(Err(error)) => Err(error),
+            None => match fetch_headers {
+                Ok(headers) => run_async(op, &owned, headers, &state, &grants),
+                Err(error) => Err(error),
+            },
         };
         if !state.is_shutdown() {
             state.queue.complete(task_id, result);
@@ -924,6 +941,46 @@ pub unsafe extern "C" fn ibex2_async_begin(
         crate::pool::run(work);
     }
     0
+}
+
+fn prepare_image_args(
+    args: &[HostValue],
+    state: &crate::task::RuntimeState,
+    grants: std::sync::Arc<GrantSet>,
+    task_id: u64,
+) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+    let (
+        Some(HostValue::Str(from)),
+        Some(HostValue::Str(to)),
+        Some(HostValue::Number(dimension)),
+        Some(HostValue::Number(bytes)),
+    ) = (args.first(), args.get(1), args.get(2), args.get(3))
+    else {
+        return Err(HostError::InvalidArgument(
+            "compressImage expects from, to, maxDimension, maxBytes".into(),
+        ));
+    };
+    if !dimension.is_finite()
+        || dimension.fract() != 0.0
+        || *dimension <= 0.0
+        || *dimension > u32::MAX as f64
+        || !bytes.is_finite()
+        || bytes.fract() != 0.0
+        || *bytes <= 0.0
+        || *bytes > 9_007_199_254_740_991.0
+    {
+        return Err(HostError::InvalidArgument("invalid image bounds".into()));
+    }
+    state.prepare_image(
+        task_id,
+        grants,
+        from,
+        to,
+        crate::stdlib::fs_image::ImageRequest {
+            max_dimension: *dimension as u32,
+            max_bytes: *bytes as u64,
+        },
+    )
 }
 
 /// The delegating ops. `fetch` joins this list once the adapter is proven.
@@ -950,6 +1007,7 @@ enum AsyncOp {
     FsCopyFile = host_opcodes::async_ops::FS_COPY_FILE,
     FsRealpath = host_opcodes::async_ops::FS_REALPATH,
     FsAtomicWriteFile = host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE,
+    FsCompressImage = host_opcodes::async_ops::FS_COMPRESS_IMAGE,
     SqliteOpen = host_opcodes::sqlite_async::OPEN,
     SqlitePrepare = host_opcodes::sqlite_async::PREPARE,
     SqliteExecute = host_opcodes::sqlite_async::EXECUTE,
@@ -978,6 +1036,7 @@ impl AsyncOp {
             host_opcodes::async_ops::FS_COPY_FILE => Some(AsyncOp::FsCopyFile),
             host_opcodes::async_ops::FS_REALPATH => Some(AsyncOp::FsRealpath),
             host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE => Some(AsyncOp::FsAtomicWriteFile),
+            host_opcodes::async_ops::FS_COMPRESS_IMAGE => Some(AsyncOp::FsCompressImage),
             host_opcodes::sqlite_async::OPEN => Some(AsyncOp::SqliteOpen),
             host_opcodes::sqlite_async::PREPARE => Some(AsyncOp::SqlitePrepare),
             host_opcodes::sqlite_async::EXECUTE => Some(AsyncOp::SqliteExecute),
@@ -1045,7 +1104,14 @@ fn run_async(
         return crate::sqlite_abi::run(op as u32, args, state, grants);
     }
     if let Some(fs_op) = fs_op_for(op) {
-        return run_fs(fs_op, args, grants, state.app_directories());
+        return run_fs(
+            fs_op,
+            args,
+            grants,
+            state.app_directories(),
+            state.documents(),
+            state.storage_limits(),
+        );
     }
     match op {
         AsyncOp::Fetch => {
@@ -1149,8 +1215,10 @@ fn run_fs(
     args: &[HostValue],
     grants: &GrantSet,
     directories: Option<&crate::stdlib::app_fs::AppDirectories>,
+    documents: Option<&crate::stdlib::fs::Documents>,
+    limits: crate::stdlib::fs::ResultLimits,
 ) -> Result<HostValue, HostError> {
-    use crate::stdlib::fs::{run, FsResult};
+    use crate::stdlib::fs::{run_with_limits, FsResult};
 
     let path_arg = |index: usize| -> Result<&str, HostError> {
         match args.get(index) {
@@ -1185,7 +1253,16 @@ fn run_fs(
     }
 
     Ok(
-        match run(grants, directories, op, path, destination, data)? {
+        match run_with_limits(
+            grants,
+            directories,
+            documents,
+            limits,
+            op,
+            path,
+            destination,
+            data,
+        )? {
             FsResult::Done => HostValue::Undefined,
             FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
             FsResult::Text(text) => HostValue::Str(text),

@@ -15,6 +15,8 @@ export interface FileSystem {
   writeFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
   /** Atomic replacement visibility; not a power-loss durability guarantee. */
   atomicWriteFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
+  /** Uses the embedder codec. Cancellation is controlled by the embedder's owned work handle. */
+  compressImage(from: string, to: string, maxDimension: number, maxBytes: number): Promise<string>;
   appendFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
   readdir(path: string): Promise<string[]>;
   mkdir(path: string): Promise<void>;

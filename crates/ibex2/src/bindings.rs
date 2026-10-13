@@ -539,6 +539,36 @@ impl Context {
         self.endowment.state.set_app_directories(directories)
     }
 
+    pub fn set_storage_limits(
+        &self,
+        limits: crate::stdlib::fs::ResultLimits,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_storage_limits(limits)
+    }
+    pub fn set_documents(
+        &self,
+        documents: Arc<crate::stdlib::fs::Documents>,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_documents(documents)
+    }
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<dyn crate::stdlib::fs_image::ImageCodec>,
+        limits: crate::stdlib::fs_image::WorkLimits,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_image_codec(codec, limits)
+    }
+    /// Handles belong to this Context generation; retain individual handles before retiring a waiter.
+    pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
+        self.endowment.state.image_work()
+    }
+    pub fn image_work_handle(&self, task_id: u64) -> Option<crate::stdlib::fs_image::WorkHandle> {
+        self.endowment.state.image_work_handle(task_id)
+    }
+    pub fn in_flight(&self) -> usize {
+        self.endowment.state.in_flight()
+    }
+
     pub fn set_sqlite_provider(
         &self,
         provider: Arc<dyn crate::stdlib::sqlite::Provider>,

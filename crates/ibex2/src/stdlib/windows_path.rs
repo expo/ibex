@@ -1,5 +1,38 @@
 //! @ref LLP 0068#proposed-windows-native-filesystem-grants — one disjoint drive namespace.
-use super::windows_directory::{refuse, validate_name};
+fn refuse(detail: &str) -> std::io::Error {
+    std::io::Error::other(detail)
+}
+fn validate_name(value: &str) -> io::Result<()> {
+    let base = value
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let device = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            base.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        });
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains(['/', '\\', ':', '\0', '*', '?', '"', '<', '>', '|'])
+        || value.chars().any(|c| c < ' ')
+        || value.ends_with(['.', ' '])
+        || device
+    {
+        return Err(refuse("not a relative filesystem name"));
+    }
+    let encoded: Vec<_> = value.encode_utf16().collect();
+    if encoded.len() > 255 {
+        return Err(refuse("filesystem name too long"));
+    }
+    Ok(())
+}
 use std::io;
 
 #[derive(Clone, Debug)]
@@ -42,9 +75,11 @@ impl NativePath {
             parts,
         })
     }
+    #[cfg(windows)]
     pub fn spelling(&self) -> String {
         self.prefix(self.parts.len())
     }
+    #[cfg(windows)]
     pub fn prefix(&self, length: usize) -> String {
         format!("{}:/{}", self.drive as char, self.parts[..length].join("/"))
     }

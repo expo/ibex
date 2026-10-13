@@ -37,6 +37,9 @@ pub struct Host {
     kv: Arc<dyn KvStore>,
     app_directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
     sqlite_provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+    documents: Option<Arc<fs::Documents>>,
+    image_service: Option<crate::stdlib::fs_image::ImageService>,
+    storage_limits: fs::ResultLimits,
 }
 
 impl Host {
@@ -55,6 +58,9 @@ impl Host {
             kv: Arc::from(kv::default_store()),
             app_directories: None,
             sqlite_provider: None,
+            documents: None,
+            image_service: None,
+            storage_limits: fs::ResultLimits::default(),
         }
     }
 
@@ -93,10 +99,37 @@ impl Host {
         self
     }
 
+    pub fn with_storage_limits(mut self, limits: fs::ResultLimits) -> Result<Self, HostError> {
+        if !(16..=fs::RESULT_BYTES).contains(&limits.bytes) {
+            return Err(HostError::InvalidArgument(
+                "invalid storage result limits".into(),
+            ));
+        }
+        self.storage_limits = limits;
+        Ok(self)
+    }
+    pub fn with_documents(mut self, documents: Arc<fs::Documents>) -> Self {
+        self.documents = Some(documents);
+        self
+    }
+    pub fn with_image_codec(
+        mut self,
+        codec: Arc<dyn crate::stdlib::fs_image::ImageCodec>,
+        limits: crate::stdlib::fs_image::WorkLimits,
+    ) -> Result<Self, HostError> {
+        self.image_service = Some(crate::stdlib::fs_image::ImageService::new(codec, limits)?);
+        Ok(self)
+    }
+
     /// Endow a consumer with `grants`: the bindings a module receives as
     /// parameters, each carrying this grant set for its whole life.
     pub fn endow(&self, grants: GrantSet) -> Bindings {
         let grants = Arc::new(grants);
+        let image_work = crate::stdlib::fs_image::ImageWork::new(
+            self.image_service
+                .as_ref()
+                .map_or_else(Default::default, |s| s.limits),
+        );
         Bindings {
             fetch: Fetch {
                 transport: Arc::clone(&self.transport),
@@ -105,6 +138,11 @@ impl Host {
             fs: Fs {
                 grants: Arc::clone(&grants),
                 directories: self.app_directories.clone(),
+                documents: self.documents.clone(),
+                image_service: self.image_service.clone(),
+                image_work: image_work.clone(),
+                _image_owner: Arc::new(ImageOwner(image_work)),
+                storage_limits: self.storage_limits,
             },
             sqlite: Sqlite {
                 grants: Arc::clone(&grants),
@@ -164,15 +202,34 @@ impl Bindings {
     }
 
     #[cfg(feature = "bindings")]
+    pub(crate) fn storage_limits(&self) -> fs::ResultLimits {
+        self.fs.storage_limits
+    }
+    #[cfg(feature = "bindings")]
+    pub(crate) fn documents(&self) -> Option<Arc<fs::Documents>> {
+        self.fs.documents.clone()
+    }
+    #[cfg(feature = "bindings")]
+    pub(crate) fn image_service(&self) -> Option<crate::stdlib::fs_image::ImageService> {
+        self.fs.image_service.clone()
+    }
+
+    #[cfg(feature = "bindings")]
     pub(crate) fn with_runtime_configuration(
         &self,
         directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
         provider: Option<Arc<dyn crate::stdlib::sqlite::Provider>>,
+        documents: Option<Arc<fs::Documents>>,
+        image_service: Option<crate::stdlib::fs_image::ImageService>,
+        storage_limits: fs::ResultLimits,
     ) -> Self {
         let mut snapshot = self.clone();
         snapshot.fs.directories = directories.clone();
         snapshot.sqlite.directories = directories;
         snapshot.sqlite.provider = provider;
+        snapshot.fs.documents = documents;
+        snapshot.fs.image_service = image_service;
+        snapshot.fs.storage_limits = storage_limits;
         snapshot
     }
 }
@@ -405,6 +462,17 @@ impl Fetch {
 pub struct Fs {
     grants: Arc<GrantSet>,
     directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
+    documents: Option<Arc<fs::Documents>>,
+    image_service: Option<crate::stdlib::fs_image::ImageService>,
+    image_work: crate::stdlib::fs_image::ImageWork,
+    _image_owner: Arc<ImageOwner>,
+    storage_limits: fs::ResultLimits,
+}
+struct ImageOwner(crate::stdlib::fs_image::ImageWork);
+impl Drop for ImageOwner {
+    fn drop(&mut self) {
+        self.0.close();
+    }
 }
 
 impl Fs {
@@ -415,14 +483,49 @@ impl Fs {
         destination: Option<&str>,
         data: Option<&[u8]>,
     ) -> Result<FsResult, HostError> {
-        fs::run(
+        fs::run_with_limits(
             &self.grants,
             self.directories.as_deref(),
+            self.documents.as_deref(),
+            self.storage_limits,
             op,
             path,
             destination,
             data,
         )
+    }
+
+    /// Reserve a bounded work/completion slot before dispatching on the caller's executor.
+    pub fn prepare_image(
+        &self,
+        from: &str,
+        to: &str,
+        request: crate::stdlib::fs_image::ImageRequest,
+    ) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+        crate::stdlib::fs_image::ImageJob::prepare(
+            &self.image_work,
+            self.image_service.as_ref(),
+            self.directories.clone(),
+            self.grants.clone(),
+            from,
+            to,
+            request,
+        )
+    }
+    pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
+        &self.image_work
+    }
+    /// Grant-checked app-file reader; trusted Rust code owns any opened handle's scheduling.
+    pub fn read_bounded(
+        &self,
+        path: &str,
+        cap: u64,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Vec<u8>, HostError> {
+        self.directories
+            .as_ref()
+            .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?
+            .read_bounded(&self.grants, path, cap, canceled)
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, HostError> {

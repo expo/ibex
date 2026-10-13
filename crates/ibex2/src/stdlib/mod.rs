@@ -7,9 +7,11 @@
 pub mod base64;
 pub mod console;
 pub mod crypto;
+pub mod documents;
 pub mod events;
 pub mod fetch;
 pub mod fs;
+pub mod fs_image;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
@@ -37,5 +39,4 @@ pub mod app_fs;
 pub(crate) mod windows_directory;
 #[cfg(windows)]
 mod windows_fs;
-#[cfg(windows)]
 pub(crate) mod windows_path;

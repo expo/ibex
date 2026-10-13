@@ -64,12 +64,16 @@ impl PathPrefix {
     /// because admitting either would mean deciding traversal semantics here,
     /// where the answer cannot be checked against the real filesystem.
     pub fn new(path: &str) -> Option<Self> {
-        #[cfg(windows)]
         if let Ok(native) = crate::stdlib::windows_path::NativePath::parse(path, false) {
             return Some(Self(native.grant_components()));
         }
         let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
             ("app:", path)
+        } else if let Some(path) = path.strip_prefix("doc:/") {
+            if path.contains(['\\', '\0']) || path.contains("//") {
+                return None;
+            }
+            ("doc:", path)
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -84,6 +88,11 @@ impl PathPrefix {
             }
         }
         Some(Self(components))
+    }
+
+    /// The pure normalized grammar representation, useful for lossless host adaptation.
+    pub fn components(&self) -> &[String] {
+        &self.0
     }
 
     /// Does this prefix cover `path`?
@@ -215,6 +224,10 @@ impl GrantSet {
         self
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &Grant> {
+        self.grants.iter()
+    }
+
     /// The environment variables this set may read, in a stable order.
     ///
     /// `process.env` is a **snapshot**, not a live proxy (LLP 0059.000 §3.8),
@@ -232,7 +245,11 @@ impl GrantSet {
         #[cfg(not(windows))]
         {
             let realize = |prefix: &PathPrefix| {
-                if prefix.0.first().is_some_and(|p| p == "app:") {
+                if prefix
+                    .0
+                    .first()
+                    .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
+                {
                     return prefix.clone();
                 }
                 let spelt = format!("/{}", prefix.0[1..].join("/"));
@@ -358,7 +375,7 @@ impl GrantSet {
                     }
                     let url = url::Url::parse(target)
                         .map_err(|e| format!("line {}: bad origin `{target}`: {e}", index + 1))?;
-                    if has_userinfo(&url) {
+                    if target.contains('@') || has_userinfo(&url) {
                         return Err(format!(
                             "line {}: `{target}`: an origin has no user or password",
                             index + 1
@@ -442,7 +459,7 @@ fn subdomains(target: &str) -> Result<Origin, String> {
         return Err("`*` is allowed only as the whole leftmost label".into());
     }
     let url = url::Url::parse(&format!("{scheme}://{rest}")).map_err(|e| e.to_string())?;
-    if has_userinfo(&url) {
+    if target.contains('@') || has_userinfo(&url) {
         return Err("an origin has no user or password".into());
     }
     if !matches!(url.path(), "" | "/") || url.query().is_some() || url.fragment().is_some() {

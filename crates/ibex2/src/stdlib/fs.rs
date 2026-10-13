@@ -25,6 +25,120 @@ use std::path::{Path, PathBuf};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
 
+// @ref LLP 0068.001#4-bounded-access-and-image-work — the storage envelope is capped at 16 MiB. A readFile
+// result is {"base64":"..."}, whose fixed JSON overhead is 13 bytes.
+pub const RESULT_BYTES: usize = 16 << 20;
+pub const READ_BYTES: usize = ((RESULT_BYTES - 13) / 4) * 3;
+/// Serialized storage envelope budget. Read bytes include base64 expansion and JSON overhead.
+#[derive(Debug, Clone, Copy)]
+pub struct ResultLimits {
+    pub bytes: usize,
+}
+impl Default for ResultLimits {
+    fn default() -> Self {
+        Self {
+            bytes: RESULT_BYTES,
+        }
+    }
+}
+thread_local! { static RESULT_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(RESULT_BYTES) }; }
+// Executors are synchronous. A stack-scoped budget reaches platform enumeration helpers
+// without changing the existing public FsOp ABI; nested calls restore the previous value.
+fn with_result_limits<T>(
+    limits: ResultLimits,
+    call: impl FnOnce() -> Result<T, HostError>,
+) -> Result<T, HostError> {
+    if limits.bytes < 16 || limits.bytes > RESULT_BYTES {
+        return Err(HostError::InvalidArgument(
+            "storage result limit must be between 16 bytes and 16 MiB".into(),
+        ));
+    }
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RESULT_BUDGET.with(|limit| limit.set(self.0));
+        }
+    }
+    let _restore = Restore(RESULT_BUDGET.with(|limit| limit.replace(limits.bytes)));
+    call()
+}
+pub(crate) const RESULT_LIMIT: &str = "storage result exceeds its byte limit";
+
+/// A same-handle bounded read. The callback runs between chunks with no Ibex lock held.
+pub fn read_bounded_file(
+    mut file: std::fs::File,
+    cap: u64,
+    canceled: &dyn Fn() -> bool,
+) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(std::io::Error::other("read needs a regular file"));
+    }
+    if meta.len() > cap {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    let cap = usize::try_from(cap).map_err(|_| std::io::Error::other(RESULT_LIMIT))?;
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        if canceled() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "read abandoned",
+            ));
+        }
+        let remaining = cap.saturating_sub(bytes.len());
+        let count = chunk.len().min(remaining.saturating_add(1));
+        let n = file.read(&mut chunk[..count])?;
+        if n == 0 {
+            return Ok(bytes);
+        }
+        if n > remaining {
+            return Err(std::io::Error::other(RESULT_LIMIT));
+        }
+        bytes.extend_from_slice(&chunk[..n]);
+    }
+}
+
+pub(crate) fn read_result(file: std::fs::File) -> std::io::Result<Vec<u8>> {
+    read_bounded_file(
+        file,
+        RESULT_BUDGET.with(|limit| ((limit.get() - 13) / 4 * 3) as u64),
+        &|| false,
+    )
+}
+
+fn open_native(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    }
+    options.open(path)
+}
+
+pub(crate) fn push_name(
+    names: &mut Vec<String>,
+    used: &mut usize,
+    name: String,
+) -> std::io::Result<()> {
+    let encoded = serde_json::to_string(&name)
+        .map_err(std::io::Error::other)?
+        .len();
+    *used = used
+        .checked_add(encoded)
+        .and_then(|n| n.checked_add(usize::from(!names.is_empty())))
+        .ok_or_else(|| std::io::Error::other(RESULT_LIMIT))?;
+    if *used > RESULT_BUDGET.with(|limit| limit.get() - 2) {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    names.push(name);
+    Ok(())
+}
+
 /// The operations, each one a distinct host op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FsOp {
@@ -228,7 +342,10 @@ pub fn perform(
     let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
     match op {
         FsOp::AtomicWriteFile => super::app_fs::atomic_native(path, data.unwrap_or(&[])),
-        FsOp::ReadFile => std::fs::read(path).map(FsResult::Bytes).map_err(failed),
+        FsOp::ReadFile => open_native(path)
+            .and_then(read_result)
+            .map(FsResult::Bytes)
+            .map_err(failed),
         FsOp::WriteFile => std::fs::write(path, data.unwrap_or(&[]))
             .map(|_| FsResult::Done)
             .map_err(failed),
@@ -243,11 +360,17 @@ pub fn perform(
                 .map_err(failed)
         }
         FsOp::ReadDir => {
-            let mut names: Vec<String> = std::fs::read_dir(path)
-                .map_err(failed)?
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect();
+            let mut names = Vec::new();
+            let mut used = 0;
+            for entry in std::fs::read_dir(path).map_err(failed)? {
+                let entry = entry.map_err(failed)?;
+                push_name(
+                    &mut names,
+                    &mut used,
+                    entry.file_name().to_string_lossy().into_owned(),
+                )
+                .map_err(failed)?;
+            }
             // Sorted, so a directory listing does not depend on filesystem
             // ordering and a test can assert it.
             names.sort();
@@ -327,6 +450,9 @@ pub fn run(
         let directories = directories
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
         return directories.run(grants, op, path, destination, data);
+    }
+    if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
+        return Err(HostError::Failed("unsupported: no document service".into()));
     }
     #[cfg(windows)]
     {
@@ -458,4 +584,67 @@ mod tests {
         perform(FsOp::Remove, &copy, None, None).expect("rm again");
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+// @ref LLP 0068.001#3-chosen-document-provider — one provider contract for both doors.
+pub use super::documents::{
+    run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease, Documents,
+    DOCUMENT_PREFIX,
+};
+
+/// Dispatch with an optional chosen-document service. Mixed namespaces refuse.
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_documents(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    documents: Option<&Documents>,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
+        if destination.is_some() {
+            return Err(HostError::Failed(
+                "unsupported: two-path document operation".into(),
+            ));
+        }
+        return run_document(grants, documents, op, path, data);
+    }
+    run(grants, directories, op, path, destination, data)
+}
+
+/// Execute with a consumer-selected envelope, refusing during reads/enumeration.
+/// Bounds may tighten the default 16 MiB envelope; Rust bounded reads are independent.
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_limits(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    documents: Option<&Documents>,
+    limits: ResultLimits,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    with_result_limits(limits, || {
+        let result =
+            run_with_documents(grants, directories, documents, op, path, destination, data)?;
+        let size = match &result {
+            FsResult::Bytes(bytes) => bytes
+                .len()
+                .checked_add(2)
+                .and_then(|n| n.checked_div(3))
+                .and_then(|n| n.checked_mul(4))
+                .and_then(|n| n.checked_add(13)),
+            FsResult::Text(text) => serde_json::to_string(text).ok().map(|s| s.len()),
+            FsResult::Names(names) => serde_json::to_vec(names).ok().map(|s| s.len()),
+            FsResult::Stat(_) => Some(128),
+            FsResult::Done => Some(4),
+        };
+        if size.is_none_or(|n| n > limits.bytes) {
+            return Err(HostError::Failed(RESULT_LIMIT.into()));
+        }
+        Ok(result)
+    })
 }
