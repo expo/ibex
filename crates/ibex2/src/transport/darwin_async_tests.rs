@@ -700,3 +700,127 @@ fn the_native_attempt_timeout_retires_stalled_headers_and_body() {
         worker.join().unwrap();
     }
 }
+
+#[test]
+fn a_large_upload_replays_after_a_307_and_releases_with_handles_alive() {
+    use crate::grant::{Grant, GrantSet};
+    use crate::stdlib::abort::AbortSignal;
+    use crate::stdlib::fetch::{origin_of, Request};
+    use crate::stdlib::fetch_async::{Collected, FetchEvents, FetchTask, HeaderCaps};
+    const LENGTH: usize = (256 << 10) + 7;
+    let check = |request: Vec<u8>| {
+        assert!(request.starts_with(b"POST "));
+        assert_eq!(&request[request.len() - LENGTH..], vec![b'z'; LENGTH]);
+    };
+    let (target, second) = server(LENGTH, move |mut stream, request| {
+        check(request);
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            .unwrap();
+    });
+    let redirect = target.clone();
+    let (url, first) = server(LENGTH, move |mut stream, request| {
+        check(request);
+        stream.write_all(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {redirect}\r\nContent-Length: 0\r\n\r\n").as_bytes()).unwrap();
+    });
+    struct Done(mpsc::Sender<Result<Collected, HostError>>, AtomicUsize);
+    impl FetchEvents for Done {
+        fn outcome(&self, result: Result<Collected, HostError>) {
+            self.0.send(result).unwrap();
+        }
+        fn hop_ended(&self) {
+            self.1.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let (tx, rx) = mpsc::channel();
+    let events = Arc::new(Done(tx, AtomicUsize::new(0)));
+    let released = Arc::new(AtomicUsize::new(0));
+    let notice = released.clone();
+    let upload = Upload::new(
+        vec![b'z'; LENGTH],
+        Some(Box::new(move || {
+            notice.fetch_add(1, Ordering::SeqCst);
+        })),
+    );
+    let grants = GrantSet::none()
+        .with(Grant::Fetch(origin_of(&url).unwrap()))
+        .with(Grant::Fetch(origin_of(&target).unwrap()));
+    let lane = Arc::new(DarwinLane::new(1));
+    let mut request = Request::get(&url);
+    request.method = "POST".into();
+    let task = FetchTask::start(
+        lane.clone(),
+        Arc::new(grants),
+        request,
+        Some(upload),
+        AbortSignal::default(),
+        HeaderCaps {
+            bytes: 65536,
+            entries: 128,
+        },
+        events.clone(),
+    );
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap()
+            .body,
+        b"ok"
+    );
+    assert_eq!(events.1.load(Ordering::SeqCst), 2);
+    assert_eq!(released.load(Ordering::SeqCst), 1);
+    // Neither retained task control nor the reusable session owns upload bytes.
+    drop((task, lane));
+    first.join().unwrap();
+    second.join().unwrap();
+}
+
+#[test]
+fn cancelling_a_blocked_upload_releases_its_buffer_at_physical_end() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let (tx, rx) = mpsc::channel();
+    let (resume, wait) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut header = Vec::new();
+        let mut byte = [0];
+        while !header.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            header.push(byte[0]);
+        }
+        tx.send(()).unwrap();
+        wait.recv_timeout(Duration::from_secs(10)).unwrap();
+        let mut chunk = [0; 65536];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    });
+    let released = Arc::new(AtomicUsize::new(0));
+    let notice = released.clone();
+    let lane = DarwinLane::new(1);
+    let mut request = get(&url);
+    request.method = "POST".into();
+    request.body = Some(Upload::new(
+        vec![0; 8 << 20],
+        Some(Box::new(move || {
+            notice.fetch_add(1, Ordering::SeqCst);
+        })),
+    ));
+    let (exchange, events) = start(&lane, request, Flow::Continue);
+    rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    exchange.cancel();
+    let observed = until_end(&events);
+    assert!(observed
+        .iter()
+        .any(|event| matches!(event, Event::End(Err(_)))));
+    assert_eq!(released.load(Ordering::SeqCst), 1);
+    resume.send(()).unwrap();
+    worker.join().unwrap();
+}

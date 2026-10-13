@@ -523,9 +523,17 @@ impl Sink for HopSink {
             drop(state);
             return self.stop(over_limit(limit));
         }
-        if state.body.try_reserve_exact(bytes.len()).is_err() {
-            drop(state);
-            return self.stop(HostError::Failed("HTTP response allocation failed".into()));
+        let required = state.body.len() + bytes.len();
+        if required > state.body.capacity() {
+            // Grow geometrically without requesting capacity beyond the ceiling.
+            let capacity = required
+                .max(state.body.capacity().saturating_mul(2))
+                .min(limit);
+            let additional = capacity - state.body.len();
+            if state.body.try_reserve_exact(additional).is_err() {
+                drop(state);
+                return self.stop(HostError::Failed("HTTP response allocation failed".into()));
+            }
         }
         state.body.extend_from_slice(bytes);
         Flow::Continue
@@ -751,6 +759,7 @@ impl AsyncTransport for BlockingAdapter {
                         Err(HostError::Failed("HTTP transport callback panicked".into()))
                     });
                     contain(|| sink.end(result));
+                    contain(|| drop(sink));
                 }))
             },
             move || abort.abort(),
@@ -776,10 +785,7 @@ fn run_blocking(
     request.timeout = hop.timeout;
     request.redirect = crate::stdlib::fetch::RedirectMode::Manual;
     let _sending = hop.body;
-    let mut response = match transport.open(&request, signal) {
-        Ok(response) => response,
-        Err(e) => return Err(e),
-    };
+    let mut response = transport.open(&request, signal)?;
     drop(request);
     let declared_length = response
         .headers

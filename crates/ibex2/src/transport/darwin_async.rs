@@ -278,10 +278,11 @@ extern "C" fn ibex2_async_metrics(
         queued_ms: (queued_ms >= 0.0).then_some(queued_ms),
     };
     let state = unsafe { state(ctx) };
-    if !state.panicked && !state.ended {
-        if catch_unwind(AssertUnwindSafe(|| state.sink.metrics(metrics))).is_err() {
-            state.panicked = true;
-        }
+    if !state.panicked
+        && !state.ended
+        && catch_unwind(AssertUnwindSafe(|| state.sink.metrics(metrics))).is_err()
+    {
+        state.panicked = true;
     }
 }
 
@@ -305,3 +306,7 @@ extern "C" fn ibex2_async_body_free(body: *mut c_void) {
 #[cfg(test)]
 #[path = "darwin_async_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "darwin_async_diagnostic.rs"]
+mod diagnostic;
