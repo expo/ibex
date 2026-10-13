@@ -5,6 +5,7 @@
 //! rather than a limit: something had to move.
 
 use super::*;
+#[cfg(feature = "loader")]
 use crate::host;
 
 #[test]
@@ -164,7 +165,7 @@ fn all_groups_preserve_the_shipping_global_insertion_order() {
     assert_eq!(added, expected);
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 fn run_websocket_module(rt: &mut Hermes, source: &str, grant_spec: &str) {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let directory = std::env::temp_dir().join(format!(
@@ -183,7 +184,7 @@ fn run_websocket_module(rt: &mut Hermes, source: &str, grant_spec: &str) {
     std::fs::remove_dir_all(directory).unwrap();
 }
 
-#[cfg(not(feature = "websocket"))]
+#[cfg(all(not(feature = "websocket"), feature = "loader"))]
 fn run_websocket_module(rt: &mut Hermes, source: &str, grant_spec: &str) {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let directory = std::env::temp_dir().join(format!(
@@ -202,7 +203,7 @@ fn run_websocket_module(rt: &mut Hermes, source: &str, grant_spec: &str) {
     std::fs::remove_dir_all(directory).unwrap();
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 fn websocket_lifecycle(
     transport: Box<dyn crate::stdlib::websocket::SocketTransport>,
     install_blob: bool,
@@ -341,19 +342,19 @@ fn websocket_lifecycle(
     );
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn javascript_websocket_lifecycle_uses_the_platform_transport() {
     websocket_lifecycle(crate::stdlib::websocket::default_transport(), false);
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn javascript_websocket_binary_type_blob_uses_the_blob_group() {
     websocket_lifecycle(crate::stdlib::websocket::default_transport(), true);
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn javascript_websocket_constructor_validates_before_opening() {
     let context = crate::bindings::Context::new(crate::grant::GrantSet::none());
@@ -384,7 +385,7 @@ fn javascript_websocket_constructor_validates_before_opening() {
     );
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn javascript_websocket_denial_is_error_then_close_without_transport() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -435,7 +436,7 @@ fn javascript_websocket_denial_is_error_then_close_without_transport() {
     assert_eq!(opens.load(Ordering::SeqCst), 0);
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn two_modules_receive_only_their_own_websocket_authority() {
     let (first_port, first_seen) = crate::transport::websocket::tests::peer();
@@ -502,7 +503,7 @@ fn two_modules_receive_only_their_own_websocket_authority() {
     }
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn javascript_close_while_connecting_suppresses_a_queued_open() {
     let (port, _seen) = crate::transport::websocket::tests::peer();
@@ -539,7 +540,7 @@ fn javascript_close_while_connecting_suppresses_a_queued_open() {
     );
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn javascript_abnormal_drop_is_closed_inside_onerror() {
     let (port, _seen) = crate::transport::websocket::tests::peer();
@@ -568,7 +569,7 @@ fn javascript_abnormal_drop_is_closed_inside_onerror() {
     assert_eq!(rt.eval("dropLog.join('|')").unwrap(), "error:3|close:1006");
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn unreachable_websocket_is_collected_and_unsubscribed() {
     let (port, seen) = crate::transport::websocket::tests::peer();
@@ -606,7 +607,7 @@ fn unreachable_websocket_is_collected_and_unsubscribed() {
     );
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn websocket_listener_removal_releases_keepalive_before_collection() {
     let (port, seen) = crate::transport::websocket::tests::peer();
@@ -668,7 +669,7 @@ fn websocket_listener_removal_releases_keepalive_before_collection() {
     }
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn websocket_uses_intrinsics_captured_at_bootstrap() {
     let (port, seen) = crate::transport::websocket::tests::peer();
@@ -728,7 +729,7 @@ fn websocket_uses_intrinsics_captured_at_bootstrap() {
     );
 }
 
-#[cfg(all(feature = "websocket", target_vendor = "apple"))]
+#[cfg(all(feature = "websocket", feature = "loader", target_vendor = "apple"))]
 #[test]
 fn javascript_websocket_lifecycle_also_uses_portable_rustls_transport_on_apple() {
     websocket_lifecycle(
@@ -737,7 +738,7 @@ fn javascript_websocket_lifecycle_also_uses_portable_rustls_transport_on_apple()
     );
 }
 
-#[cfg(not(feature = "websocket"))]
+#[cfg(all(not(feature = "websocket"), feature = "loader"))]
 #[test]
 fn javascript_websocket_reports_a_build_without_the_family() {
     let context = crate::bindings::Context::new(crate::grant::GrantSet::none());
@@ -757,7 +758,7 @@ fn javascript_websocket_reports_a_build_without_the_family() {
     );
 }
 
-#[cfg(feature = "websocket")]
+#[cfg(all(feature = "websocket", feature = "loader"))]
 #[test]
 fn websocket_settlement_and_timer_callbacks_keep_the_one_host_fifo_order() {
     use std::time::{Duration, Instant};
@@ -1583,11 +1584,13 @@ fn pumping_an_empty_queue_delivers_nothing() {
 
 /// A real HTTP server on a real socket. Records what it was asked for, so a
 /// denial can be shown to have never reached the network at all.
+#[cfg(feature = "loader")]
 struct TestServer {
     port: u16,
     hits: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
+#[cfg(feature = "loader")]
 impl TestServer {
     fn start(reply: &'static str) -> Self {
         Self::start_with(reply, None)
@@ -1680,6 +1683,7 @@ impl TestServer {
     }
 }
 
+#[cfg(feature = "loader")]
 fn fetch_rt(grant_spec: &str) -> Hermes {
     let mut rt = with_stdlib();
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -1705,6 +1709,7 @@ fn fetch_rt(grant_spec: &str) -> Hermes {
     rt
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn javascript_fetch_uses_the_hosts_endowed_transport() {
     struct RecordingTransport(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -1762,6 +1767,7 @@ fn javascript_fetch_uses_the_hosts_endowed_transport() {
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn two_runtimes_endowed_from_one_context_never_take_each_others_fetches() {
     use std::collections::BTreeSet;
@@ -1896,6 +1902,7 @@ fn two_runtimes_endowed_from_one_context_never_take_each_others_fetches() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn fetch_reaches_a_real_server_and_returns_a_response_handle() {
     let server = TestServer::start("hello from the server");
@@ -1926,6 +1933,7 @@ fn fetch_reaches_a_real_server_and_returns_a_response_handle() {
 
 /// The capability is real: an ungranted origin is refused, and the refusal
 /// happens before anything touches the network.
+#[cfg(feature = "loader")]
 #[test]
 fn an_ungranted_origin_is_refused_and_never_reaches_the_network() {
     let server = TestServer::start("secret");
@@ -1950,6 +1958,7 @@ fn an_ungranted_origin_is_refused_and_never_reaches_the_network() {
 
 /// LLP 0060 D1, demonstrated: identical JavaScript, two runtimes, different
 /// injected authority, different outcomes. Neither can reach the other's.
+#[cfg(feature = "loader")]
 #[test]
 fn authority_is_carried_by_the_binding_not_by_the_code() {
     let server = TestServer::start("payload");
@@ -1981,6 +1990,7 @@ fn authority_is_carried_by_the_binding_not_by_the_code() {
     );
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn a_post_body_crosses_to_the_server() {
     let server = TestServer::start("unused");
@@ -1999,6 +2009,7 @@ fn a_post_body_crosses_to_the_server() {
     assert!(server.hits()[0].starts_with("POST /submit"));
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn a_body_can_only_be_consumed_once() {
     let server = TestServer::start("once");
@@ -2018,6 +2029,7 @@ fn a_body_can_only_be_consumed_once() {
     assert_eq!(rt.eval("second").unwrap(), "threw");
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn fetch_works_under_async_await() {
     let server = TestServer::start("awaited body");
@@ -2036,6 +2048,7 @@ fn fetch_works_under_async_await() {
     assert_eq!(rt.eval("out").unwrap(), "awaited body");
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn a_connection_failure_is_a_catchable_type_error() {
     // Port 1 on loopback: granted, so the refusal is the network's, not
@@ -2054,6 +2067,7 @@ fn a_connection_failure_is_a_catchable_type_error() {
 
 /// Rust follows the redirect, not the platform. Two server hits prove the
 /// second request was issued by the semantics layer.
+#[cfg(feature = "loader")]
 #[test]
 fn a_redirect_within_the_granted_origin_is_followed_by_rust() {
     let destination = TestServer::start("arrived");
@@ -2086,6 +2100,7 @@ fn a_redirect_within_the_granted_origin_is_followed_by_rust() {
 /// never granted — and Rust would never see the hop to refuse it. The
 /// delegate in darwin_http.mm refuses every redirect so the 3xx comes back
 /// for the capability check. This test fails if that delegate is removed.
+#[cfg(feature = "loader")]
 #[test]
 fn the_platform_does_not_launder_a_redirect_past_the_capability_check() {
     let ungranted = TestServer::start("secret payload");
@@ -2113,6 +2128,7 @@ fn the_platform_does_not_launder_a_redirect_past_the_capability_check() {
 }
 
 /// A visible demonstration of the whole stack, for a human to read.
+#[cfg(feature = "loader")]
 #[test]
 #[ignore]
 fn demo_real_https_fetch() {
@@ -2137,6 +2153,7 @@ fn demo_real_https_fetch() {
 /// Ignored by default: it needs a network, and a test that fails on a plane
 /// is a test people learn to skip. Run with `--ignored` to confirm the
 /// platform transport genuinely works end to end.
+#[cfg(feature = "loader")]
 #[test]
 #[ignore]
 fn https_works_through_the_platform_transport() {
@@ -2167,6 +2184,7 @@ fn https_works_through_the_platform_transport() {
 ///
 /// `deleteGlobal` stands in for a loader that never publishes the binding
 /// globally in the first place.
+#[cfg(feature = "loader")]
 #[test]
 fn a_module_not_handed_a_capability_cannot_reach_one() {
     let server = TestServer::start("payload");
@@ -2201,6 +2219,7 @@ fn a_module_not_handed_a_capability_cannot_reach_one() {
 
 /// Every escape that requires COMPILING source is closed by
 /// `EnableEval(false)` at construction. No patch involved.
+#[cfg(feature = "loader")]
 #[test]
 fn escapes_that_compile_source_are_closed() {
     let mut rt = fetch_rt("net.fetch http://127.0.0.1:1");
@@ -2241,6 +2260,7 @@ fn escapes_that_compile_source_are_closed() {
 /// capability-bearing is on it.
 ///
 /// This test asserts both halves: the hole is open, and it yields nothing.
+#[cfg(feature = "loader")]
 #[test]
 fn the_return_this_fast_path_is_open_and_yields_no_authority() {
     let mut rt = fetch_rt("net.fetch http://127.0.0.1:1");
@@ -2286,6 +2306,7 @@ fn the_return_this_fast_path_is_open_and_yields_no_authority() {
 /// Two modules, two grants, one runtime — and neither can reach the
 /// other's binding. This is D2's property, projected by the production
 /// module loader without a patched engine.
+#[cfg(feature = "loader")]
 #[test]
 fn two_modules_in_one_runtime_hold_different_authority() {
     let allowed = TestServer::start("allowed payload");
@@ -2338,6 +2359,7 @@ fn two_modules_in_one_runtime_hold_different_authority() {
 /// explicit-handoff class, out of scope in LLP 0013, LLP 0057 §4, and
 /// LLP 0060 §3. It is not defended, and this test exists so that stays a
 /// documented property rather than a discovered surprise.
+#[cfg(feature = "loader")]
 #[test]
 fn voluntary_handoff_is_not_defended_and_this_is_by_design() {
     let server = TestServer::start("payload");

@@ -103,8 +103,9 @@ environment rather than using the `bin\bash.exe` wrapper). See LLP 0057.000
 §5.1.1.
 
 `hermes-lean-sys` resolves vanilla Hermes in this order: a complete local
-install selected by `HERMES_LEAN_SYS_DIR`; this checkout's layout when it
-actually contains the Cargo target (`ios/Frameworks-vanilla` for macOS,
+install selected by `HERMES_LEAN_SYS_DIR_<target>` (with `-` and `.` replaced
+by `_`); a complete local install selected by `HERMES_LEAN_SYS_DIR`; this
+checkout's layout when it actually contains the Cargo target (`ios/Frameworks-vanilla` for macOS,
 `tvos/Frameworks-vanilla` for `aarch64-apple-tvos`, and
 `tvos-simulator/Frameworks-vanilla` for `aarch64-apple-tvos-sim`); then the
 SHA-256-pinned `hermes-vanilla-d412d3bd8512-v4` release bundle for the Cargo
@@ -116,6 +117,10 @@ target. tvOS has a device bundle and an arm64-only Simulator bundle;
 warns when the variable is missing or lower. In
 particular, an iOS cross build does not select the repository's macOS archive;
 it falls through to its target bundle or uses `HERMES_LEAN_SYS_DIR`.
+Android arm64 is absent from immutable v4. The staged v5 release adds it; until
+that release and all ten attestations are verified and the consumer pin table
+moves atomically, set `HERMES_LEAN_SYS_DIR_aarch64_linux_android` to a complete
+local Android install.
 
 There are two supported release-bundle modes. In the default automatic mode,
 a Cargo build downloads a missing pinned bundle and caches it. For a build

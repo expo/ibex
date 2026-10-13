@@ -85,7 +85,7 @@ extern "C" {
     fn ibex2_hermes_test_subscribe(handle: *mut c_void, callback_name: *const c_char) -> u64;
     #[cfg(test)]
     fn ibex2_hermes_test_unsubscribe(handle: *mut c_void, subscription: u64);
-    #[cfg(test)]
+    #[cfg(all(test, feature = "websocket"))]
     fn ibex2_hermes_test_websocket_keepalive_count(handle: *mut c_void) -> usize;
     #[cfg(all(test, feature = "test-support"))]
     fn ibex2_hermes_test_assert_timer_dispatch_unreachable(
@@ -726,7 +726,7 @@ impl Hermes {
         unsafe { ibex2_hermes_test_unsubscribe(self.handle, subscription) }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "websocket"))]
     pub(crate) fn websocket_keepalive_count_for_test(&self) -> usize {
         // SAFETY: the runtime is live and tests call this on its owner thread.
         unsafe { ibex2_hermes_test_websocket_keepalive_count(self.handle) }

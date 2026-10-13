@@ -1,12 +1,17 @@
+#[cfg(feature = "loader")]
 use std::io::{Read, Write};
+#[cfg(feature = "loader")]
 use std::net::TcpListener;
+#[cfg(feature = "loader")]
 use std::thread;
 use std::time::Duration;
 
 use ibex2::bindings::{Context, Groups};
 use ibex2::grant::GrantSet;
+#[cfg(feature = "loader")]
 use ibex2::stdlib::multipart::{EncodedMultipart, FormData};
 use ibex2_runtime::engine::hermes::{DynamicCode, Hermes};
+#[cfg(feature = "loader")]
 use ibex2_runtime::loader::{ModuleGrants, Root};
 
 fn runtime(groups: Groups, harden: bool) -> Hermes {
@@ -23,6 +28,7 @@ fn runtime_with_grants(groups: Groups, harden: bool, grants: GrantSet) -> Hermes
     runtime
 }
 
+#[cfg(feature = "loader")]
 fn capture(
     response_type: &str,
     response_body: &[u8],
@@ -64,6 +70,7 @@ fn capture(
     (format!("http://{address}"), server)
 }
 
+#[cfg(feature = "loader")]
 fn header<'a>(head: &'a str, wanted: &str) -> Option<&'a str> {
     head.split("\r\n")
         .filter_map(|line| line.split_once(':'))
@@ -71,10 +78,12 @@ fn header<'a>(head: &'a str, wanted: &str) -> Option<&'a str> {
         .map(|(_, value)| value.trim())
 }
 
+#[cfg(feature = "loader")]
 fn run_fetch_module(name: &str, origin: &str, source: &str) -> Vec<String> {
     run_fetch_module_with_groups(name, origin, source, Groups::DEFAULT | Groups::BLOB)
 }
 
+#[cfg(feature = "loader")]
 fn run_fetch_module_with_groups(
     name: &str,
     origin: &str,
@@ -84,6 +93,7 @@ fn run_fetch_module_with_groups(
     run_fetch_module_with_options(name, origin, source, groups, true)
 }
 
+#[cfg(feature = "loader")]
 fn run_fetch_module_with_options(
     name: &str,
     origin: &str,
@@ -418,6 +428,7 @@ fn blob_group_is_explicit_and_does_not_arrive_with_fetch() {
     );
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn fetch_request_blob_and_response_blob_use_content_types_and_bytes() {
     let (origin, server) = capture("Text/Custom", b"response bytes");
@@ -458,6 +469,7 @@ fn fetch_request_blob_and_response_blob_use_content_types_and_bytes() {
     assert_eq!(body, b"blob-body");
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn response_blob_uses_fetch_mime_type_extraction() {
     for (name, header_value, expected_type) in [
@@ -515,6 +527,7 @@ fn response_blob_uses_fetch_mime_type_extraction() {
     }
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn response_blob_copies_into_private_bytes_with_unhardened_intrinsics() {
     let (origin, server) = capture("text/plain", b"private response bytes");
@@ -544,6 +557,7 @@ fn response_blob_copies_into_private_bytes_with_unhardened_intrinsics() {
     server.join().unwrap();
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn response_blob_bytes_leaked_through_a_hooked_then_cannot_mutate_the_blob() {
     let (origin, server) = capture("text/plain", b"private response bytes");
@@ -580,6 +594,7 @@ fn response_blob_bytes_leaked_through_a_hooked_then_cannot_mutate_the_blob() {
     server.join().unwrap();
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn request_rejects_get_and_head_bodies() {
     let output = run_fetch_module(
@@ -612,6 +627,7 @@ fn request_rejects_get_and_head_bodies() {
     );
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn request_snapshots_buffer_source_bodies_at_construction() {
     let (origin, server) = capture("text/plain", b"ok");
@@ -633,6 +649,7 @@ fn request_snapshots_buffer_source_bodies_at_construction() {
     assert_eq!(body, [1, 2, 3]);
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn fetch_form_data_uses_rust_multipart_and_preserves_authored_content_type() {
     let (origin, server) = capture("text/plain", b"ok");
@@ -675,6 +692,7 @@ fn fetch_form_data_uses_rust_multipart_and_preserves_authored_content_type() {
     assert_eq!(header(&head, "content-type"), Some("application/custom"));
 }
 
+#[cfg(feature = "loader")]
 #[test]
 fn fetch_without_blob_matches_the_pre_lane_surface_and_wire_behavior() {
     let groups = Groups::PURE | Groups::CONSOLE | Groups::ABORT | Groups::FETCH;

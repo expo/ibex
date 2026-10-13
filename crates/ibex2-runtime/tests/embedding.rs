@@ -2257,3 +2257,6 @@ fn rejection_tracker_replacements_are_part_of_the_integrity_baseline() {
 // pinned their refusal).
 #[path = "embedding/borrowed_timers.rs"]
 mod borrowed_timers;
+
+#[path = "embedding/phase_cost.rs"]
+mod phase_cost;

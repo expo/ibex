@@ -1,15 +1,18 @@
 # Vanilla Hermes release bundles
 
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
-The next immutable prerelease is `hermes-vanilla-d412d3bd8512-v4`. It contains
-nine deterministic archives, `SHA256SUMS`, and one retained Sigstore bundle
-beside each archive. The immutable v1 release contains only the full VM; v2
-added the lean VM; v3 added the Linux ICU profile. Immutable releases cannot
-gain targets or data, so v4 is the namespace for the tvOS bundles, the
+The current immutable prerelease is `hermes-vanilla-d412d3bd8512-v4`, published
+on 2026-10-06 with nine deterministic archives, `SHA256SUMS`, and one retained
+Sigstore bundle beside each archive. The staged successor is
+`hermes-vanilla-d412d3bd8512-v5`: it rebuilds those nine targets and adds
+`aarch64-linux-android`, for ten archives and 21 release assets. It is not a
+consumer source until its immutable publication and all ten attestations have
+been verified. The immutable v1 release contains only the full VM; v2 added the
+lean VM; v3 added the Linux ICU profile; v4 added the tvOS bundles, the
 debugger-off Windows engine, and the separate English-Intl ICU data tier.
 
-Each v4 archive contains both the full `hermesvm_a` and lean
-`hermesvmlean_a` target archives under `lib/`, the rest of their target link
+Each v4 archive, and every staged v5 build, contains both the full `hermesvm_a`
+and lean `hermesvmlean_a` target archives under `lib/`, the rest of their target link
 closure, host `hermesc` under `bin/`, public headers under `include/`, the
 upstream license, and a canonical `hermes-input-receipt.json`. Receipt v2 binds
 the source commit, empty patch set, target, profile and build flags, HBC
@@ -71,18 +74,18 @@ backend; v4 adds no packaged Windows ICU archive.
 
 ## Bundle set
 
-| Receipt target | Archive | Runner | Profile | v4 dry-run size |
-| --- | --- | --- | --- | ---: |
-| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15-xlarge` | `min-size-release` | not rebuilt in I3 |
-| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-large` | `min-size-release` | not rebuilt in I3 |
-| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15-xlarge` | `min-size-release` | not rebuilt in I3 |
-| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | not rebuilt in I3 |
-| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15-xlarge` | `min-size-release` | 6,365,983 B |
-| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | 6,364,463 B |
-| `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | not rebuilt in I3 |
-| `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | not rebuilt in I3 |
-| `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | not buildable on macOS |
-| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | local (macOS with NDK 27.1); no CI runner yet | `min-size-release` | not in a release yet |
+| Receipt target | Archive | Runner | Profile | Release state |
+| --- | --- | --- | --- | --- |
+| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
+| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-large` | `min-size-release` | v4 published; v5 staged |
+| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
+| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
+| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
+| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v4 published; v5 staged |
+| `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | v4 published; v5 staged |
+| `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | v4 published; v5 staged |
+| `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `macos-15-xlarge`, NDK 27.1.12297006 | `min-size-release` | absent from v4; v5 staged |
+| `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | v4 published; v5 staged |
 
 The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
 the iOS simulator bundle's `-simulator` spelling. They deliberately omit
@@ -97,9 +100,11 @@ Its Unicode backend is a static ICU 74 with the trimmed root-en data, as the
 Linux bundles carry; it has no `Intl`. Hermes's `hermes.cpp` includes fbjni only
 to attach a JVM thread, so the build puts a no-op `ThreadScope` header
 (`scripts/android-fbjni-shim/`) on the include path; its digest is in the
-receipt. No release carries this bundle yet and no CI runner builds it, so a
-consumer points `HERMES_LEAN_SYS_DIR_aarch64_linux_android` at a local install
-(below).
+receipt. Immutable v4 cannot acquire it. The v5 read-only builder selects NDK
+27.1.12297006, installs that exact SDK package with unprivileged `sdkmanager`
+when absent, and verifies `source.properties` before building. Until v5 is
+published and verified, a consumer points
+`HERMES_LEAN_SYS_DIR_aarch64_linux_android` at a local install (below).
 
 ## Runners
 
@@ -110,8 +115,135 @@ standard pool. On 2026-10-05 the v3 build's standard `macos-15` jobs waited
 about two hours behind an organization-wide queue and one was cancelled before
 it received a runner; a probe on 2026-10-06 started both larger labels within
 seconds. They use the same macOS 15 image family and Xcode as the standard
-labels, so the build environment is unchanged. Linux and Windows jobs keep the
-standard hosted runners.
+labels. The Android job also uses `macos-15-xlarge`, with the exact NDK selected
+above. Linux and Windows jobs keep the standard hosted runners.
+
+## Local Android candidate evidence (2026-10-13)
+
+The local candidate archive is 68,174,234 bytes with SHA-256
+`7546d8b6292ede8434818b7c0342e2e6720b00a9cf6eb743e2f4e35ea8cba9ee`.
+This is local evidence, not a v5 release digest or consumer pin. A read-only
+check verified canonical metadata and ordering for all 361 tar members, every
+digest in the canonical receipt (seven archives, 333 headers, compiler, full
+VM, and lean VM), the pinned Hermes source commit and empty patch set, Android
+build flags and link directives, and HBC version 99. The NDK's `llvm-nm` found
+none of the four forbidden patched exports in either VM archive.
+
+The following offline cross build admitted that target-qualified receipt,
+paired its host compiler, and produced an AArch64 Android Rust test executable:
+
+```sh
+ndk_bin="$HOME/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+CARGO_TARGET_DIR=/tmp/ibex2-android-offline-link \
+CARGO_BUILD_JOBS=1 \
+CARGO_NET_OFFLINE=true \
+HERMES_LEAN_SYS_OFFLINE=1 \
+HERMES_LEAN_SYS_DIR_aarch64_linux_android="$HOME/.cache/exact/hermes-android/current" \
+CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ndk_bin/aarch64-linux-android30-clang" \
+CC_aarch64_linux_android="$ndk_bin/aarch64-linux-android30-clang" \
+CXX_aarch64_linux_android="$ndk_bin/aarch64-linux-android30-clang++" \
+AR_aarch64_linux_android="$ndk_bin/llvm-ar" \
+RANLIB_aarch64_linux_android="$ndk_bin/llvm-ranlib" \
+cargo test --offline --locked -p hermes-lean-sys --lib \
+  --target aarch64-linux-android --features link --no-run
+```
+
+That harness has no Rust FFI reference into Hermes (`ensure_linked` is empty),
+so it does not prove that the linker extracted VM archive members. The stronger
+offline native-link check used this probe. Its direct, non-inlined call from
+`main` remains live with `--gc-sections`; the JSI evaluation and property access
+also require the runtime implementation rather than only a header declaration.
+
+```sh
+install_dir="$HOME/.cache/exact/hermes-android/current"
+ndk_bin="$HOME/Library/Android/sdk/ndk/27.1.12297006/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+probe_dir=$(mktemp -d /tmp/ibex2-android-cpp-probe.XXXXXX)
+
+"$ndk_bin/aarch64-linux-android30-clang++" \
+  -std=c++17 -O2 -fPIE -ffunction-sections -fdata-sections \
+  -I"$install_dir/include" -x c++ -c -o "$probe_dir/probe.o" - <<'CPP'
+#include <hermes/hermes.h>
+#include <jsi/jsi.h>
+
+#include <memory>
+
+__attribute__((noinline)) int exerciseHermes() {
+  auto runtime = facebook::hermes::makeHermesRuntime();
+  auto source = std::make_shared<facebook::jsi::StringBuffer>(
+      "globalThis.__ibexAndroidProbe = 41 + 1; __ibexAndroidProbe;");
+  auto evaluated =
+      runtime->evaluateJavaScript(source, "ibex-android-probe.js");
+  runtime->global().setProperty(*runtime, "nativeProbe", 7);
+  auto property = runtime->global().getProperty(*runtime, "nativeProbe");
+  return evaluated.isNumber() && evaluated.getNumber() == 42 &&
+          property.isNumber() && property.getNumber() == 7
+      ? 0
+      : 1;
+}
+
+int main() {
+  return exerciseHermes();
+}
+CPP
+
+"$ndk_bin/aarch64-linux-android30-clang++" \
+  -fPIE -pie "$probe_dir/probe.o" \
+  -Wl,--gc-sections -Wl,--no-undefined \
+  -Wl,--start-group \
+  "$install_dir/lib/libhermesvm_a.a" \
+  "$install_dir/lib/libjsi.a" \
+  "$install_dir/lib/libboost_context.a" \
+  "$install_dir/lib/libicui18n.a" \
+  "$install_dir/lib/libicuuc.a" \
+  "$install_dir/lib/libicudata.a" \
+  -Wl,--end-group \
+  -nostdlib++ -lc++_static -lc++abi -llog -ldl -lm \
+  -o "$probe_dir/hermes-android-probe"
+
+file "$probe_dir/hermes-android-probe"
+"$ndk_bin/llvm-readelf" -h "$probe_dir/hermes-android-probe" | \
+  rg 'Type:|Machine:'
+"$ndk_bin/llvm-readelf" -d "$probe_dir/hermes-android-probe" | rg NEEDED
+"$ndk_bin/llvm-nm" --defined-only -C "$probe_dir/hermes-android-probe" | \
+  rg -c 'facebook::hermes|hermes::vm'
+"$ndk_bin/llvm-nm" --defined-only -C "$probe_dir/hermes-android-probe" | \
+  rg 'facebook::hermes::makeHermesRuntime|HermesRuntimeImpl::evaluateJavaScript'
+! "$ndk_bin/llvm-nm" -u -C "$probe_dir/hermes-android-probe" | \
+  rg 'facebook::hermes|hermes::vm'
+! "$ndk_bin/llvm-readelf" -d "$probe_dir/hermes-android-probe" | \
+  rg 'libc\+\+_shared'
+shasum -a 256 "$probe_dir/hermes-android-probe"
+stat -f 'probe_size=%z' "$probe_dir/hermes-android-probe"
+```
+
+The result was an 85,680,864-byte AArch64 PIE with SHA-256
+`e120020d5a1078bec02efc3af3a75a4d2430ba051b352cc83d166e5bf649176f`.
+`llvm-nm` found 3,276 defined Hermes symbols, including
+`facebook::hermes::makeHermesRuntime` and
+`HermesRuntimeImpl::evaluateJavaScript`, and no unresolved Hermes symbols.
+Its dynamic dependencies were only Android's `liblog`, `libdl`, `libm`, and
+`libc`; it did not depend on `libc++_shared`. This proves that the API 30 NDK
+linker extracted and linked the local candidate's VM closure. It does not
+execute Hermes on an Android device or authenticate bytes for publication.
+
+## V5 completion boundary
+
+V5 remains unpublished. Completion requires these operations in order:
+
+1. Merge the reviewed v5 builder and publisher definitions to `main`, then
+   dispatch the read-only builder from that exact head.
+2. Require all ten jobs and the publisher's exact ten-handoff inventory to
+   pass. The default-branch publisher must create an immutable prerelease with
+   ten archives, ten retained Sigstore bundles, and `SHA256SUMS` (21 assets).
+3. Download that release; verify every checksum, all ten publisher-workflow
+   attestations, the direct tag-to-source commit binding, and every canonical
+   receipt, including the Android checks in the verification loop below.
+4. Only then run the pin updater with the verified v5 tag and `SHA256SUMS`.
+   Review the resulting one-file transition from the authenticated v4 tag and
+   nine-archive table to the authenticated v5 tag and ten-archive table.
+5. Exercise cold, warm, offline, mirror, local override, and Android cross-link
+   cases before landing the consumer-pin change. Use only the published v5
+   archive digest; the local candidate digest above is never substituted.
 
 ## Required repository settings
 
@@ -242,6 +374,10 @@ non-fast-forward updates (force-pushes).
    scripts/build-hermes-vanilla-release.sh \
      aarch64-apple-tvos-simulator \
      /tmp/hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
+   ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/27.1.12297006" \
+     scripts/build-hermes-vanilla-release.sh \
+       aarch64-linux-android \
+       /tmp/hermes-vanilla-aarch64-linux-android.tar.gz
    ```
 
 3. After review, push and merge the branch. The orchestrator then dispatches
@@ -253,7 +389,7 @@ non-fast-forward updates (force-pushes).
    by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
    them. It first looks for a release using the requested tag. With no release,
    it refuses any pre-existing tag ref and creates a commit-bound draft; any
-   existing release with that tag is refused. It uploads all 19 assets, fetches
+   existing release with that tag is refused. It uploads all 21 assets, fetches
    the remote asset list, and requires
    the exact names, sizes, and SHA-256 digests before publishing the draft as a
    prerelease. A published release is never edited or deleted.
@@ -289,7 +425,7 @@ non-fast-forward updates (force-pushes).
    done
    test -n "$publisher_run_id"
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
-   gh release view hermes-vanilla-d412d3bd8512-v4 --repo "$repo"
+   gh release view hermes-vanilla-d412d3bd8512-v5 --repo "$repo"
    ```
 
 ### First publication (2026-10-04)
@@ -306,6 +442,19 @@ Post-publication verification downloaded the release, passed every
 attestation was checked with the publisher workflow certificate identity on
 `refs/heads/main`, `--source-ref refs/heads/main`, and both `--source-digest`
 and `--signer-digest` set to the full `321cc6d…` tag target above.
+
+### Current v4 publication (2026-10-06)
+
+The current consumer baseline used builder run
+[37473711909](https://github.com/expo/ibex/actions/runs/37473711909) and
+publisher run
+[37485666347](https://github.com/expo/ibex/actions/runs/37485666347). Both ran
+from `69808486da780b44de89747dcfb4d225a06957e5`, and the published tag
+`hermes-vanilla-d412d3bd8512-v4` resolves directly to that commit. The
+immutable prerelease has exactly nine archives, their nine retained Sigstore
+bundles, and `SHA256SUMS`. The nine archive digests compiled into
+`hermes-lean-sys` equal the published asset digests. V5 must complete the same
+verification for all ten archives before it replaces that tag and pin table.
 
 ## Recover a stuck draft
 
@@ -332,7 +481,7 @@ If the tag already exists, or a published release exists, don't delete either:
 increment the immutable release suffix (`-v4`, `-v5`, and so on).
 
 After publication the workflow re-reads the release. It requires it to be a
-non-draft, immutable prerelease with the exact 19-asset set and digests, and
+non-draft, immutable prerelease with the exact 21-asset v5 set and digests, and
 its tag to name the authorized source commit directly. GitHub's update
 endpoint has no compare-and-swap, so a writer with `contents: write` could
 swap an asset between the draft check and publication. This final check turns
@@ -348,6 +497,8 @@ repository from satisfying this check.
 
 ```sh
 repo=expo/ibex
+# Use v4 to reverify the current consumer baseline. Change this to v5 only
+# after the staged publisher has created that immutable release.
 tag=hermes-vanilla-d412d3bd8512-v4
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
@@ -376,7 +527,22 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     (.archives | length > 0) and
     (.headers | length > 0) and
     (.linkDirectives | length > 0) and
-    (if (.target | endswith("-unknown-linux-gnu")) then
+    (if .target == "aarch64-linux-android" then
+      .profile == "min-size-release" and
+      (.icu | not) and
+      (.build.flags | index("-DIBEX_ANDROID_FBJNI_SHIM_SHA256=d5b0440fe88ebf377d15646b59aba0e1f659f43db558b82c93be471c616fca44")) and
+      (.build.flags | index("-DHERMES_ENABLE_INTL=false")) and
+      (.build.flags | index("-DHERMES_UNICODE_LITE=false")) and
+      (.build.flags | index("-DHERMES_USE_STATIC_ICU=true")) and
+      (.build.flags | index("-DANDROID_ABI=arm64-v8a")) and
+      (.build.flags | index("-DANDROID_PLATFORM=android-30")) and
+      (.build.flags | index("-DANDROID_STL=c++_static")) and
+      any(.archives[]; .path == "lib/libicui18n.a") and
+      any(.archives[]; .path == "lib/libicuuc.a") and
+      any(.archives[]; .path == "lib/libicudata.a") and
+      (.linkDirectives | index("rustc-link-lib=c++_static")) and
+      (.linkDirectives | index("rustc-link-lib=log"))
+    elif (.target | endswith("-unknown-linux-gnu")) then
       .icu.upstream.sourceCommit == "2d029329c82c7792b985024b2bdab5fc7278fbc8" and
       .icu.upstream.sourceRef == "release-74-2" and
       .icu.upstream.sourceVersion == "74.2" and
@@ -580,21 +746,22 @@ checks it against the runtime API.
 ## Bump consumer pins
 
 Only after completing every `gh attestation verify` command in the preceding
-section, update the target table from that same downloaded checksum file:
+section, update the target table from that same downloaded checksum file. For
+this transition, set `tag=hermes-vanilla-d412d3bd8512-v5` throughout the
+verification procedure; reverifying current v4 does not call the updater.
 
 ```sh
-node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS"
+node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS" "$tag"
 ```
 
-The script requires all nine archive checksums and rewrites the duplicate
-universal-simulator mappings consistently. Review the resulting source diff,
-then exercise cold-cache, warm-cache, offline-cache, mirror, and local-directory
-override cases on the follow-up lean-selection branch before landing consumer
-updates. Never replace an asset: a
-changed build or packaging authority receives a new release revision suffix
-(`-v4`, `-v5`, and so on) and new consumer digests.
-Before a future release revision is published and all attestations pass, its
-pins must remain rejecting `TODO_*` sentinels. The resolver refuses those
-sentinels before any download, so neither a mirror nor a pre-populated cache
-can substitute bytes under an unpublished release name. Replace them only by
-the procedure above.
+The script requires the exact ten-archive and ten-Sigstore-bundle checksum
+inventory, requires the supplied tag to equal the staged publisher tag, and
+rewrites the release tag and complete target table together. That adds the
+Android mapping and keeps the duplicate universal-simulator mappings
+consistent. Review the resulting source diff, then exercise cold-cache,
+warm-cache, offline-cache, mirror, and local-directory override cases before
+landing consumer updates. Never replace an asset: a changed build or packaging
+authority receives a new release revision suffix (`-v5`, `-v6`, and so on) and
+new consumer digests. Before a successor release is published and every
+attestation passes, leave the preceding authenticated release tag and pins
+unchanged; never invent or precompute a release digest.

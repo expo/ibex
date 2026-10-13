@@ -563,6 +563,22 @@ mod secrets_tests {
         Host::with_transport(Box::new(NoTransport)).with_secret_store(Box::new(MemoryStore::new()))
     }
 
+    /// A store that must never be reached: every method is a test failure.
+    struct UntouchableStore;
+    impl SecretStore for UntouchableStore {
+        fn get(&self, name: &str) -> Result<Option<String>, HostError> {
+            panic!("a denied call reached the store: get {name}")
+        }
+
+        fn set(&self, name: &str, _value: &str) -> Result<(), HostError> {
+            panic!("a denied call reached the store: set {name}")
+        }
+
+        fn forget(&self, name: &str) -> Result<(), HostError> {
+            panic!("a denied call reached the store: forget {name}")
+        }
+    }
+
     #[test]
     fn a_granted_secret_is_kept_read_and_forgotten() {
         let app = host().endow(GrantSet::parse("secret.keep castle.session\n").unwrap());
@@ -579,9 +595,8 @@ mod secrets_tests {
 
     #[test]
     fn an_ungranted_secret_is_denied_before_any_store_is_asked() {
-        let store = Box::new(MemoryStore::with([("other".to_string(), "v".to_string())]));
         let app = host()
-            .with_secret_store(store)
+            .with_secret_store(Box::new(UntouchableStore))
             .endow(GrantSet::parse("secret.keep castle.session\n").unwrap());
         for result in [
             app.secrets.get("other").map(|_| ()),
@@ -595,6 +610,10 @@ mod secrets_tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn consumers_share_the_secret_store_but_not_authority() {
         // Two consumers over one host share the store but not the authority:
         // the granted one keeps a value in the very store the ungranted one
         // is denied.

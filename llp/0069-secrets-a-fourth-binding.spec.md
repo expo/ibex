@@ -5,7 +5,7 @@
 **Systems:** Rust Stdlib, CapSec, Host ABI, Platform
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revised:** 2026-08-30 (§1: the name grammar tightened to `[a-z0-9._-]{1,64}`, never only dots — LLP 0070 adopted one rule for names that become path components, and its review found the original grammar admitted `.`, `..`, unbounded length, and case variants a case-insensitive filesystem folds into one file)
+**Revised:** 2026-10-13 (§3 and §5: the non-Apple file store adopts LLP 0070's durable-base, exclusive-temporary, directory-sync, secure-permission, and non-regular-entry posture; reads use no-follow semantics and validate the opened handle, without claiming handle-relative protection for the parent path); 2026-08-30 (§1: the name grammar tightened to `[a-z0-9._-]{1,64}`, never only dots — LLP 0070 adopted one rule for names that become path components, and its review found the original grammar admitted `.`, `..`, unbounded length, and case variants a case-insensitive filesystem folds into one file)
 **Related:** LLP 0067 (§2 the families, §3 the check, §8 "a family is added with a measured call site and a test, never ahead of one"), LLP 0068 (`Host`, `endow`, `Bindings`; §2 synchronous by design; §4 Exact 2), LLP 0059.000 §4 (`storage.local` — a different thing, see §4 below), LLP 0057 §3 (Rust owns semantics, the platform owns the mechanism), exact2 LLP 1018 (the call site: a session token that survives a launch, read before the first frame), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library)
 
 ## Summary
@@ -107,10 +107,21 @@ store, or a test's.
   team identity is not (exact2 LLP 1018 D7).
 - **Elsewhere — a file per secret** (`secrets/mod.rs::FileStore`) under
   `$XDG_DATA_HOME/<app>/secrets/<name>` (`~/.local/share` when unset), created
-  `0600` in a `0700` directory, written whole to a temporary file and renamed
-  into place. Not encrypted: the platform's own secret service (libsecret,
-  the Windows credential vault) arrives with a consumer that runs there and
-  needs it, as a second `SecretStore`, not a second binding.
+  `0600` in a `0700` directory. Establishing the owner-only directory mode is
+  part of `set`, not a best-effort downgrade: failure is an error. Each write
+  goes whole to a fresh temporary (`create_new`, a per-call name, retry rather
+  than truncate or remove somebody else's collision), syncs the file, renames
+  it into place, and syncs changed directory entries best-effort, including
+  the directories a first write created. Reads open the final entry with
+  no-follow semantics where the platform provides them and validate that same
+  opened handle as a regular file; `set` and `forget` also refuse a symlink or
+  other non-regular occupant (including Windows reparse points). The
+  store-root slot itself is refused when it is a symlink or reparse point, but
+  parent traversal is path-based rather than handle-relative; this does not
+  claim protection against a same-user race that can replace an ancestor
+  directory. Not encrypted: the platform's own secret service
+  (libsecret, the Windows credential vault) arrives with a consumer that runs
+  there and needs it, as a second `SecretStore`, not a second binding.
 - **Memory** (`MemoryStore`): a map behind a mutex. Tests; and the store a
   consumer selects when it must leave no trace — a scripted drive against
   real credentials must not write a developer's keychain.
@@ -120,6 +131,11 @@ the platform knows the process as: the main bundle's identifier on Apple
 platforms, the executable's file name when there is no bundle, and elsewhere
 the executable's file name. A consumer that wants another name constructs the
 store itself (`KeychainStore::new(service)`, `FileStore::new(dir)`).
+
+When neither `XDG_DATA_HOME` nor `HOME` supplies an absolute durable base, the
+default file store **refuses every operation**. It never falls back to a
+world-writable, reboot-cleared temporary directory. A consumer that owns
+another location constructs `FileStore::new(dir)` explicitly.
 
 ## 4. What it is not
 
@@ -134,12 +150,17 @@ manifest section yet — the grant line is its seed (0068 §4).
 
 `grant.rs`: `secret.keep` parses, admits its exact name and nothing else, and
 crosses no kind. `host.rs`: a `Bindings` over a memory store gets, sets, and
-forgets a granted name, is denied an ungranted one, and lists exactly the
-granted names. `secrets/mod.rs`: the file store round-trips under a
-temporary directory with `0600` on the file, refuses a bad name, and
-forgetting an absent name is not an error. `secrets/darwin.rs` (Apple, in the
-test binary's own process, a unique name per run so no other build's item is
-ever touched): the Keychain round-trips, `get` after `forget` is `None`.
+forgets a granted name, lists exactly the granted names, and proves every
+denied operation precedes dispatch with a store that panics if touched.
+`secrets/mod.rs`: the file store round-trips under a temporary directory with
+`0600` on the file and `0700` on the directory, leaves no temporary behind,
+keeps concurrent writes whole, refuses a bad name, refuses symlink and
+non-file occupants without touching their targets, accepts only absolute
+environment bases, refuses through an unavailable store when no base exists,
+and treats forgetting an absent name as success. `secrets/darwin.rs` (Apple,
+in the test binary's own process, a unique name per run so no other build's
+item is ever touched): the Keychain round-trips, `get` after `forget` is
+`None`.
 `cargo test -p ibex2 --no-default-features` runs them all — the consumer's
 build shape (0068 OQ1).
 

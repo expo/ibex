@@ -1,6 +1,7 @@
 # `ibex2-runtime` tests fail without the `loader`/`websocket` features
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Gated only loader- and WebSocket-dependent runtime tests and helpers, preserved default and feature-independent coverage, and added plain, Intl, and loader-only no-default test rows with aggregate failure reporting.
 **Systems:** Runtime, Tests
 **Severity:** P3 (tests only)
 **Author:** Claude (Opus 5.5) for Charlie Cheever

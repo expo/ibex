@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+matrix_status=0
+run_matrix() {
+  if ! "$@"; then
+    printf 'feature matrix command failed:' >&2
+    printf ' %q' "$@" >&2
+    printf '\n' >&2
+    matrix_status=1
+  fi
+}
+
 # Keep the engine-free library and each independently supported feature door
 # buildable. This list is intentionally explicit so a new cfg gate cannot hide
 # a broken default, empty, bindings-only, either Intl data tier, crypto-only,
@@ -18,15 +28,18 @@ for features in intl intl-all-locales; do
     "$features" "${build_dependency:-<none>}"
 done
 
-cargo check -p ibex2
-cargo check -p ibex2 --no-default-features
-cargo check -p ibex2 --no-default-features --features bindings
-cargo check -p ibex2 --no-default-features --features bindings,intl
-cargo check -p ibex2 --no-default-features --features bindings,intl-all-locales
-cargo check -p ibex2 --no-default-features --features crypto
-cargo check -p ibex2-runtime --no-default-features
-cargo check -p ibex2-runtime --no-default-features --features intl
-cargo check -p ibex2-runtime --no-default-features --features intl-all-locales
+run_matrix cargo check -p ibex2
+run_matrix cargo check -p ibex2 --no-default-features
+run_matrix cargo check -p ibex2 --no-default-features --features bindings
+run_matrix cargo check -p ibex2 --no-default-features --features bindings,intl
+run_matrix cargo check -p ibex2 --no-default-features --features bindings,intl-all-locales
+run_matrix cargo check -p ibex2 --no-default-features --features crypto
+run_matrix cargo check -p ibex2-runtime --no-default-features
+run_matrix cargo check -p ibex2-runtime --no-default-features --features intl
+run_matrix cargo check -p ibex2-runtime --no-default-features --features intl-all-locales
+run_matrix cargo test --no-fail-fast -p ibex2-runtime --no-default-features
+run_matrix cargo test --no-fail-fast -p ibex2-runtime --no-default-features --features intl
+run_matrix cargo test --no-fail-fast -p ibex2-runtime --no-default-features --features loader
 
 # `pwd -W` (Git Bash/MSYS) yields a Windows path that the generated manifest
 # can hand to native Cargo on Windows; elsewhere it fails and `pwd` is used.
@@ -72,5 +85,7 @@ printf '%s\n' \
   '    }' \
   '}' \
   > "$fixture_root/src/main.rs"
-CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo_root/target}" \
+run_matrix env CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo_root/target}" \
   cargo run --quiet --manifest-path "$fixture_root/Cargo.toml"
+
+exit "$matrix_status"

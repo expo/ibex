@@ -54,6 +54,14 @@ const windowsReleaseBuilder = readFileSync(
   join(repoRoot, "scripts/build-hermes-windows-vanilla-release.ps1"),
   "utf8",
 );
+const pinUpdater = readFileSync(
+  join(repoRoot, "scripts/update-hermes-lean-sys-pins.mjs"),
+  "utf8",
+);
+const buildSupport = readFileSync(
+  join(repoRoot, "crates/hermes-lean-sys/build_support.rs"),
+  "utf8",
+);
 
 const builders = [
   "macos_arm64",
@@ -64,6 +72,7 @@ const builders = [
   "tvos_simulator",
   "linux_x86_64",
   "linux_arm64",
+  "android_arm64",
   "windows_x64",
 ];
 
@@ -443,9 +452,10 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   assert.ok(commit);
   for (const workflow of [builderWorkflow, publisherWorkflow]) {
     assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v4$`, "m"));
-    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v4`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v5$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v5`, "m"));
   }
+  assert.match(buildSupport, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "hermes-vanilla-${commit.slice(0, 12)}-v4";$`, "m"));
 });
 
 test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targets", () => {
@@ -460,6 +470,25 @@ test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targe
   assert.match(releaseBuilder, /aarch64-apple-tvos\)\n(?:    .*\n)*    platform=appletvos; target_arches=arm64; deployment_target=15\.0; profile=min-size-release/);
   assert.match(releaseBuilder, /aarch64-apple-tvos-simulator\)\n(?:    .*\n)*    platform=appletvsimulator; target_arches=arm64; deployment_target=15\.0; profile=min-size-release/);
   assert.doesNotMatch(releaseBuilder, /platform=appletvsimulator; target_arches=[^;]*x86_64/);
+});
+
+test("Android is an exact NDK-pinned release target with an inert authenticated handoff", () => {
+  const android = jobBlocks(builderWorkflow).get("android_arm64");
+  assert.match(android, /^    runs-on: macos-15-xlarge$/m);
+  assert.match(android, /android_ndk="\$android_sdk\/ndk\/27\.1\.12297006"/);
+  assert.match(android, /sdkmanager="\$\(command -v sdkmanager\)"/);
+  assert.match(android, /--install 'ndk;27\.1\.12297006' < <\(yes\)/);
+  assert.match(android, /test -f "\$android_ndk\/build\/cmake\/android\.toolchain\.cmake"/);
+  assert.ok(android.includes("grep -Eq '^Pkg\\.Revision[[:space:]]*=[[:space:]]*27\\.1\\.12297006$'"));
+  assert.doesNotMatch(android, /sudo|brew install/);
+  assert.match(android, /ANDROID_NDK_HOME=%s/);
+  assert.match(android, /build-hermes-vanilla-release\.sh aarch64-linux-android /);
+  assert.match(android, /asset_name=hermes-vanilla-aarch64-linux-android\.tar\.gz/);
+  assert.match(releaseBuilder, /aarch64-linux-android\)/);
+  assert.match(releaseBuilder, /-DANDROID_ABI=arm64-v8a/);
+  assert.match(releaseBuilder, /-DANDROID_STL=c\+\+_static/);
+  assert.match(releaseBuilder, /-DHERMES_ENABLE_INTL=false/);
+  assert.match(releaseBuilder, /--target hermesvm_a hermesvmlean_a jsi boost_context/);
 });
 
 test("release receipts bind both VM archives and keep the full VM as engine.binary", () => {
@@ -608,6 +637,75 @@ test("Linux receipt binds all ICU data archives and both pinned filters", (t) =>
     assert.equal(receipt.icu.upstream.sourceCommit, "2d029329c82c7792b985024b2bdab5fc7278fbc8");
   } finally {
     rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("pin updater makes one exact authenticated transition from v4 to staged v5", () => {
+  const livePinsPath = join(repoRoot, "crates/hermes-lean-sys/build_support.rs");
+  const livePinsBefore = readFileSync(livePinsPath, "utf8");
+  const temporary = mkdtempSync(join(tmpdir(), "hermes-pin-updater-test-"));
+  const scripts = join(temporary, "scripts");
+  const workflows = join(temporary, ".github", "workflows");
+  const crate = join(temporary, "crates", "hermes-lean-sys");
+  mkdirSync(scripts, { recursive: true });
+  mkdirSync(workflows, { recursive: true });
+  mkdirSync(crate, { recursive: true });
+  const updaterPath = join(scripts, "update-hermes-lean-sys-pins.mjs");
+  const publisherPath = join(workflows, "hermes-vanilla-publish.yml");
+  const pinsPath = join(crate, "build_support.rs");
+  const checksumsPath = join(temporary, "SHA256SUMS");
+  writeFileSync(updaterPath, pinUpdater);
+  writeFileSync(publisherPath, publisherWorkflow);
+  writeFileSync(pinsPath, buildSupport);
+
+  const releaseTag = publisherWorkflow.match(/^  RELEASE_TAG: (\S+)$/m)?.[1];
+  assert.ok(releaseTag);
+  const archives = builderArchiveBasenames(builderWorkflow);
+  const digestFor = (name) => createHash("sha256").update(`verified fixture: ${name}`).digest("hex");
+  const checksumLines = archives.flatMap((asset) => [
+    `${digestFor(asset)}  ${asset}`,
+    `${digestFor(`${asset}.sigstore.json`)}  ${asset}.sigstore.json`,
+  ]);
+  writeFileSync(checksumsPath, `${checksumLines.join("\n")}\n`);
+
+  try {
+    const result = spawnSync(process.execPath, [updaterPath, checksumsPath, releaseTag], {
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const updated = readFileSync(pinsPath, "utf8");
+    assert.match(updated, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "${releaseTag}";$`, "m"));
+    assert.equal([...updated.matchAll(/^    BundlePin \{$/gm)].length, 11);
+    for (const asset of archives) {
+      assert.match(updated, new RegExp(`asset: "${asset.replaceAll(".", "\\.")}",[\\s\\S]{0,100}sha256: "${digestFor(asset)}"`));
+    }
+    assert.match(updated, /target: "aarch64-linux-android",\n        asset: "hermes-vanilla-aarch64-linux-android\.tar\.gz"/);
+
+    const beforeRefusal = readFileSync(pinsPath, "utf8");
+    writeFileSync(
+      checksumsPath,
+      `${checksumLines.join("\n")}\n${"0".repeat(64)}  unexpected.tar.gz\n`,
+    );
+    const extra = spawnSync(process.execPath, [updaterPath, checksumsPath, releaseTag], {
+      encoding: "utf8",
+    });
+    assert.notEqual(extra.status, 0);
+    assert.equal(readFileSync(pinsPath, "utf8"), beforeRefusal);
+
+    const wrongTag = spawnSync(
+      process.execPath,
+      [updaterPath, checksumsPath, "hermes-vanilla-d412d3bd8512-v4"],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(wrongTag.status, 0);
+    assert.equal(readFileSync(pinsPath, "utf8"), beforeRefusal);
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+    assert.equal(
+      readFileSync(livePinsPath, "utf8"),
+      livePinsBefore,
+      "pin-updater fixture must never mutate the live pin table",
+    );
   }
 });
 

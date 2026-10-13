@@ -1,7 +1,11 @@
 # Secrets `FileStore`: adopt the hardening the kv review forced
 
-**Opened:** 2026-08-30
+**Status:** Closed
+**Resolution:** Hardened the secrets FileStore with absolute durable-root selection, loud unavailability, exclusive unique temporaries, no-follow regular-file reads, secure-permission error propagation, and best-effort directory sync; added denial-before-I/O and filesystem regression coverage and revised LLP 0069.
 **Systems:** Rust Stdlib, CapSec
+**Author:** Grok 4.6 and Codex, directed by Charlie Cheever
+**Date:** 2026-08-30
+
 **Found by:** the LLP 0070 review (Grok 4.6 + Codex, artifacts under
 `llp/reviews/0070-*`), as parity notes against `secrets/mod.rs::FileStore`.
 Deliberately not swept into the kv change; the kv fixes are the template.

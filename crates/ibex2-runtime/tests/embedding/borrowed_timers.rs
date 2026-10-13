@@ -390,6 +390,7 @@ fn performance_now_and_event_time_stamps_read_the_callers_clock() {
     assert_eq!(consumer.eval("String(new Event('x').timeStamp)"), "2000");
 }
 
+#[cfg(feature = "websocket")]
 fn frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
     assert!(payload.len() < 126, "test frames are short");
     let mut out = vec![0x80 | opcode, payload.len() as u8];
@@ -397,6 +398,7 @@ fn frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
     out
 }
 
+#[cfg(feature = "websocket")]
 fn client_frame(stream: &mut std::net::TcpStream) -> Option<(u8, Vec<u8>)> {
     let mut head = [0u8; 2];
     stream.read_exact(&mut head).ok()?;
@@ -413,6 +415,7 @@ fn client_frame(stream: &mut std::net::TcpStream) -> Option<(u8, Vec<u8>)> {
 }
 
 /// A local echo server; the count is the connections it accepted.
+#[cfg(feature = "websocket")]
 fn echo_server() -> (u16, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -458,6 +461,7 @@ fn echo_server() -> (u16, Arc<AtomicUsize>) {
 }
 
 /// Cycles, letting real time pass for I/O, until `done` is true.
+#[cfg(feature = "websocket")]
 fn until(consumer: &BareConsumer, done: &str) {
     let end = Instant::now() + Duration::from_secs(10);
     while consumer.eval(done) != "true" {

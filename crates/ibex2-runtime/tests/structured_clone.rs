@@ -31,6 +31,7 @@ fn check(body: &str) {
     check_with_groups(body, ibex2::bindings::Groups::DEFAULT);
 }
 
+#[cfg(all(feature = "loader", feature = "websocket"))]
 fn check_websocket_module(body: &str) {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let directory = std::env::temp_dir().join(format!(
@@ -356,7 +357,7 @@ fn platform_identity_is_private_and_unsupported_values_throw_data_clone_error() 
 }
 
 #[test]
-fn events_and_websockets_are_private_platform_objects() {
+fn events_are_private_platform_objects() {
     check_with_groups(
         r#"
         const values = [
@@ -371,8 +372,13 @@ fn events_and_websockets_are_private_platform_objects() {
           dataCloneError(() => structuredClone(value));
         }
         "#,
-        ibex2::bindings::Groups::DEFAULT | ibex2::bindings::Groups::WEBSOCKET,
+        ibex2::bindings::Groups::DEFAULT,
     );
+}
+
+#[cfg(all(feature = "loader", feature = "websocket"))]
+#[test]
+fn websockets_are_private_platform_objects() {
     check_websocket_module(
         r#"
         const socket = new WebSocket("ws://127.0.0.1:9/");

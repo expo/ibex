@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Rewrite hermes-lean-sys's target pin table from a verified SHA256SUMS.
+ * Replace hermes-lean-sys's release tag and complete target pin table from a
+ * verified immutable release's SHA256SUMS.
  *
  * Before running this script, the maintainer must run `gh attestation verify`
  * for every archive exactly as documented in docs/hermes-vanilla-release.md.
@@ -16,8 +17,37 @@ function die(message) {
   process.exit(1);
 }
 
-if (process.argv.length !== 3) {
-  die('usage: scripts/update-hermes-lean-sys-pins.mjs <verified-SHA256SUMS>');
+if (process.argv.length !== 4) {
+  die('usage: scripts/update-hermes-lean-sys-pins.mjs <verified-SHA256SUMS> <verified-release-tag>');
+}
+
+const pins = [
+  ['aarch64-apple-darwin', 'hermes-vanilla-aarch64-apple-darwin.tar.gz'],
+  ['x86_64-apple-darwin', 'hermes-vanilla-x86_64-apple-darwin.tar.gz'],
+  ['aarch64-apple-ios', 'hermes-vanilla-aarch64-apple-ios.tar.gz'],
+  ['aarch64-apple-ios-sim', 'hermes-vanilla-universal-apple-ios-simulator.tar.gz'],
+  ['x86_64-apple-ios', 'hermes-vanilla-universal-apple-ios-simulator.tar.gz'],
+  ['aarch64-apple-tvos', 'hermes-vanilla-aarch64-apple-tvos.tar.gz'],
+  ['aarch64-apple-tvos-sim', 'hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz'],
+  ['x86_64-unknown-linux-gnu', 'hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz'],
+  ['aarch64-unknown-linux-gnu', 'hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz'],
+  ['aarch64-linux-android', 'hermes-vanilla-aarch64-linux-android.tar.gz'],
+  ['x86_64-pc-windows-msvc', 'hermes-vanilla-x86_64-pc-windows-msvc.tar.gz'],
+];
+const archiveAssets = new Set(pins.map(([, asset]) => asset));
+const releaseAssets = new Set(
+  [...archiveAssets].flatMap((asset) => [asset, `${asset}.sigstore.json`]),
+);
+
+const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const publisherPath = resolve(repoRoot, '.github/workflows/hermes-vanilla-publish.yml');
+const publisher = readFileSync(publisherPath, 'utf8');
+const expectedReleaseTag = publisher.match(/^  RELEASE_TAG: (hermes-vanilla-[a-f0-9]{12}-v[1-9][0-9]*)$/m)?.[1];
+if (!expectedReleaseTag) die(`cannot find the staged release tag in ${publisherPath}`);
+
+const releaseTag = process.argv[3];
+if (releaseTag !== expectedReleaseTag) {
+  die(`release tag ${releaseTag} does not equal staged publisher tag ${expectedReleaseTag}`);
 }
 
 const checksumsPath = resolve(process.argv[2]);
@@ -27,37 +57,46 @@ for (const [index, line] of readFileSync(checksumsPath, 'utf8').split(/\r?\n/).e
   const match = line.match(/^([0-9a-fA-F]{64})\s+\*?([A-Za-z0-9_.-]+)$/);
   if (!match) die(`${checksumsPath}:${index + 1}: malformed checksum line`);
   const [, digest, asset] = match;
-  if (!asset.endsWith('.tar.gz')) continue;
-  if (!asset.startsWith('hermes-vanilla-')) {
-    die(`${checksumsPath}:${index + 1}: unexpected archive ${asset}`);
-  }
   if (checksums.has(asset)) die(`${checksumsPath}:${index + 1}: duplicate checksum for ${asset}`);
   checksums.set(asset, digest.toLowerCase());
 }
 
-const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+if (checksums.size !== releaseAssets.size) {
+  die(`${checksumsPath} names ${checksums.size} assets; expected ${releaseAssets.size}`);
+}
+for (const asset of releaseAssets) {
+  if (!checksums.has(asset)) die(`${checksumsPath} has no checksum for ${asset}`);
+}
+for (const asset of checksums.keys()) {
+  if (!releaseAssets.has(asset)) die(`${checksumsPath} contains unexpected release asset ${asset}`);
+}
+
 const pinsPath = resolve(repoRoot, 'crates/hermes-lean-sys/build_support.rs');
 const source = readFileSync(pinsPath, 'utf8');
+const releasePattern = /pub\(crate\) const RELEASE_TAG: &str = "[^"]+";/;
+if (!releasePattern.test(source)) die(`cannot find RELEASE_TAG in ${pinsPath}`);
 const tableStart = source.indexOf('pub(crate) const PINNED_BUNDLES:');
 const tableEnd = source.indexOf('\n];', tableStart);
 if (tableStart === -1 || tableEnd === -1) die(`cannot find PINNED_BUNDLES in ${pinsPath}`);
 
-const assets = new Set();
-const table = source.slice(tableStart, tableEnd + 3).replace(
-  /(asset:\s*"([^"]+)",\s*sha256:\s*")([^"]+)(")/g,
-  (whole, prefix, asset, _oldDigest, suffix) => {
-    const digest = checksums.get(asset);
-    if (!digest) die(`${checksumsPath} has no checksum for ${asset}`);
-    assets.add(asset);
-    return `${prefix}${digest}${suffix}`;
-  },
+const table = [
+  'pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[',
+  ...pins.flatMap(([target, asset]) => [
+    '    BundlePin {',
+    `        target: "${target}",`,
+    `        asset: "${asset}",`,
+    `        sha256: "${checksums.get(asset)}",`,
+    '    },',
+  ]),
+  '];',
+].join('\n');
+
+const withRelease = source.replace(
+  releasePattern,
+  `pub(crate) const RELEASE_TAG: &str = "${releaseTag}";`,
 );
-
-if (assets.size !== 9) die(`pin table names ${assets.size} unique assets; expected 9`);
-for (const asset of checksums.keys()) {
-  if (!assets.has(asset)) die(`${checksumsPath} contains unexpected archive ${asset}`);
-}
-
-const updated = `${source.slice(0, tableStart)}${table}${source.slice(tableEnd + 3)}`;
+const adjustedTableStart = withRelease.indexOf('pub(crate) const PINNED_BUNDLES:');
+const adjustedTableEnd = withRelease.indexOf('\n];', adjustedTableStart);
+const updated = `${withRelease.slice(0, adjustedTableStart)}${table}${withRelease.slice(adjustedTableEnd + 3)}`;
 writeFileSync(pinsPath, updated);
-console.log(`updated ${pinsPath} from ${checksumsPath}`);
+console.log(`updated ${pinsPath} to ${releaseTag} from ${checksumsPath}`);
