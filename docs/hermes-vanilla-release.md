@@ -120,13 +120,13 @@ uses `ubuntu-24.04`; it takes the SDK root from `ANDROID_SDK_ROOT` or
 `ANDROID_HOME`, defaults to the hosted image's `/usr/local/lib/android/sdk`, and
 accepts the conventional `$HOME/Android/Sdk` fallback used by Linux builders.
 
-The first v5 Android job on 2026-10-13 used `macos-15-xlarge` and stopped before
-the build because that runner exposed neither SDK-root variable to the step. The
-corrected Ubuntu job resolves the SDK explicitly, prefers its absolute
-`cmdline-tools/latest/bin/sdkmanager` and falls back to `PATH`, then requires the
-NDK's CMake toolchain and exact `source.properties` revision. Changing the build
-host does not change the Android target, API 30, static C++ runtime, receipt, or
-read-only handoff boundary.
+The first v5 Android job on 2026-10-13 used `macos-15-xlarge` and stopped during
+NDK selection before the Hermes build; the log did not identify which SDK lookup
+or check failed. The corrected Ubuntu job resolves the SDK explicitly, prefers
+its absolute `cmdline-tools/latest/bin/sdkmanager` and falls back to `PATH`, then
+requires the NDK's CMake toolchain and exact `source.properties` revision.
+Changing the build host does not change the Android target, API 30, static C++
+runtime, receipt, or read-only handoff boundary.
 
 ## Local Android candidate evidence (2026-10-13)
 
