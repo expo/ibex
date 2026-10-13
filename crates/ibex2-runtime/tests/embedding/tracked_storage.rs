@@ -35,7 +35,7 @@ fn borrowed_storage_uses_the_same_codec_and_retires_completion_on_delivery() {
         .set_image_codec(Arc::new(EchoCodec), WorkLimits::default())
         .unwrap();
     std::fs::write(consumer.directory.join("tmp/in"), b"encoded").unwrap();
-    consumer.eval("globalThis.result=''; fs.compressImage('app:/tmp/in','app:/data/out',16,64).then(x=>globalThis.result=x,e=>globalThis.result=String(e));").unwrap();
+    consumer.eval("globalThis.result=''; storage.fs.compressImage('app:/tmp/in','app:/data/out',16,64).then(x=>globalThis.result=x,e=>globalThis.result=String(e));").unwrap();
     assert_eq!(consumer.finish(), "1\t1\t7");
     assert_eq!(
         std::fs::read(consumer.directory.join("data/out")).unwrap(),
@@ -130,10 +130,10 @@ fn borrowed_document_denial_never_calls_provider_and_selected_file_roundtrips() 
         DocumentLease::selected_file(root.clone(), "chosen".into(), Arc::new(()))
     });
     consumer.context.set_documents(provider).unwrap();
-    consumer.eval("globalThis.result=''; fs.readFile('doc:/10/chosen').then(()=>result='bad',e=>result=String(e));").unwrap();
+    consumer.eval("globalThis.result=''; storage.fs.readFile('doc:/10/chosen').then(()=>result='bad',e=>result=String(e));").unwrap();
     assert!(consumer.finish().contains("denied"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    consumer.eval("globalThis.result=''; fs.readFile('doc:/1/chosen').then(x=>result=String(x.byteLength),e=>result=String(e));").unwrap();
+    consumer.eval("globalThis.result=''; storage.fs.readFile('doc:/1/chosen').then(x=>result=String(x.byteLength),e=>result=String(e));").unwrap();
     assert_eq!(consumer.finish(), "8");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
