@@ -1,1 +1,0 @@
-../0062-vanilla-hermes-as-a-capability-substrate.research.md
