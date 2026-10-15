@@ -308,8 +308,7 @@ fn headers_call_cannot_displace_a_live_response_body_owner() {
     server.join().unwrap();
 }
 
-#[test]
-fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
+fn completed_fetch_with_live_header_handles(name: &str) -> (common::Project, Hermes) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let server = thread::spawn(move || {
@@ -333,7 +332,7 @@ fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
         }})();
         "#
     );
-    let (_project, mut runtime) = runtime("fetch-headers-gc", &source, &origin);
+    let (project, mut runtime) = runtime(name, &source, &origin);
     runtime.run_to_quiescence(Duration::from_secs(5));
     assert_eq!(runtime.eval("String(headersDone)").unwrap(), "true");
     assert_eq!(
@@ -341,6 +340,13 @@ fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
         2,
         "the explicitly consumed request snapshot must already be gone"
     );
+    server.join().unwrap();
+    (project, runtime)
+}
+
+#[test]
+fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
+    let (_project, mut runtime) = completed_fetch_with_live_header_handles("fetch-headers-gc");
     for _ in 0..8 {
         runtime.eval("void 0").unwrap();
         assert!(runtime.collect_garbage());
@@ -349,5 +355,17 @@ fn fetched_header_snapshots_release_once_and_response_headers_follow_gc() {
         }
     }
     assert_eq!(runtime.live_header_handles_for_test(), 0);
-    server.join().unwrap();
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn runtime_destruction_releases_live_response_header_handles() {
+    let (_project, runtime) =
+        completed_fetch_with_live_header_handles("fetch-headers-runtime-drop");
+    let state = runtime.retain_state_for_test();
+    assert_eq!(state.live_headers(), 2);
+
+    drop(runtime);
+
+    assert_eq!(state.live_headers(), 0);
 }

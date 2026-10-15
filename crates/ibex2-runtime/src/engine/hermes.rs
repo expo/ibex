@@ -732,6 +732,26 @@ impl Hermes {
         unsafe { ibex2_hermes_test_websocket_keepalive_count(self.handle) }
     }
 
+    /// Retain the runtime's Rust storage without retaining an owner lease.
+    ///
+    /// Test instrumentation for witnessing that owner-driven shutdown clears
+    /// registries even while a worker-style reference keeps their allocation
+    /// alive. Applications must not inspect runtime storage.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    // @ref LLP 0058.000.000#9-teardown-and-lifecycle — a non-owner state reference witnesses last-owner cleanup
+    pub fn retain_state_for_test(&self) -> std::sync::Arc<crate::task::RuntimeState> {
+        // SAFETY: `self` owns a live Arc-backed state pointer. Incrementing its
+        // strong count before constructing the Arc preserves the engine's
+        // reference and deliberately does not acquire another owner lease.
+        unsafe {
+            let state = ibex2_hermes_state(self.handle);
+            assert!(!state.is_null(), "live Hermes runtime state");
+            std::sync::Arc::increment_strong_count(state);
+            std::sync::Arc::from_raw(state)
+        }
+    }
+
     /// Number of Rust `Headers` registry entries owned by this runtime.
     ///
     /// Test instrumentation for checking that binding-internal snapshots are

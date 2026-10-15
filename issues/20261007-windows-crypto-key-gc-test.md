@@ -43,3 +43,43 @@ on the NUC):
 
 In those full runs the key-handle test above passed. It fails reliably only
 in isolation (`--test subtle`).
+
+## 2026-10-15 native follow-up: teardown releases both registries
+
+The original failure did not reproduce in a bounded rerun on the same NUC:
+
+- Accepted runtime source `e742c7284a767edbfb711db3333f7610c24f99f8`
+  passed the exact key-GC test, a complete `subtle` run, and 30 further
+  invocations of that built integration-test binary.
+- Historical source `c3fd74ae100f191226517ea0a4e6337bda730c66`, rebuilt
+  during this follow-up, passed one complete `subtle` run and 30 further
+  invocations of its built integration-test binary.
+
+Both rebuilds used Rust 1.97.0 (`2d8144b78`), LLVM 22.1.6, Visual Studio 18
+Community, and MSVC tools 14.50.35717, without a Hermes install override. The
+historical source resolved pinned bundle
+`hermes-vanilla-d412d3bd8512-v4` (`1ae9d648...`); accepted source resolved
+`hermes-vanilla-d412d3bd8512-v5` (`db9233d0...`). Both receipts name upstream
+Hermes `d412d3bd851278712c20ccca25d094e32641a0465` with an empty patch set, but
+their engine archives have different digests. Rebuilding old source with the
+current toolchain and resolved bundle does not replay the 2026-10-07 build
+environment, so this is no-reproduction evidence rather than a fixed-cause
+comparison.
+
+Two native runtime-destruction witnesses provide a deterministic lifetime
+boundary. Each retains the `RuntimeState` allocation with a non-owner `Arc`,
+so the registry stays inspectable while the last runtime owner initiates
+shutdown:
+
+- A JavaScript-reachable `CryptoKey` leaves one Rust key handle immediately
+  before `Hermes` drops and zero afterward.
+- A completed fetch leaves two JavaScript-owned response-header handles
+  immediately before `Hermes` drops and zero afterward.
+
+The exact witness tests and the complete affected integration binaries pass
+on native Windows: `subtle` 15/15 and `fetch_streaming` 8/8. This
+demonstrates registry cleanup across owning-runtime teardown for these tested
+cases, even when another reference keeps the Rust allocation alive. It rules
+out persistent registry retention across teardown in these cases. It does not
+identify why the 2026-10-07 live-runtime collections
+retained the objects, or distinguish conservative reachability from an engine

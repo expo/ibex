@@ -593,6 +593,40 @@ fn garbage_collection_releases_rust_key_handles() {
     assert_eq!(runtime.crypto_key_count(), 0);
 }
 
+#[cfg(all(feature = "crypto", feature = "test-support"))]
+#[test]
+fn runtime_destruction_releases_live_rust_key_handles() {
+    let mut runtime = runtime();
+    runtime
+        .eval(
+            r#"
+            globalThis.__held_key = null;
+            globalThis.__key_ready = "pending";
+            void crypto.subtle.generateKey(
+              {name: "HMAC", hash: "SHA-256"}, false, ["sign"]
+            ).then(
+              key => {
+                globalThis.__held_key = key;
+                globalThis.__key_ready = "ok";
+              },
+              error => {
+                globalThis.__key_ready = error.name + ": " + error.message;
+              }
+            );
+            "#,
+        )
+        .unwrap();
+    runtime.drain_microtasks().unwrap();
+    assert_eq!(runtime.eval("__key_ready").unwrap(), "ok");
+    assert_eq!(runtime.crypto_key_count(), 1);
+    let state = runtime.retain_state_for_test();
+    assert_eq!(state.crypto_key_count(), 1);
+
+    drop(runtime);
+
+    assert_eq!(state.crypto_key_count(), 0);
+}
+
 #[cfg(not(feature = "crypto"))]
 #[test]
 fn feature_off_keeps_the_binding_and_rejects_by_name() {
