@@ -44,7 +44,8 @@ extern "C" {
     fn ibex2_darwin_free(value: *mut c_void);
 }
 
-/// The main bundle's identifier, when the process has a bundle.
+/// The main bundle's identifier, when the process has a bundle or (on macOS) an
+/// Info.plist embedded in its executable.
 pub fn bundle_identifier() -> Option<String> {
     // SAFETY: the shim returns null or a malloc'd NUL-terminated UTF-8 string
     // that is ours to free.

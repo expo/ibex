@@ -19,9 +19,14 @@
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 #include <TargetConditionals.h>
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace {
 
@@ -40,6 +45,76 @@ char *dup_utf8(NSString *value) {
   }
   return out;
 }
+
+#if TARGET_OS_OSX
+// Whether the main executable's directory is plainly not a bundle: on a
+// case-insensitive volume, not a platform executables folder (whose bundle is
+// further up) nor a framework, and holding none of the names CoreFoundation
+// looks for in a bundle (each compared without case, so `lstat` finds them).
+// Whether CFProcessPath was set when this image loaded, which CoreFoundation
+// may have read and kept even if the process unsets it before asking
+const bool process_path_at_load = getenv("CFProcessPath") != nullptr;
+
+bool outside_any_bundle() {
+  // CoreFoundation takes its process path from CFProcessPath when it is set
+  if (process_path_at_load || getenv("CFProcessPath") != nullptr) {
+    return false;
+  }
+  uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);
+  std::string path(size, '\0');
+  if (_NSGetExecutablePath(path.data(), &size) != 0) {
+    return false;
+  }
+  // The path as executed, symlinks unresolved, as CoreFoundation takes it
+  NSString *directory = [NSString stringWithUTF8String:path.c_str()]
+                            .stringByDeletingLastPathComponent;
+  if (pathconf(directory.fileSystemRepresentation, _PC_CASE_SENSITIVE) != 0) {
+    return false;
+  }
+  for (NSString *name in @[ @"MacOS", @"Mac OS X", @"MacOSClassic", @"Mac OS 8" ]) {
+    if ([directory.lastPathComponent caseInsensitiveCompare:name] ==
+        NSOrderedSame) {
+      return false;
+    }
+  }
+  if ([directory.pathExtension caseInsensitiveCompare:@"framework"] ==
+      NSOrderedSame) {
+    return false;
+  }
+  for (NSString *name in @[ @"Contents", @"Resources", @"Support Files",
+                            @"Info.plist", @"Info-macos.plist" ]) {
+    struct stat info;
+    NSString *marker = [directory stringByAppendingPathComponent:name];
+    if (lstat(marker.fileSystemRepresentation, &info) == 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// CFBundleIdentifier from the main executable's `__TEXT,__info_plist`
+// section, or nil when it has none
+NSString *embedded_identifier() {
+  unsigned long length = 0;
+  const uint8_t *bytes = getsectiondata(
+      reinterpret_cast<const struct mach_header_64 *>(_dyld_get_image_header(0)),
+      "__TEXT", "__info_plist", &length);
+  if (bytes == nullptr) {
+    return nil;
+  }
+  NSData *data = [NSData dataWithBytesNoCopy:(void *)bytes
+                                      length:length
+                                freeWhenDone:NO];
+  id info = [NSPropertyListSerialization propertyListWithData:data
+                                                      options:NSPropertyListImmutable
+                                                       format:nil
+                                                        error:nil];
+  id identifier =
+      [info isKindOfClass:[NSDictionary class]] ? info[@"CFBundleIdentifier"] : nil;
+  return [identifier isKindOfClass:[NSString class]] ? identifier : nil;
+}
+#endif
 
 char *status_message(OSStatus status) {
   CFStringRef message = SecCopyErrorMessageString(status, nullptr);
@@ -130,8 +205,22 @@ int ibex2_darwin_keychain_forget(const char *service, const char *name, char **o
   }
 }
 
+// The main bundle's identifier. On macOS, NSBundle finds the main bundle by
+// listing the executable's directory, and a build tree's directory can hold
+// hundreds of thousands of files: seconds of system time in every process.
+// When that directory is plainly not a bundle by CoreFoundation's own markers
+// (CFBundle.c `_CFBundleCopyBundleURLForExecutablePath`, CFBundle_Resources.c
+// `_CFBundleGetBundleVersionForURL`, CFBundle_InfoPlist.c), the identifier can
+// only come from an Info.plist embedded in the executable, which this reads.
+// Anything else, a case-sensitive volume or a CFProcessPath override included,
+// asks NSBundle.
 char *ibex2_darwin_bundle_identifier(void) {
   @autoreleasepool {
+#if TARGET_OS_OSX
+    if (outside_any_bundle()) {
+      return dup_utf8(embedded_identifier());
+    }
+#endif
     return dup_utf8([[NSBundle mainBundle] bundleIdentifier]);
   }
 }

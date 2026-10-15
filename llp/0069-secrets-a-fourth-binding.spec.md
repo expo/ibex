@@ -132,6 +132,21 @@ platforms, the executable's file name when there is no bundle, and elsewhere
 the executable's file name. A consumer that wants another name constructs the
 store itself (`KeychainStore::new(service)`, `FileStore::new(dir)`).
 
+On macOS `NSBundle.mainBundle` finds the main bundle by listing the
+executable's directory, and a build tree's `target/debug/deps` can hold
+hundreds of thousands of files: seconds of system time in every test process
+that opens a store. So when that directory is plainly not a bundle by
+CoreFoundation's own markers (on a case-insensitive volume, not a `MacOS`-style
+executables folder or a `.framework`, and holding no `Contents`, `Resources`,
+`Support Files`, `Info.plist` or `Info-macos.plist`), the shim reads the
+identifier from an Info.plist embedded in the executable (`__TEXT,__info_plist`),
+the only place it could come from there. Every other process, including one
+whose environment sets `CFProcessPath` when the library loads or when it asks,
+asks `NSBundle`. CoreFoundation keeps the `CFProcessPath` it first read, so a
+process that unset it in between (one that set it after loading the library,
+or inherited it and unset it before a `dlopen`) is named as if the variable
+were never set.
+
 When neither `XDG_DATA_HOME` nor `HOME` supplies an absolute durable base, the
 default file store **refuses every operation**. It never falls back to a
 world-writable, reboot-cleared temporary directory. A consumer that owns
