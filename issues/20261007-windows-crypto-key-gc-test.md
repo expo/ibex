@@ -83,3 +83,6 @@ cases, even when another reference keeps the Rust allocation alive. It rules
 out persistent registry retention across teardown in these cases. It does not
 identify why the 2026-10-07 live-runtime collections
 retained the objects, or distinguish conservative reachability from an engine
+finalization defect at that earlier build. Keep this issue open; the evidence
+does not justify weakening the existing bounded GC assertions or adding more
+collections merely to make them pass.
