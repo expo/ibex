@@ -278,6 +278,13 @@ cross-compilation and link results; no Android device execution is claimed.
 Only published V5 digests were used; the local candidate digest above was never
 substituted.
 
+The [2026-10-18 physical Android follow-up](../llp/0068.002-adopting-consumer-patches-upstream.plan.md#physical-android-qualification-2026-10-18)
+executes the published V5 lean and full runtime on a Nothing A069P running
+Android 16, alongside native Ibex and a fresh Exact Shelf APK. Its separate
+record identifies the tested sources, archive and APK hashes, device results
+and the adb-shell FIFO fixture limitation; the earlier cross-link results
+above retain their original scope.
+
 ## Required repository settings
 
 Apply these settings after the publisher workflow is merged to `main` and
