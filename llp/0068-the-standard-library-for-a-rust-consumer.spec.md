@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-18 (§3 trusted-bootstrap hardening: descriptor-record fields use captured `hasOwnProperty` and cached property IDs; a collection between the successful guard and freeze reuses young-generation pages while preserving rooted identities)
 **Revised:** 2026-10-06 (§3 Decision C: the completed intrinsic-capture audit is a closed record; a new unhardened-runtime finding opens a new issue)
 **Revised:** 2026-10-06 (§3 "Native wrapper ownership" fix round 1: JS-thread fetch header snapshots; constructor-only transactional `Headers`; all native-state attachments refuse displacement)
 **Revised:** 2026-10-06 (§3 "Native wrapper ownership": `Headers` rows follow JavaScript collection through private JSI native state, explicit fetch release is idempotent, teardown is weak-state safe, and the sibling registry audit is recorded)
@@ -468,8 +469,9 @@ skips the guard and is not a supported way to harden after `install_with`.
 **The harden guard.** At publication the adapter records the object's identity
 and its eight member functions' identities, and captures
 `Object.getOwnPropertyNames`, `getOwnPropertySymbols`,
-`getOwnPropertyDescriptor`, `getPrototypeOf`, `Set`, and `Set.prototype.has` /
-`add`. Before the harden bytecode runs, the guard refuses — freezing nothing —
+`getOwnPropertyDescriptor`, `getPrototypeOf`,
+`Object.prototype.hasOwnProperty`, `Set`, and `Set.prototype.has` / `add`.
+Before the harden bytecode runs, the guard refuses — freezing nothing —
 if the chosen global is present, or if any recorded identity is reachable from
 exactly what `harden.js` walks: the global object's own string- and
 symbol-keyed properties, its prototype chain, and transitively every reached
@@ -480,8 +482,21 @@ It cannot see — and neither can the freeze — a value held only in a closure
 (including a getter's closure), in native state, in a `Map`/`Set`/`WeakMap`
 entry, or behind a Proxy whose traps conceal it. Those remain the bootstrap's
 obligation, which is why a wrapper must never return `p` or a member. The walk
-runs only when primitives were published; on the default runtime groups it
-adds about 2 ms to `harden` (measured 2026-10-05 on the Mac Studio).
+runs only when a trusted-bootstrap output was published. Descriptor records
+are ordinary objects made by `getOwnPropertyDescriptor`; the guard classifies
+their own `value` field with captured `hasOwnProperty` and then reads cached
+`value`, `get`, and `set` property IDs. This preserves Proxy reflection while
+never invoking a getter or Proxy `get` trap and avoids per-edge field-name and
+second-descriptor allocations.
+
+After a successful nonempty guard, `harden()` asks JSI instrumentation to
+collect garbage before evaluating `harden.js`. Collection runs no JavaScript;
+finalization callbacks wait for a later microtask checkpoint. Traversal
+temporaries are dead, while the checked bootstrap identities remain rooted in
+adapter state and permitted closure/native owners, so the freeze observes the
+same graph and reuses the guard's young-generation pages. With no published
+output, neither guard nor collection runs. On the default runtime groups the
+guard adds about 2 ms to `harden` (measured 2026-10-05 on the Mac Studio).
 
 **Members.** Synchronous unless a Promise is named.
 

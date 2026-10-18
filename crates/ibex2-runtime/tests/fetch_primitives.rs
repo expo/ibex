@@ -538,6 +538,69 @@ fn an_inherited_value_field_cannot_hide_an_accessor_alias() {
 }
 
 #[test]
+fn a_proxy_get_trap_cannot_hide_a_bootstrap_output() {
+    let mut runtime = install_with_primitives(GrantSet::none());
+    runtime
+        .eval(&format!(
+            r#"
+            (function (p) {{
+              delete globalThis.{PRIMITIVES_GLOBAL};
+              globalThis.__hidden = new Proxy({{ member: p.fetch }}, {{
+                get: function () {{ globalThis.__proxyGetRan = true; return undefined; }}
+              }});
+            }})(globalThis.{PRIMITIVES_GLOBAL});
+            "#
+        ))
+        .expect("bootstrap publishes a proxy alias");
+
+    let error = runtime.harden().unwrap_err().to_string();
+    assert!(
+        error.contains("fetch primitives member fetch is still reachable"),
+        "{error}"
+    );
+    assert_eq!(
+        runtime.eval("String(globalThis.__proxyGetRan)").unwrap(),
+        "undefined",
+        "descriptor traversal must not invoke the Proxy get trap"
+    );
+}
+
+#[test]
+fn post_guard_collection_preserves_roots_and_descriptor_reachability() {
+    let mut runtime = install_with_primitives(GrantSet::none());
+    runtime
+        .eval(&format!(
+            r#"
+            globalThis.__probe = (function (p) {{
+              var fetch = p.fetch;
+              delete globalThis.{PRIMITIVES_GLOBAL};
+              var payload = {{ inner: {{}} }};
+              globalThis.__box = new Proxy({{ payload: payload }}, {{
+                get: function () {{ globalThis.__proxyGetRan = true; return undefined; }}
+              }});
+              return function () {{
+                return [
+                  typeof fetch,
+                  Object.isFrozen(payload),
+                  Object.isFrozen(payload.inner),
+                  typeof globalThis.__proxyGetRan
+                ].join("|");
+              }};
+            }})(globalThis.{PRIMITIVES_GLOBAL});
+            "#
+        ))
+        .expect("bootstrap closes over one rooted member");
+
+    runtime
+        .harden()
+        .expect("a closure-only bootstrap output remains allowed");
+    assert_eq!(
+        runtime.eval("globalThis.__probe()").unwrap(),
+        "function|true|true|undefined"
+    );
+}
+
+#[test]
 fn harden_refuses_any_alias_of_the_object_or_a_member() {
     for (alias, reachable) in [
         ("globalThis.alias = p;", "the fetch primitives object"),

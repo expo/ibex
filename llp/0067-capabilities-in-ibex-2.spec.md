@@ -5,6 +5,7 @@
 **Systems:** CapSec, Module Loader, Runtime, Host ABI, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-18 (§2: family-specific CSP-style scheme grants admit all `http`/`https` fetch origins or all `ws`/`wss` WebSocket origins without crossing families or creating ambient authority)
 **Revised:** 2026-10-05 (§5: the v2 release pipeline packages full and lean VM archives together; the manifest binds both and receipt generation scans both before claiming an empty patch set)
 **Revised:** 2026-10-04 (§5: the canonical receipt names the exact full-VM archive linked for its target; generation scans that archive for patched symbols and verification hashes that path rather than accepting any digest-matching candidate)
 **Revised:** 2026-10-04 (§5: canonical Hermes input receipt v2 binds the target static link closure and host compiler without a volatile production date; v1 remains readable; local Apple and Linux builders write v2 as part of installation)
@@ -63,8 +64,8 @@ Seven families exist, each a parameterized question:
 
 | family | grant | the question |
 |---|---|---|
-| `net.fetch` | origin, or `scheme://*.domain` | may this request go to this origin? |
-| `net.websocket` | origin | may a socket open to this origin? (LLP 0059.000 §3.12) |
+| `net.fetch` | origin, `scheme://*.domain`, or `http:` / `https:` | may this request go to this origin? |
+| `net.websocket` | origin, or `ws:` / `wss:` | may a socket open to this origin? (LLP 0059.000 §3.12) |
 | `fs.read` / `fs.write` | path prefix | may this path be read, or written? |
 | `env.read` | variable name | is this variable in the snapshot? |
 | `secret.keep` | name | may this secret be read, replaced, and forgotten? (LLP 0069) |
@@ -95,6 +96,18 @@ changes origin drops `Authorization`, `Cookie`, and `Proxy-Authorization`
 lives on one of many hosts: *"a wildcard grant is probably worth it actually,
 and the developer should just use it carefully."* Built first in exact2's
 vendored copy and upstreamed 2026-10-04.
+
+**The scheme grant.** A network grant may instead use the CSP scheme-source
+spelling: the scheme followed by one colon and nothing else. `net.fetch http:`
+and `net.fetch https:` admit every host and port of that exact scheme;
+`net.websocket ws:` and `net.websocket wss:` do the same for sockets. Scheme
+spelling is ASCII-case-insensitive. The grammar recognizes the general CSP
+shape but refuses every scheme outside the family named on that line, so a
+fetch line cannot grant `ws:` or `file:`, a WebSocket line cannot grant
+`http:`, and a grant in one family never admits an operation in the other.
+This widens only the parameter captured by the module's existing network
+binding; it publishes no global and confers no authority on a module that was
+not handed that binding.
 
 ## 3. The check
 
