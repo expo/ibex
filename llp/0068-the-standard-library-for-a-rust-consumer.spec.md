@@ -493,10 +493,12 @@ After a successful nonempty guard, `harden()` asks JSI instrumentation to
 collect garbage before evaluating `harden.js`. Collection runs no JavaScript;
 finalization callbacks wait for a later microtask checkpoint. Traversal
 temporaries are dead, while the checked bootstrap identities remain rooted in
-adapter state and permitted closure/native owners, so the freeze observes the
-same graph and reuses the guard's young-generation pages. With no published
-output, neither guard nor collection runs. On the default runtime groups the
-guard adds about 2 ms to `harden` (measured 2026-10-05 on the Mac Studio).
+adapter state and permitted closure/native owners. Those strong roots survive
+collection, and the freeze can reuse the guard's young-generation pages.
+Stateful Proxy reflection across the two walks remains the trusted bootstrap's
+obligation. With no published output, neither guard nor collection runs. On the
+default runtime groups the guard adds about 2 ms to `harden` (measured
+2026-10-05 on the Mac Studio).
 
 **Members.** Synchronous unless a Promise is named.
 
