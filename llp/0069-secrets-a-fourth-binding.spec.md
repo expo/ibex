@@ -5,7 +5,7 @@
 **Systems:** Rust Stdlib, CapSec, Host ABI, Platform
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revised:** 2026-10-13 (§3 and §5: the non-Apple file store adopts LLP 0070's durable-base, exclusive-temporary, directory-sync, secure-permission, and non-regular-entry posture; reads use no-follow semantics and validate the opened handle, without claiming handle-relative protection for the parent path); 2026-08-30 (§1: the name grammar tightened to `[a-z0-9._-]{1,64}`, never only dots — LLP 0070 adopted one rule for names that become path components, and its review found the original grammar admitted `.`, `..`, unbounded length, and case variants a case-insensitive filesystem folds into one file)
+**Revised:** 2026-10-18 (§5: isolate the Android FIFO fixture denial so it does not mask the symlink, directory, and store-root proofs); 2026-10-13 (§3 and §5: the non-Apple file store adopts LLP 0070's durable-base, exclusive-temporary, directory-sync, secure-permission, and non-regular-entry posture; reads use no-follow semantics and validate the opened handle, without claiming handle-relative protection for the parent path); 2026-08-30 (§1: the name grammar tightened to `[a-z0-9._-]{1,64}`, never only dots — LLP 0070 adopted one rule for names that become path components, and its review found the original grammar admitted `.`, `..`, unbounded length, and case variants a case-insensitive filesystem folds into one file)
 **Related:** LLP 0067 (§2 the families, §3 the check, §8 "a family is added with a measured call site and a test, never ahead of one"), LLP 0068 (`Host`, `endow`, `Bindings`; §2 synchronous by design; §4 Exact 2), LLP 0059.000 §4 (`storage.local` — a different thing, see §4 below), LLP 0057 §3 (Rust owns semantics, the platform owns the mechanism), exact2 LLP 1018 (the call site: a session token that survives a launch, read before the first frame), `rules/NOT-DOING.md` (the bar: a no-JS consumer gets the same standard library)
 
 ## Summary
@@ -160,7 +160,11 @@ environment bases, refuses through an unavailable store when no base exists,
 and treats forgetting an absent name as success. `secrets/darwin.rs` (Apple,
 in the test binary's own process, a unique name per run so no other build's
 item is ever touched): the Keychain round-trips, `get` after `forget` is
-`None`.
+`None`. The symlink occupant, directory occupant, FIFO occupant, and symlinked
+store-root proofs are independent tests. The FIFO proof remains strict where
+the fixture can be created; it is explicitly ignored on Android, where the
+adb-shell fixture used for native tests may deny `mkfifo`, while the other
+proofs still run there.
 `cargo test -p ibex2 --no-default-features` runs them all — the consumer's
 build shape (0068 OQ1).
 
