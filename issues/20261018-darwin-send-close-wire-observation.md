@@ -43,8 +43,23 @@ both calls return, that `cancelWithCloseCode` was submitted. The peer preserves
 I/O errors instead of flattening EOF, reset, and timeout into the same `gone`
 report. The required `/echo close 1000 ` wire assertion remains unchanged.
 
-This leaves the issue open because no defect was reproduced and no runtime
-behavior was changed. A future failure now separates three cases: close never
+After those diagnostics were added, one execution of
+`cargo test -p ibex2 --lib transport::darwin_websocket::tests:: --
+--test-threads=8` passed three tests and failed the shared Darwin conversation's
+separate no-argument close check. At that source state the assertion still
+called `wait(&seen)` inside `matches!`, so its output establishes only that the
+next peer report was neither `/echo opcode 8` nor `/echo close 1000 `; it did
+not print the report, and therefore does not distinguish clean EOF from the new
+read-error report. The exact conversation rerun passed. The final broader
+`cargo test -p ibex2 --lib transport:: -- --test-threads=8` passed 89 tests
+with four intentional ignores. The private raw record is
+`.git/llp-ship-runs/20261018-upstream-followup/local-darwin-close-followup.md`.
+With the assertion now printing the received report, twenty further module
+runs passed all eighty tests. Their logs are in local ship record
+`20261018-local-followups`; they do not erase the failed diagnostic run.
+
+This leaves the issue open because the runtime cause remains unestablished
+and no runtime behavior was changed. A future failure now separates three cases: close never
 reached NSURLSession; close reached NSURLSession and the peer read failed with
 a named error; or close reached NSURLSession and the peer observed clean EOF
 without a Close frame.
