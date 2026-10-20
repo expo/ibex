@@ -146,5 +146,30 @@ else
   ok "sync exits nonzero when zero skills were linked"
 fi
 
+# --- Case 8: installer keeps a working link that points elsewhere ----------
+# A user who links a skill straight at their own checkout of the upstream must
+# not have it replaced by a link into this repo's (staler) managed clone. Empty
+# slots are still filled.
+outer="$(make_outer case8)"
+seed_skill_source "$outer"
+mkdir -p "$work/case8-own/demo-skill" "$work/case8-claude"
+printf '# own copy\n' > "$work/case8-own/demo-skill/SKILL.md"
+ln -s "$work/case8-own/demo-skill" "$work/case8-claude/demo-skill"
+env -u IBEX_ENABLE_AGENT_SKILLS_SYNC \
+  IBEX_AGENT_SKILL_SOURCES="$outer/.agent-skill-sources" \
+  CLAUDE_SKILLS_DIR="$work/case8-claude" \
+  CODEX_HOME="$work/case8-codex" \
+  CURSOR_SKILLS_DIR="$work/case8-cursor" \
+  CURSOR_AGENT_SKILLS_DIR="$work/case8-cursor2" \
+  PI_AGENT_SKILLS_DIR="$work/case8-pi" \
+  "$outer/scripts/install-agent-skills.sh" --quiet --no-fetch >/dev/null 2>&1 || true
+if [ "$(readlink "$work/case8-claude/demo-skill")" != "$work/case8-own/demo-skill" ]; then
+  bad "installer replaced a working link that points outside skills/"
+elif [ "$(readlink "$work/case8-codex/skills/demo-skill")" != "$(cd "$outer" && pwd)/skills/demo-skill" ]; then
+  bad "installer did not fill an empty slot (got $(readlink "$work/case8-codex/skills/demo-skill" || echo none))"
+else
+  ok "installer keeps a working outside link and still fills empty slots"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

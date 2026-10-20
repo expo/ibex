@@ -71,6 +71,21 @@ link_skill_into_root() {
     return
   fi
 
+  # A working link to somewhere other than this repo's skills/ is the owner's
+  # choice — typically a local checkout of the canonical upstream, which is
+  # fresher than our managed clone. Replacing it would silently pin every agent
+  # on the machine to whatever this repo last synced. Only links into
+  # $skills_root, broken links, and empty slots are ours.
+  if [ -L "$dest" ] && [ -e "$dest" ]; then
+    case "$(readlink "$dest")" in
+      "$skills_root"/*) ;;
+      *)
+        log "Kept $dest -> $(readlink "$dest") (points outside $skills_root)"
+        return
+        ;;
+    esac
+  fi
+
   if [ -e "$dest" ] || [ -L "$dest" ]; then
     backup_existing "$dest" "$root" "$name"
   fi

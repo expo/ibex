@@ -20,8 +20,11 @@ patched-Hermes, SFE, mobile-app, or package-monorepo machinery.
 ## Agent skills
 
 Run `scripts/install-agent-skills.sh` to install the Git-backed LLP and
-cdcstack skills, or `scripts/sync-agent-skills.sh` to refresh them. Do not edit
-generated entries under `skills/` directly. The adopted `caps.mjs`,
+cdcstack skills, or `scripts/sync-agent-skills.sh` to refresh them. The
+installer leaves alone any agent skill link that already resolves somewhere
+outside this repo's `skills/`, such as a local checkout of `ccheever/llp` or
+`ccheever/cdcstack`; it only fills empty slots and replaces its own links. Do
+not edit generated entries under `skills/` directly. The adopted `caps.mjs`,
 `issue.mjs`, and issue conventions remain documented under `scripts/` and
 `docs/issues.md`.
 
