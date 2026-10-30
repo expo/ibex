@@ -972,12 +972,18 @@ fn abort_hook_bootstrap_can_close_over_only_subscribe() {
             (function (hooks) {{
               var signal = new AbortController().signal;
               var view = hooks.own(signal);
+              // A composed signal's sources, flattened and each once, as a fresh copy at every read
+              var a = new AbortController().signal, b = new AbortController().signal;
+              var composed = AbortSignal.any([AbortSignal.any([a]), b, a]), sources = hooks.own(composed).sources;
               globalThis.abortViewShape = [
                 Object.getPrototypeOf(view) === null,
                 Object.isFrozen(view),
                 Object.keys(view).sort().join(","),
                 typeof Object.getOwnPropertyDescriptor(view, "aborted").get,
-                typeof Object.getOwnPropertyDescriptor(view, "aborted").set
+                typeof Object.getOwnPropertyDescriptor(view, "aborted").set,
+                view.sources === null,
+                sources.length === 2 && sources[0] === a && sources[1] === b,
+                hooks.own(composed).sources !== sources
               ].join("|");
               var subscribe = hooks.subscribe;
               delete globalThis.{NAME};
@@ -990,7 +996,7 @@ fn abort_hook_bootstrap_can_close_over_only_subscribe() {
             abortViewShape
             "#
         )),
-        "true|true|aborted,reason|function|undefined"
+        "true|true|aborted,reason,sources|function|undefined|true|true|true"
     );
     consumer
         .harden(ibex2::bindings::HARDEN_BYTECODE)
