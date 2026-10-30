@@ -13,6 +13,7 @@ mod common;
 
 const PRIMITIVES_GLOBAL: &str = "__snapback_ibex2_fetch_primitives";
 const ABORT_HOOKS_GLOBAL: &str = "__exact_ibex2_abort_hooks";
+const HEADERS_HOOKS_GLOBAL: &str = "__exact_ibex2_headers_hooks";
 const SNAPBACK_FETCH: &str = include_str!("fixtures/snapback_fetch.js");
 const SNAPBACK_BOUND: &str = include_str!("fixtures/snapback_bound.js");
 const FETCH_GROUPS: Groups = Groups::PURE.union(Groups::ABORT).union(Groups::FETCH);
@@ -304,6 +305,90 @@ fn primitives_fetch_streams_fields_controls_and_reuses_the_context_grant() {
     assert_eq!(result["encodeInto"], "2,2");
     assert_eq!(result["destination"], serde_json::json!([111, 107, 0, 0]));
     assert_eq!(server.hits.load(Ordering::SeqCst), 2);
+}
+
+/// An embedder that makes its own `Response` guards its headers as Fetch does,
+/// through a hook only its bootstrap holds; the shape is Exact's, without FETCH.
+#[test]
+fn headers_hooks_guard_an_embedders_headers_and_reach_only_its_bootstrap() {
+    let mut runtime = Hermes::new(DynamicCode::Closed).expect("runtime");
+    let context = Context::new(GrantSet::none());
+    let options = InstallOptions {
+        headers_hooks: Some(HEADERS_HOOKS_GLOBAL),
+        ..InstallOptions::default()
+    };
+    runtime
+        .install_with(Groups::PURE.union(Groups::ABORT), &context, options)
+        .expect("install with headers hooks");
+    let error = runtime.harden().unwrap_err().to_string();
+    assert!(
+        error.contains("refusing to harden while headers hooks global"),
+        "{error}"
+    );
+    runtime
+        .eval(&format!(
+            r#"
+            globalThis.embedderHeaders = (function (guard) {{
+              delete globalThis.{HEADERS_HOOKS_GLOBAL};
+              var refused = function (f) {{ try {{ f(); return "made"; }} catch (e) {{ return e.name; }} }};
+              globalThis.guardRefusals = [
+                refused(function () {{ guard(new Headers(), "none"); }}),
+                refused(function () {{ guard({{}}, "immutable"); }})
+              ].join(",");
+              return function (kind, init) {{ return guard(new Headers(init), kind); }};
+            }})(globalThis.{HEADERS_HOOKS_GLOBAL}.guard);
+            "#
+        ))
+        .expect("trusted bootstrap wraps guard and deletes its global");
+    runtime.harden().expect("only a closure retains guard");
+    let probe = |runtime: &mut Hermes, source: &str| runtime.eval(source).expect(source);
+    assert_eq!(
+        probe(
+            &mut runtime,
+            &format!(
+                r#"
+                (function () {{
+                  var said = function (f) {{ try {{ f(); return "ok"; }} catch (e) {{ return e.name + ": " + e.message; }} }};
+                  var fixed = embedderHeaders("immutable", [["a", "1"]]);
+                  var reply = embedderHeaders("response", [["set-cookie", "kept"]]);
+                  var plain = new Headers();
+                  return [
+                    said(function () {{ fixed.set("a", "2"); }}),
+                    said(function () {{ fixed.append("b", "1"); }}),
+                    said(function () {{ fixed["delete"]("a"); }}),
+                    said(function () {{ fixed.set("a", "a" + String.fromCharCode(0) + "b"); }}),
+                    fixed.get("a"),
+                    said(function () {{ reply.set("Set-Cookie", "new"); reply.append("SET-COOKIE2", "new"); reply["delete"]("set-cookie"); reply.set("x", "1"); }}),
+                    [...reply].join(";"),
+                    said(function () {{ plain.set("set-cookie", "a"); }}),
+                    typeof globalThis.{HEADERS_HOOKS_GLOBAL},
+                    typeof globalThis.__ibex2_headers_hooks,
+                    typeof embedderHeaders.guard,
+                    guardRefusals
+                  ].join("|");
+                }})()
+                "#
+            )
+        ),
+        "TypeError: Headers are immutable|TypeError: Headers are immutable|TypeError: Headers are immutable|TypeError: Invalid header value|1|ok|set-cookie,kept;x,1|ok|undefined|undefined|undefined|TypeError,TypeError"
+    );
+}
+
+#[test]
+fn installation_removes_the_headers_hooks_global_it_was_not_asked_for() {
+    for groups in [Groups::PURE, FETCH_GROUPS] {
+        let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
+        let context = Context::new(GrantSet::none());
+        runtime
+            .install_with(groups, &context, InstallOptions::default())
+            .unwrap();
+        assert_eq!(
+            runtime
+                .eval("typeof globalThis.__ibex2_headers_hooks")
+                .unwrap(),
+            "undefined"
+        );
+    }
 }
 
 #[test]
@@ -783,13 +868,23 @@ fn fetch_primitive_names_are_unused_ascii_identifiers() {
         .to_string();
     assert_eq!(error, "fetch primitives require a non-empty global name");
 
-    for runtime_path in [false, true] {
+    let shared = Some("__shared_bootstrap_output");
+    for (runtime_path, options) in [false, true].into_iter().flat_map(|runtime_path| {
+        [
+            InstallOptions {
+                fetch_primitives: shared,
+                abort_hooks: shared,
+                ..InstallOptions::default()
+            },
+            InstallOptions {
+                abort_hooks: shared,
+                headers_hooks: shared,
+                ..InstallOptions::default()
+            },
+        ]
+        .map(|options| (runtime_path, options))
+    }) {
         let mut runtime = Hermes::new(DynamicCode::Closed).unwrap();
-        let options = InstallOptions {
-            fetch_primitives: Some("__shared_bootstrap_output"),
-            abort_hooks: Some("__shared_bootstrap_output"),
-            ..InstallOptions::default()
-        };
         let error = if runtime_path {
             runtime.install_runtime_with(FETCH_GROUPS, &context, options)
         } else {

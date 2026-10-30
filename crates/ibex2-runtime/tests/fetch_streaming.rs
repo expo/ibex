@@ -113,6 +113,44 @@ fn abort_signal_any_converts_its_argument_as_a_webidl_sequence() {
     );
 }
 
+/// A fetched response's headers are Fetch's "immutable": every change throws.
+#[test]
+fn a_fetched_response_s_headers_are_immutable() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        head(&mut stream);
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nX-Kept: one\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+    });
+    let source = format!(
+        r#"
+        const said = f => {{ try {{ f(); return 'ok'; }} catch (e) {{ return e.name + ': ' + e.message; }} }};
+        fetch('{origin}').then(response => {{
+          const headers = response.headers;
+          console.log(said(() => headers.set('x-kept', 'two')), said(() => headers.append('x-new', 'one')), said(() => headers.delete('x-kept')));
+          console.log(headers.get('x-kept'), headers.has('x-new'), typeof globalThis.__ibex2_headers_hooks);
+        }});
+        "#
+    );
+    let (_, mut rt) = runtime("immutable-headers", &source, &origin);
+    rt.run_to_quiescence(Duration::from_secs(5));
+    server.join().unwrap();
+    let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
+    let immutable = "TypeError: Headers are immutable";
+    assert_eq!(
+        out,
+        [
+            format!("{immutable} {immutable} {immutable}"),
+            "one false undefined".to_owned()
+        ]
+    );
+}
+
 #[test]
 fn response_arrives_before_body_finishes_and_readers_share_consumption() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -228,6 +266,7 @@ fn reader_release_preserves_an_inflight_chunk_for_the_next_reader() {
           subscribe: function () { return function () {}; }
         };
         globalThis.__ibex2_headers_free = function () {};
+        globalThis.__ibex2_headers_hooks = { guard: function (headers) { return headers; } };
         globalThis.__ibex2_text_decode = function (bytes) { return new TextDecoder().decode(bytes); };
     "#,
     )
