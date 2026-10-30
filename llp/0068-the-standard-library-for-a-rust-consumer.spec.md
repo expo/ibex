@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-30 (§3 "Opt-in abort hooks protocol": `own`'s view also answers `sources`, the signals `AbortSignal.any` composed the signal of, so an embedder can give a composed signal's request the earliest deadline among them)
 **Revised:** 2026-10-30 (§3 "Opt-in headers hooks protocol": an embedder may request the frozen `{ guard }` hook object under an ASCII-identifier name, to give the `Headers` it makes Fetch's "immutable" or "response" guard; hardening applies the same reachability guard)
 **Revised:** 2026-10-18 (§3 trusted-bootstrap hardening: descriptor-record fields use captured `hasOwnProperty` and cached property IDs; a collection between the successful guard and freeze reuses young-generation pages while preserving rooted identities)
 **Revised:** 2026-10-06 (§3 Decision C: the completed intrinsic-capture audit is a closed record; a new unhardened-runtime finding opens a new issue)
@@ -604,16 +605,21 @@ exactly these members:
 
 `own` accepts only an `AbortSignal` created by this binding and throws a
 `TypeError` otherwise. It returns a frozen, null-prototype live view with
-exactly the enumerable read-only getters `aborted` and `reason`; the raw
-mutable record does not cross the hook boundary. This reduction is cheap and
-safe because the in-tree fetch consumers require only those two reads and use
-the separate `subscribe` path for delivery. The view retains the binding's
+exactly the enumerable read-only getters `aborted`, `reason` and `sources`;
+the raw mutable record does not cross the hook boundary. `sources` answers a
+fresh array of the signals `AbortSignal.any` composed this one of, flattened so
+that none is itself composed, or `null` for a signal it did not compose: an
+embedder that gives a composed signal's request the earliest deadline among
+its sources (Exact's data runtime, for its `AbortSignal.timeout`s) reads them
+there. This reduction is cheap and safe because the in-tree fetch consumers
+require only `aborted` and `reason` and use the separate `subscribe` path for
+delivery. The view retains the binding's
 private state, however, and is capability-equivalent to `own` for reading that
 signal. The harden reachability walk records the hook object and its two member
 identities, but it does not recognize or track a view returned by calling
 `own` (or the private state retained by that view). Trusted embedder code may
-read `aborted` and `reason`, but must never return or publish the view, or
-attach it to an application-reachable object. `subscribe` validates the signal
+read its getters, but must never return or publish the view, or attach it to
+an application-reachable object. `subscribe` validates the signal
 through the binding's private ownership check.
 If it is already aborted, delivery runs synchronously and a no-op unsubscribe
 function is returned. Otherwise the callback is registered as an abort
