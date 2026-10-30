@@ -95,6 +95,14 @@ struct CompiledScript {
 /// before event dispatch, an application listener's
 /// `stopImmediatePropagation()` cannot suppress them.
 ///
+/// `headers_hooks`, when set, names a global with the same name rules and
+/// collisions. It requires GROUP_PURE and publishes the frozen hook object
+/// created by the Headers binding, with exactly `{ guard }`.
+/// `guard(headers, kind)` gives an Ibex Headers object Fetch's guard and
+/// returns it: "immutable" makes `append`, `set` and `delete` throw a
+/// TypeError, and "response" makes them ignore `Set-Cookie` and `Set-Cookie2`.
+/// It throws a TypeError for any other kind or a value that is not a Headers.
+///
 /// `defer_intrinsic_snapshot`, when true, makes installation discard the
 /// constructor-time SQLite integrity baseline after all selected binding
 /// scripts have installed. The trusted embedder must run its prelude and then
@@ -208,6 +216,8 @@ struct InstallOptions {
   const char* fetch_primitives = nullptr;
   // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms are a trusted-bootstrap handoff, never an application global
   const char* abort_hooks = nullptr;
+  // @ref LLP 0068#opt-in-headers-hooks-protocol — a Headers guard is a trusted-bootstrap handoff, never an application global
+  const char* headers_hooks = nullptr;
   // @ref LLP 0068#deferred-intrinsic-integrity-baseline — trusted preludes may establish the whole SQLite integrity baseline once
   bool defer_intrinsic_snapshot = false;
 };

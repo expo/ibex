@@ -80,6 +80,78 @@ fn abort_signal_algorithms_keep_reasons_and_notify_once() {
 }
 
 #[test]
+fn abort_signal_any_converts_its_argument_as_a_webidl_sequence() {
+    // Each case's result is what Chrome gives: the iterator method, `next` and
+    // each `value` read once, each value checked as it is yielded, and no
+    // `call` of the caller's used
+    let (_, mut rt) = runtime(
+        "abort-any-sequence",
+        r#"
+        const signal = new AbortController().signal;
+        const said = f => { try { f(); return 'made'; } catch (e) { return e.name; } };
+        let reads = 0;
+        const once = { get [Symbol.iterator]() { reads++; return reads === 1 ? function* () { yield signal; } : undefined; } };
+        function* lateThrow() { yield {}; throw new Error('after the bad value'); }
+        const badStep = { [Symbol.iterator]: () => ({ next: () => 1 }) };
+        let nexts = 0, n = 0;
+        const nextOnce = { [Symbol.iterator]: () => ({ get next() { nexts++; return () => ({ done: n++ > 0, value: signal }); } }) };
+        let gets = 0;
+        const valueOnce = { [Symbol.iterator]: () => { let k = 0; return { next: () => k++ ? { done: true } : { done: false, get value() { gets++; return signal; } } }; } };
+        const ownCall = { [Symbol.iterator]: () => ({ next: Object.defineProperty(() => ({ done: true }), 'call', { value: () => ({ done: false, value: {} }) }) }) };
+        const methodCall = { [Symbol.iterator]: Object.defineProperty(function* () { yield signal; }, 'call', { value: () => 1 }) };
+        console.log(said(() => AbortSignal.any(once)), reads, said(() => AbortSignal.any(lateThrow())), said(() => AbortSignal.any(badStep)));
+        console.log(said(() => AbortSignal.any(nextOnce)), nexts, said(() => AbortSignal.any(valueOnce)), gets);
+        console.log(said(() => AbortSignal.any(ownCall)), said(() => AbortSignal.any(methodCall)));
+        "#,
+        "http://127.0.0.1:1",
+    );
+    rt.run_to_quiescence(Duration::from_secs(5));
+    let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
+    assert_eq!(
+        out,
+        ["made 1 TypeError TypeError", "made 1 made 1", "made made"]
+    );
+}
+
+/// A fetched response's headers are Fetch's "immutable": every change throws.
+#[test]
+fn a_fetched_response_s_headers_are_immutable() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        head(&mut stream);
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nX-Kept: one\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+    });
+    let source = format!(
+        r#"
+        const said = f => {{ try {{ f(); return 'ok'; }} catch (e) {{ return e.name + ': ' + e.message; }} }};
+        fetch('{origin}').then(response => {{
+          const headers = response.headers;
+          console.log(said(() => headers.set('x-kept', 'two')), said(() => headers.append('x-new', 'one')), said(() => headers.delete('x-kept')));
+          console.log(headers.get('x-kept'), headers.has('x-new'), typeof globalThis.__ibex2_headers_hooks);
+        }});
+        "#
+    );
+    let (_, mut rt) = runtime("immutable-headers", &source, &origin);
+    rt.run_to_quiescence(Duration::from_secs(5));
+    server.join().unwrap();
+    let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
+    let immutable = "TypeError: Headers are immutable";
+    assert_eq!(
+        out,
+        [
+            format!("{immutable} {immutable} {immutable}"),
+            "one false undefined".to_owned()
+        ]
+    );
+}
+
+#[test]
 fn response_arrives_before_body_finishes_and_readers_share_consumption() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -194,6 +266,7 @@ fn reader_release_preserves_an_inflight_chunk_for_the_next_reader() {
           subscribe: function () { return function () {}; }
         };
         globalThis.__ibex2_headers_free = function () {};
+        globalThis.__ibex2_headers_hooks = { guard: function (headers) { return headers; } };
         globalThis.__ibex2_text_decode = function (bytes) { return new TextDecoder().decode(bytes); };
     "#,
     )

@@ -5,6 +5,7 @@
 **Systems:** Rust Stdlib, Host ABI, CapSec, Build
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-29
+**Revised:** 2026-10-30 (§3 "Opt-in headers hooks protocol": an embedder may request the frozen `{ guard }` hook object under an ASCII-identifier name, to give the `Headers` it makes Fetch's "immutable" or "response" guard; hardening applies the same reachability guard)
 **Revised:** 2026-10-18 (§3 trusted-bootstrap hardening: descriptor-record fields use captured `hasOwnProperty` and cached property IDs; a collection between the successful guard and freeze reuses young-generation pages while preserving rooted identities)
 **Revised:** 2026-10-06 (§3 Decision C: the completed intrinsic-capture audit is a closed record; a new unhardened-runtime finding opens a new issue)
 **Revised:** 2026-10-06 (§3 "Native wrapper ownership" fix round 1: JS-thread fetch header snapshots; constructor-only transactional `Headers`; all native-state attachments refuse displacement)
@@ -588,7 +589,7 @@ collision, lifecycle, and reachability rules: the name is an ASCII JavaScript
 identifier, must be absent from the global and its prototype chain before
 installation, must not be taken by an installed binding, and must differ from
 the fetch-primitives name when both outputs are requested. The option requires
-`ABORT`. Plain `install` requests neither output; installing `ABORT` without
+`ABORT`. Plain `install` requests no output; installing `ABORT` without
 this option and without `FETCH` continues to delete `__ibex2_abort`.
 
 The published value is the abort binding's existing hook object, frozen, with
@@ -639,6 +640,33 @@ and `Adapter::harden` refuse, freezing nothing, while the chosen global remains
 or any recorded identity is reachable from the same graph described by the
 fetch-primitives protocol. Evaluating `HARDEN_SOURCE` directly skips this guard
 and is unsupported after requesting abort hooks.
+
+#### Opt-in headers hooks protocol
+
+`InstallOptions::headers_hooks` follows the abort hooks' name, collision,
+lifecycle, and reachability rules, its name differing from every other
+output's. The option requires `PURE`. The published value is the Headers
+binding's hook object, frozen, with exactly one member:
+
+```text
+{
+  guard(headers, kind) -> headers
+}
+```
+
+`guard` gives a `Headers` object created by this binding Fetch's guard
+("Headers class") and returns it; it throws a `TypeError` for any other value,
+and for a `kind` other than `"immutable"` or `"response"`. With `"immutable"`,
+`append`, `set` and `delete` throw a `TypeError` after validating their
+arguments; with `"response"`, they do nothing for `Set-Cookie` and
+`Set-Cookie2`, the forbidden response-header names. An embedder whose prelude
+makes a `Response` of its own gives its headers the guard Fetch's `Response`
+constructor and its fetched responses have. `fetch.js` takes the object for
+the same purpose, giving a fetched response's headers `"immutable"`, and
+deletes `__ibex2_headers_hooks`; installing `PURE` without `FETCH` deletes it
+too, so the object reaches application code only through an embedder that
+leaks it. The adapter records the object and `guard`, and hardening refuses
+while the chosen global remains or either identity is reachable.
 
 #### Deferred intrinsic integrity baseline
 

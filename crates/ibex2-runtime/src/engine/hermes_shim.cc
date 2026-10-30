@@ -1089,6 +1089,7 @@ static int install_groups(void *handle, uint16_t groups,
                           const CompiledScript *scripts, size_t script_count,
                           const char *fetch_primitives,
                           const char *abort_hooks,
+                          const char *headers_hooks,
                           bool defer_intrinsic_snapshot, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
@@ -1102,13 +1103,14 @@ static int install_groups(void *handle, uint16_t groups,
             "Ibex2 bindings require a live, unadopted endowment");
     }
     if (fetch_primitives == nullptr && abort_hooks == nullptr &&
-        !defer_intrinsic_snapshot) {
+        headers_hooks == nullptr && !defer_intrinsic_snapshot) {
       rt->bindings->install(
           groups, rt->adopted_bindings, scripts, script_count);
     } else {
       ibex2::jsi_adapter::InstallOptions options;
       options.fetch_primitives = fetch_primitives;
       options.abort_hooks = abort_hooks;
+      options.headers_hooks = headers_hooks;
       options.defer_intrinsic_snapshot = defer_intrinsic_snapshot;
       rt->bindings->install_with(
           groups, rt->adopted_bindings, scripts, script_count, options);
@@ -1139,16 +1141,17 @@ int ibex2_hermes_install_groups(void *handle, uint16_t groups,
                                 const CompiledScript *scripts,
                                 size_t script_count, char **out_error) {
   return install_groups(handle, groups, endowment, scripts, script_count,
-                        nullptr, nullptr, false, out_error);
+                        nullptr, nullptr, nullptr, false, out_error);
 }
 
 int ibex2_hermes_install_groups_with_options(
     void *handle, uint16_t groups, const Ibex2Bindings *endowment,
     const CompiledScript *scripts, size_t script_count,
     const char *fetch_primitives, const char *abort_hooks,
-    int defer_intrinsic_snapshot, char **out_error) {
+    const char *headers_hooks, int defer_intrinsic_snapshot,
+    char **out_error) {
   return install_groups(handle, groups, endowment, scripts, script_count,
-                        fetch_primitives, abort_hooks,
+                        fetch_primitives, abort_hooks, headers_hooks,
                         defer_intrinsic_snapshot != 0, out_error);
 }
 

@@ -53,6 +53,7 @@ extern "C" {
         script_count: usize,
         fetch_primitives: *const c_char,
         abort_hooks: *const c_char,
+        headers_hooks: *const c_char,
         defer_intrinsic_snapshot: c_int,
         out_error: *mut *mut c_char,
     ) -> c_int;
@@ -134,6 +135,15 @@ pub enum DynamicCode {
 /// suppresses only that hook; later hooks and public abort dispatch still run.
 /// An application listener's `stopImmediatePropagation()` therefore cannot
 /// suppress this subscription.
+///
+/// `headers_hooks`, when set, follows the same name and collision rules,
+/// requires [`crate::bindings::Groups::PURE`], and publishes the frozen hook
+/// object created by `headers.js`, with exactly `{ guard }`.
+/// `guard(headers, kind)` gives an Ibex `Headers` object Fetch's guard and
+/// returns it: `"immutable"` makes `append`, `set` and `delete` throw a
+/// `TypeError`, and `"response"` makes them ignore `Set-Cookie` and
+/// `Set-Cookie2`. It throws a `TypeError` for any other kind or a value that is
+/// not a `Headers`.
 ///
 /// `defer_intrinsic_snapshot`, when true, makes installation discard the
 /// constructor-time SQLite integrity baseline after the selected bindings are
@@ -250,8 +260,51 @@ pub struct InstallOptions<'a> {
     pub fetch_primitives: Option<&'a str>,
     // @ref LLP 0068#opt-in-abort-hooks-protocol — abort algorithms cross only into trusted bootstrap
     pub abort_hooks: Option<&'a str>,
+    // @ref LLP 0068#opt-in-headers-hooks-protocol — a Headers guard crosses only into trusted bootstrap
+    pub headers_hooks: Option<&'a str>,
     // @ref LLP 0068#deferred-intrinsic-integrity-baseline — the trusted prelude establishes one complete baseline
     pub defer_intrinsic_snapshot: bool,
+}
+
+/// The trusted-bootstrap output names `options` requests, in `InstallOptions`'
+/// order, each checked against its group, the others and the name rule.
+fn bootstrap_outputs(
+    groups: crate::bindings::Groups,
+    options: &InstallOptions<'_>,
+) -> Result<[Option<CString>; 3], JsError> {
+    use crate::bindings::Groups;
+    let outputs = [
+        (
+            "fetch primitives",
+            options.fetch_primitives,
+            Groups::FETCH,
+            "FETCH",
+        ),
+        ("abort hooks", options.abort_hooks, Groups::ABORT, "ABORT"),
+        ("headers hooks", options.headers_hooks, Groups::PURE, "PURE"),
+    ];
+    for (kind, name, group, group_name) in outputs {
+        if name.is_some() && !groups.contains(group) {
+            return Err(JsError::Thrown(format!(
+                "{kind} require the {group_name} group"
+            )));
+        }
+    }
+    let names = outputs.map(|(_, name, _, _)| name);
+    for (i, name) in names.iter().enumerate() {
+        if name.is_some() && names[i + 1..].contains(name) {
+            return Err(JsError::Thrown(
+                "trusted-bootstrap outputs require distinct global names".into(),
+            ));
+        }
+    }
+    let mut checked = [None, None, None];
+    for (slot, (kind, name, _, _)) in checked.iter_mut().zip(outputs) {
+        *slot = name
+            .map(|name| bootstrap_output_name(kind, name))
+            .transpose()?;
+    }
+    Ok(checked)
 }
 
 /// The one accepted spelling of a trusted-bootstrap global: an ASCII
@@ -488,29 +541,7 @@ impl Hermes {
                 "the Ibex2 binding groups are already installed".into(),
             ));
         }
-        if options.fetch_primitives.is_some() && !groups.contains(crate::bindings::Groups::FETCH) {
-            return Err(JsError::Thrown(
-                "fetch primitives require the FETCH group".into(),
-            ));
-        }
-        if options.abort_hooks.is_some() && !groups.contains(crate::bindings::Groups::ABORT) {
-            return Err(JsError::Thrown(
-                "abort hooks require the ABORT group".into(),
-            ));
-        }
-        if options.fetch_primitives.is_some() && options.fetch_primitives == options.abort_hooks {
-            return Err(JsError::Thrown(
-                "trusted-bootstrap outputs require distinct global names".into(),
-            ));
-        }
-        let fetch_primitives = options
-            .fetch_primitives
-            .map(|name| bootstrap_output_name("fetch primitives", name))
-            .transpose()?;
-        let abort_hooks = options
-            .abort_hooks
-            .map(|name| bootstrap_output_name("abort hooks", name))
-            .transpose()?;
+        let [fetch_primitives, abort_hooks, headers_hooks] = bootstrap_outputs(groups, &options)?;
         let scripts = crate::bindings::compiled_scripts(groups)
             .map_err(|error| JsError::Thrown(error.to_string()))?;
         let names: Vec<_> = scripts
@@ -532,6 +563,7 @@ impl Hermes {
         let status = unsafe {
             if fetch_primitives.is_some()
                 || abort_hooks.is_some()
+                || headers_hooks.is_some()
                 || options.defer_intrinsic_snapshot
             {
                 ibex2_hermes_install_groups_with_options(
@@ -544,6 +576,9 @@ impl Hermes {
                         .as_ref()
                         .map_or(std::ptr::null(), |name| name.as_ptr()),
                     abort_hooks
+                        .as_ref()
+                        .map_or(std::ptr::null(), |name| name.as_ptr()),
+                    headers_hooks
                         .as_ref()
                         .map_or(std::ptr::null(), |name| name.as_ptr()),
                     c_int::from(options.defer_intrinsic_snapshot),
@@ -594,27 +629,7 @@ impl Hermes {
                 "the Ibex2 binding groups are already installed".into(),
             ));
         }
-        if options.fetch_primitives.is_some() && !groups.contains(crate::bindings::Groups::FETCH) {
-            return Err(JsError::Thrown(
-                "fetch primitives require the FETCH group".into(),
-            ));
-        }
-        if options.abort_hooks.is_some() && !groups.contains(crate::bindings::Groups::ABORT) {
-            return Err(JsError::Thrown(
-                "abort hooks require the ABORT group".into(),
-            ));
-        }
-        if options.fetch_primitives.is_some() && options.fetch_primitives == options.abort_hooks {
-            return Err(JsError::Thrown(
-                "trusted-bootstrap outputs require distinct global names".into(),
-            ));
-        }
-        if let Some(name) = options.fetch_primitives {
-            bootstrap_output_name("fetch primitives", name)?;
-        }
-        if let Some(name) = options.abort_hooks {
-            bootstrap_output_name("abort hooks", name)?;
-        }
+        bootstrap_outputs(groups, &options)?;
         groups
             .validate()
             .map_err(|error| JsError::Thrown(error.to_string()))?;
