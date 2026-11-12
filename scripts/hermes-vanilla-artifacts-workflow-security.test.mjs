@@ -76,6 +76,58 @@ const builders = [
   "windows_x64",
 ];
 
+const oomFlags = ["HERMESVM_EXCEPTION_ON_OOM", "HERMES_ENABLE_RTTI"];
+
+function assertVmBuildFlags(name, source) {
+  const commands = source.replace(/[\\`]\n[ \t]*/g, " ");
+  if (name === "build-hermes-windows-vanilla-release.ps1") {
+    assert.match(commands, /& \(Join-Path \$PSScriptRoot "build-hermes-windows-vanilla\.ps1"\) -Arch x64 -Ref \$commit/);
+  } else {
+    const configure = [...commands.matchAll(/^[ \t]*cmake -S[^\n]+/gm)]
+      .map(([command]) => command);
+    assert.ok(configure.length, `${name}: CMake configure commands`);
+    if (name === "build-hermes-vanilla-release.sh") {
+      const flags = source.match(/build_flags=\(([\s\S]*?)\n\)/)?.[1];
+      assert.ok(flags, `${name}: shared configure flags`);
+      for (const flag of oomFlags) assert.match(flags, new RegExp(`^  -D${flag}=true$`, "m"));
+      const vmConfigure = configure.filter((command) => command.includes('"$build_dir"'));
+      assert.equal(vmConfigure.length, 3, "Android, Apple, and Linux VM configurations");
+      for (const command of vmConfigure) assert.ok(command.includes('"${build_flags[@]}"'));
+    } else {
+      for (const command of configure) {
+        for (const flag of oomFlags) assert.ok(command.includes(`-D${flag}=true`), `${name}: configure ${flag}`);
+      }
+    }
+  }
+  // Receipt declarations must agree independently of the configure commands.
+  if (name === "build-hermes-vanilla-release.sh") {
+    assert.ok(source.includes('for flag in "${build_flags[@]}"; do receipt_args+=(--build-flag="$flag"); done'));
+  } else {
+    for (const flag of oomFlags) assert.ok(source.includes(`--build-flag=-D${flag}=true`), `${name}: receipt ${flag}`);
+  }
+}
+
+test("every VM builder configures and receipts heap OOM exceptions with RTTI", () => {
+  for (const name of ["build-hermes.sh", "build-hermes-linux.sh",
+    "build-hermes-vanilla-release.sh", "build-hermes-windows-vanilla.ps1",
+    "build-hermes-windows-vanilla-release.ps1"]) {
+    const source = readFileSync(join(repoRoot, "scripts", name), "utf8");
+    assertVmBuildFlags(name, source);
+    for (const flag of oomFlags) {
+      if (name === "build-hermes-vanilla-release.sh") {
+        assert.throws(() => assertVmBuildFlags(name, source.replace(`  -D${flag}=true`, `  -D${flag}=false`)));
+        assert.throws(() => assertVmBuildFlags(name, source.replace('receipt_args+=(--build-flag="$flag")', ':')));
+      } else {
+        assert.throws(() => assertVmBuildFlags(name, source.replace(`--build-flag=-D${flag}=true`, `--build-flag=-D${flag}=false`)));
+        if (name !== "build-hermes-windows-vanilla-release.ps1") {
+          const withoutConfigureFlag = source.replace(new RegExp(`^( +)-D${flag}=true`, "gm"), `$1-D${flag}=false`);
+          assert.throws(() => assertVmBuildFlags(name, withoutConfigureFlag));
+        }
+      }
+    }
+  }
+});
+
 test("Linux VM artifacts use pinned ICU 74 with base, English-Intl, and full data", () => {
   assert.match(localLinuxBuilder, /-DHERMES_ENABLE_INTL=false/);
   assert.match(localLinuxBuilder, /-DHERMES_UNICODE_LITE=false/);
@@ -452,10 +504,19 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   assert.ok(commit);
   for (const workflow of [builderWorkflow, publisherWorkflow]) {
     assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v5$`, "m"));
-    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v5`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v6$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v6`, "m"));
   }
-  assert.match(buildSupport, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "hermes-vanilla-${commit.slice(0, 12)}-v5";$`, "m"));
+  assert.match(buildSupport, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "hermes-vanilla-${commit.slice(0, 12)}-v[1-9][0-9]*";$`, "m"));
+  const guard = publisherWorkflow.match(/^ +\[\[ "\$RELEASE_TAG" == .* \]\]$/m)?.[0];
+  assert.ok(guard, "publisher authorizes its release tag");
+  const tag = `hermes-vanilla-${commit.slice(0, 12)}-v6`;
+  for (const [releaseTag, expected] of [[tag, 0], [tag.replace(/v6$/, "v5"), 1]]) {
+    const result = spawnSync("bash", ["-c", guard], {
+      env: { ...process.env, HERMES_COMMIT: commit, RELEASE_TAG: releaseTag },
+    });
+    assert.equal(result.status, expected, `publisher guard for ${releaseTag}`);
+  }
   assert.equal([...buildSupport.matchAll(/^    BundlePin \{$/gm)].length, 11);
   assert.match(buildSupport, /target: "aarch64-linux-android",\n        asset: "hermes-vanilla-aarch64-linux-android\.tar\.gz",\n        sha256: "[0-9a-f]{64}"/);
   const pinTable = buildSupport.match(/pub\(crate\) const PINNED_BUNDLES: &\[BundlePin\] = &\[([\s\S]*?)\n\];/);
@@ -579,7 +640,8 @@ esac
   }
 });
 
-test("Linux receipt binds all ICU data archives and both pinned filters", (t) => {
+for (const receiptTarget of ["aarch64-unknown-linux-gnu", "aarch64-linux-android"])
+test(`${receiptTarget} receipt binds all ICU data archives and both pinned filters`, (t) => {
   if (process.platform === "win32") {
     t.skip("the fixture supplies a POSIX fake nm; Windows release coverage is structural");
     return;
@@ -612,7 +674,9 @@ test("Linux receipt binds all ICU data archives and both pinned filters", (t) =>
     const result = spawnSync(process.execPath, [
       join(repoRoot, "scripts/hermes-input-receipt.mjs"),
       bundle,
-      "--target=aarch64-unknown-linux-gnu",
+      `--target=${receiptTarget}`,
+      "--build-flag=-DHERMES_ENABLE_INTL=true",
+      "--build-flag=-DHERMESVM_EXCEPTION_ON_OOM=true",
       "--profile=release",
       "--engine-archive=lib/libhermesvm_a.a",
       "--lean-engine-archive=lib/libhermesvmlean_a.a",
@@ -645,12 +709,14 @@ test("Linux receipt binds all ICU data archives and both pinned filters", (t) =>
       `sha256-${createHash("sha256").update(icuEnFilter).digest("hex")}`,
     );
     assert.equal(receipt.icu.upstream.sourceCommit, "2d029329c82c7792b985024b2bdab5fc7278fbc8");
+    assert.ok(receipt.build.flags.includes("-DHERMES_ENABLE_INTL=true"));
+    assert.ok(receipt.build.flags.includes("-DHERMESVM_EXCEPTION_ON_OOM=true"));
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
 });
 
-test("pin updater admits the exact V5 inventory and rejects drift", () => {
+test("pin updater admits the exact release inventory and rejects drift", () => {
   const livePinsPath = join(repoRoot, "crates/hermes-lean-sys/build_support.rs");
   const livePinsBefore = readFileSync(livePinsPath, "utf8");
   const temporary = mkdtempSync(join(tmpdir(), "hermes-pin-updater-test-"));

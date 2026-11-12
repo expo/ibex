@@ -122,7 +122,7 @@ fn run_fetch_module_with_options(
         runtime.harden().unwrap();
     }
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     let output = runtime
         .drain_console()
         .into_iter()
@@ -159,7 +159,7 @@ fn blob_constructs_every_part_type_and_reads_fresh_bytes() {
             "#,
         )
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     let value: serde_json::Value =
         serde_json::from_str(&runtime.eval("__result").unwrap()).unwrap();
     let expected = serde_json::json!([65, 4, 5, 1, 2, 3, 7, 195, 169]);
@@ -194,7 +194,7 @@ fn blob_slice_type_endings_and_brand_edges() {
             "#,
         )
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     let value: serde_json::Value =
         serde_json::from_str(&runtime.eval("__result").unwrap()).unwrap();
     assert_eq!(
@@ -227,7 +227,7 @@ fn blob_slice_uses_clamped_long_long_ties_to_even() {
             "#,
         )
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(
         runtime.eval("__result").unwrap(),
         r#"["cd","cd","abcd","","abcd","cd","cd","","abcd","abcd"]"#
@@ -389,7 +389,7 @@ fn array_buffer_slice_override_does_not_change_blob_results() {
             "#,
         )
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(runtime.eval("__result").unwrap(), "[[1,2,3],[2,3]]");
 }
 
@@ -413,7 +413,7 @@ fn typed_array_buffer_override_cannot_redirect_blob_private_bytes() {
             "#,
         )
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(runtime.eval("__result").unwrap(), "1,2,3");
 }
 

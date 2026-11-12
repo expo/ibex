@@ -589,7 +589,7 @@ fn private_fetch_and_sqlite_objects_stay_branded_after_visible_shape_changes() {
         .unwrap();
     runtime.harden().unwrap();
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     assert_eq!(
         runtime.eval("platformReady + ':' + platformError").unwrap(),
         "true:"

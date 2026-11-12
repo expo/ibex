@@ -16,8 +16,15 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-const RELEASE_TAG: &str = "hermes-vanilla-d412d3bd8512-v4";
 const HERMES_SOURCE_COMMIT: &str = "d412d3bd851278712c20cca25d094e32641a0465";
+
+fn release_tag() -> &'static str {
+    include_str!("../../hermes-lean-sys/build_support.rs")
+        .lines()
+        .find_map(|line| line.strip_prefix("pub(crate) const RELEASE_TAG: &str = \""))
+        .and_then(|line| line.strip_suffix("\";"))
+        .expect("the installer shares the resolver's release tag")
+}
 
 #[test]
 fn install_once_then_build_offline_and_report_an_actionable_miss() {
@@ -74,7 +81,7 @@ fn install_once_then_build_offline_and_report_an_actionable_miss() {
 
     let entry = cargo_home
         .join("hermes-lean-sys")
-        .join(RELEASE_TAG)
+        .join(release_tag())
         .join(&archive_digest);
     assert!(entry.join(".hermes-lean-sys-bundle.tar.gz").is_file());
     assert!(entry.join("hermes-input-receipt.json").is_file());
@@ -192,7 +199,7 @@ fn invalid_receipt_is_refused_before_the_cache_entry_is_published() {
     assert!(output.contains("sourceCommit"), "{output}");
     let entry = cargo_home
         .join("hermes-lean-sys")
-        .join(RELEASE_TAG)
+        .join(release_tag())
         .join(archive_digest);
     assert!(
         !entry.exists(),
@@ -402,7 +409,7 @@ fn serve_once(asset: String, bytes: Vec<u8>) -> (String, thread::JoinHandle<()>)
         let count = stream.read(&mut request).expect("read mirror request");
         let request = String::from_utf8_lossy(&request[..count]);
         assert!(
-            request.starts_with(&format!("GET /{RELEASE_TAG}/{asset} ")),
+            request.starts_with(&format!("GET /{}/{asset} ", release_tag())),
             "{request}"
         );
         write!(

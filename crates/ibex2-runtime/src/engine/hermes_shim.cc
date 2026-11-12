@@ -10,6 +10,7 @@
 // @ref LLP 0058#1-what-an-engine-must-provide — requirement 2, host functions over primitives
 
 #include <hermes/hermes.h>
+#include <hermes/Public/JSOutOfMemoryError.h>
 #include <jsi/jsi.h>
 #include "ibex2_jsi.h"
 #include <jsi/instrumentation.h>
@@ -17,10 +18,12 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <unordered_map>
 #include <vector>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 
 // Reports an error that escaped a callback as a console error (Rust side);
@@ -36,6 +39,9 @@ extern "C" size_t ibex2_grants_env_count(const void *grants);
 extern "C" int ibex2_grants_env_at(const void *grants, size_t index,
                                    char **out_name, char **out_value);
 extern "C" void ibex2_string_free(char *value);
+#if defined(IBEX2_TEST_SUPPORT)
+extern "C" bool ibex2_test_env_snapshot_should_throw();
+#endif
 extern "C" void ibex2_queue_destroy(const void *queue);
 extern "C" const void *ibex2_bindings_state(const Ibex2Bindings *bindings);
 extern "C" const Ibex2Bindings *ibex2_bindings_adopt(
@@ -62,6 +68,10 @@ struct Ibex2Runtime {
   // the bindings queue deliberately has no loader or module authority.
   const void *loader = nullptr;
   uint32_t bytecode_version = 0;
+  bool oom = false;
+#if defined(IBEX2_TEST_SUPPORT)
+  std::exception_ptr deadline_flush_error_for_test;
+#endif
   // Loaded modules, by resolved specifier. Held here rather than on the global
   // object: a module registry reachable from JavaScript would let any module
   // read any other's exports without requiring it (LLP 0062 R1).
@@ -101,6 +111,8 @@ void report_uncaught(Ibex2Runtime *runtime, const jsi::JSError &err) {
     try {
       runtime->bindings->report_error(err.value());
       return;
+    } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+      throw;
     } catch (...) {
       // Error reporting must not replace the original uncaught failure.
     }
@@ -136,7 +148,13 @@ char *dup_c_string(const std::string &value) {
 constexpr int IBEX2_STATUS_OK = 0;
 constexpr int IBEX2_STATUS_THREW = 1;
 constexpr int IBEX2_STATUS_DEADLINE = 2;
+constexpr int IBEX2_STATUS_OOM = 3;
 constexpr int IBEX2_STATUS_INVALID = -1;
+
+int mark_oom(void *handle) {
+  if (handle != nullptr) static_cast<Ibex2Runtime *>(handle)->oom = true;
+  return IBEX2_STATUS_OOM;
+}
 
 // Milliseconds from `now` until `at`, rounded up so the watch never fires
 // early, and never zero: the door has already refused an entrance whose
@@ -173,8 +191,8 @@ uint32_t millis_until(std::chrono::steady_clock::time_point at,
 // engine's timeout, which JavaScript cannot catch (Runtime::raiseTimeoutError
 // is an uncatchable error in the pinned source). On the way out the watch is
 // always released, and if the deadline passed during the entrance the
-// outcome is the deadline, whatever JavaScript was doing: classified by the
-// clock, never by the text of what was thrown, because text is JavaScript's
+// outcome is the deadline unless the runtime exhausted its heap: classified
+// by the clock, never by the text of what was thrown, because text is JavaScript's
 // to forge.
 //
 // The monitor fires once and leaves its request pending when nothing was at
@@ -198,15 +216,7 @@ public:
     rt_.runtime->watchTimeLimit(millis_until(rt_.deadline, now));
     watching_ = true;
   }
-  ~Entrance() {
-    if (!watching_) {
-      return;
-    }
-    rt_.runtime->unwatchTimeLimit();
-    if (expired()) {
-      flush_pending_break();
-    }
-  }
+  ~Entrance() { stop_watching(); }
   Entrance(const Entrance &) = delete;
   Entrance &operator=(const Entrance &) = delete;
 
@@ -216,16 +226,34 @@ public:
            std::chrono::steady_clock::now() >= rt_.deadline;
   }
   // The status to report for an outcome JavaScript produced.
-  int status(int outcome) const {
-    return expired() ? IBEX2_STATUS_DEADLINE : outcome;
+  int status(int outcome) {
+    const bool watched = watching_;
+    stop_watching();
+    const bool past_deadline = expired();
+    if (watched && past_deadline && !rt_.oom) flush_pending_break();
+    return rt_.oom ? IBEX2_STATUS_OOM
+                   : past_deadline ? IBEX2_STATUS_DEADLINE : outcome;
   }
 
 private:
+  void stop_watching() {
+    if (watching_) {
+      rt_.runtime->unwatchTimeLimit();
+      watching_ = false;
+    }
+  }
+
   void flush_pending_break() {
     try {
+#if defined(IBEX2_TEST_SUPPORT)
+      if (rt_.deadline_flush_error_for_test)
+        std::rethrow_exception(rt_.deadline_flush_error_for_test);
+#endif
       auto buffer = std::make_shared<jsi::StringBuffer>(std::string("0"));
       rt_.runtime->evaluateJavaScript(buffer, "<deadline>");
     } catch (const jsi::JSError &) {
+    } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+      rt_.oom = true;
     } catch (const std::exception &) {
     }
   }
@@ -254,8 +282,8 @@ private:
 // reactions and queueMicrotask catch their own — is reported as an uncaught
 // error and the drain resumes behind it: the engine retires a job before it
 // runs it, so every retry makes progress. Before this a job's throw unwound
-// through the C ABI into Rust. The deadline is the one thing that ends a
-// checkpoint early; returns false when it did.
+// through the C ABI into Rust. A deadline ends the checkpoint with false;
+// heap OOM escapes to the owning C ABI boundary.
 bool checkpoint(Ibex2Runtime &rt, const Entrance &entrance) {
   for (;;) {
     try {
@@ -266,12 +294,16 @@ bool checkpoint(Ibex2Runtime &rt, const Entrance &entrance) {
         return false;
       }
       report_uncaught(&rt, err);
+    } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+      throw;
     } catch (const std::exception &err) {
       if (entrance.expired()) {
         return false;
       }
       try {
         rt.bindings->report_error(err.what());
+      } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+        throw;
       } catch (...) {
         ibex2_report_uncaught(err.what());
       }
@@ -288,7 +320,7 @@ extern "C" {
 /// evaluation through ibex2_hermes_eval is a separate path and stays available,
 /// which is the whole point: the runtime can still run prepared code while
 /// JavaScript cannot compile source of its own.
-void *ibex2_hermes_create(int enable_eval, const void *loader) {
+void *ibex2_hermes_create(int enable_eval, const void *loader, uint32_t max_heap) {
   // The engine microtask queue is OFF by default in stock Hermes. Ibex 2 needs
   // it on: it is what makes the job queue explicit and drainable, which is the
   // whole basis of the LLP 0058 §3 adapter. Without it there is no defined
@@ -303,11 +335,14 @@ void *ibex2_hermes_create(int enable_eval, const void *loader) {
                     .withEnableEval(enable_eval != 0)
                     .withMicrotaskQueue(true)
                     .withAsyncBreakCheckInEval(true)
-                    .withES6BlockScoping(true)
-                    .build();
+                    .withES6BlockScoping(true);
+  if (max_heap != 0) {
+    config.withGCConfig(::hermes::vm::GCConfig::Builder()
+        .withInitHeapSize(4 << 20).withMaxHeapSize(max_heap).build());
+  }
   // Fully qualified: `using namespace facebook` makes bare `hermes` ambiguous
   // between ::hermes (the VM namespace) and facebook::hermes (the JSI one).
-  auto runtime = facebook::hermes::makeHermesRuntimeNoThrow(config);
+  auto runtime = facebook::hermes::makeHermesRuntimeNoThrow(config.build());
   if (!runtime) {
     return nullptr;
   }
@@ -318,8 +353,14 @@ void *ibex2_hermes_create(int enable_eval, const void *loader) {
   auto *root = jsi::castInterface<facebook::hermes::IHermesRootAPI>(
       facebook::hermes::makeHermesRootAPI());
   handle->bytecode_version = root == nullptr ? 0 : root->getBytecodeVersion();
-  handle->bindings = std::make_unique<Adapter>(
-      *handle->runtime, handle->queue, handle->bytecode_version);
+  try {
+    handle->bindings = std::make_unique<Adapter>(
+        *handle->runtime, handle->queue, handle->bytecode_version);
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    ibex2_queue_destroy(handle->queue);
+    delete handle;
+    return nullptr;
+  }
   return handle;
 }
 
@@ -344,15 +385,17 @@ void ibex2_hermes_destroy(void *handle) {
 
 /// Evaluate `source` as the host. Returns 0 on success and 1 if JavaScript
 /// threw, with `*out` the result or the error message; 2 if the deadline
-/// passed before or during the evaluation, with nothing in `*out` to trust.
+/// passed before or during the evaluation, with nothing in `*out` to trust;
+/// 3 on heap OOM, which permanently refuses further execution on this handle.
 int ibex2_hermes_eval(void *handle, const char *source, char **out) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || source == nullptr) {
     return IBEX2_STATUS_INVALID;
   }
   Entrance entrance(*rt);
   if (entrance.refused()) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
   try {
     auto buffer = std::make_shared<jsi::StringBuffer>(std::string(source));
@@ -363,20 +406,22 @@ int ibex2_hermes_eval(void *handle, const char *source, char **out) {
     return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out != nullptr) {
       *out = dup_c_string(err.getMessage());
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out != nullptr) {
       *out = dup_c_string(std::string(err.what()));
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
   }
 }
 
@@ -386,6 +431,7 @@ int ibex2_hermes_eval(void *handle, const char *source, char **out) {
 int ibex2_hermes_install_probe(void *handle, const char *name,
                                const char *value) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || name == nullptr ||
       value == nullptr) {
     return -1;
@@ -402,6 +448,8 @@ int ibex2_hermes_install_probe(void *handle, const char *name,
         });
     runtime.global().setProperty(runtime, prop, std::move(fn));
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &) {
     return 1;
   }
@@ -415,6 +463,7 @@ int ibex2_hermes_install_probe(void *handle, const char *name,
 int ibex2_hermes_install_throwing_probe(void *handle, const char *name,
                                         int native) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || name == nullptr) {
     return -1;
   }
@@ -433,6 +482,8 @@ int ibex2_hermes_install_throwing_probe(void *handle, const char *name,
         });
     runtime.global().setProperty(runtime, prop, std::move(fn));
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &) {
     return 1;
   }
@@ -490,12 +541,15 @@ extern "C" {
 
 int ibex2_hermes_collect_garbage(void *handle) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr) return 1;
   try {
     if (rt->bindings != nullptr)
       rt->bindings->prepare_garbage_collection();
     rt->runtime->instrumentation().collectGarbage("host requested collection");
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &) {
     return 1;
   }
@@ -519,18 +573,20 @@ int ibex2_hermes_collect_garbage(void *handle) {
 /// Returns 0, or 2 if the deadline passed before or during the cycle — at the
 /// door, in a checkpoint, or inside the task, which is then abandoned with no
 /// post-checkpoint: nothing runs after the deadline. A callback or job that
-/// throws for any other reason is a console error, never a status.
-int ibex2_hermes_pump(void *handle, int *out_ran) {
+/// throws a JavaScript error is reported to the console. Heap OOM returns 3
+/// and permanently refuses further execution on this handle.
+int ibex2_hermes_pump(void *handle, int *out_ran) try {
   if (out_ran != nullptr) {
     *out_ran = 0;
   }
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr) {
     return IBEX2_STATUS_INVALID;
   }
   Entrance entrance(*rt);
   if (entrance.refused()) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
   // A drive request made while a cycle is running records a wakeup rather than
   // nesting a second host task inside project JavaScript (§8).
@@ -541,7 +597,7 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
 
   // 1. PreCheckpoint.
   if (!checkpoint(*rt, entrance)) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
 
   // 2. Admission.
@@ -567,12 +623,14 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
     }
   } catch (const jsi::JSError &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     // A throwing callback does not stop the tasks behind it, exactly as an
     // unhandled error in one task does not cancel the next — but it is
     // reported, as a console error, rather than lost.
     report_uncaught(rt, err);
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    throw;
   } catch (const std::exception &err) {
     // The same for what the engine or the adapter throws natively — a
     // JSINativeException out of `call`, a settlement that cannot be built —
@@ -581,10 +639,12 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
     // std::exception never arrives here: the pin translates it into a
     // JavaScript error inside the callback, so it is caught above.)
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     try {
       rt->bindings->report_error(err.what());
+    } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+      throw;
     } catch (...) {
       ibex2_report_uncaught(err.what());
     }
@@ -592,12 +652,14 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
 
   // 5. PostCheckpoint.
   if (!checkpoint(*rt, entrance)) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
   if (out_ran != nullptr) {
     *out_ran = 1;
   }
   return entrance.status(IBEX2_STATUS_OK);
+} catch (const ::hermes::vm::JSOutOfMemoryError &) {
+  return mark_oom(handle);
 }
 
 /// Test-source seam: retain a named JavaScript callback as an event
@@ -606,7 +668,7 @@ int ibex2_hermes_pump(void *handle, int *out_ran) {
 unsigned long long ibex2_hermes_test_subscribe(void *handle,
                                                const char *callback_name) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
-  if (rt == nullptr || rt->runtime == nullptr || callback_name == nullptr)
+  if (rt == nullptr || rt->runtime == nullptr || rt->oom || callback_name == nullptr)
     return 0;
   try {
     auto value = rt->runtime->global().getProperty(*rt->runtime, callback_name);
@@ -614,6 +676,9 @@ unsigned long long ibex2_hermes_test_subscribe(void *handle,
       return 0;
     return rt->bindings->subscribe(
         value.getObject(*rt->runtime).getFunction(*rt->runtime));
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    mark_oom(handle);
+    return 0;
   } catch (...) {
     return 0;
   }
@@ -633,9 +698,35 @@ size_t ibex2_hermes_test_websocket_keepalive_count(void *handle) {
 }
 
 #if defined(IBEX2_TEST_SUPPORT)
+// Inject a real engine OOM at the flush boundary, independently of the clock
+// and of how much space the empty flush program happens to need.
+int ibex2_hermes_test_deadline_flush_oom(void *handle, int outcome) {
+  auto *rt = static_cast<Ibex2Runtime *>(handle);
+  {
+    auto config = ::hermes::vm::RuntimeConfig::Builder()
+        .withGCConfig(::hermes::vm::GCConfig::Builder()
+            .withInitHeapSize(4 << 20).withMaxHeapSize(8 << 20).build()).build();
+    auto exhausted = facebook::hermes::makeHermesRuntime(config);
+    try {
+      exhausted->evaluateJavaScript(std::make_shared<jsi::StringBuffer>(
+          "var held = []; for (var i = 0; i < 1000000; ++i) held.push({id: i});"),
+          "<flush-oom-test>");
+      return IBEX2_STATUS_INVALID;
+    } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+      rt->deadline_flush_error_for_test = std::current_exception();
+    }
+  }
+  rt->deadline_armed = true;
+  rt->deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  Entrance entrance(*rt);
+  rt->deadline = std::chrono::steady_clock::now();
+  return entrance.status(outcome);
+}
+
 int ibex2_hermes_test_assert_timer_dispatch_unreachable(void *handle,
                                                         char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (out_error != nullptr) *out_error = nullptr;
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
     if (out_error != nullptr)
@@ -646,6 +737,8 @@ int ibex2_hermes_test_assert_timer_dispatch_unreachable(void *handle,
   try {
     rt->bindings->assert_timer_dispatch_unreachable_for_test();
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &error) {
     if (out_error != nullptr) *out_error = dup_c_string(error.what());
     return 1;
@@ -663,7 +756,7 @@ int ibex2_hermes_test_assert_timer_dispatch_unreachable(void *handle,
 /// rather than burning a core to discover there is none.
 int ibex2_hermes_wait(void *handle, unsigned long long timeout_ms) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
-  if (rt == nullptr) {
+  if (rt == nullptr || rt->oom) {
     return 0;
   }
   return ibex2_runtime_wait_for_completion(rt->queue, timeout_ms);
@@ -673,35 +766,38 @@ int ibex2_hermes_wait(void *handle, unsigned long long timeout_ms) {
 /// then yielded" step, used by the tests to observe ordering.
 ///
 /// Returns 0; 1 if a job threw out of the queue, with the message in `*out`;
-/// 2 if the deadline passed before or during the drain.
+/// 2 if the deadline passed before or during the drain; 3 on terminal heap OOM.
 int ibex2_hermes_drain_microtasks(void *handle, char **out) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr) {
     return IBEX2_STATUS_INVALID;
   }
   Entrance entrance(*rt);
   if (entrance.refused()) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
   try {
     rt->runtime->drainMicrotasks();
     return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out != nullptr) {
       *out = dup_c_string(err.getMessage());
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out != nullptr) {
       *out = dup_c_string(std::string(err.what()));
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
   }
 }
 
@@ -868,10 +964,13 @@ std::shared_ptr<jsi::Value> load_module(jsi::Runtime &rt, Ibex2Runtime *owner,
         if (ibex2_grants_env_at(grants, i, &name, &value) == 0) {
           continue;
         }
-        env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
-                        jsi::String::createFromUtf8(rt, std::string(value)));
-        ibex2_string_free(name);
-        ibex2_string_free(value);
+        std::unique_ptr<char, decltype(&ibex2_string_free)> name_owner(name, ibex2_string_free);
+        std::unique_ptr<char, decltype(&ibex2_string_free)> value_owner(value, ibex2_string_free);
+#if defined(IBEX2_TEST_SUPPORT)
+        if (ibex2_test_env_snapshot_should_throw()) throw std::bad_alloc();
+#endif
+        env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name_owner.get())),
+                        jsi::String::createFromUtf8(rt, std::string(value_owner.get())));
       }
       jsi::Value env_value(rt, env);
       freeze(rt, env_value);
@@ -942,12 +1041,13 @@ extern "C" {
 int ibex2_hermes_eval_bytes(void *handle, const unsigned char *data, size_t len,
                             char **out) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || data == nullptr) {
     return IBEX2_STATUS_INVALID;
   }
   Entrance entrance(*rt);
   if (entrance.refused()) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
 
   try {
@@ -964,20 +1064,22 @@ int ibex2_hermes_eval_bytes(void *handle, const unsigned char *data, size_t len,
     return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out != nullptr) {
       *out = dup_c_string(err.getMessage());
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &err) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out != nullptr) {
       *out = dup_c_string(std::string(err.what()));
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
   }
 }
 
@@ -988,45 +1090,50 @@ const void *ibex2_hermes_state(void *handle) {
 }
 
 /// Load and run an entry module. Returns 0 on success, 1 on failure with the
-/// message in `out_error` (Rust-released), 2 if the deadline passed.
+/// message in `out_error` (Rust-released), 2 if the deadline passed, or 3 on
+/// terminal heap OOM.
 ///
 /// The microtasks the module's body queued are drained through the same
 /// checkpoint as `pump` and `drain_microtasks`: a job that throws out of the
 /// queue is a console error and the drain resumes behind it, and only the
-/// deadline ends the drain early. A failure to load or run the module body
-/// itself is still the entry's own failure, reported through `out_error`.
+/// deadline or heap OOM ends the drain early. A failure to load or run the
+/// module body itself is still the entry's own failure, reported through
+/// `out_error`.
 int ibex2_hermes_run_entry(void *handle, const char *specifier,
                            char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr) {
     return IBEX2_STATUS_INVALID;
   }
   Entrance entrance(*rt);
   if (entrance.refused()) {
-    return IBEX2_STATUS_DEADLINE;
+    return entrance.status(IBEX2_STATUS_DEADLINE);
   }
   try {
     load_module(*rt->runtime, rt, "./", specifier);
     if (!checkpoint(*rt, entrance)) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     return entrance.status(IBEX2_STATUS_OK);
   } catch (const jsi::JSError &e) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out_error != nullptr) {
       *out_error = dup_c_string(e.getMessage());
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &e) {
     if (entrance.expired()) {
-      return IBEX2_STATUS_DEADLINE;
+      return entrance.status(IBEX2_STATUS_DEADLINE);
     }
     if (out_error != nullptr) {
       *out_error = dup_c_string(std::string(e.what()));
     }
-    return IBEX2_STATUS_THREW;
+    return entrance.status(IBEX2_STATUS_THREW);
   }
 }
 
@@ -1067,8 +1174,9 @@ extern "C" {
 
 /// Reserve the runtime-only global slots in their historical insertion order.
 /// Binding installation replaces `console`; esm.hbc replaces the helpers.
-int ibex2_hermes_prepare_runtime(void *handle, uint16_t groups) {
+int ibex2_hermes_prepare_runtime(void *handle, uint16_t groups) try {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr)
     return IBEX2_STATUS_INVALID;
   auto &runtime = *rt->runtime;
@@ -1079,6 +1187,8 @@ int ibex2_hermes_prepare_runtime(void *handle, uint16_t groups) {
                            "__ibex2_dynamic_import"})
     global.setProperty(runtime, name, jsi::Value::undefined());
   return IBEX2_STATUS_OK;
+} catch (const ::hermes::vm::JSOutOfMemoryError &) {
+  return mark_oom(handle);
 }
 
 /// Install the selected bindings through the engine-independent JSI adapter.
@@ -1092,6 +1202,7 @@ static int install_groups(void *handle, uint16_t groups,
                           const char *headers_hooks,
                           bool defer_intrinsic_snapshot, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr)
     return 1;
   try {
@@ -1130,6 +1241,8 @@ static int install_groups(void *handle, uint16_t groups,
     if ((groups & GROUP_ENV) != 0) remove("process");
     rt->groups = groups;
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &error) {
     if (out_error != nullptr) *out_error = dup_c_string(error.what());
     return 1;
@@ -1157,6 +1270,7 @@ int ibex2_hermes_install_groups_with_options(
 
 int ibex2_hermes_capture_intrinsics(void *handle, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
     if (out_error != nullptr)
       *out_error = dup_c_string("the runtime has no live bindings adapter");
@@ -1165,6 +1279,8 @@ int ibex2_hermes_capture_intrinsics(void *handle, char **out_error) {
   try {
     rt->bindings->capture_intrinsics();
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &error) {
     if (out_error != nullptr) *out_error = dup_c_string(error.what());
     return 1;
@@ -1176,6 +1292,7 @@ int ibex2_hermes_capture_intrinsics(void *handle, char **out_error) {
 /// caller-owned runtime. Returns 0 when they hold, 1 with a message otherwise.
 int ibex2_hermes_verify_harden_preconditions(void *handle, char **out_error) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr || rt->runtime == nullptr || rt->bindings == nullptr) {
     if (out_error != nullptr)
       *out_error = dup_c_string("the runtime has no live bindings adapter");
@@ -1184,6 +1301,8 @@ int ibex2_hermes_verify_harden_preconditions(void *handle, char **out_error) {
   try {
     rt->bindings->verify_harden_preconditions();
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &error) {
     if (out_error != nullptr) *out_error = dup_c_string(error.what());
     return 1;
@@ -1196,6 +1315,7 @@ int ibex2_hermes_verify_harden_preconditions(void *handle, char **out_error) {
 /// more name than R5 allows.
 int ibex2_hermes_install_async_echo(void *handle) {
   auto *rt = static_cast<Ibex2Runtime *>(handle);
+  if (rt != nullptr && rt->oom) return IBEX2_STATUS_OOM;
   if (rt == nullptr) {
     return 1;
   }
@@ -1205,6 +1325,8 @@ int ibex2_hermes_install_async_echo(void *handle) {
         runtime, jsi::PropNameID::forAscii(runtime, "__ibex2_async_echo"),
         make_async_binding(runtime, "__ibex2_async_echo", 100, rt, nullptr));
     return 0;
+  } catch (const ::hermes::vm::JSOutOfMemoryError &) {
+    return mark_oom(handle);
   } catch (const std::exception &) {
     return 1;
   }

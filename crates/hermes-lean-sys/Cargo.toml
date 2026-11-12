@@ -18,8 +18,8 @@ link-lean = ["icu"]
 # On Windows, `icu` links the SDK's frozen `icuuc`/`icuin` import libraries for
 # the operating system's ICU (never `icu.lib`); there is no data archive, so
 # `icu-en-data` and `icu-full-data` are no-ops (LLP 0057.000 §5.1.1).
-# The sole owner of Linux ICU link lines. By default this selects the base data
-# archive required by Hermes's platform_unicode backend.
+# The sole owner of Linux and Android ICU link lines. Linux defaults to the
+# base Unicode data; an Intl-capable Android receipt selects English Intl data.
 icu = []
 # The English Intl closure. This swaps only the data archive and is selected by
 # ibex2/intl; full data takes precedence when both features are unified.

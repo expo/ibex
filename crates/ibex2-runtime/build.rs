@@ -3,6 +3,7 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_shim.cc");
     println!("cargo:rerun-if-changed=tests/embedding.cc");
+    println!("cargo:rerun-if-changed=tests/oom.cc");
     println!("cargo:rerun-if-changed=src/bindings/esm.js");
 
     let headers = required_path("DEP_HERMES_LEAN_INCLUDE_DIR");
@@ -13,6 +14,7 @@ fn main() {
     shim.cpp(true)
         .file("src/engine/hermes_shim.cc")
         .file("tests/embedding.cc")
+        .file("tests/oom.cc")
         .include(&headers)
         .include("../ibex2/include")
         .std("c++17");

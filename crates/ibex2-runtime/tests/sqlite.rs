@@ -42,7 +42,7 @@ fn runtime(
 fn run(project: &Project, manifest: &str) -> Vec<String> {
     let mut runtime = runtime(project, manifest, Arc::new(ibex2_sqlite::SqliteProvider));
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     runtime
         .drain_console()
         .into_iter()
@@ -91,7 +91,7 @@ fn sqlite_refuses_tampering_with_an_admitted_intl_intrinsic() {
         .unwrap();
     runtime.harden().unwrap();
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     let output: Vec<_> = runtime
         .drain_console()
         .into_iter()
@@ -141,7 +141,7 @@ fn hermes_adoption_does_not_recapture_modified_intrinsics() {
         .unwrap();
     runtime.harden().unwrap();
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     let output: Vec<_> = runtime
         .drain_console()
         .into_iter()
@@ -192,7 +192,7 @@ fn runtime_configuration_set_before_install_survives_host_adoption() {
         .unwrap();
     runtime.harden().unwrap();
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
 
     assert_eq!(runtime.eval("configResult").unwrap(), "ok");
     assert_eq!(std::fs::read(data.join("preserved")).unwrap(), [7]);
@@ -240,7 +240,7 @@ fn context_configuration_set_before_install_is_adopted_by_hermes() {
         .unwrap();
     runtime.harden().unwrap();
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
 
     assert_eq!(runtime.eval("contextConfigResult").unwrap(), "ok");
     assert_eq!(std::fs::read(data.join("from-context")).unwrap(), [8, 9]);
@@ -436,10 +436,10 @@ fn live_statements_retain_databases_and_gc_closes_unreachable_connections() {
         }),
     );
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert!(runtime.collect_garbage());
     runtime.eval("statement.query().then(result => console.log(String(result.rows[0][0]))).catch(e => console.error(e.message))").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(
         runtime
             .drain_console()
@@ -476,7 +476,7 @@ fn runtime_destruction_closes_a_database_still_reachable_from_javascript() {
         }),
     );
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(runtime.eval("typeof database.query").unwrap(), "function");
     drop(runtime);
     received
@@ -507,7 +507,7 @@ fn pending_query_retains_its_owner_until_the_promise_settles() {
         Arc::new(provider),
     );
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     runtime.eval("database.query('SELECT 123').then(result => console.log(String(result.rows[0][0]))).catch(e => console.error(e.message)); globalThis.database = undefined;").unwrap();
     runtime.pump().unwrap();
     entered_query
@@ -515,7 +515,7 @@ fn pending_query_retains_its_owner_until_the_promise_settles() {
         .expect("query started");
     assert!(runtime.collect_garbage());
     release_query.send(()).unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(
         runtime
             .drain_console()

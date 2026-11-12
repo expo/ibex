@@ -54,7 +54,8 @@ fn a_run_only_binary_runs_a_precompiled_graph_and_nothing_else() {
     .expect("loader");
     rt.harden().expect("harden");
     rt.run_entry("./index.js").expect("entry");
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     let out: Vec<String> = rt.drain_console().into_iter().map(|r| r.message).collect();
     assert_eq!(out, vec!["42"]);
 

@@ -60,6 +60,8 @@ try {
   if ([IO.File]::ReadAllText($sourceMarker) -ne $Ref) { throw "Source export pin mismatch" }
   cmake -S $sourceDir -B $buildDir -G Ninja `
     -DCMAKE_BUILD_TYPE=Release -DHERMES_ENABLE_DEBUGGER=OFF `
+    -DHERMESVM_EXCEPTION_ON_OOM=true `
+    -DHERMES_ENABLE_RTTI=true `
     -DHERMES_ENABLE_INTL=OFF -DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON `
     -DHERMES_BUILD_APPLE_FRAMEWORK=OFF -DHERMES_BUILD_SHARED_JSI=OFF `
     -DHERMES_ENABLE_TEST_SUITE=OFF -DHERMES_MSVC_MP=OFF
@@ -96,6 +98,8 @@ try {
     '--engine-archive=windows-static/hermesvm_a.lib',
     '--build-flag=-DCMAKE_BUILD_TYPE=Release',
     '--build-flag=-DHERMES_ENABLE_DEBUGGER=OFF',
+    '--build-flag=-DHERMESVM_EXCEPTION_ON_OOM=true',
+    '--build-flag=-DHERMES_ENABLE_RTTI=true',
     '--build-flag=-DHERMES_ENABLE_INTL=OFF',
     '--build-flag=-DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON',
     '--build-flag=-DHERMES_BUILD_APPLE_FRAMEWORK=OFF',

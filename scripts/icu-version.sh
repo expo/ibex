@@ -70,8 +70,8 @@ ibex_build_icu_linux() {
 }
 
 ibex_icu_data_symbol_bytes() {
-  local archive="$1" symbol="icudt74_dat" size
-  size="$(nm -S --size-sort "$archive" | awk -v wanted="$symbol" '$4 == wanted { print $2 }')"
+  local archive="$1" nm_tool="${2:-nm}" symbol="icudt74_dat" size
+  size="$("$nm_tool" -S --size-sort "$archive" | awk -v wanted="$symbol" '$4 == wanted { print $2 }')"
   [[ -n "$size" ]] || {
     echo "ICU data archive has no $symbol symbol: $archive" >&2
     return 1
@@ -80,10 +80,10 @@ ibex_icu_data_symbol_bytes() {
 }
 
 ibex_verify_icu_data_variants() {
-  local trimmed="$1" en="$2" full="$3" trimmed_bytes en_bytes full_bytes
-  trimmed_bytes="$(ibex_icu_data_symbol_bytes "$trimmed")"
-  en_bytes="$(ibex_icu_data_symbol_bytes "$en")"
-  full_bytes="$(ibex_icu_data_symbol_bytes "$full")"
+  local trimmed="$1" en="$2" full="$3" nm_tool="${4:-nm}" trimmed_bytes en_bytes full_bytes
+  trimmed_bytes="$(ibex_icu_data_symbol_bytes "$trimmed" "$nm_tool")"
+  en_bytes="$(ibex_icu_data_symbol_bytes "$en" "$nm_tool")"
+  full_bytes="$(ibex_icu_data_symbol_bytes "$full" "$nm_tool")"
   [[ "$trimmed_bytes" == "$IBEX_ICU_TRIMMED_DATA_BYTES" ]] || {
     echo "trimmed ICU data is $trimmed_bytes bytes, expected $IBEX_ICU_TRIMMED_DATA_BYTES" >&2
     return 1

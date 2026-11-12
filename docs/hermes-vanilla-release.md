@@ -1,5 +1,130 @@
 # Vanilla Hermes release bundles
 
+## Staged v6 release
+
+The builders and publisher target `hermes-vanilla-d412d3bd8512-v6`. This is
+one rebuild of the ten-target v5 inventory below, with the same archive
+basenames and the same unmodified upstream commit. It is not published by a
+push alone. After this change lands on `main`, a maintainer runs:
+
+```sh
+gh workflow run hermes-vanilla-build.yml --repo expo/ibex --ref main
+```
+
+The successful builder triggers `hermes-vanilla-publish.yml`, which validates
+the handoffs, attests the ten archives, and publishes the immutable prerelease
+with ten retained Sigstore bundles and `SHA256SUMS`. Keep `main` at the
+dispatched commit until publication: the publisher refuses a stale head.
+The published consumer pin table remains v5 until v6's actual checksums and
+attestations have been verified. Then use the existing pin updater:
+
+```sh
+node scripts/update-hermes-lean-sys-pins.mjs /path/to/verified/SHA256SUMS \
+  hermes-vanilla-d412d3bd8512-v6
+```
+
+Exact must adopt that authenticated pin table, the Android receipt handling
+in Exact commit `0bc308e0`, and its separate OOM retirement change. Local
+archive digests are not the CI release digests. Do not transplant a local
+Mac-built Android bundle's host `hermesc` into the Linux-built release receipt.
+
+All full and lean VMs enable `HERMESVM_EXCEPTION_ON_OOM=true` and
+`HERMES_ENABLE_RTTI=true`; both appear in `build.flags` in the canonical v2
+receipt. RTTI preserves C++ exception matching across the embedding boundary.
+The local Apple/Linux builders use new cache keys so an old aborting engine
+cannot receive the new flags merely by regenerating its receipt. Linux and
+Windows retain their existing Intl choices. The repository builds macOS,
+iOS, tvOS, Android arm64, Linux arm64/x86-64 and Windows x64; it has no watchOS
+builder or published watchOS bundle.
+
+Android now enables `HERMES_ENABLE_INTL=true`, with `HERMES_IS_ANDROID=false`
+and the existing static ICU backend, so it needs no JVM. It targets NDK API 29
+to match Exact's minimum. The receipt's `icu` section authenticates base,
+English Intl and full data plus both filters, just as Linux's does. The
+default Android link selects `libicudata-en.a`; `icu-full-data` can select full
+data. Hermes's ICU backend supplies the Intl constructors and collation;
+its pinned NumberFormat is incomplete. Exact's receipt-selected Ibex Intl
+projection completes NumberFormat and DateTimeFormat. A native embedder that
+links only Hermes must not infer complete formatter behavior from the flag.
+
+### Heap OOM is terminal for the runtime
+
+`GCBase::oom` throws `hermes::vm::JSOutOfMemoryError`, derived from
+`std::runtime_error`, out through JSI. This is not a JavaScript exception and
+cannot be caught in JavaScript. Catch it before a generic `std::exception`.
+Destroy all adapter/JSI roots and then destroy the runtime; create a new
+runtime for later work. Never report the error to JavaScript, drain jobs,
+collect garbage, or reuse the exhausted runtime. Its register stack was not
+unwound. This does not turn every native allocation failure into a recoverable
+error or make the heap cap an immediate bound on external string/buffer memory.
+
+Ibex's borrowed `Adapter` preserves native engine exceptions instead of
+reporting them and continuing its checkpoint. The owning Rust runtime maps
+heap OOM to `JsError::OutOfMemory` and refuses later execution and collection;
+the consumer must drop it. Ordinary JavaScript exceptions keep their existing
+error-event behavior. The OOM tests are explicit release qualification tests
+because the still-pinned v5 library aborts:
+
+```sh
+HERMES_LEAN_SYS_DIR=/path/to/v6/bundle \
+  cargo test -p ibex2-runtime --lib --test embedding heap_oom -- --ignored
+```
+
+### Local v6 qualification
+
+On 2026-11-12, the macOS arm64 bundle passed the capped-heap standalone
+probe and both explicit Rust/JSI OOM tests. The same standalone probe linked
+against v5 aborts with `Max heap size was exceeded`. The macOS AOT CLI app
+returned `["Jan 2, 2020","$1,234.50",-1]` for date, currency and collation.
+The runtime suite passed 197 unit and 78 embedding tests (four unit and two
+embedding tests ignored), the separate lean embedding proof passed, the
+resolver suite passed 42 tests, the installer passed 18 unit and two offline
+integration tests, and the release workflow suite passed 19 tests. Workspace
+clippy and the sys crate's separate `link` clippy passed.
+
+The Android arm64 release and the standalone OOM/Intl probe cross-link with
+NDK 27.1.12297006 at API 29. `hermes-lean-sys`'s Android tests also compile and
+link with the new receipt. These are build checks: no Android device was
+connected, and the emulator does not boot on this Mac. Run the probe on an
+Android device, then run Exact's top-level formatter data module against the
+published bundle before closing the consumer issue. Linux and Windows require
+CI builds; the standalone Intel macOS bundle requires its Intel runner.
+
+The release script completed these local builds (wall time, source cached;
+macOS was a warm rebuild). Both full and lean archives are in every bundle.
+iOS and tvOS were cross-built, without device or simulator execution.
+
+| Bundle target | Wall time |
+| --- | --- |
+| `aarch64-apple-darwin` | 1m40s |
+| `aarch64-linux-android` | 10m56s |
+| `aarch64-apple-ios` | 3m36s |
+| `universal-apple-ios-simulator` | 5m07s |
+| `aarch64-apple-tvos` | 2m54s |
+| `aarch64-apple-tvos-simulator` | 2m36s |
+
+The standalone probe can be built against a macOS bundle with:
+
+```sh
+bundle=/path/to/v6/bundle
+c++ -std=c++17 -DIBEX2_OOM_STANDALONE -I"$bundle/include" \
+  crates/ibex2-runtime/tests/oom.cc -L"$bundle/lib" \
+  -lhermesvm_a -ljsi -lboost_context -framework Foundation \
+  -framework CoreFoundation -o target/ibex-oom
+target/ibex-oom
+```
+
+For Android, compile that source with the NDK's
+`aarch64-linux-android29-clang++`, the same preprocessor definition, the bundle
+headers, and the static Hermes/JSI/Boost/ICU archives. Select
+`libicudata-en.a`, use a linker group for the archives, and link
+`-nostdlib++ -lc++_static -lc++abi -llog -ldl -lm`. Push the resulting executable
+to a device and run it there. The probe checks the three Intl constructors,
+date formatting and collation; Exact's formatter projection is a separate
+consumer check.
+
+## Published v5 release
+
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
 The current immutable prerelease is `hermes-vanilla-d412d3bd8512-v5`, published
 on 2026-10-13 with ten deterministic archives, `SHA256SUMS`, and one retained
@@ -465,7 +590,7 @@ non-fast-forward updates (force-pushes).
    done
    test -n "$publisher_run_id"
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
-   gh release view hermes-vanilla-d412d3bd8512-v5 --repo "$repo"
+   gh release view hermes-vanilla-d412d3bd8512-v6 --repo "$repo"
    ```
 
 ### First publication (2026-10-04)
@@ -551,6 +676,8 @@ repository from satisfying this check.
 repo=expo/ibex
 # Reverify the current consumer baseline.
 tag=hermes-vanilla-d412d3bd8512-v5
+# To qualify the candidate after publication, use instead:
+# tag=hermes-vanilla-d412d3bd8512-v6
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
@@ -565,7 +692,29 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     --source-ref refs/heads/main \
     --source-digest "$source_revision" \
     --signer-digest "$source_revision"
-  tar -xOzf "$archive" hermes-input-receipt.json | jq -e '
+  tar -xOzf "$archive" hermes-input-receipt.json | jq -e --arg tag "$tag" '
+    def icu_tiers:
+      .icu.upstream.sourceCommit == "2d029329c82c7792b985024b2bdab5fc7278fbc8" and
+      .icu.upstream.sourceRef == "release-74-2" and
+      .icu.upstream.sourceVersion == "74.2" and
+      .icu.codeArchives == ["lib/libicui18n.a", "lib/libicuuc.a"] and
+      .icu.data.trimmed.archive == "lib/libicudata.a" and
+      .icu.data.en.archive == "lib/libicudata-en.a" and
+      .icu.data.full.archive == "lib/libicudata-full.a" and
+      .icu.data.trimmed.filter.path == "share/icu/filters-root-en.json" and
+      .icu.data.trimmed.filter.digest == "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702" and
+      .icu.data.en.filter.path == "share/icu/filters-en-intl.json" and
+      .icu.data.en.filter.digest == "sha256-796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715" and
+      any(.archives[]; .path == "lib/libicudata.a") and
+      any(.archives[]; .path == "lib/libicudata-en.a") and
+      any(.archives[]; .path == "lib/libicudata-full.a");
+
+    ($tag == "hermes-vanilla-d412d3bd8512-v5" or
+      $tag == "hermes-vanilla-d412d3bd8512-v6") and
+    (if ($tag | endswith("-v6")) then
+      (.build.flags | index("-DHERMESVM_EXCEPTION_ON_OOM=true")) and
+      (.build.flags | index("-DHERMES_ENABLE_RTTI=true"))
+    else true end) and
     .schema == "ibex/hermes-upstream-pinned-receipt/2" and
     .upstream.sourceCommit == "d412d3bd851278712c20cca25d094e32641a0465" and
     .patchSet.applied == [] and
@@ -580,34 +729,31 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     (.linkDirectives | length > 0) and
     (if .target == "aarch64-linux-android" then
       .profile == "min-size-release" and
-      (.icu | not) and
       (.build.flags | index("-DIBEX_ANDROID_FBJNI_SHIM_SHA256=d5b0440fe88ebf377d15646b59aba0e1f659f43db558b82c93be471c616fca44")) and
-      (.build.flags | index("-DHERMES_ENABLE_INTL=false")) and
       (.build.flags | index("-DHERMES_UNICODE_LITE=false")) and
       (.build.flags | index("-DHERMES_USE_STATIC_ICU=true")) and
       (.build.flags | index("-DANDROID_ABI=arm64-v8a")) and
-      (.build.flags | index("-DANDROID_PLATFORM=android-30")) and
       (.build.flags | index("-DANDROID_STL=c++_static")) and
       any(.archives[]; .path == "lib/libicui18n.a") and
       any(.archives[]; .path == "lib/libicuuc.a") and
       any(.archives[]; .path == "lib/libicudata.a") and
       (.linkDirectives | index("rustc-link-lib=c++_static")) and
-      (.linkDirectives | index("rustc-link-lib=log"))
+      (.linkDirectives | index("rustc-link-lib=log")) and
+      (if ($tag | endswith("-v6")) then
+        icu_tiers and
+        (.build.flags | index("-DHERMES_ENABLE_INTL=true")) and
+        (.build.flags | index("-DHERMES_IS_ANDROID=false")) and
+        (.build.flags | index("-DANDROID_PLATFORM=android-29")) and
+        (.linkDirectives | index("rustc-link-lib=static=icudata-en")) and
+        ([.linkDirectives[] | select(startswith("rustc-link-lib=static=icudata"))]
+          == ["rustc-link-lib=static=icudata-en"])
+      else
+        (.icu | not) and
+        (.build.flags | index("-DHERMES_ENABLE_INTL=false")) and
+        (.build.flags | index("-DANDROID_PLATFORM=android-30"))
+      end)
     elif (.target | endswith("-unknown-linux-gnu")) then
-      .icu.upstream.sourceCommit == "2d029329c82c7792b985024b2bdab5fc7278fbc8" and
-      .icu.upstream.sourceRef == "release-74-2" and
-      .icu.upstream.sourceVersion == "74.2" and
-      .icu.codeArchives == ["lib/libicui18n.a", "lib/libicuuc.a"] and
-      .icu.data.trimmed.archive == "lib/libicudata.a" and
-      .icu.data.en.archive == "lib/libicudata-en.a" and
-      .icu.data.full.archive == "lib/libicudata-full.a" and
-      .icu.data.trimmed.filter.path == "share/icu/filters-root-en.json" and
-      .icu.data.trimmed.filter.digest == "sha256-c5d1b182d6e92212ff4952d7a5c956f3d54611f300cb6fa1fdca39a6510f9702" and
-      .icu.data.en.filter.path == "share/icu/filters-en-intl.json" and
-      .icu.data.en.filter.digest == "sha256-796fa71ddfad7135f644884931c4e8c5491c27a5c4f0366d7dd12702489eb715" and
-      any(.archives[]; .path == "lib/libicudata.a") and
-      any(.archives[]; .path == "lib/libicudata-en.a") and
-      any(.archives[]; .path == "lib/libicudata-full.a")
+      icu_tiers
     else (.icu | not) end)'
 done
 ```
@@ -616,6 +762,9 @@ This checks the downloaded bytes against `SHA256SUMS`; verifies the retained
 Sigstore bundle for each archive; and uses the certificate identity to bind
 the publisher workflow path specifically to `refs/heads/main`. The source and
 signer digests must both equal the Ibex commit named by the release tag.
+The v6 branch requires OOM exceptions and RTTI on every target, and Android's
+ICU 74.2 tiers, pinned filters, English data link, native Intl, and default API
+29 floor. The v5 branch retains the current baseline's Android predicate.
 Separately, the receipt check binds the archive contents to the pinned upstream
 Hermes commit, an empty patch set, and the closed receipt-v2 archive/header/link
 manifests. Do not combine `--cert-identity` with `--signer-workflow`: `gh`

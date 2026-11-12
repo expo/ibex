@@ -19,7 +19,8 @@ struct CompiledScript {
 // the type name rather than on the usage.
 #[allow(improper_ctypes)]
 extern "C" {
-    fn ibex2_hermes_create(enable_eval: c_int, loader: *const c_void) -> *mut c_void;
+    fn ibex2_hermes_create(enable_eval: c_int, loader: *const c_void, max_heap: u32)
+        -> *mut c_void;
     fn ibex2_hermes_destroy(handle: *mut c_void);
     fn ibex2_hermes_eval(
         handle: *mut c_void,
@@ -354,12 +355,15 @@ pub struct Hermes {
 pub enum JsError {
     /// JavaScript threw, and this is what it threw, as text.
     Thrown(String),
+    /// Hermes exhausted its heap. Every later execution entrance is refused.
+    /// Drop this runtime and create a replacement; its register stack is invalid.
+    OutOfMemory,
     /// The deadline armed by [`Hermes::set_deadline`] passed: at the door, so
     /// nothing ran, or while JavaScript was running, so the engine stopped
     /// it. Reported by kind and never by the text of what was thrown — text
     /// is JavaScript's to forge. Nothing JavaScript did on the way to the
     /// deadline is reported, and its state is whatever the stop left.
-    // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — the one outcome a consumer may act on without reading text: classified by the clock, uncatchable in JavaScript
+    // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — the deadline is classified by the clock, never by error text, and is uncatchable in JavaScript
     Deadline,
 }
 
@@ -368,6 +372,7 @@ impl std::fmt::Display for JsError {
         match self {
             JsError::Thrown(text) => f.write_str(text),
             JsError::Deadline => f.write_str("the deadline passed"),
+            JsError::OutOfMemory => f.write_str("Hermes ran out of memory; destroy the runtime"),
         }
     }
 }
@@ -385,6 +390,7 @@ fn checked(status: c_int, out: *mut c_char, entrance: &str) -> Result<String, Js
             text.unwrap_or_else(|| "unknown error".into()),
         )),
         2 => Err(JsError::Deadline),
+        3 => Err(JsError::OutOfMemory),
         other => panic!("{entrance} returned {other}"),
     }
 }
@@ -410,6 +416,11 @@ impl Hermes {
     }
 
     pub fn new(dynamic_code: DynamicCode) -> Option<Self> {
+        Self::with_heap_limit(dynamic_code, 0)
+    }
+
+    // Zero uses Hermes's default. Tests bound allocations without exhausting the host.
+    fn with_heap_limit(dynamic_code: DynamicCode, max_heap: u32) -> Option<Self> {
         hermes_lean_sys::ensure_linked();
         let enable = match dynamic_code {
             DynamicCode::Open => 1,
@@ -422,6 +433,7 @@ impl Hermes {
             ibex2_hermes_create(
                 enable,
                 (&*loader as *const crate::loader_state::LoaderState).cast(),
+                max_heap,
             )
         };
         if handle.is_null() {
@@ -596,6 +608,9 @@ impl Hermes {
                 )
             }
         };
+        if status == 3 {
+            return Err(JsError::OutOfMemory);
+        }
         if status != 0 {
             return Err(JsError::Thrown(
                 take_c_string(out).unwrap_or_else(|| "could not install Ibex2 bindings".into()),
@@ -636,11 +651,8 @@ impl Hermes {
             .map_err(|error| JsError::Thrown(error.to_string()))?;
         // SAFETY: the runtime is live and this creates only placeholder data
         // properties; the compiled helpers replace them below.
-        if unsafe { ibex2_hermes_prepare_runtime(self.handle, groups.bits()) } != 0 {
-            return Err(JsError::Thrown(
-                "could not prepare the Ibex2 runtime globals".into(),
-            ));
-        }
+        let status = unsafe { ibex2_hermes_prepare_runtime(self.handle, groups.bits()) };
+        checked(status, std::ptr::null_mut(), "ibex2_hermes_prepare_runtime")?;
         self.install_with(groups, context, options)?;
         self.eval_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/esm.hbc")))?;
         Ok(())
@@ -663,12 +675,8 @@ impl Hermes {
         let mut out: *mut c_char = std::ptr::null_mut();
         // SAFETY: the runtime and its bindings adapter are live; `out` receives
         // a malloc'd message that take_c_string owns on refusal.
-        if unsafe { ibex2_hermes_capture_intrinsics(self.handle, &mut out) } != 0 {
-            return Err(JsError::Thrown(take_c_string(out).unwrap_or_else(|| {
-                "could not capture the deferred intrinsic snapshot".into()
-            })));
-        }
-        Ok(())
+        let status = unsafe { ibex2_hermes_capture_intrinsics(self.handle, &mut out) };
+        checked(status, out, "ibex2_hermes_capture_intrinsics").map(|_| ())
     }
 
     /// The LLP 0067 R4 freeze, from bytecode: after the standard library and
@@ -694,11 +702,8 @@ impl Hermes {
         let mut out: *mut c_char = std::ptr::null_mut();
         // SAFETY: the runtime is live; `out` receives a malloc'd message we
         // take ownership of on refusal.
-        if unsafe { ibex2_hermes_verify_harden_preconditions(self.handle, &mut out) } != 0 {
-            return Err(JsError::Thrown(take_c_string(out).unwrap_or_else(|| {
-                "could not verify the hardening preconditions".into()
-            })));
-        }
+        let status = unsafe { ibex2_hermes_verify_harden_preconditions(self.handle, &mut out) };
+        checked(status, out, "ibex2_hermes_verify_harden_preconditions")?;
         self.eval_bytes(crate::bindings::HARDEN_BYTECODE)
             .map(|_| ())
     }
@@ -815,7 +820,7 @@ impl Hermes {
     /// One task per cycle, per LLP 0058.000.000 §8 — so this returns 0 or 1 and
     /// a caller wanting to reach quiescence loops. A callback or job that
     /// throws is a console error, never a return: one bad task does not stop
-    /// the tasks behind it. The deadline does, and is the only `Err`.
+    /// the tasks behind it. A deadline or heap OOM ends the pump with an error.
     pub fn pump(&mut self) -> Result<i32, JsError> {
         let mut ran: c_int = 0;
         // SAFETY: `handle` is non-null for the lifetime of self, and this is
@@ -824,6 +829,7 @@ impl Hermes {
         match status {
             0 => Ok(ran),
             2 => Err(JsError::Deadline),
+            3 => Err(JsError::OutOfMemory),
             other => panic!("ibex2_hermes_pump returned {other}"),
         }
     }
@@ -841,18 +847,20 @@ impl Hermes {
     /// loop as it ends any entrance, and what was delivered by then is the
     /// answer. The count does not say which of the three ended the loop; a
     /// caller that must tell the deadline from the rest checks its own clock
-    /// against the deadline it armed.
-    pub fn pump_until(&mut self, expected: i32) -> i32 {
+    /// against the deadline it armed. Heap OOM propagates as an error; the
+    /// caller must destroy the runtime.
+    pub fn pump_until(&mut self, expected: i32) -> Result<i32, JsError> {
         let give_up = Instant::now() + Duration::from_secs(30);
         let mut delivered = 0;
         loop {
             match self.pump() {
                 Ok(ran) => delivered += ran.max(0),
                 // The runtime's own deadline: what was delivered is the answer.
-                Err(_) => return delivered,
+                Err(JsError::Deadline) => return Ok(delivered),
+                Err(error) => return Err(error),
             }
             if delivered >= expected || Instant::now() >= give_up {
-                return delivered;
+                return Ok(delivered);
             }
             let wait = self.capped_by_deadline(100);
             // SAFETY: `handle` is non-null for the lifetime of self.
@@ -956,6 +964,7 @@ impl Hermes {
                 message.unwrap_or_else(|| "module failed".into()),
             )),
             2 => Err(JsError::Deadline),
+            3 => Err(JsError::OutOfMemory),
             other => panic!("ibex2_hermes_run_entry returned {other}"),
         }
     }
@@ -969,16 +978,19 @@ impl Hermes {
     /// Under an armed deadline no wait outlives it: the deadline ends this
     /// loop as it ends any entrance. Returning says nothing about which of
     /// the three ended it; a caller that must tell the deadline from
-    /// quiescence checks its own clock against the deadline it armed.
-    pub fn run_to_quiescence(&mut self, budget: Duration) {
+    /// quiescence checks its own clock against the deadline it armed. Heap OOM
+    /// propagates as an error; the caller must destroy the runtime.
+    pub fn run_to_quiescence(&mut self, budget: Duration) -> Result<(), JsError> {
         let give_up = Instant::now() + budget;
         loop {
             // The runtime's own deadline, if one is armed, ends the loop too.
-            if self.pump().is_err() {
-                return;
+            match self.pump() {
+                Ok(_) => {}
+                Err(JsError::Deadline) => return Ok(()),
+                Err(error) => return Err(error),
             }
             if Instant::now() >= give_up {
-                return;
+                return Ok(());
             }
             // SAFETY: `handle` is non-null for the lifetime of self.
             let state = unsafe { ibex2_hermes_state(self.handle) };
@@ -986,7 +998,7 @@ impl Hermes {
                 .map(|s| s.is_idle())
                 .unwrap_or(true);
             if idle {
-                return;
+                return Ok(());
             }
             // Wait for the next thing that can make work: a completion, which
             // signals the Condvar, or the next timer's deadline. Exactly what
@@ -1096,3 +1108,7 @@ mod tests;
 #[cfg(test)]
 #[path = "hermes_deadline_tests.rs"]
 mod deadline_tests;
+
+#[cfg(test)]
+#[path = "hermes_oom_tests.rs"]
+mod oom_tests;

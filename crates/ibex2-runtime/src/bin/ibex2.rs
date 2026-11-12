@@ -479,7 +479,8 @@ fn run(
     }
 
     rt.run_entry(&name).map_err(|e| e.to_string())?;
-    rt.run_to_quiescence(std::time::Duration::from_millis(budget_ms));
+    rt.run_to_quiescence(std::time::Duration::from_millis(budget_ms))
+        .map_err(|error| error.to_string())?;
 
     for record in rt.drain_console() {
         match record.level {

@@ -178,6 +178,15 @@ pub(crate) fn validate(
         None => None,
     };
 
+    if target == "aarch64-linux-android"
+        && flags
+            .iter()
+            .any(|flag| flag.as_str() == Some("-DHERMES_ENABLE_INTL=true"))
+        && icu.is_none()
+    {
+        return Err("Android Intl requires receipt-bound English ICU data".into());
+    }
+
     let links = root
         .get("linkDirectives")
         .and_then(Value::as_array)
@@ -206,8 +215,11 @@ fn validate_icu(
     target: &str,
     archives: &[(String, String)],
 ) -> Result<CanonicalIcuReceipt, String> {
-    if !target.ends_with("-unknown-linux-gnu") {
-        return Err("v2 receipt carries Linux ICU metadata for a non-Linux target".into());
+    if !target.ends_with("-unknown-linux-gnu") && target != "aarch64-linux-android" {
+        return Err(
+            "v2 receipt carries bundled ICU metadata for a target other than Linux or Android"
+                .into(),
+        );
     }
     let icu = object(Some(value), "v2 receipt ICU metadata is not an object")?;
     let upstream = object(
@@ -614,6 +626,19 @@ mod tests {
             receipt.icu.expect("ICU metadata").full_data_archive,
             "lib/libicudata-full.a"
         );
+
+        document["target"] = "aarch64-linux-android".into();
+        document["build"]["flags"] = serde_json::json!([
+            "-DHERMES_ENABLE_INTL=true",
+            "-DHERMESVM_EXCEPTION_ON_OOM=true"
+        ]);
+        validate(&document, Some("aarch64-linux-android"))
+            .expect("Android binds the same ICU data tiers");
+        let mut missing = document.clone();
+        missing.as_object_mut().unwrap().remove("icu");
+        assert!(validate(&missing, None)
+            .unwrap_err()
+            .contains("English ICU"));
 
         document["icu"]["data"]["trimmed"]["filter"]["digest"] =
             Value::String(format!("sha256-{}", "0".repeat(64)));

@@ -266,6 +266,10 @@ void set_binding(jsi::Runtime&, jsi::Object&, const char*, uint32_t, const void*
 // replaced intrinsics, including methods changed before a later freeze.
 // Retained JavaScript bindings fail closed after detach; they never dereference
 // a destroyed adapter. Detach clears all JSI roots before the runtime is destroyed.
+// Native engine exceptions propagate unchanged. In particular, Hermes's
+// JSOutOfMemoryError requires detaching/destroying this adapter and destroying
+// its runtime immediately. Do not report it to JS, drain jobs or reuse the VM:
+// the interpreter register stack is not unwound by that exception.
 class Adapter {
 public:
   // `bytecode_version` is the owning engine's supported HBC version when it
@@ -383,8 +387,9 @@ public:
   void report_error(const char* message);
   // Takes at most one storage settlement, subscribed event or admitted timer
   // (LLP 0071 D1). It admits no timers and runs no microtask checkpoint.
-  // Callback failures are reported through the EVENTS error path and do not
-  // escape. It holds the runtime's drive flag while it runs and throws
+  // JavaScript callback failures are reported through the EVENTS error path.
+  // Native engine failures escape and require destroying the runtime. It holds
+  // the runtime's drive flag while it runs and throws
   // std::logic_error, taking nothing, when the flag is already held: by a
   // delivery in progress, a cycle, or an owning pump (LLP 0071 D5).
   bool deliver_one();

@@ -176,7 +176,7 @@ fn primitive_fetch_snapshots_headers_before_its_worker_runs() {
         Some("y".into()),
         "the queued worker must receive the JS-thread header snapshot"
     );
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     assert_eq!(runtime.eval("targetResult").unwrap(), "ok");
     assert_eq!(
         runtime.eval("String(globalThis.blockerError)").unwrap(),

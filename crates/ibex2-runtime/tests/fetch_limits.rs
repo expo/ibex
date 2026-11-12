@@ -222,7 +222,7 @@ mod request_headers {
         .unwrap();
         rt.harden().unwrap();
         rt.run_entry("./index.js").unwrap();
-        rt.run_to_quiescence(Duration::from_secs(30));
+        rt.run_to_quiescence(Duration::from_secs(30)).unwrap();
         let output = rt.drain_console().into_iter().map(|r| r.message).collect();
         (output, rt.live_header_handles_for_test())
     }

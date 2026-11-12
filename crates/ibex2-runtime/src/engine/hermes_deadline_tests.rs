@@ -586,7 +586,7 @@ fn pump_until_returns_when_the_armed_deadline_passes() {
     rt.eval("setTimeout(() => {}, 3600000);").unwrap();
     let started = Instant::now();
     rt.set_deadline(started + Duration::from_millis(100));
-    assert_eq!(rt.pump_until(1), 0);
+    assert_eq!(rt.pump_until(1).unwrap(), 0);
     let elapsed = started.elapsed();
     assert!(
         elapsed >= Duration::from_millis(100),
@@ -606,7 +606,7 @@ fn run_to_quiescence_returns_when_the_armed_deadline_passes() {
     rt.eval("setTimeout(() => {}, 3600000);").unwrap();
     let started = Instant::now();
     rt.set_deadline(started + Duration::from_millis(100));
-    rt.run_to_quiescence(Duration::from_secs(30));
+    rt.run_to_quiescence(Duration::from_secs(30)).unwrap();
     let elapsed = started.elapsed();
     assert!(
         elapsed >= Duration::from_millis(100),

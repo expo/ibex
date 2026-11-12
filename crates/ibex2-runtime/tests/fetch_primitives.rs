@@ -285,7 +285,7 @@ fn primitives_fetch_streams_fields_controls_and_reuses_the_context_grant() {
             "#
         ))
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
 
     let result: Value = serde_json::from_str(&runtime.eval("__primitiveResult").unwrap()).unwrap();
     assert_eq!(result["frozen"], true);
@@ -509,7 +509,7 @@ fn snapback_fetch_and_bound_preludes_use_the_opt_in_object() {
             "#
         ))
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
 
     let result: Value = serde_json::from_str(&runtime.eval("__snapbackResult").unwrap()).unwrap();
     assert_eq!(result["status"], 200);
@@ -589,7 +589,7 @@ fn run_probe(runtime: &mut Hermes, argument: &str) -> Value {
             "#
         ))
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     let text = runtime.eval("__probeResult").unwrap();
     serde_json::from_str(&text).unwrap_or_else(|_| panic!("probe result: {text}"))
 }
@@ -1149,7 +1149,7 @@ fn released_and_foreign_handles_are_refused_on_the_runtime_path() {
         .harden()
         .expect("only the closure holds the primitives");
     runtime.run_entry("./index.js").unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     let text = runtime.eval("__moduleResult").unwrap();
     let result: Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{text}"));
     let foreign = result["foreign"]

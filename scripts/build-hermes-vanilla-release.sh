@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Build and deterministically package one Apple or Linux Hermes release bundle
+# Build and deterministically package one Apple, Android or Linux Hermes release bundle
 # containing both the full and lean VM archives. The Windows builder has a
 # PowerShell counterpart.
 set -euo pipefail
@@ -74,7 +74,7 @@ case "$target" in
     # Cross-built with the NDK from a macOS or Linux host. Hermes's own
     # HERMES_IS_ANDROID build needs fbjni and a JVM for Unicode and Intl; a
     # native embedder has neither, so this bundle takes Unicode from a static
-    # ICU (as the Linux bundles do) and has no Intl.
+    # ICU, including Hermes's ICU Intl backend, as a native process.
     android_ndk="${ANDROID_NDK_HOME:-}"
     if [[ -z "$android_ndk" ]]; then
       sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
@@ -82,7 +82,7 @@ case "$target" in
     fi
     [[ -f "$android_ndk/build/cmake/android.toolchain.cmake" ]] \
       || { echo "$target needs an Android NDK (set ANDROID_NDK_HOME)" >&2; exit 2; }
-    android_api="${IBEX_ANDROID_API:-30}"
+    android_api="${IBEX_ANDROID_API:-29}"
     profile=min-size-release ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -144,6 +144,8 @@ if [[ "$host_os" == Linux ]]; then
 fi
 
 build_flags=(
+  -DHERMESVM_EXCEPTION_ON_OOM=true
+  -DHERMES_ENABLE_RTTI=true
   -DHERMES_ENABLE_DEBUGGER=false
   -DHERMES_BUILD_SHARED_JSI=false
   -DHERMES_ENABLE_TEST_SUITE=false
@@ -162,22 +164,26 @@ if [[ "$target" == aarch64-linux-android ]]; then
     -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
   cmake --build "$host_build" --target hermesc -j "$jobs"
   # Unicode through ICU, as the Linux bundles have it (case mapping,
-  # normalization, collation, dates; still no Intl): the trimmed root-en data,
+  # normalization, collation, dates): base, English Intl and full data,
   # cross-built with the NDK over a host build that supplies ICU's data tools.
   # Hermes's Android default is its JNI Unicode backend, so the ICU one is
   # selected by its macro (HERMES_PLATFORM_UNICODE_ICU = 3).
   icu_filter="$repo_root/scripts/icu74-filter-root-en.json"
+  icu_en_filter="$repo_root/scripts/icu74-filter-en-intl.json"
   ibex_verify_icu_trimmed_filter "$icu_filter"
+  ibex_verify_icu_en_filter "$icu_en_filter"
   ibex_checkout_icu_source "$icu_source_dir"
-  (
-    cd "$icu_source_dir/icu4c/source"
-    PYTHONPATH=python python3 -m icutools.databuilder \
-      --mode=gnumake --src_dir=data --filter_file="$icu_filter" >/dev/null
-  )
+  for filter in "$icu_filter" "$icu_en_filter"; do
+    (
+      cd "$icu_source_dir/icu4c/source"
+      PYTHONPATH=python python3 -m icutools.databuilder \
+        --mode=gnumake --src_dir=data --filter_file="$filter" >/dev/null
+    )
+  done
   ndk_bin="$(ls -d "$android_ndk"/toolchains/llvm/prebuilt/*/bin | head -1)"
   icu_host_build="$cache_dir/build-icu-host"
-  rm -rf "$icu_host_build" "$icu_trimmed_build" "$icu_trimmed_install"
-  mkdir -p "$icu_host_build" "$icu_trimmed_build"
+  rm -rf "$icu_host_build"
+  mkdir -p "$icu_host_build"
   (
     cd "$icu_host_build"
     export ICU_DATA_FILTER_FILE="$icu_filter"
@@ -186,9 +192,13 @@ if [[ "$target" == aarch64-linux-android ]]; then
       --enable-static --disable-shared --disable-tests --disable-samples --disable-extras
     make -j "$jobs"
   )
-  (
-    cd "$icu_trimmed_build"
-    export ICU_DATA_FILTER_FILE="$icu_filter"
+  build_android_icu() (
+    local build="$1" install="$2" filter="${3:-}"
+    rm -rf "$build" "$install"
+    mkdir -p "$build"
+    cd "$build"
+    unset ICU_DATA_FILTER_FILE
+    [[ -z "$filter" ]] || export ICU_DATA_FILTER_FILE="$filter"
     env CC="$ndk_bin/aarch64-linux-android${android_api}-clang" \
       CXX="$ndk_bin/aarch64-linux-android${android_api}-clang++" \
       AR="$ndk_bin/llvm-ar" RANLIB="$ndk_bin/llvm-ranlib" \
@@ -196,12 +206,20 @@ if [[ "$target" == aarch64-linux-android ]]; then
       CXXFLAGS='-Os -fPIC -ffunction-sections -fdata-sections' \
       "$icu_source_dir/icu4c/source/configure" \
         --host=aarch64-linux-android --with-cross-build="$icu_host_build" \
-        --prefix="$icu_trimmed_install" \
+        --prefix="$install" \
         --enable-static --disable-shared --with-data-packaging=static \
         --disable-tests --disable-samples --disable-extras --disable-tools
     make -j "$jobs"
     make install
   )
+  build_android_icu "$icu_trimmed_build" "$icu_trimmed_install" "$icu_filter"
+  build_android_icu "$icu_en_build" "$icu_en_install" "$icu_en_filter"
+  build_android_icu "$icu_full_build" "$icu_full_install"
+  # Use the NDK's nm even when cross-building on macOS.
+  ibex_verify_icu_data_variants \
+    "$icu_trimmed_install/lib/libicudata.a" \
+    "$icu_en_install/lib/libicudata.a" \
+    "$icu_full_install/lib/libicudata.a" "$ndk_bin/llvm-nm"
   for archive in libicui18n.a libicuuc.a libicudata.a; do
     [[ -f "$icu_trimmed_install/lib/$archive" ]] \
       || { echo "Android ICU archive is missing: $icu_trimmed_install/lib/$archive" >&2; exit 1; }
@@ -212,7 +230,7 @@ if [[ "$target" == aarch64-linux-android ]]; then
   fbjni_shim_digest="$(ibex_sha256 "$fbjni_shim/fbjni/fbjni.h" | awk '{ print $1 }')"
   build_flags+=(
     "-DIBEX_ANDROID_FBJNI_SHIM_SHA256=$fbjni_shim_digest"
-    -DHERMES_ENABLE_INTL=false
+    -DHERMES_ENABLE_INTL=true
     -DHERMES_UNICODE_LITE=false
     -DHERMES_USE_STATIC_ICU=true
     -DHERMES_IS_ANDROID=false
@@ -338,6 +356,9 @@ if [[ "$target" == aarch64-linux-android ]]; then
   cp -R "$icu_trimmed_install/include/unicode" "$bundle_dir/include/"
   mkdir -p "$bundle_dir/share/icu"
   cp "$icu_filter" "$bundle_dir/share/icu/filters-root-en.json"
+  cp "$icu_en_filter" "$bundle_dir/share/icu/filters-en-intl.json"
+  cp "$icu_en_install/lib/libicudata.a" "$bundle_dir/lib/libicudata-en.a"
+  cp "$icu_full_install/lib/libicudata.a" "$bundle_dir/lib/libicudata-full.a"
   cp "$icu_source_dir/LICENSE" "$bundle_dir/LICENSE.icu"
   # The NDK's llvm-ar already writes deterministic archives (zero uid, gid and
   # mtime). Never extract and repack: Hermes archives hold same-named members
@@ -410,9 +431,14 @@ receipt_args+=(
 )
 if [[ "$target" == aarch64-linux-android ]]; then
   receipt_args+=(
+    --icu-trimmed-data-archive=lib/libicudata.a
+    --icu-en-data-archive=lib/libicudata-en.a
+    --icu-full-data-archive=lib/libicudata-full.a
+    --icu-trimmed-filter=share/icu/filters-root-en.json
+    --icu-en-filter=share/icu/filters-en-intl.json
     --link-directive=rustc-link-lib=static=icui18n
     --link-directive=rustc-link-lib=static=icuuc
-    --link-directive=rustc-link-lib=static=icudata
+    --link-directive=rustc-link-lib=static=icudata-en
     --link-directive=rustc-link-lib=c++_static
     --link-directive=rustc-link-lib=c++abi
     --link-directive=rustc-link-lib=log

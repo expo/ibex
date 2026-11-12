@@ -73,7 +73,8 @@ impl Project {
         // unstripped symbol table. Release pays 2ms. The budget has to clear
         // that tax or tests that touch the network fail for reasons that have
         // nothing to do with what they assert. See issues/20260828-*.
-        rt.run_to_quiescence(std::time::Duration::from_secs(45));
+        rt.run_to_quiescence(std::time::Duration::from_secs(45))
+            .unwrap();
         let output = rt.drain_console().into_iter().map(|r| r.message).collect();
         (output, error)
     }

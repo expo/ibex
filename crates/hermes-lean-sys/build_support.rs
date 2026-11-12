@@ -503,16 +503,23 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
     } else {
         ("libhermesvm_a.a", "libhermesvmlean_a.a")
     };
-    let linux_icu = target.ends_with("-unknown-linux-gnu");
+    let bundled_icu = target.ends_with("-unknown-linux-gnu") || target == "aarch64-linux-android";
+    let intl_data = target.ends_with("-unknown-linux-gnu")
+        || (target == "aarch64-linux-android"
+            && fs::read(root.join("hermes-input-receipt.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|document| receipt_schema::validate(&document, Some(target)).ok())
+                .is_some_and(|receipt| receipt.icu.is_some()));
     InstallLayout {
-        icu_i18n_archive: linux_icu.then(|| lib_root.join("libicui18n.a")),
-        icu_uc_archive: linux_icu.then(|| lib_root.join("libicuuc.a")),
-        icu_data_archive: linux_icu.then(|| lib_root.join("libicudata.a")),
-        icu_en_data_archive: linux_icu.then(|| lib_root.join("libicudata-en.a")),
-        icu_full_data_archive: linux_icu.then(|| lib_root.join("libicudata-full.a")),
-        icu_trimmed_filter: linux_icu
+        icu_i18n_archive: bundled_icu.then(|| lib_root.join("libicui18n.a")),
+        icu_uc_archive: bundled_icu.then(|| lib_root.join("libicuuc.a")),
+        icu_data_archive: bundled_icu.then(|| lib_root.join("libicudata.a")),
+        icu_en_data_archive: intl_data.then(|| lib_root.join("libicudata-en.a")),
+        icu_full_data_archive: intl_data.then(|| lib_root.join("libicudata-full.a")),
+        icu_trimmed_filter: intl_data
             .then(|| root.join("share").join("icu").join("filters-root-en.json")),
-        icu_en_filter: linux_icu
+        icu_en_filter: intl_data
             .then(|| root.join("share").join("icu").join("filters-en-intl.json")),
         root,
         include_dir,
@@ -769,7 +776,7 @@ fn validate_receipt(
         }
         return Ok(());
     };
-    if layout.target.ends_with("-unknown-linux-gnu") {
+    if layout.icu_en_data_archive.is_some() {
         validate_linux_icu_receipt(layout, &receipt, &receipt_path)?;
     }
     let receipt_archive = safe_relative_path(&layout.root, Path::new(&receipt.engine_binary))?;

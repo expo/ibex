@@ -44,7 +44,7 @@ case "$host_machine" in
 esac
 
 cache_root="${IBEX_HERMES_CACHE_DIR:-$HOME/.cache/ibex/hermes-apple-vanilla}"
-cache_dir="$cache_root/$hermes_commit-$variant"
+cache_dir="$cache_root/$hermes_commit-$variant-oom"
 source_dir="$cache_root/upstream"
 artifacts="$cache_dir/artifacts"
 frameworks_dir="$repo_root/ios/Frameworks-vanilla"
@@ -99,6 +99,8 @@ write_receipt() {
     --build-flag=-DCMAKE_OSX_ARCHITECTURES=x86_64\;arm64
     --build-flag=-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
     --build-flag=-DHERMES_ENABLE_DEBUGGER="$debugger"
+    --build-flag=-DHERMESVM_EXCEPTION_ON_OOM=true
+    --build-flag=-DHERMES_ENABLE_RTTI=true
     --build-flag=-DHERMES_ENABLE_INTL=true
     --build-flag=-DHERMES_BUILD_APPLE_FRAMEWORK=true
     --build-flag=-DCMAKE_BUILD_TYPE=MinSizeRel
@@ -172,6 +174,8 @@ cmake -S "$source_dir" -B "$host_build" \
   -DCMAKE_OSX_SYSROOT=macosx \
   -DCMAKE_OSX_ARCHITECTURES="$host_arch" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+  -DHERMESVM_EXCEPTION_ON_OOM=true \
+  -DHERMES_ENABLE_RTTI=true \
   -DHERMES_ENABLE_TEST_SUITE=false \
   -DHAVE_CXX_ATOMICS_WITHOUT_LIB=ON \
   -DHAVE_CXX_ATOMICS64_WITHOUT_LIB=ON
@@ -184,6 +188,8 @@ configure_apple() {
     -DCMAKE_OSX_ARCHITECTURES="$arches" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DHERMES_ENABLE_DEBUGGER="$debugger" \
+    -DHERMESVM_EXCEPTION_ON_OOM=true \
+    -DHERMES_ENABLE_RTTI=true \
     -DHERMES_ENABLE_INTL=true \
     -DHERMES_ENABLE_LIBFUZZER=false \
     -DHERMES_ENABLE_FUZZILLI=false \

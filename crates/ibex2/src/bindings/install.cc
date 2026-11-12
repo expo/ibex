@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cmath>
 #include <limits>
+#include <new>
 #include <unordered_map>
 #include <unordered_set>
 #include <stdexcept>
@@ -37,6 +38,9 @@ extern "C" int ibex2_response_field(const void*, double, uint32_t,
 extern "C" size_t ibex2_grants_env_count(const void*);
 extern "C" int ibex2_grants_env_at(const void*, size_t, char**, char**);
 extern "C" void ibex2_string_free(char*);
+#if defined(IBEX2_TEST_SUPPORT)
+extern "C" bool ibex2_test_env_snapshot_should_throw();
+#endif
 extern "C" void ibex2_report_uncaught(const char*);
 extern "C" void* ibex2_subscription_create(const void*, uint64_t*);
 extern "C" void ibex2_subscription_destroy(void*);
@@ -1326,10 +1330,13 @@ jsi::Object make_process(jsi::Runtime& rt, const void* grants) {
     char* name = nullptr;
     char* value = nullptr;
     if (ibex2_grants_env_at(grants, i, &name, &value) == 0) continue;
-    env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name)),
-                    jsi::String::createFromUtf8(rt, std::string(value)));
-    ibex2_string_free(name);
-    ibex2_string_free(value);
+    std::unique_ptr<char, decltype(&ibex2_string_free)> name_owner(name, ibex2_string_free);
+    std::unique_ptr<char, decltype(&ibex2_string_free)> value_owner(value, ibex2_string_free);
+#if defined(IBEX2_TEST_SUPPORT)
+    if (ibex2_test_env_snapshot_should_throw()) throw std::bad_alloc();
+#endif
+    env.setProperty(rt, jsi::PropNameID::forUtf8(rt, std::string(name_owner.get())),
+                    jsi::String::createFromUtf8(rt, std::string(value_owner.get())));
   }
   freeze(rt, env);
   jsi::Object process(rt);
@@ -1922,19 +1929,15 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
     }
 
     state_->install_status = InstallStatus::Installed;
-  } catch (const std::exception& error) {
+  } catch (const jsi::JSIException& error) {
     if (mutation_started)
       throw std::runtime_error(
           std::string("Ibex2 binding installation failed after mutating the runtime; ") +
           "the runtime must be discarded: " + error.what());
     throw;
-  } catch (...) {
-    if (mutation_started)
-      throw std::runtime_error(
-          "Ibex2 binding installation failed after mutating the runtime; the "
-          "runtime must be discarded");
-    throw;
   }
+  // Native engine exceptions (including Hermes heap OOM) retain their type.
+  // The caller must discard the runtime after any failed installation.
 }
 
 void Adapter::verify_fetch_primitives_unreachable() {
@@ -2438,14 +2441,14 @@ bool Adapter::checkpoint() {
       if (!state_->alive || !runtime_) return false;
       try {
         report_error(error.value());
-      } catch (...) {
+      } catch (const jsi::JSIException&) {
         ibex2_report_uncaught(error.getMessage().c_str());
       }
-    } catch (const std::exception& error) {
+    } catch (const jsi::JSIException& error) {
       if (!state_->alive || !runtime_) return false;
       try {
         report_error(error.what());
-      } catch (...) {
+      } catch (const jsi::JSIException&) {
         ibex2_report_uncaught(error.what());
       }
     }
@@ -2487,7 +2490,7 @@ bool Adapter::deliver_next() {
   } catch (const jsi::JSError& error) {
     try {
       report_error(error.value());
-    } catch (...) {
+    } catch (const jsi::JSIException&) {
       std::string message = error.getMessage();
       const std::string& stack = error.getStack();
       if (!stack.empty()) {
@@ -2496,17 +2499,11 @@ bool Adapter::deliver_next() {
       }
       ibex2_report_uncaught(message.c_str());
     }
-  } catch (const std::exception& error) {
+  } catch (const jsi::JSIException& error) {
     try {
       report_error(error.what());
-    } catch (...) {
+    } catch (const jsi::JSIException&) {
       ibex2_report_uncaught(error.what());
-    }
-  } catch (...) {
-    try {
-      report_error("uncaught native callback exception");
-    } catch (...) {
-      ibex2_report_uncaught("uncaught native callback exception");
     }
   }
   return true;

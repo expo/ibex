@@ -1,4 +1,4 @@
-# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v5
+# @ref LLP 0067#5-the-engine-and-the-artifacts — build the canonical v6
 # receipt and exact vanilla dual-VM link closure without release or OIDC
 # authority. A default-branch workflow_run publisher consumes the handoff.
 name: Hermes vanilla release builder
@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: hermes-vanilla-d412d3bd8512-v5
+  group: hermes-vanilla-d412d3bd8512-v6
   cancel-in-progress: false
 
 permissions: {}
 
 env:
   HERMES_COMMIT: d412d3bd851278712c20cca25d094e32641a0465
-  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v5
+  RELEASE_TAG: hermes-vanilla-d412d3bd8512-v6
 
 jobs:
   macos_arm64:

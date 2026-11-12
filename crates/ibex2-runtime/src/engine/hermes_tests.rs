@@ -277,7 +277,8 @@ fn websocket_lifecycle(
         ),
         &format!("net.websocket ws://127.0.0.1:{port}"),
     );
-    rt.run_to_quiescence(std::time::Duration::from_secs(30));
+    rt.run_to_quiescence(std::time::Duration::from_secs(30))
+        .unwrap();
     let raw = rt.eval("JSON.stringify(socketLog)").unwrap();
     let log: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let entries = log.as_array().unwrap();
@@ -428,7 +429,8 @@ fn javascript_websocket_denial_is_error_then_close_without_transport() {
         "#,
         "",
     );
-    rt.run_to_quiescence(std::time::Duration::from_secs(2));
+    rt.run_to_quiescence(std::time::Duration::from_secs(2))
+        .unwrap();
     assert_eq!(
         rt.eval("deniedLog.join('|')").unwrap(),
         "error:3|close:1006:false"
@@ -484,7 +486,8 @@ fn two_modules_receive_only_their_own_websocket_authority() {
     rt.run_entry("./a.js").unwrap();
     rt.run_entry("./b.js").unwrap();
     std::fs::remove_dir_all(directory).unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
 
     for name in ["a", "b"] {
         assert_eq!(
@@ -533,7 +536,8 @@ fn javascript_close_while_connecting_suppresses_a_queued_open() {
         ),
         &format!("net.websocket ws://127.0.0.1:{port}"),
     );
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     assert_eq!(
         rt.eval("connectingLog.join('|')").unwrap(),
         "after-close:2|error:3|close:3:1006"
@@ -565,7 +569,8 @@ fn javascript_abnormal_drop_is_closed_inside_onerror() {
         ),
         &format!("net.websocket ws://127.0.0.1:{port}"),
     );
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     assert_eq!(rt.eval("dropLog.join('|')").unwrap(), "error:3|close:1006");
 }
 
@@ -597,7 +602,7 @@ fn unreachable_websocket_is_collected_and_unsubscribed() {
         ),
         &format!("net.websocket ws://127.0.0.1:{port}"),
     );
-    assert_eq!(rt.pump_until(1), 1);
+    assert_eq!(rt.pump_until(1).unwrap(), 1);
     assert_eq!(rt.eval("String(gcOpened)").unwrap(), "true");
     assert!(rt.collect_garbage());
     assert_eq!(
@@ -641,7 +646,7 @@ fn websocket_listener_removal_releases_keepalive_before_collection() {
         ),
         &format!("net.websocket ws://127.0.0.1:{port}"),
     );
-    assert_eq!(rt.pump_until(2), 2, "both sockets reached OPEN");
+    assert_eq!(rt.pump_until(2).unwrap(), 2, "both sockets reached OPEN");
     assert_eq!(rt.websocket_keepalive_count_for_test(), 2);
     rt.eval(
         r#"
@@ -720,7 +725,8 @@ fn websocket_uses_intrinsics_captured_at_bootstrap() {
         ),
         &format!("net.websocket ws://127.0.0.1:{port}"),
     );
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     assert_eq!(rt.eval("capturedLog.join('|')").unwrap(), "ok|close:3000");
     assert_eq!(
         seen.recv_timeout(std::time::Duration::from_secs(2))
@@ -1453,7 +1459,7 @@ fn a_promise_resolves_from_work_done_on_another_thread() {
     // Nothing has been delivered yet, so the continuation has not run.
     assert_eq!(rt.eval("out").unwrap(), "pending");
 
-    assert_eq!(rt.pump_until(1), 1);
+    assert_eq!(rt.pump_until(1).unwrap(), 1);
     assert_eq!(rt.eval("out").unwrap(), "hello");
 }
 
@@ -1468,7 +1474,7 @@ fn c1_resolving_enqueues_and_never_re_enters_javascript() {
              __ibex2_async_echo('x').then(() => order.push('then'));",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     rt.eval("order.push('after-pump')").unwrap();
     // The continuation ran during the pump's drain, which is correct — the
     // point is that it ran as a microtask, not synchronously inside the
@@ -1487,7 +1493,7 @@ fn c1_a_continuation_cannot_outrun_synchronous_code() {
              order.push('synchronous');",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     assert_eq!(
         rt.eval("order.join(',')").unwrap(),
         "synchronous,continuation"
@@ -1507,7 +1513,7 @@ fn c2_the_pump_drains_microtasks_transitively() {
                .then(() => order.push('last'));",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     // No second pump: everything below is owed by the first one.
     assert_eq!(rt.eval("order.join(',')").unwrap(), "first,nested,last");
 }
@@ -1523,7 +1529,7 @@ fn c3_pre_queued_microtasks_run_before_completion_continuations() {
              Promise.resolve().then(() => order.push('pre-queued'));",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     assert_eq!(rt.eval("order.join(',')").unwrap(), "pre-queued,completion");
 }
 
@@ -1543,7 +1549,7 @@ fn c4_completions_are_delivered_first_in_first_out() {
              }",
     )
     .unwrap();
-    assert_eq!(rt.pump_until(3), 3);
+    assert_eq!(rt.pump_until(3).unwrap(), 3);
     let observed = rt.eval("order.join(',')").unwrap();
     assert_eq!(observed.len(), 5, "all three continuations ran: {observed}");
     assert!(observed.contains('a') && observed.contains('b') && observed.contains('c'));
@@ -1557,7 +1563,7 @@ fn a_rejected_operation_becomes_a_catchable_rejection() {
              __ibex2_async_echo('fail').catch(e => { globalThis.caught = e.message; });",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     assert_eq!(rt.eval("caught").unwrap(), "echo was asked to fail");
 }
 
@@ -1569,7 +1575,7 @@ fn async_and_await_work_over_the_adapter() {
              (async () => { result = await __ibex2_async_echo('awaited'); })();",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     assert_eq!(rt.eval("result").unwrap(), "awaited");
 }
 
@@ -1760,7 +1766,8 @@ fn javascript_fetch_uses_the_hosts_endowed_transport() {
     )
     .unwrap();
     rt.run_entry("./index.js").unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     std::fs::remove_dir_all(directory).unwrap();
 
     assert_eq!(rt.eval("endowedResult").unwrap(), "endowed transport");
@@ -1892,12 +1899,12 @@ fn two_runtimes_endowed_from_one_context_never_take_each_others_fetches() {
         0,
         "the first runtime took the second runtime's fetch completion"
     );
-    second.run_to_quiescence(FETCH_TEST_TIMEOUT);
+    second.run_to_quiescence(FETCH_TEST_TIMEOUT).unwrap();
     assert_eq!(second.eval("result").unwrap(), "second");
     assert_eq!(first.eval("result").unwrap(), "");
 
     release("first");
-    first.run_to_quiescence(FETCH_TEST_TIMEOUT);
+    first.run_to_quiescence(FETCH_TEST_TIMEOUT).unwrap();
     assert_eq!(first.eval("result").unwrap(), "first");
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -1920,7 +1927,8 @@ fn fetch_reaches_a_real_server_and_returns_a_response_handle() {
         server.origin()
     ))
     .unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
 
     assert_eq!(rt.eval("status").unwrap(), "200");
     assert_eq!(rt.eval("String(okFlag)").unwrap(), "true");
@@ -1946,7 +1954,7 @@ fn an_ungranted_origin_is_refused_and_never_reaches_the_network() {
         server.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
 
     assert_eq!(rt.eval("err").unwrap(), "denied: net.fetch");
     assert!(
@@ -1972,11 +1980,11 @@ fn authority_is_carried_by_the_binding_not_by_the_code() {
 
     let mut granted = fetch_rt(&format!("net.fetch {}", server.origin()));
     granted.eval(&program).unwrap();
-    granted.pump_until(1);
+    granted.pump_until(1).unwrap();
 
     let mut ungranted = fetch_rt("net.fetch http://example.invalid");
     ungranted.eval(&program).unwrap();
-    ungranted.pump_until(1);
+    ungranted.pump_until(1).unwrap();
 
     assert_eq!(granted.eval("result").unwrap(), "ok:200");
     assert_eq!(
@@ -2003,7 +2011,8 @@ fn a_post_body_crosses_to_the_server() {
         server.origin()
     ))
     .unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
 
     assert_eq!(rt.eval("echoed").unwrap(), "name=ibex");
     assert!(server.hits()[0].starts_with("POST /submit"));
@@ -2025,7 +2034,8 @@ fn a_body_can_only_be_consumed_once() {
         server.origin()
     ))
     .unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     assert_eq!(rt.eval("second").unwrap(), "threw");
 }
 
@@ -2044,7 +2054,8 @@ fn fetch_works_under_async_await() {
         server.origin()
     ))
     .unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
     assert_eq!(rt.eval("out").unwrap(), "awaited body");
 }
 
@@ -2059,7 +2070,7 @@ fn a_connection_failure_is_a_catchable_type_error() {
              __test_fetch('http://127.0.0.1:1/x').catch(e => { err = e.message; });",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     let err = rt.eval("err").unwrap();
     assert!(err.contains("Failed to fetch"), "unexpected: {err}");
     assert!(!err.contains("denied"), "a network error is not a denial");
@@ -2086,7 +2097,8 @@ fn a_redirect_within_the_granted_origin_is_followed_by_rust() {
         redirector.origin()
     ))
     .unwrap();
-    rt.run_to_quiescence(std::time::Duration::from_secs(5));
+    rt.run_to_quiescence(std::time::Duration::from_secs(5))
+        .unwrap();
 
     assert_eq!(rt.eval("body").unwrap(), "arrived");
     assert_eq!(redirector.hits().len(), 1);
@@ -2116,7 +2128,7 @@ fn the_platform_does_not_launder_a_redirect_past_the_capability_check() {
         redirector.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
 
     assert_eq!(
         rt.eval("result").unwrap(),
@@ -2148,7 +2160,7 @@ fn demo_real_https_fetch() {
              })().catch(e => { out = 'ERROR ' + e.message; });",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     println!("\n  JS said: {}\n", rt.eval("out").unwrap());
 }
 
@@ -2168,7 +2180,7 @@ fn https_works_through_the_platform_transport() {
                .catch(e => { err = e.message; });",
     )
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     assert_eq!(rt.eval("err").unwrap(), "", "fetch failed");
     assert_eq!(rt.eval("status").unwrap(), "200");
 }
@@ -2209,7 +2221,7 @@ fn a_module_not_handed_a_capability_cannot_reach_one() {
         server.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
     assert_eq!(rt.eval("aResult").unwrap(), "ok:200");
 
     // Module B, given nothing, has nothing.
@@ -2348,7 +2360,7 @@ fn two_modules_in_one_runtime_hold_different_authority() {
         f = forbidden.origin()
     ))
     .unwrap();
-    rt.pump_until(4);
+    rt.pump_until(4).unwrap();
 
     assert_eq!(rt.eval("r.aa").unwrap(), "ok");
     assert_eq!(rt.eval("r.bf").unwrap(), "ok");
@@ -2384,7 +2396,7 @@ fn voluntary_handoff_is_not_defended_and_this_is_by_design() {
         server.origin()
     ))
     .unwrap();
-    rt.pump_until(1);
+    rt.pump_until(1).unwrap();
 
     assert_eq!(
         rt.eval("stolen").unwrap(),

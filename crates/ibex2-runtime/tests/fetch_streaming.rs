@@ -63,7 +63,7 @@ fn abort_signal_algorithms_keep_reasons_and_notify_once() {
         "#,
         "http://127.0.0.1:1",
     );
-    rt.run_to_quiescence(Duration::from_secs(5));
+    rt.run_to_quiescence(Duration::from_secs(5)).unwrap();
     let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
     assert_eq!(
         out,
@@ -105,7 +105,7 @@ fn abort_signal_any_converts_its_argument_as_a_webidl_sequence() {
         "#,
         "http://127.0.0.1:1",
     );
-    rt.run_to_quiescence(Duration::from_secs(5));
+    rt.run_to_quiescence(Duration::from_secs(5)).unwrap();
     let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
     assert_eq!(
         out,
@@ -138,7 +138,7 @@ fn a_fetched_response_s_headers_are_immutable() {
         "#
     );
     let (_, mut rt) = runtime("immutable-headers", &source, &origin);
-    rt.run_to_quiescence(Duration::from_secs(5));
+    rt.run_to_quiescence(Duration::from_secs(5)).unwrap();
     server.join().unwrap();
     let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
     let immutable = "TypeError: Headers are immutable";
@@ -181,12 +181,12 @@ fn response_arrives_before_body_finishes_and_readers_share_consumption() {
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     let mut out = Vec::new();
     while out.is_empty() && std::time::Instant::now() < deadline {
-        rt.run_to_quiescence(Duration::from_millis(20));
+        rt.run_to_quiescence(Duration::from_millis(20)).unwrap();
         out.extend(rt.drain_console().into_iter().map(|r| r.message));
     }
     assert_eq!(out, ["headers 200 false false", "locked false true"]);
     release.send(()).unwrap();
-    rt.run_to_quiescence(Duration::from_secs(5));
+    rt.run_to_quiescence(Duration::from_secs(5)).unwrap();
     out.extend(rt.drain_console().into_iter().map(|r| r.message));
     assert_eq!(&out[2..], ["hello true 200", "true"]);
     server.join().unwrap();
@@ -229,7 +229,7 @@ fn abort_after_headers_rejects_pending_and_future_reads_with_the_same_reason() {
     "#
     );
     let (_project, mut rt) = runtime("fetch-stream-abort", &source, &origin);
-    rt.run_to_quiescence(Duration::from_secs(15));
+    rt.run_to_quiescence(Duration::from_secs(15)).unwrap();
     let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
     assert_eq!(out, ["Uncaught uncaught error", "true", "true", "true"]);
     server.join().unwrap();
@@ -323,7 +323,7 @@ fn collecting_a_discarded_response_cancels_even_with_a_live_signal() {
     "#
     );
     let (_project, mut rt) = runtime("fetch-stream-gc", &source, &origin);
-    rt.run_to_quiescence(Duration::from_secs(15));
+    rt.run_to_quiescence(Duration::from_secs(15)).unwrap();
     let out: Vec<_> = rt.drain_console().into_iter().map(|r| r.message).collect();
     assert_eq!(out, ["200"]);
     assert!(rt.collect_garbage());
@@ -360,7 +360,7 @@ fn headers_call_cannot_displace_a_live_response_body_owner() {
         "#
     );
     let (_project, mut runtime) = runtime("headers-foreign-native-owner", &source, &origin);
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(runtime.eval("String(displacementReady)").unwrap(), "true");
     assert_eq!(runtime.eval("displacementError").unwrap(), "TypeError");
 
@@ -376,7 +376,7 @@ fn headers_call_cannot_displace_a_live_response_body_owner() {
             "#,
         )
         .unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(runtime.eval("foreignBodyResult").unwrap(), "hello");
     server.join().unwrap();
 }
@@ -406,7 +406,7 @@ fn completed_fetch_with_live_header_handles(name: &str) -> (common::Project, Her
         "#
     );
     let (project, mut runtime) = runtime(name, &source, &origin);
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     assert_eq!(runtime.eval("String(headersDone)").unwrap(), "true");
     assert_eq!(
         runtime.live_header_handles_for_test(),

@@ -19,7 +19,7 @@ const WINDOWS_ICU_UC: &str = "icuuc";
 const WINDOWS_ICU_I18N: &str = "icuin";
 const WINDOWS_OS_ICU_DLL: &str = "icu.dll";
 
-fn main() {
+pub(crate) fn main() {
     for name in [
         "HERMES_LEAN_SYS_DIR",
         "HERMES_LEAN_SYS_MIRROR",
@@ -205,30 +205,33 @@ fn main() {
         }
         emit_link_lines(&target_os, &target_vendor, &prepared);
     }
-    if links_icu && target_os == "linux" {
+    if links_icu && (target_os == "linux" || target_os == "android") {
         // @ref LLP 0057.000#l1--the-bindings-door — the ICU-data identity is
         // separate from the VM identity so R-e names the exact selected data
         // archive while the common ICU code remains receipt-bound.
-        let (archive, digest, library) = if links_full_icu_data {
+        // v5 Android has only its original data archive. Tier features take
+        // effect once the selected receipt supplies the v6 ICU tiers.
+        let tiered_icu = target_os != "android" || install.icu_en_data_archive.is_some();
+        let (archive, digest, library) = if tiered_icu && links_full_icu_data {
             (
                 install
                     .icu_full_data_archive
                     .as_ref()
-                    .expect("Linux install has full ICU data"),
+                    .expect("bundle has full ICU data"),
                 icu_full_data_digest
                     .as_deref()
-                    .expect("Linux install has a full ICU data digest"),
+                    .expect("bundle has a full ICU data digest"),
                 LINUX_ICU_FULL_DATA,
             )
-        } else if links_en_icu_data {
+        } else if tiered_icu && (links_en_icu_data || target_os == "android") {
             (
                 install
                     .icu_en_data_archive
                     .as_ref()
-                    .expect("Linux install has English-Intl ICU data"),
+                    .expect("bundle has English-Intl ICU data"),
                 icu_en_data_digest
                     .as_deref()
-                    .expect("Linux install has an English-Intl ICU data digest"),
+                    .expect("bundle has an English-Intl ICU data digest"),
                 LINUX_ICU_EN_DATA,
             )
         } else {
@@ -236,10 +239,10 @@ fn main() {
                 install
                     .icu_data_archive
                     .as_ref()
-                    .expect("Linux install has base ICU data"),
+                    .expect("bundle has base ICU data"),
                 icu_data_digest
                     .as_deref()
-                    .expect("Linux install has a base ICU data digest"),
+                    .expect("bundle has a base ICU data digest"),
                 LINUX_ICU_DATA,
             )
         };
@@ -251,6 +254,15 @@ fn main() {
         );
         println!("cargo:rustc-env=HERMES_LEAN_LINKED_ICU_DATA_DIGEST={digest}");
         emit_linux_icu_link_lines(&install.lib_root, library);
+    }
+    if linked.is_some() && target_os == "android" {
+        // The NDK's static C++ runtime follows every bundled C++ archive,
+        // including ICU code and the selected data tier. No JVM is needed.
+        println!("cargo:rustc-link-lib=c++_static");
+        println!("cargo:rustc-link-lib=c++abi");
+        println!("cargo:rustc-link-lib=log");
+        println!("cargo:rustc-link-lib=dl");
+        println!("cargo:rustc-link-lib=m");
     }
     if links_icu && target_os == "windows" {
         // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — Windows has no
@@ -350,18 +362,6 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLin
         println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Foundation");
-    } else if target_os == "android" {
-        // The bundle's static ICU (Hermes's Unicode backend: case mapping,
-        // normalization, collation; no Intl), then the NDK's static libc++ (the
-        // bundle is built with ANDROID_STL=c++_static) and liblog. No JNI.
-        println!("cargo:rustc-link-lib=static=icui18n");
-        println!("cargo:rustc-link-lib=static=icuuc");
-        println!("cargo:rustc-link-lib=static=icudata");
-        println!("cargo:rustc-link-lib=c++_static");
-        println!("cargo:rustc-link-lib=c++abi");
-        println!("cargo:rustc-link-lib=log");
-        println!("cargo:rustc-link-lib=dl");
-        println!("cargo:rustc-link-lib=m");
     } else if target_os == "windows" {
         println!("cargo:rustc-link-lib=icuuc");
         println!("cargo:rustc-link-lib=icuin");
@@ -369,7 +369,7 @@ fn emit_link_lines(target_os: &str, target_vendor: &str, archives: &[PreparedLin
         println!("cargo:rustc-link-lib=version");
         println!("cargo:rustc-link-lib=psapi");
         println!("cargo:rustc-link-lib=winmm");
-    } else {
+    } else if target_os != "android" {
         // ICU comes from the `icu` feature selected by either Linux VM link
         // feature. Full Intl support independently swaps the data archive.
         println!("cargo:rustc-link-lib=static=tinfo");

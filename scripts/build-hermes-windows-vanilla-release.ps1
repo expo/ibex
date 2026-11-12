@@ -53,6 +53,8 @@ $receiptArgs = @(
   "--lean-engine-archive=lib/hermesvmlean_a.lib",
   "--build-flag=-DCMAKE_BUILD_TYPE=Release",
   "--build-flag=-DHERMES_ENABLE_DEBUGGER=OFF",
+  "--build-flag=-DHERMESVM_EXCEPTION_ON_OOM=true",
+  "--build-flag=-DHERMES_ENABLE_RTTI=true",
   "--build-flag=-DHERMES_ENABLE_INTL=OFF",
   "--build-flag=-DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON",
   "--build-flag=-DHERMES_BUILD_APPLE_FRAMEWORK=OFF",

@@ -24,7 +24,8 @@ impl P {
         rt.set_loader(Root::Declared(self.0.clone()), ModuleGrants::none())
             .expect("loader");
         let e = rt.run_entry("./index.js").err().map(|e| e.to_string());
-        rt.run_to_quiescence(std::time::Duration::from_secs(5));
+        rt.run_to_quiescence(std::time::Duration::from_secs(5))
+            .unwrap();
         (
             rt.drain_console().into_iter().map(|r| r.message).collect(),
             e,

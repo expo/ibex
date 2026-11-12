@@ -62,7 +62,7 @@ fn run_file(directory: &str, name: &str, blob_support: bool) -> Vec<Outcome> {
     runtime
         .eval(&source)
         .unwrap_or_else(|error| panic!("{directory}/{name} failed to evaluate: {error}"));
-    runtime.run_to_quiescence(Duration::from_secs(5));
+    runtime.run_to_quiescence(Duration::from_secs(5)).unwrap();
     let outstanding = runtime
         .eval("String(__ibex2_test_outstanding())")
         .expect("outstanding promise tests");

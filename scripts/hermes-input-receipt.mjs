@@ -250,7 +250,7 @@ const icuArgumentCount = [
   requestedIcuEnFilter,
 ].filter(Boolean).length;
 if (icuArgumentCount !== 0 && icuArgumentCount !== 5) {
-  die('Linux ICU receipts require base, English-Intl, and full data archives plus both filters together');
+  die('ICU receipts require base, English-Intl, and full data archives plus both filters together');
 }
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -352,8 +352,8 @@ const compilerName = compilerPath !== '..' && !compilerPath.startsWith(`..${sep}
   : basename(compiler);
 let icu;
 if (icuArgumentCount === 5) {
-  if (!target.endsWith('-unknown-linux-gnu')) {
-    die('ICU data variants are supported only for Linux receipts');
+  if (!target.endsWith('-unknown-linux-gnu') && target !== 'aarch64-linux-android') {
+    die('ICU data variants are supported only for Linux and Android receipts');
   }
   const trimmedDataArchive = inside(
     bundleDir,

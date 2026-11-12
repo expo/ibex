@@ -292,7 +292,7 @@ fn async_fs_roundtrip_us() -> f64 {
         rt.harden().expect("harden");
         let t = Instant::now();
         rt.run_entry("./index.js").expect("entry");
-        rt.run_to_quiescence(Duration::from_secs(20));
+        rt.run_to_quiescence(Duration::from_secs(20)).unwrap();
         samples.push(t.elapsed().as_secs_f64() * 1e6 / n as f64);
     }
     let _ = std::fs::remove_dir_all(&dir);

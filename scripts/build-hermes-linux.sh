@@ -48,7 +48,7 @@ esac
 cache_root="${IBEX_HERMES_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ibex/hermes-linux-vanilla}"
 # The cache key names the non-lite engine, exact ICU source, and exact trimmed
 # filters so no older Unicode-lite or distro-ICU artifact can satisfy it.
-cache_dir="$cache_root/${hermes_commit}-${variant}-no-intl-nonlite-icu-${IBEX_ICU_SOURCE_COMMIT:0:12}-${IBEX_ICU_TRIMMED_FILTER_SHA256:0:12}-${IBEX_ICU_EN_FILTER_SHA256:0:12}"
+cache_dir="$cache_root/${hermes_commit}-${variant}-oom-no-intl-nonlite-icu-${IBEX_ICU_SOURCE_COMMIT:0:12}-${IBEX_ICU_TRIMMED_FILTER_SHA256:0:12}-${IBEX_ICU_EN_FILTER_SHA256:0:12}"
 source_dir="$cache_root/upstream"
 icu_source_dir="$cache_root/icu-upstream"
 artifacts="$cache_dir/artifacts"
@@ -91,6 +91,8 @@ write_receipt() {
     --lean-engine-archive linux-static/libhermesvmlean_a.a
     --build-flag=-DCMAKE_BUILD_TYPE=Release
     --build-flag=-DHERMES_ENABLE_DEBUGGER="$debugger"
+    --build-flag=-DHERMESVM_EXCEPTION_ON_OOM=true
+    --build-flag=-DHERMES_ENABLE_RTTI=true
     --build-flag=-DHERMES_ENABLE_INTL=false
     --build-flag=-DHERMES_UNICODE_LITE=false
     --build-flag=-DHERMES_USE_STATIC_ICU=true
@@ -204,6 +206,8 @@ cmake -S "$source_dir" -B "$build_dir" "${generator[@]}" \
   -DICU_ROOT="$icu_trimmed_install" \
   -DHERMES_BUILD_APPLE_FRAMEWORK=false \
   -DHERMES_BUILD_SHARED_JSI=false \
+  -DHERMESVM_EXCEPTION_ON_OOM=true \
+  -DHERMES_ENABLE_RTTI=true \
   -DHERMES_ENABLE_TEST_SUITE=false \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DCMAKE_JOB_POOLS=link_pool=2 \

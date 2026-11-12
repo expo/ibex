@@ -2,6 +2,7 @@
 #include <hermes/hermes.h>
 #include <jsi/instrumentation.h>
 #include "ibex2_jsi.h"
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>
@@ -26,11 +27,13 @@ struct Consumer {
   std::unique_ptr<jsi::Runtime> runtime;
   std::unique_ptr<ibex2::jsi_adapter::Adapter> adapter;
   const void *queue = nullptr;
-  std::shared_ptr<size_t> promise_probe_roots = std::make_shared<size_t>(0);
+  std::shared_ptr<std::atomic_size_t> promise_probe_roots =
+      std::make_shared<std::atomic_size_t>(0);
 };
 struct PromiseProbeRoot final : jsi::NativeState {
-  std::shared_ptr<size_t> count;
-  explicit PromiseProbeRoot(std::shared_ptr<size_t> value) : count(std::move(value)) {
+  std::shared_ptr<std::atomic_size_t> count;
+  explicit PromiseProbeRoot(std::shared_ptr<std::atomic_size_t> value)
+      : count(std::move(value)) {
     ++*count;
   }
   ~PromiseProbeRoot() override { --*count; }
@@ -336,7 +339,7 @@ int storage_consumer_install_promise_root_probe(void *value_owner) {
   }
 }
 size_t storage_consumer_promise_probe_roots(void *value_owner) {
-  return *static_cast<Consumer *>(value_owner)->promise_probe_roots;
+  return static_cast<Consumer *>(value_owner)->promise_probe_roots->load();
 }
 
 int storage_consumer_eval(void *h, const uint8_t *bytes, size_t len, char **out) {

@@ -24,6 +24,7 @@ struct CompiledScript {
 }
 
 extern "C" {
+    fn bindings_test_oom(queue: *const c_void, path: i32) -> i32;
     fn bindings_validate_groups(groups: u16, error: *mut *mut c_char) -> i32;
     fn bindings_expected_scripts(groups: u16, error: *mut *mut c_char) -> *mut c_char;
     fn bindings_consumer_create_uninstalled(queue: *const c_void) -> *mut c_void;
@@ -133,6 +134,20 @@ extern "C" {
     fn storage_consumer_destroy(h: *mut c_void);
     fn storage_consumer_free(s: *mut c_char);
     fn ibex2_test_publish_event(state: *const c_void, subscription: u64) -> i32;
+}
+
+#[test]
+#[ignore = "requires exception-on-OOM Hermes (v6 or a local build)"]
+fn heap_oom_escapes_jsi_and_borrowed_adapter() {
+    // Each path destroys its exhausted runtime, then evaluates in a fresh one.
+    for path in 0..4 {
+        let context = Context::new(GrantSet::none());
+        assert_eq!(
+            unsafe { bindings_test_oom(context.state_ptr().cast(), path) },
+            1,
+            "OOM path {path}"
+        );
+    }
 }
 
 fn compiled_script(name: &str) -> CompiledScript {

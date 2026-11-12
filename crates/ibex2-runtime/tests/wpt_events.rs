@@ -50,7 +50,7 @@ fn run_file(name: &str) -> Vec<(String, bool, String)> {
         );
     }
     eval_file(&mut rt, &root, name);
-    rt.run_to_quiescence(Duration::from_secs(5));
+    rt.run_to_quiescence(Duration::from_secs(5)).unwrap();
 
     let pending = rt
         .eval("String(__ibex2_pending_tests())")

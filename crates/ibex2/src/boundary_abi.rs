@@ -1501,6 +1501,8 @@ pub unsafe extern "C" fn ibex2_grants_env_at(
     };
     *out_name = name_c.into_raw();
     *out_value = value_c.into_raw();
+    #[cfg(feature = "test-support")]
+    env_snapshot_test::allocated([*out_name, *out_value]);
     1
 }
 
@@ -1511,7 +1513,52 @@ pub unsafe extern "C" fn ibex2_grants_env_at(
 #[no_mangle]
 pub unsafe extern "C" fn ibex2_string_free(value: *mut std::ffi::c_char) {
     if !value.is_null() {
+        #[cfg(feature = "test-support")]
+        env_snapshot_test::freed(value);
         drop(std::ffi::CString::from_raw(value));
+    }
+}
+
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod env_snapshot_test {
+    use std::{cell::RefCell, ffi::c_char};
+
+    #[derive(Default)]
+    struct Probe {
+        fail: bool,
+        allocations: usize,
+        live: Vec<*mut c_char>,
+    }
+
+    thread_local! {
+        static PROBE: RefCell<Probe> = RefCell::new(Probe::default());
+    }
+
+    pub fn fail(enabled: bool) {
+        PROBE.with_borrow_mut(|probe| probe.fail = enabled);
+    }
+
+    pub fn counts() -> (usize, usize) {
+        PROBE.with_borrow(|probe| (probe.allocations, probe.live.len()))
+    }
+
+    pub(super) fn allocated(strings: [*mut c_char; 2]) {
+        PROBE.with_borrow_mut(|probe| {
+            if probe.fail {
+                probe.allocations += strings.len();
+                probe.live.extend(strings);
+            }
+        });
+    }
+
+    pub(super) fn freed(string: *mut c_char) {
+        PROBE.with_borrow_mut(|probe| probe.live.retain(|&live| live != string));
+    }
+
+    #[no_mangle]
+    extern "C" fn ibex2_test_env_snapshot_should_throw() -> bool {
+        PROBE.with_borrow(|probe| probe.fail)
     }
 }
 

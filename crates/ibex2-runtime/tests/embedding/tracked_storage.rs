@@ -91,17 +91,23 @@ fn borrowed_image_promise_preparation_failure_never_dispatches_or_roots_callback
         assert_eq!(consumer.context.image_work().pending_completions(), 0);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(std::fs::read(consumer.directory.join("data/out")).unwrap(), b"old");
+        // Hermes queues NativeState destruction on its finalizer thread;
+        // collectGarbage finishing does not mean that thread has caught up.
+        let expect_roots = |expected| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            let roots = || unsafe { storage_consumer_promise_probe_roots(consumer.handle) };
+            while roots() != expected && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert_eq!(roots(), expected, "failed construction must release its callbacks");
+        };
         assert_eq!(unsafe { storage_consumer_collect_garbage(consumer.handle) }, 1);
-        assert_eq!(
-            unsafe { storage_consumer_promise_probe_roots(consumer.handle) },
-            retained_owners,
-            "failed construction must release both executor callbacks"
-        );
+        expect_roots(retained_owners);
         // The preexisting native owner is preserved until the caller drops its
         // object; no image brand displaces it and no pending callback holds it.
         consumer.eval("globalThis.rejectedImagePromise=null").unwrap();
         assert_eq!(unsafe { storage_consumer_collect_garbage(consumer.handle) }, 1);
-        assert_eq!(unsafe { storage_consumer_promise_probe_roots(consumer.handle) }, 0);
+        expect_roots(0);
     }
 }
 #[test]
@@ -385,13 +391,13 @@ fn owning_runtime_adopts_configured_storage_services_with_its_own_work_generatio
         .unwrap();
     runtime.run_entry("./index.js").unwrap();
     // First deliver the read settlement so its continuation dispatches image work.
-    runtime.pump_until(1);
+    runtime.pump_until(1).unwrap();
     waiting.recv_timeout(Duration::from_secs(10)).unwrap();
     assert_eq!(source_work.outstanding_workers(), 0);
     assert_eq!(source_work.pending_completions(), 0);
     drop(context); // An adopted owner must survive source Context retirement.
     release.send(()).unwrap();
-    runtime.run_to_quiescence(Duration::from_secs(10));
+    runtime.run_to_quiescence(Duration::from_secs(10)).unwrap();
     assert_eq!(runtime.eval("result").unwrap(), "8|1\t1\t7");
     assert_eq!(std::fs::read(root.join("data/out")).unwrap(), b"encoded");
     assert_eq!(source_work.outstanding_workers(), 0);
