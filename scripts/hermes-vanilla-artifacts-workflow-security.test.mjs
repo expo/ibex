@@ -528,7 +528,7 @@ test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targe
   const tvosDevice = jobBlocks(builderWorkflow).get("tvos_device");
   const tvosSimulator = jobBlocks(builderWorkflow).get("tvos_simulator");
   for (const job of [tvosDevice, tvosSimulator]) {
-    assert.match(job, /^    runs-on: macos-15-xlarge$/m);
+    assert.match(job, /^    runs-on: macos-15$/m);
     assert.deepEqual(permissions(job), { contents: "read" });
   }
   assert.match(tvosDevice, /build-hermes-vanilla-release\.sh aarch64-apple-tvos /);

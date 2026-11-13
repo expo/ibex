@@ -201,12 +201,12 @@ backend; v5 adds no packaged Windows ICU archive.
 
 | Receipt target | Archive | Runner | Profile | Release state |
 | --- | --- | --- | --- | --- |
-| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
-| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-large` | `min-size-release` | v5 published |
-| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
-| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
-| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
-| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15-xlarge` | `min-size-release` | v5 published |
+| `aarch64-apple-darwin` | `hermes-vanilla-aarch64-apple-darwin.tar.gz` | `macos-15` | `min-size-release` | v5 published |
+| `x86_64-apple-darwin` | `hermes-vanilla-x86_64-apple-darwin.tar.gz` | `macos-15-intel` | `min-size-release` | v5 published |
+| `aarch64-apple-ios` | `hermes-vanilla-aarch64-apple-ios.tar.gz` | `macos-15` | `min-size-release` | v5 published |
+| `universal-apple-ios-simulator` | `hermes-vanilla-universal-apple-ios-simulator.tar.gz` | `macos-15` | `min-size-release` | v5 published |
+| `aarch64-apple-tvos` | `hermes-vanilla-aarch64-apple-tvos.tar.gz` | `macos-15` | `min-size-release` | v5 published |
+| `aarch64-apple-tvos-simulator` | `hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz` | `macos-15` | `min-size-release` | v5 published |
 | `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | v5 published |
 | `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | v5 published |
 | `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `ubuntu-24.04`, NDK 27.1.12297006 | `min-size-release` | v5 published |
@@ -234,14 +234,13 @@ local install.
 
 ## Runners
 
-The macOS, iOS, and tvOS builder jobs run on GitHub's larger hosted macOS runners
-(`macos-15-xlarge`, Apple silicon; `macos-15-large`, Intel), which draw on the
-`expo` organization's dedicated larger-runner capacity rather than the shared
-standard pool. On 2026-10-05 the v3 build's standard `macos-15` jobs waited
-about two hours behind an organization-wide queue and one was cancelled before
-it received a runner; a probe on 2026-10-06 started both larger labels within
-seconds. They use the same macOS 15 image family and Xcode as the standard
-labels. Linux, Android, and Windows use standard hosted runners. The Android job
+The macOS, iOS, and tvOS builder jobs run on GitHub's standard hosted macOS
+runners: `macos-15` (Apple silicon) and, for the Intel macOS slice, whose build
+requires an x86_64 host, `macos-15-intel`. On 2026-11-13 the v6 build's jobs on
+the larger labels (`macos-15-xlarge`, `macos-15-large`) waited over two hours
+without starting; the standard pool has also queued behind organization-wide
+load (about two hours on 2026-10-05). Both use the macOS 15 image family and
+its Xcode. Linux, Android, and Windows use standard hosted runners. The Android job
 uses `ubuntu-24.04`; it takes the SDK root from `ANDROID_SDK_ROOT` or
 `ANDROID_HOME`, defaults to the hosted image's `/usr/local/lib/android/sdk`, and
 accepts the conventional `$HOME/Android/Sdk` fallback used by Linux builders.
