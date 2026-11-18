@@ -352,7 +352,7 @@ const compilerName = compilerPath !== '..' && !compilerPath.startsWith(`..${sep}
   : basename(compiler);
 let icu;
 if (icuArgumentCount === 5) {
-  if (!target.endsWith('-unknown-linux-gnu') && target !== 'aarch64-linux-android') {
+  if (!target.endsWith('-unknown-linux-gnu') && !target.endsWith('-linux-android')) {
     die('ICU data variants are supported only for Linux and Android receipts');
   }
   const trimmedDataArchive = inside(

@@ -503,9 +503,9 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
     } else {
         ("libhermesvm_a.a", "libhermesvmlean_a.a")
     };
-    let bundled_icu = target.ends_with("-unknown-linux-gnu") || target == "aarch64-linux-android";
+    let bundled_icu = target.ends_with("-unknown-linux-gnu") || target.ends_with("-linux-android");
     let intl_data = target.ends_with("-unknown-linux-gnu")
-        || (target == "aarch64-linux-android"
+        || (target.ends_with("-linux-android")
             && fs::read(root.join("hermes-input-receipt.json"))
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())

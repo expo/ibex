@@ -1,32 +1,39 @@
 # Vanilla Hermes release bundles
 
-## Staged v6 release
+## Staged v7 release
 
-The builders and publisher target `hermes-vanilla-d412d3bd8512-v6`. This is
-one rebuild of the ten-target v5 inventory below, with the same archive
-basenames and the same unmodified upstream commit. It is not published by a
-push alone. After this change lands on `main`, a maintainer runs:
+The builders and publisher target `hermes-vanilla-d412d3bd8512-v7`. V7 adds
+`hermes-vanilla-x86_64-linux-android.tar.gz` to the ten v6 archives at the
+same upstream commit. Both Android bundles use NDK 27.1.12297006 at API 29,
+the same dual static VMs, the fbjni shim, and the same three ICU data tiers.
+Both enable the NDK's flexible page size support. Android consumers set
+16 KB alignment when linking shared libraries from the static archives.
+
+After this change lands on `main`, a maintainer runs:
 
 ```sh
 gh workflow run hermes-vanilla-build.yml --repo expo/ibex --ref main
 ```
 
-The successful builder triggers `hermes-vanilla-publish.yml`, which validates
-the handoffs, attests the ten archives, and publishes the immutable prerelease
-with ten retained Sigstore bundles and `SHA256SUMS`. Keep `main` at the
-dispatched commit until publication: the publisher refuses a stale head.
-The published consumer pin table remains v5 until v6's actual checksums and
-attestations have been verified. Then use the existing pin updater:
+The successful builder triggers `hermes-vanilla-publish.yml`. Approve its
+`hermes-vanilla-release` environment deployment if review is required. It
+validates the handoffs, attests the eleven archives, and publishes the
+immutable prerelease with eleven retained Sigstore bundles and `SHA256SUMS`.
+Keep `main` at the dispatched commit until publication. The publisher refuses a
+stale head. After verifying the release checksums and attestations, run:
 
 ```sh
 node scripts/update-hermes-lean-sys-pins.mjs /path/to/verified/SHA256SUMS \
-  hermes-vanilla-d412d3bd8512-v6
+  hermes-vanilla-d412d3bd8512-v7
 ```
 
-Exact must adopt that authenticated pin table, the Android receipt handling
-in Exact commit `0bc308e0`, and its separate OOM retirement change. Local
-archive digests are not the CI release digests. Do not transplant a local
-Mac-built Android bundle's host `hermesc` into the Linux-built release receipt.
+Carry the authenticated tag and pin table into Exact's
+`vendor/ibex/crates/hermes-lean-sys/build_support.rs`. The Android x86_64
+resolver and build support landed in Exact commit `48b223dbd`. Use the
+published archive digests from `SHA256SUMS` when updating the consumer pins.
+[Exact commit `48b223dbd`](https://github.com/expo/exact/commit/48b223dbdac77c546287a624df9d152ce42649c4)
+
+## V6 build profile
 
 All full and lean VMs enable `HERMESVM_EXCEPTION_ON_OOM=true` and
 `HERMES_ENABLE_RTTI=true`; both appear in `build.flags` in the canonical v2
@@ -126,7 +133,7 @@ consumer check.
 ## Published v5 release
 
 Ibex publishes vanilla Hermes separately from every patched-Hermes channel.
-The current immutable prerelease is `hermes-vanilla-d412d3bd8512-v5`, published
+The immutable prerelease `hermes-vanilla-d412d3bd8512-v5` was published
 on 2026-10-13 with ten deterministic archives, `SHA256SUMS`, and one retained
 Sigstore bundle beside each archive. It rebuilds the nine v4 targets and adds
 `aarch64-linux-android`, for 21 release assets. All 20 checksums, ten publisher
@@ -210,6 +217,7 @@ backend; v5 adds no packaged Windows ICU archive.
 | `x86_64-unknown-linux-gnu` | `hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04` | `release` | v5 published |
 | `aarch64-unknown-linux-gnu` | `hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz` | `ubuntu-24.04-arm` | `release` | v5 published |
 | `aarch64-linux-android` | `hermes-vanilla-aarch64-linux-android.tar.gz` | `ubuntu-24.04`, NDK 27.1.12297006 | `min-size-release` | v5 published |
+| `x86_64-linux-android` | `hermes-vanilla-x86_64-linux-android.tar.gz` | `ubuntu-24.04`, NDK 27.1.12297006 | `min-size-release` | v7 staged |
 | `x86_64-pc-windows-msvc` | `hermes-vanilla-x86_64-pc-windows-msvc.tar.gz` | `windows-2022` | `release` | v5 published |
 
 The simulator receipt and archive use `aarch64-apple-tvos-simulator`, following
@@ -219,18 +227,16 @@ the iOS simulator bundle's `-simulator` spelling. They deliberately omit
 is deliberately unmapped, so a build for it needs `HERMES_LEAN_SYS_DIR`. The Rust
 target `aarch64-apple-tvos-sim` maps to that receipt.
 
-`aarch64-linux-android` is built by the same script with the Android NDK (27.1,
-API 30, `ANDROID_STL=c++_static`), from the pinned Hermes commit with no patches.
-Its Unicode backend is a static ICU 74 with the trimmed root-en data, as the
-Linux bundles carry; it has no `Intl`. Hermes's `hermes.cpp` includes fbjni only
+The v5 Android arm64 bundle used NDK 27.1 at API 30 and static ICU 74 with
+trimmed root-en data for Unicode. Its Hermes build disabled `Intl`. Both
+staged Android targets use the v7 profile above. Hermes's `hermes.cpp` includes fbjni
 to attach a JVM thread, so the build puts a no-op `ThreadScope` header
 (`scripts/android-fbjni-shim/`) on the include path; its digest is in the
-receipt. The v5 read-only Ubuntu builder selected
-NDK 27.1.12297006, installs that exact SDK package with unprivileged `sdkmanager`
-when absent, and verifies `source.properties` before building. Consumers now
-select the published Android pin by default; a target-qualified
-`HERMES_LEAN_SYS_DIR_aarch64_linux_android` still selects an explicit complete
-local install.
+receipt. The read-only Ubuntu builders select
+NDK 27.1.12297006, install that exact SDK package with unprivileged `sdkmanager`
+when absent, and verify `source.properties` before building. A complete local
+install can be selected with `HERMES_LEAN_SYS_DIR_aarch64_linux_android` or
+`HERMES_LEAN_SYS_DIR_x86_64_linux_android`.
 
 ## Runners
 
@@ -524,7 +530,7 @@ non-fast-forward updates (force-pushes).
    node --check scripts/hermes-input-receipt.mjs
    node --check scripts/hermes-vanilla-artifacts-workflow-security.test.mjs
    node --test scripts/hermes-vanilla-artifacts-workflow-security.test.mjs
-   cargo test -p ibex2 receipt::tests --no-default-features
+   cargo test -p ibex2-runtime --lib receipt::tests
    actionlint .github/workflows/hermes-vanilla-build.yml
    actionlint .github/workflows/hermes-vanilla-publish.yml
    ./ref-check
@@ -538,10 +544,11 @@ non-fast-forward updates (force-pushes).
    scripts/build-hermes-vanilla-release.sh \
      aarch64-apple-tvos-simulator \
      /tmp/hermes-vanilla-aarch64-apple-tvos-simulator.tar.gz
-   ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/27.1.12297006" \
-     scripts/build-hermes-vanilla-release.sh \
-       aarch64-linux-android \
-       /tmp/hermes-vanilla-aarch64-linux-android.tar.gz
+   for target in aarch64-linux-android x86_64-linux-android; do
+     ANDROID_NDK_HOME="$HOME/Library/Android/sdk/ndk/27.1.12297006" \
+       scripts/build-hermes-vanilla-release.sh "$target" \
+         "/tmp/hermes-vanilla-$target.tar.gz"
+   done
    ```
 
 3. After review, push and merge the branch. The orchestrator then dispatches
@@ -553,7 +560,7 @@ non-fast-forward updates (force-pushes).
    by run ID, revalidates their names, sizes, and SHA-256 digests, then attests
    them. It first looks for a release using the requested tag. With no release,
    it refuses any pre-existing tag ref and creates a commit-bound draft; any
-   existing release with that tag is refused. It uploads all 21 assets, fetches
+   existing release with that tag is refused. It uploads all 23 assets, fetches
    the remote asset list, and requires
    the exact names, sizes, and SHA-256 digests before publishing the draft as a
    prerelease. A published release is never edited or deleted.
@@ -588,8 +595,9 @@ non-fast-forward updates (force-pushes).
      test -n "$publisher_run_id" || sleep 2
    done
    test -n "$publisher_run_id"
+   # If the deployment awaits review, approve it in the publisher run.
    gh run watch "$publisher_run_id" --repo "$repo" --exit-status
-   gh release view hermes-vanilla-d412d3bd8512-v6 --repo "$repo"
+   gh release view hermes-vanilla-d412d3bd8512-v7 --repo "$repo"
    ```
 
 ### First publication (2026-10-04)
@@ -676,7 +684,7 @@ repo=expo/ibex
 # Reverify the current consumer baseline.
 tag=hermes-vanilla-d412d3bd8512-v5
 # To qualify the candidate after publication, use instead:
-# tag=hermes-vanilla-d412d3bd8512-v6
+# tag=hermes-vanilla-d412d3bd8512-v7
 source_revision="$(gh api "repos/$repo/git/ref/tags/$tag" --jq .object.sha)"
 verify_dir="$(mktemp -d)"
 gh release download "$tag" --repo "$repo" --dir "$verify_dir"
@@ -709,8 +717,9 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
       any(.archives[]; .path == "lib/libicudata-full.a");
 
     ($tag == "hermes-vanilla-d412d3bd8512-v5" or
-      $tag == "hermes-vanilla-d412d3bd8512-v6") and
-    (if ($tag | endswith("-v6")) then
+      $tag == "hermes-vanilla-d412d3bd8512-v6" or
+      $tag == "hermes-vanilla-d412d3bd8512-v7") and
+    (if ($tag | endswith("-v5") | not) then
       (.build.flags | index("-DHERMESVM_EXCEPTION_ON_OOM=true")) and
       (.build.flags | index("-DHERMES_ENABLE_RTTI=true"))
     else true end) and
@@ -726,19 +735,23 @@ for archive in "$verify_dir"/hermes-vanilla-*.tar.gz; do
     (.archives | length > 0) and
     (.headers | length > 0) and
     (.linkDirectives | length > 0) and
-    (if .target == "aarch64-linux-android" then
+    (if .target == "aarch64-linux-android" or .target == "x86_64-linux-android" then
       .profile == "min-size-release" and
       (.build.flags | index("-DIBEX_ANDROID_FBJNI_SHIM_SHA256=d5b0440fe88ebf377d15646b59aba0e1f659f43db558b82c93be471c616fca44")) and
       (.build.flags | index("-DHERMES_UNICODE_LITE=false")) and
       (.build.flags | index("-DHERMES_USE_STATIC_ICU=true")) and
-      (.build.flags | index("-DANDROID_ABI=arm64-v8a")) and
+      ((if .target == "x86_64-linux-android" then "-DANDROID_ABI=x86_64"
+        else "-DANDROID_ABI=arm64-v8a" end) as $abi | .build.flags | index($abi)) and
+      (if ($tag | endswith("-v7")) then
+        (.build.flags | index("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"))
+      else .target == "aarch64-linux-android" end) and
       (.build.flags | index("-DANDROID_STL=c++_static")) and
       any(.archives[]; .path == "lib/libicui18n.a") and
       any(.archives[]; .path == "lib/libicuuc.a") and
       any(.archives[]; .path == "lib/libicudata.a") and
       (.linkDirectives | index("rustc-link-lib=c++_static")) and
       (.linkDirectives | index("rustc-link-lib=log")) and
-      (if ($tag | endswith("-v6")) then
+      (if ($tag | endswith("-v5") | not) then
         icu_tiers and
         (.build.flags | index("-DHERMES_ENABLE_INTL=true")) and
         (.build.flags | index("-DHERMES_IS_ANDROID=false")) and
@@ -761,9 +774,10 @@ This checks the downloaded bytes against `SHA256SUMS`; verifies the retained
 Sigstore bundle for each archive; and uses the certificate identity to bind
 the publisher workflow path specifically to `refs/heads/main`. The source and
 signer digests must both equal the Ibex commit named by the release tag.
-The v6 branch requires OOM exceptions and RTTI on every target, and Android's
-ICU 74.2 tiers, pinned filters, English data link, native Intl, and default API
-29 floor. The v5 branch retains the current baseline's Android predicate.
+The v6 and v7 branches require OOM exceptions and RTTI on every target, and
+Android's ICU 74.2 tiers, pinned filters, English data link, native Intl, and
+API 29 floor. V7 also checks the recorded ABI and flexible page size flag.
+The v5 branch retains the baseline's Android predicate.
 Separately, the receipt check binds the archive contents to the pinned upstream
 Hermes commit, an empty patch set, and the closed receipt-v2 archive/header/link
 manifests. Do not combine `--cert-identity` with `--signer-workflow`: `gh`
@@ -952,10 +966,10 @@ verified transition used `tag=hermes-vanilla-d412d3bd8512-v5` throughout.
 node scripts/update-hermes-lean-sys-pins.mjs "$verify_dir/SHA256SUMS" "$tag"
 ```
 
-The script requires the exact ten-archive and ten-Sigstore-bundle checksum
+The script requires the exact eleven-archive and eleven-Sigstore-bundle checksum
 inventory, requires the supplied tag to equal the publisher tag, and
 rewrites the release tag and complete target table together. That adds the
-Android mapping and keeps the duplicate universal-simulator mappings
+Android x86_64 mapping and keeps the duplicate universal-simulator mappings
 consistent. Review the resulting source diff, then exercise cold-cache,
 warm-cache, offline-cache, mirror, and local-directory override cases before
 landing consumer updates. Never replace an asset: a changed build or packaging

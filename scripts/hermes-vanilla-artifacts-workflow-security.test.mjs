@@ -73,6 +73,7 @@ const builders = [
   "linux_x86_64",
   "linux_arm64",
   "android_arm64",
+  "android_x86_64",
   "windows_x64",
 ];
 
@@ -504,14 +505,14 @@ test("release namespace is pinned to the sole Hermes source authority", () => {
   assert.ok(commit);
   for (const workflow of [builderWorkflow, publisherWorkflow]) {
     assert.match(workflow, new RegExp(`^  HERMES_COMMIT: ${commit}$`, "m"));
-    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v6$`, "m"));
-    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v6`, "m"));
+    assert.match(workflow, new RegExp(`^  RELEASE_TAG: hermes-vanilla-${commit.slice(0, 12)}-v7$`, "m"));
+    assert.match(workflow, new RegExp(`^  group: hermes-vanilla-${commit.slice(0, 12)}-v7`, "m"));
   }
   assert.match(buildSupport, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "hermes-vanilla-${commit.slice(0, 12)}-v[1-9][0-9]*";$`, "m"));
   const guard = publisherWorkflow.match(/^ +\[\[ "\$RELEASE_TAG" == .* \]\]$/m)?.[0];
   assert.ok(guard, "publisher authorizes its release tag");
-  const tag = `hermes-vanilla-${commit.slice(0, 12)}-v6`;
-  for (const [releaseTag, expected] of [[tag, 0], [tag.replace(/v6$/, "v5"), 1]]) {
+  const tag = `hermes-vanilla-${commit.slice(0, 12)}-v7`;
+  for (const [releaseTag, expected] of [[tag, 0], [tag.replace(/v7$/, "v6"), 1]]) {
     const result = spawnSync("bash", ["-c", guard], {
       env: { ...process.env, HERMES_COMMIT: commit, RELEASE_TAG: releaseTag },
     });
@@ -538,8 +539,13 @@ test("tvOS jobs mirror the iOS handoff boundary and build arm64 MinSizeRel targe
   assert.doesNotMatch(releaseBuilder, /platform=appletvsimulator; target_arches=[^;]*x86_64/);
 });
 
-test("Android is an exact NDK-pinned release target with an inert authenticated handoff", () => {
-  const android = jobBlocks(builderWorkflow).get("android_arm64");
+test("Android jobs use the exact pinned NDK and the same inert handoff", () => {
+  const jobs = jobBlocks(builderWorkflow);
+  const android = jobs.get("android_arm64");
+  assert.equal(jobs.get("android_x86_64"), android
+    .replace("android_arm64:", "android_x86_64:")
+    .replaceAll("Android arm64", "Android x86_64")
+    .replaceAll("aarch64-linux-android", "x86_64-linux-android"));
   assert.match(android, /^    runs-on: ubuntu-24\.04$/m);
   assert.match(android, /ANDROID_SDK_ROOT:-\$\{ANDROID_HOME:-\/usr\/local\/lib\/android\/sdk\}/);
   assert.match(android, /! -d "\$android_sdk" && -d "\$HOME\/Android\/Sdk"/);
@@ -556,9 +562,13 @@ test("Android is an exact NDK-pinned release target with an inert authenticated 
   assert.match(android, /build-hermes-vanilla-release\.sh aarch64-linux-android /);
   assert.match(android, /asset_name=hermes-vanilla-aarch64-linux-android\.tar\.gz/);
   assert.match(releaseBuilder, /aarch64-linux-android\)/);
-  assert.match(releaseBuilder, /-DANDROID_ABI=arm64-v8a/);
+  assert.match(releaseBuilder, /aarch64-linux-android\) android_abi=arm64-v8a/);
+  assert.match(releaseBuilder, /x86_64-linux-android\) android_abi=x86_64/);
+  assert.match(releaseBuilder, /-DANDROID_ABI=\$android_abi/);
+  assert.match(releaseBuilder, /android_api="\$\{IBEX_ANDROID_API:-29\}"/);
+  assert.match(releaseBuilder, /-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON/);
   assert.match(releaseBuilder, /-DANDROID_STL=c\+\+_static/);
-  assert.match(releaseBuilder, /-DHERMES_ENABLE_INTL=false/);
+  assert.match(releaseBuilder, /-DHERMES_ENABLE_INTL=true/);
   assert.match(releaseBuilder, /--target hermesvm_a hermesvmlean_a jsi boost_context/);
 });
 
@@ -640,7 +650,7 @@ esac
   }
 });
 
-for (const receiptTarget of ["aarch64-unknown-linux-gnu", "aarch64-linux-android"])
+for (const receiptTarget of ["aarch64-unknown-linux-gnu", "aarch64-linux-android", "x86_64-linux-android"])
 test(`${receiptTarget} receipt binds all ICU data archives and both pinned filters`, (t) => {
   if (process.platform === "win32") {
     t.skip("the fixture supplies a POSIX fake nm; Windows release coverage is structural");
@@ -751,11 +761,12 @@ test("pin updater admits the exact release inventory and rejects drift", () => {
     assert.equal(result.status, 0, result.stderr);
     const updated = readFileSync(pinsPath, "utf8");
     assert.match(updated, new RegExp(`^pub\\(crate\\) const RELEASE_TAG: &str = "${releaseTag}";$`, "m"));
-    assert.equal([...updated.matchAll(/^    BundlePin \{$/gm)].length, 11);
+    assert.equal([...updated.matchAll(/^    BundlePin \{$/gm)].length, archives.length + 1);
     for (const asset of archives) {
       assert.match(updated, new RegExp(`asset: "${asset.replaceAll(".", "\\.")}",[\\s\\S]{0,100}sha256: "${digestFor(asset)}"`));
     }
     assert.match(updated, /target: "aarch64-linux-android",\n        asset: "hermes-vanilla-aarch64-linux-android\.tar\.gz"/);
+    assert.match(updated, /target: "x86_64-linux-android",\n        asset: "hermes-vanilla-x86_64-linux-android\.tar\.gz"/);
 
     const beforeRefusal = readFileSync(pinsPath, "utf8");
     writeFileSync(
