@@ -178,7 +178,7 @@ pub(crate) fn validate(
         None => None,
     };
 
-    if target.ends_with("-linux-android")
+    if bundles_android_icu(&target)
         && flags
             .iter()
             .any(|flag| flag.as_str() == Some("-DHERMES_ENABLE_INTL=true"))
@@ -210,12 +210,17 @@ pub(crate) fn validate(
     })
 }
 
+/// The Android targets whose bundles carry ICU for Intl. Other Android triples (`i686`) build bindings only.
+pub(crate) fn bundles_android_icu(target: &str) -> bool {
+    matches!(target, "aarch64-linux-android" | "x86_64-linux-android")
+}
+
 fn validate_icu(
     value: &Value,
     target: &str,
     archives: &[(String, String)],
 ) -> Result<CanonicalIcuReceipt, String> {
-    if !target.ends_with("-unknown-linux-gnu") && !target.ends_with("-linux-android") {
+    if !target.ends_with("-unknown-linux-gnu") && !bundles_android_icu(target) {
         return Err(
             "v2 receipt carries bundled ICU metadata for a target other than Linux or Android"
                 .into(),
