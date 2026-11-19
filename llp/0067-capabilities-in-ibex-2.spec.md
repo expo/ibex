@@ -198,6 +198,13 @@ without filtering target conditions, and rejects a reachable package named
 inert. It does not traverse dev-only edges because test-only dependencies are
 not part of the product dependency or link closure being asserted.
 
+The Android release builds `aarch64-linux-android` and
+`x86_64-linux-android` from the same vanilla pin at NDK API 29. Each bundle
+carries both static VMs, the fbjni shim digest, and receipt-bound ICU code,
+base, English Intl, and full data with the pinned filters. Both builds enable
+the NDK's flexible page size support. The consuming app sets and verifies the
+16 KB `LOAD` alignment when it links its own shared libraries.
+
 The Linux engine artifact is implemented for x86-64 as a source build of that
 same exact vanilla pin. Each build re-exports the pinned Git object into an
 isolated source directory rather than trusting mutable cached source. The

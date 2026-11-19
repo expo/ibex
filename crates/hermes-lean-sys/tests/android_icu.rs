@@ -8,8 +8,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 
-const TARGET: &str = "aarch64-linux-android";
-
 // Run the actual build script in a child so Cargo feature environments cannot
 // race other tests. The fixture compiler runs on the host; no NDK is needed.
 #[test]
@@ -18,17 +16,23 @@ fn android_receipts_select_icu_data() {
         build_script::main();
         return;
     }
+    for target in ["aarch64-linux-android", "x86_64-linux-android"] {
+        check_icu_data_selection(target);
+    }
+}
+
+fn check_icu_data_selection(target: &str) {
     let temporary = tempfile::tempdir().unwrap();
     for tiers in [false, true] {
         let bundle = temporary.path().join(if tiers { "v6" } else { "v5" });
-        write_bundle(&bundle, tiers);
+        write_bundle(&bundle, target, tiers);
         for feature in ["default", "intl", "intl-all-locales"] {
             let mut command = Command::new(std::env::current_exe().unwrap());
             command
                 .args(["--exact", "android_receipts_select_icu_data", "--nocapture"])
                 .env("IBEX_TEST_ANDROID_BUILD_SCRIPT", "1")
-                .env("TARGET", TARGET)
-                .env("HOST", TARGET)
+                .env("TARGET", target)
+                .env("HOST", target)
                 .env("CARGO_CFG_TARGET_OS", "android")
                 .env("CARGO_CFG_TARGET_VENDOR", "unknown")
                 .env("CARGO_FEATURE_LINK", "1")
@@ -36,7 +40,10 @@ fn android_receipts_select_icu_data() {
                 .env_remove("CARGO_FEATURE_LINK_LEAN")
                 .env_remove("CARGO_FEATURE_ICU_EN_DATA")
                 .env_remove("CARGO_FEATURE_ICU_FULL_DATA")
-                .env("HERMES_LEAN_SYS_DIR_aarch64_linux_android", &bundle)
+                .env(
+                    format!("HERMES_LEAN_SYS_DIR_{}", target.replace('-', "_")),
+                    &bundle,
+                )
                 .env("OUT_DIR", temporary.path());
             if feature != "default" {
                 command.env("CARGO_FEATURE_ICU_EN_DATA", "1");
@@ -48,7 +55,7 @@ fn android_receipts_select_icu_data() {
             let stdout = String::from_utf8(output.stdout).unwrap();
             assert!(
                 output.status.success(),
-                "tiers={tiers}, {feature}: {stdout}\n{}",
+                "{target}, tiers={tiers}, {feature}: {stdout}\n{}",
                 String::from_utf8_lossy(&output.stderr)
             );
             let library = if !tiers {
@@ -77,7 +84,7 @@ fn android_receipts_select_icu_data() {
                     "dl",
                     "m",
                 ],
-                "tiers={tiers}, {feature}: ICU must precede the NDK C++ runtime"
+                "{target}, tiers={tiers}, {feature}: ICU must precede the NDK C++ runtime"
             );
             let archive = bundle.join(format!("lib/lib{library}.a"));
             assert!(stdout.contains(&format!(
@@ -96,10 +103,10 @@ fn digest(bytes: &[u8]) -> String {
     format!("sha256-{:x}", Sha256::digest(bytes))
 }
 
-fn write_bundle(root: &Path, tiers: bool) {
+fn write_bundle(root: &Path, target: &str, tiers: bool) {
     let mut receipt: Value =
         serde_json::from_str(include_str!("../testdata/receipt-v2-valid.json")).unwrap();
-    receipt["target"] = TARGET.into();
+    receipt["target"] = target.into();
     receipt["build"]["flags"] = json!([if tiers {
         "-DHERMES_ENABLE_INTL=true"
     } else {

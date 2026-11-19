@@ -23,7 +23,8 @@ usage() {
     '  aarch64-apple-tvos-simulator' \
     '  x86_64-unknown-linux-gnu' \
     '  aarch64-unknown-linux-gnu' \
-    '  aarch64-linux-android      (ANDROID_NDK_HOME, or the SDK'"'"'s newest NDK)'
+    '  aarch64-linux-android      (ANDROID_NDK_HOME, or the SDK'"'"'s newest NDK)' \
+    '  x86_64-linux-android       (ANDROID_NDK_HOME, or the SDK'"'"'s newest NDK)'
 }
 
 [[ $# -eq 2 ]] || { usage >&2; exit 2; }
@@ -70,7 +71,7 @@ case "$target" in
   aarch64-unknown-linux-gnu)
     [[ "$host_os" == Linux && "$host_arch" == arm64 ]] \
       || { echo "$target requires an arm64 Linux host" >&2; exit 2; } ;;
-  aarch64-linux-android)
+  aarch64-linux-android|x86_64-linux-android)
     # Cross-built with the NDK from a macOS or Linux host. Hermes's own
     # HERMES_IS_ANDROID build needs fbjni and a JVM for Unicode and Intl; a
     # native embedder has neither, so this bundle takes Unicode from a static
@@ -82,6 +83,10 @@ case "$target" in
     fi
     [[ -f "$android_ndk/build/cmake/android.toolchain.cmake" ]] \
       || { echo "$target needs an Android NDK (set ANDROID_NDK_HOME)" >&2; exit 2; }
+    case "$target" in
+      aarch64-linux-android) android_abi=arm64-v8a ;;
+      x86_64-linux-android) android_abi=x86_64 ;;
+    esac
     android_api="${IBEX_ANDROID_API:-29}"
     profile=min-size-release ;;
   *) usage >&2; exit 2 ;;
@@ -151,7 +156,7 @@ build_flags=(
   -DHERMES_ENABLE_TEST_SUITE=false
 )
 
-if [[ "$target" == aarch64-linux-android ]]; then
+if [[ "$target" == *-linux-android ]]; then
   # The host compiler first, as the Apple branch does; the target build
   # imports it rather than building a hermesc it cannot run.
   host_osx=()
@@ -199,13 +204,13 @@ if [[ "$target" == aarch64-linux-android ]]; then
     cd "$build"
     unset ICU_DATA_FILTER_FILE
     [[ -z "$filter" ]] || export ICU_DATA_FILTER_FILE="$filter"
-    env CC="$ndk_bin/aarch64-linux-android${android_api}-clang" \
-      CXX="$ndk_bin/aarch64-linux-android${android_api}-clang++" \
+    env CC="$ndk_bin/${target}${android_api}-clang" \
+      CXX="$ndk_bin/${target}${android_api}-clang++" \
       AR="$ndk_bin/llvm-ar" RANLIB="$ndk_bin/llvm-ranlib" \
       CFLAGS='-Os -fPIC -ffunction-sections -fdata-sections' \
       CXXFLAGS='-Os -fPIC -ffunction-sections -fdata-sections' \
       "$icu_source_dir/icu4c/source/configure" \
-        --host=aarch64-linux-android --with-cross-build="$icu_host_build" \
+        --host="$target" --with-cross-build="$icu_host_build" \
         --prefix="$install" \
         --enable-static --disable-shared --with-data-packaging=static \
         --disable-tests --disable-samples --disable-extras --disable-tools
@@ -235,8 +240,9 @@ if [[ "$target" == aarch64-linux-android ]]; then
     -DHERMES_USE_STATIC_ICU=true
     -DHERMES_IS_ANDROID=false
     -DCMAKE_BUILD_TYPE=MinSizeRel
-    -DANDROID_ABI=arm64-v8a
+    "-DANDROID_ABI=$android_abi"
     "-DANDROID_PLATFORM=android-$android_api"
+    -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON
     -DANDROID_STL=c++_static
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DHERMES_BUILD_APPLE_FRAMEWORK=false
@@ -349,7 +355,7 @@ cp -R "$source_dir/API/hermes/." "$bundle_dir/include/hermes/"
 cp -R "$source_dir/public/hermes/Public" "$bundle_dir/include/hermes/"
 cp "$source_dir/LICENSE" "$bundle_dir/LICENSE.hermes"
 
-if [[ "$target" == aarch64-linux-android ]]; then
+if [[ "$target" == *-linux-android ]]; then
   for archive in libicui18n.a libicuuc.a libicudata.a; do
     cp "$icu_trimmed_install/lib/$archive" "$bundle_dir/lib/"
   done
@@ -429,7 +435,7 @@ receipt_args+=(
   --link-directive=rustc-link-lib=static=jsi
   --link-directive=rustc-link-lib=static=boost_context
 )
-if [[ "$target" == aarch64-linux-android ]]; then
+if [[ "$target" == *-linux-android ]]; then
   receipt_args+=(
     --icu-trimmed-data-archive=lib/libicudata.a
     --icu-en-data-archive=lib/libicudata-en.a

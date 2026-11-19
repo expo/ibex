@@ -32,6 +32,7 @@ const pins = [
   ['x86_64-unknown-linux-gnu', 'hermes-vanilla-x86_64-unknown-linux-gnu.tar.gz'],
   ['aarch64-unknown-linux-gnu', 'hermes-vanilla-aarch64-unknown-linux-gnu.tar.gz'],
   ['aarch64-linux-android', 'hermes-vanilla-aarch64-linux-android.tar.gz'],
+  ['x86_64-linux-android', 'hermes-vanilla-x86_64-linux-android.tar.gz'],
   ['x86_64-pc-windows-msvc', 'hermes-vanilla-x86_64-pc-windows-msvc.tar.gz'],
 ];
 const archiveAssets = new Set(pins.map(([, asset]) => asset));

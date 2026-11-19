@@ -503,9 +503,10 @@ fn install_layout(root: PathBuf, target: &str, origin: InstallOrigin) -> Install
     } else {
         ("libhermesvm_a.a", "libhermesvmlean_a.a")
     };
-    let bundled_icu = target.ends_with("-unknown-linux-gnu") || target == "aarch64-linux-android";
+    let bundled_icu =
+        target.ends_with("-unknown-linux-gnu") || receipt_schema::bundles_android_icu(target);
     let intl_data = target.ends_with("-unknown-linux-gnu")
-        || (target == "aarch64-linux-android"
+        || (receipt_schema::bundles_android_icu(target)
             && fs::read(root.join("hermes-input-receipt.json"))
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -2446,6 +2447,22 @@ mod internal_tests {
             Some(root.join("macos-static/libhermesvmlean_a.a")),
             "with a receipt, validate_receipt has authenticated the lean archive"
         );
+    }
+
+    #[test]
+    fn only_the_android_targets_that_bundle_icu_require_it() {
+        let root = PathBuf::from("/nonexistent");
+        for target in ["aarch64-linux-android", "x86_64-linux-android"] {
+            let layout = install_layout(root.clone(), target, InstallOrigin::Override);
+            assert!(layout.icu_i18n_archive.is_some(), "{target} bundles ICU");
+        }
+        let layout = install_layout(root, "i686-linux-android", InstallOrigin::Override);
+        assert_eq!(
+            layout.icu_i18n_archive, None,
+            "an i686 install is bindings only"
+        );
+        assert_eq!(layout.icu_uc_archive, None);
+        assert_eq!(layout.icu_data_archive, None);
     }
 
     fn write_v2_receipt(
